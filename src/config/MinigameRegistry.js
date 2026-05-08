@@ -10,6 +10,10 @@ export const MG_TYPES = [
     'speedsort', 'flickshot', 'codebreaker', 'soundmatch',
     'tethertap', 'mirrormatch', 'blindbuild',
     'paintwar', 'asteroidodge', 'gravitywell', 'snakebattle',
+    'laserduel', 'orbitorbs', 'bombtap', 'meteorshield', 'dashdots',
+    'splithockey', 'minelane', 'volleyzap', 'crowngrab', 'rocketrelic',
+    'pulsepusher', 'sparksweep', 'tunnelcharge', 'shardstorm', 'flipdisc',
+    'blitzblocks', 'relayrings', 'clashcomet', 'zonezap',
 ];
 
 export const MG_INFO = {
@@ -40,6 +44,25 @@ export const MG_INFO = {
     asteroidodge: { icon: '☄️', title: 'ASTEROID DODGE',   desc: 'Slide your ship to dodge falling asteroids! Asteroids speed up over time. 3 hits = destroyed. Last ship flying (or most health after 30s) wins.' },
     gravitywell:  { icon: '🌀', title: 'GRAVITY WELL',     desc: 'Tap your half to place a REPULSION well that blasts the ball away! Use up to 2 wells to strategically push the ball into the opponent\'s goal zone. First to 5 points wins!' },
     snakebattle:  { icon: '🐍', title: 'SNAKE BATTLE',     desc: 'Two snakes share one arena! Swipe your half to steer. Eat dots to grow longer. Crash into a wall or either snake and you lose. Most dots after 30s wins.' },
+    laserduel:    { icon: '🔫', title: 'LASER DUEL',       desc: 'Hold your half to charge a laser beam, release to fire! Hit your opponent\'s shield to deal damage. First to destroy the opponent\'s shield wins!' },
+    orbitorbs:    { icon: '🌟', title: 'ORBIT ORBS',       desc: 'Drag your collector to grab glowing orbs orbiting the center star. Orbs respawn after collection. Most orbs collected in 20 seconds wins!' },
+    bombtap:      { icon: '💣', title: 'BOMB TAP',         desc: 'A bomb bounces between players — tap it to send it away! The fuse burns faster the longer it sits. 5 explosions = loser. First to make opponent explode 5 times wins!' },
+    meteorshield: { icon: '🛡️', title: 'METEOR SHIELD',   desc: 'Slide your shield left and right to block incoming meteors! Each meteor that gets through costs a life. 3 hits = destroyed. Last shield standing wins!' },
+    dashdots:     { icon: '🔴', title: 'DASH DOTS',        desc: 'Drag your collector to grab only YOUR colored dots — red for P1, blue for P2! Collecting the wrong color stuns you for 2 seconds. Most correct dots in 20s wins!' },
+    splithockey:  { icon: '🏒', title: 'SPLIT HOCKEY',     desc: 'Slide your paddle to smash the puck into the opponent\'s goal! Add spin by swinging your paddle fast. First to 5 goals wins!' },
+    minelane:     { icon: '💎', title: 'MINE LANE',        desc: 'Tap a lane to steer your collector. Grab gold crystals, avoid red mines! 3 mine hits = game over. Most points when time runs out wins!' },
+    volleyzap:    { icon: '⚡', title: 'VOLLEY ZAP',       desc: 'Tap your half to return the electric spark ball! Each hit charges it up. At 5 charges it\'s supercharged — a miss is worth 2 points. First to 7 wins!' },
+    crowngrab:    { icon: '👑', title: 'CROWN GRAB',       desc: 'Move your avatar to grab the crown then hold it on your side for 3 seconds to score! Opponent can steal it by touching you. First to score 3 times wins!' },
+    rocketrelic:  { icon: '✦',  title: 'ROCKET RELIC',     desc: 'Pick up the relic and carry it to the opponent\'s goal zone to score! You\'re slower while carrying. Get tackled = drop it. First to 3 scores wins!' },
+    pulsepusher:  { icon: '💚', title: 'PULSE PUSHER',     desc: 'Tap rapidly on your half to push the energy core toward the opponent\'s zone! The core moves based on tap rate. Push it fully into their zone to score. Best of 5!' },
+    sparksweep:   { icon: '✨', title: 'SPARK SWEEP',      desc: 'Swipe on your half to redirect sparks toward the opponent\'s goal! Sparks that exit their edge score a point. Most sparks scored in 20 seconds wins!' },
+    tunnelcharge: { icon: '⚡', title: 'TUNNEL CHARGE',    desc: 'Tap as fast as you can to charge your beam — but the charge decays if you slow down! First player to reach 100% wins the round. Best of 5 rounds!' },
+    shardstorm:   { icon: '💎', title: 'SHARD STORM',      desc: 'Crystal shards rain down — tap them to collect! Gold=3pts, Silver=2pts, Crystal=1pt, Dark=-1pt. Tap fast before they fall away. Most points in 25 seconds wins!' },
+    flipdisc:     { icon: '🔵', title: 'FLIP DISC',        desc: 'Tap discs on your half to flip them to your color! Discs revert to neutral after 3.5 seconds — timing your flips is key. Most discs of your color when the timer ends wins!' },
+    blitzblocks:  { icon: '🧱', title: 'BLITZ BLOCKS',     desc: 'Blocks fall in 4 columns on your half! Tap the correct column to destroy each block before it hits the bottom. 3 misses = game over. First player to lose all lives loses!' },
+    relayrings:   { icon: '⭕', title: 'RELAY RINGS',      desc: 'Tap the glowing ring before it fades away, then a new one appears! Miss a ring = 1.5 second penalty. First to collect 12 rings wins the round. Best of 3!' },
+    clashcomet:   { icon: '☄️', title: 'CLASH COMET',      desc: 'Tap your half when the comet is near you to deflect it toward the opponent! The comet speeds up each strike. Score when it exits the opponent\'s edge. First to 5 wins!' },
+    zonezap:      { icon: '⚡', title: 'ZONE ZAP',         desc: 'Zones light up on your half — tap them before they fade to score! Zones last 1.5 seconds. Tap as many as possible in 20 seconds. Most zones zapped wins!' },
 };
 
 // ============================================================
@@ -104,6 +127,25 @@ export const MG_ORIENTATION_MAP = {
     asteroidodge: 'faceoff',
     gravitywell:  'faceoff',
     snakebattle:  'faceoff',
+    laserduel:    'faceoff',
+    orbitorbs:    'faceoff',
+    bombtap:      'faceoff',
+    meteorshield: 'faceoff',
+    dashdots:     'faceoff',
+    splithockey:  'faceoff',
+    minelane:     'faceoff',
+    volleyzap:    'faceoff',
+    crowngrab:    'faceoff',
+    rocketrelic:  'faceoff',
+    pulsepusher:  'quickdraw',
+    sparksweep:   'faceoff',
+    tunnelcharge: 'quickdraw',
+    shardstorm:   'faceoff',
+    flipdisc:     'faceoff',
+    blitzblocks:  'faceoff',
+    relayrings:   'faceoff',
+    clashcomet:   'faceoff',
+    zonezap:      'faceoff',
 };
 
 export const FALLBACK_TRIVIA = [
