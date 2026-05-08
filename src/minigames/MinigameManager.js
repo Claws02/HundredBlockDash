@@ -7,7 +7,7 @@
 
 import { state } from '../core/GameState.js';
 import { MG_TYPES, MG_INFO, MG_ORIENTATIONS, MG_ORIENTATION_MAP } from '../config/MinigameRegistry.js';
-import { MINIGAME_TIMEOUT_MS, MINIGAME_REWARD } from '../config/GameConfig.js';
+import { MINIGAME_REWARD } from '../config/GameConfig.js';
 import { sfx, haptic } from '../engine/AudioManager.js';
 
 // Lazy-loaded minigame modules
@@ -190,11 +190,6 @@ function _startMinigameLayer() {
     });
     document.getElementById('mg-neutral').textContent = 'BOTH PLAYERS TAP READY!';
 
-    clearTimeout(state.minigameTimeout);
-    state.minigameTimeout = setTimeout(() => {
-        if (state.gameState === 'MINIGAME') { state.mgActive = false; endMinigame(-1); }
-    }, MINIGAME_TIMEOUT_MS);
-
     if (state.players[1].isBot) setTimeout(() => setReady(1), 800);
 }
 
@@ -244,7 +239,6 @@ async function _launchGame() {
 // ---- Win / end ----
 
 export function winMinigame(winnerId) {
-    clearTimeout(state.minigameTimeout);
     if (winnerId < 0) { endMinigame(-1); return; }
     const winner = state.players[winnerId];
     winner.mgWins++;
@@ -260,7 +254,6 @@ export function winMinigame(winnerId) {
 }
 
 export function endMinigame(winnerId) {
-    clearTimeout(state.minigameTimeout);
     clearInterval(_botTraceInt);
     _botTraceInt = null;
     state.mgActive = false;

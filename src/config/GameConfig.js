@@ -6,7 +6,6 @@ export const GATE_THRESHOLD      = 15;
 export const GATE_NUM_DICE       = 5;
 export const MAX_INV             = 3;
 export const MINIGAME_REWARD     = 10;
-export const MINIGAME_TIMEOUT_MS = 25000;
 export const MINIGAME_EVERY_N_TURNS = 4;
 
 // ============================================================
