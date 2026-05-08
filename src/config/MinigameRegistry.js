@@ -38,7 +38,7 @@ export const MG_INFO = {
     blindbuild:   { icon: '🎨', title: 'BLIND BUILD',      desc: 'P1 memorizes a shape shown for 3 seconds, then P2 must redraw it from memory! Scored by pixel accuracy. Best of 3 rounds.' },
     paintwar:     { icon: '🖌️', title: 'PAINT WAR',        desc: 'Drag your finger to paint the canvas your color! P1 owns the bottom half, P2 the top. Most territory after 15 seconds wins.' },
     asteroidodge: { icon: '☄️', title: 'ASTEROID DODGE',   desc: 'Slide your ship to dodge falling asteroids! Asteroids speed up over time. 3 hits = destroyed. Last ship flying (or most health after 30s) wins.' },
-    gravitywell:  { icon: '🌀', title: 'GRAVITY WELL',     desc: 'Drag to create gravity wells that pull the ball toward your goal. Guide the ball into the opponent\'s end zone. First to 5 points wins!' },
+    gravitywell:  { icon: '🌀', title: 'GRAVITY WELL',     desc: 'Tap your half to place a REPULSION well that blasts the ball away! Use up to 2 wells to strategically push the ball into the opponent\'s goal zone. First to 5 points wins!' },
     snakebattle:  { icon: '🐍', title: 'SNAKE BATTLE',     desc: 'Two snakes share one arena! Swipe your half to steer. Eat dots to grow longer. Crash into a wall or either snake and you lose. Most dots after 30s wins.' },
 };
 
