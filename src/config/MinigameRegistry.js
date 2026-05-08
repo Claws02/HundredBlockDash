@@ -9,6 +9,7 @@ export const MG_TYPES = [
     'pulsehold', 'gridrecall', 'wordscramble', 'colorrush', 'rhythmtap',
     'speedsort', 'flickshot', 'codebreaker', 'soundmatch',
     'tethertap', 'mirrormatch', 'blindbuild',
+    'paintwar', 'asteroidodge', 'gravitywell', 'snakebattle',
 ];
 
 export const MG_INFO = {
@@ -34,7 +35,11 @@ export const MG_INFO = {
     soundmatch:  { icon: '🎵', title: 'SOUND MATCH',      desc: 'Listen to a sequence of HIGH and LOW tones, then tap the matching H/L pattern from 4 choices. First correct wins! Best of 5.' },
     tethertap:   { icon: '🪢', title: 'TETHER TAP',       desc: 'A ring drifts outward — hold your thumb down and release exactly when the ring hits the target line! Overshoot = miss. Best of 5.' },
     mirrormatch: { icon: '🪞', title: 'MIRROR MATCH',     desc: 'A grid pattern appears on one half. The other player must tap the HORIZONTALLY MIRRORED version from 3 choices! Roles swap. Best of 3.' },
-    blindbuild:  { icon: '🎨', title: 'BLIND BUILD',      desc: 'P1 memorizes a shape shown for 3 seconds, then P2 must redraw it from memory! Scored by pixel accuracy. Best of 3 rounds.' },
+    blindbuild:   { icon: '🎨', title: 'BLIND BUILD',      desc: 'P1 memorizes a shape shown for 3 seconds, then P2 must redraw it from memory! Scored by pixel accuracy. Best of 3 rounds.' },
+    paintwar:     { icon: '🖌️', title: 'PAINT WAR',        desc: 'Drag your finger to paint the canvas your color! P1 owns the bottom half, P2 the top. Most territory after 15 seconds wins.' },
+    asteroidodge: { icon: '☄️', title: 'ASTEROID DODGE',   desc: 'Slide your ship to dodge falling asteroids! Asteroids speed up over time. 3 hits = destroyed. Last ship flying (or most health after 30s) wins.' },
+    gravitywell:  { icon: '🌀', title: 'GRAVITY WELL',     desc: 'Drag to create gravity wells that pull the ball toward your goal. Guide the ball into the opponent\'s end zone. First to 5 points wins!' },
+    snakebattle:  { icon: '🐍', title: 'SNAKE BATTLE',     desc: 'Two snakes share one arena! Swipe your half to steer. Eat dots to grow longer. Crash into a wall or either snake and you lose. Most dots after 30s wins.' },
 };
 
 // ============================================================
@@ -95,6 +100,10 @@ export const MG_ORIENTATION_MAP = {
     tethertap:    'faceoff',
     mirrormatch:  'quickdraw',
     blindbuild:   'stargazer',
+    paintwar:     'faceoff',
+    asteroidodge: 'faceoff',
+    gravitywell:  'faceoff',
+    snakebattle:  'faceoff',
 };
 
 export const FALLBACK_TRIVIA = [

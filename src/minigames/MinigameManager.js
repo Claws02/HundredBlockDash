@@ -32,9 +32,13 @@ const MG_MODULES = {
     flickshot:   () => import('./FlickShot.js'),
     codebreaker: () => import('./CodeBreaker.js'),
     soundmatch:  () => import('./SoundMatch.js'),
-    tethertap:   () => import('./TetherTap.js'),
-    mirrormatch: () => import('./MirrorMatch.js'),
-    blindbuild:  () => import('./BlindBuild.js'),
+    tethertap:    () => import('./TetherTap.js'),
+    mirrormatch:  () => import('./MirrorMatch.js'),
+    blindbuild:   () => import('./BlindBuild.js'),
+    paintwar:     () => import('./PaintWar.js'),
+    asteroidodge: () => import('./AsteroidDodge.js'),
+    gravitywell:  () => import('./GravityWell.js'),
+    snakebattle:  () => import('./SnakeBattle.js'),
 };
 
 let _controller   = null;
