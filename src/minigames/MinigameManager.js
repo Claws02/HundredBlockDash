@@ -57,7 +57,8 @@ const MG_MODULES = {
     blitzblocks:  () => import('./BlitzBlocks.js'),
     relayrings:   () => import('./RelayRings.js'),
     clashcomet:   () => import('./ClashComet.js'),
-    zonezap:      () => import('./ZoneZap.js'),
+    zonezap:        () => import('./ZoneZap.js'),
+    sphereknockout: () => import('./SphereKnockout.js'),
 };
 
 let _controller   = null;
@@ -262,16 +263,27 @@ async function _launchGame() {
 // ---- Win / end ----
 
 export function winMinigame(winnerId) {
-    if (winnerId < 0) { endMinigame(-1); return; }
+    if (winnerId < 0) {
+        const tieReward = Math.floor(MINIGAME_REWARD / 2);
+        state.players.forEach(p => { p.coins += tieReward; p.coinsEarned += tieReward; });
+        import('../ui/UIManager.js').then(({ animateCoinDisplay, toast, updateUI }) => {
+            state.players.forEach((p, i) => animateCoinDisplay(i, p.coins));
+            toast(`🤝 Tie! Both players get ${tieReward} coins!`, '#a78bfa');
+            updateUI();
+        });
+        sfx('mg_win');
+        endMinigame(-1);
+        return;
+    }
     const winner = state.players[winnerId];
     winner.mgWins++;
     winner.coins += MINIGAME_REWARD;
     winner.coinsEarned += MINIGAME_REWARD;
-    import('../ui/UIManager.js').then(({ animateCoinDisplay, toast }) => {
+    import('../ui/UIManager.js').then(({ animateCoinDisplay, toast, updateUI }) => {
         animateCoinDisplay(winnerId, winner.coins);
         toast(`🏆 ${winner.name} wins ${MINIGAME_REWARD} coins and goes first!`, '#f5c842');
+        updateUI();
     });
-    import('../ui/UIManager.js').then(({ updateUI }) => updateUI());
     sfx('mg_win');
     endMinigame(winnerId);
 }
