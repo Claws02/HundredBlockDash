@@ -1,41 +1,55 @@
-// Sphere Knockout — Roll your sphere to knock the opponent off the floating platform!
-// Use the joystick on your half. P1 at bottom, P2 at top (upside-down). Best of 3.
+// Sphere Knockout — Roll your glowing sphere to knock the opponent off the platform!
+// P1 controls bottom half, P2 controls top half (upside-down faceoff). Best of 3 rounds.
 import { state } from '../core/GameState.js';
 import { sfx } from '../engine/AudioManager.js';
 
-const WIN_ROUNDS  = 2;   // first to 2 round wins
-const PLATFORM_R  = 4.6;
-const SPHERE_R    = 0.52;
-const ACCEL       = 22;
-const DAMPING     = 0.78; // base damping per frame (applied as pow(d, dt*60))
-const JOY_RADIUS  = 58;   // joystick zone radius in px
+const WIN_ROUNDS       = 2;
+const PLATFORM_R       = 4.6;
+const SPHERE_R         = 0.52;
+const ACCEL            = 22;
+// DAMPING = 0.985 per 60-fps frame — spheres slide for ~3s after a collision.
+// Formula: Math.pow(DAMPING, dt*60).  Old value 0.78 stopped spheres in < 1 s.
+const DAMPING          = 0.985;
+const JOY_RADIUS       = 58;        // px
+const ROUND_TIMEOUT_MS = 25000;     // 25 s per round; tiebreak by center distance
 
 let _done = false, _roundsWon = [0, 0], _onWin = null, _isBot = false;
 let _overlay = null, _renderer = null, _scene = null, _camera = null;
-let _sphereMeshes = [null, null], _sphereLights = [null, null];
+let _sphereMeshes = [null, null], _sphereLights = [null, null], _shadowMeshes = [null, null];
 let _neutralEl = null, _scoreEls = [null, null];
 let _af = null, _lastTime = 0, _roundActive = false;
 const _cleanups = [];
+const _timers   = []; // every setTimeout ID → all cleared in _destroy()
 
-// Physics state per sphere
 const _sp = [
     { x: 0, z: 0, vx: 0, vz: 0, fallY: 0, fallen: false },
     { x: 0, z: 0, vx: 0, vz: 0, fallY: 0, fallen: false },
 ];
-// Joystick state per player
 const _joy = [
     { dx: 0, dy: 0, active: false, id: -1, bx: 0, by: 0 },
     { dx: 0, dy: 0, active: false, id: -1, bx: 0, by: 0 },
 ];
 let _joyKnobs = [null, null];
 
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
 function _resetSphere(pid) {
-    const z = pid === 0 ? 2.8 : -2.8;
     const sp = _sp[pid];
-    sp.x = 0; sp.z = z;
-    sp.vx = (Math.random() - 0.5) * 1.5; sp.vz = 0;
+    sp.x = 0; sp.z = pid === 0 ? 2.8 : -2.8;
+    sp.vx = (Math.random() - 0.5) * 2; sp.vz = pid === 0 ? -0.5 : 0.5;
     sp.fallY = 0; sp.fallen = false;
 }
+
+// Tracked setTimeout — every ID is stored so _destroy() can cancel the lot.
+function _after(fn, ms) {
+    const id = setTimeout(() => {
+        _timers.splice(_timers.indexOf(id), 1);
+        fn();
+    }, ms);
+    _timers.push(id);
+}
+
+// ── Lifecycle ─────────────────────────────────────────────────────────────────
 
 export function start(isBot, onWin) {
     if (!state.mgActive) return;
@@ -49,48 +63,62 @@ export function start(isBot, onWin) {
     }));
 }
 
+// ── DOM Build ─────────────────────────────────────────────────────────────────
+
 function _build() {
     const mg = document.getElementById('minigame-layer');
     if (_overlay) { _overlay.remove(); _overlay = null; }
     _overlay = document.createElement('div');
     _overlay.style.cssText = 'position:absolute;inset:0;overflow:hidden;background:#04040e;touch-action:none;';
 
-    // Score HUD
+    // Score HUD — sits above the canvas
     const hud = document.createElement('div');
-    hud.style.cssText = 'position:absolute;inset:0;pointer-events:none;display:flex;justify-content:space-between;align-items:flex-start;padding:6px 14px;box-sizing:border-box;z-index:10;';
+    hud.style.cssText = [
+        'position:absolute;inset:0;pointer-events:none;',
+        'display:flex;justify-content:space-between;align-items:flex-start;',
+        'padding:6px 14px;box-sizing:border-box;z-index:10;',
+    ].join('');
     _scoreEls[1] = _mkLabel('P2: 0', '#93c5fd');
     _scoreEls[0] = _mkLabel('P1: 0', '#fca5a5');
     hud.appendChild(_scoreEls[1]);
     hud.appendChild(_scoreEls[0]);
     _overlay.appendChild(hud);
 
-    // Joystick zones — one per player half
+    // One joystick zone per player half
     for (let pid = 0; pid < 2; pid++) {
         const zone = document.createElement('div');
-        zone.style.cssText = `position:absolute;${pid === 0 ? 'top:50%;bottom:0' : 'top:0;bottom:50%'};left:0;right:0;z-index:5;`;
+        zone.style.cssText = [
+            'position:absolute;',
+            pid === 0 ? 'top:50%;bottom:0;' : 'top:0;bottom:50%;',
+            'left:0;right:0;z-index:5;',
+        ].join('');
 
         const base = document.createElement('div');
-        const basePos = pid === 0 ? 'bottom:28px;' : 'top:28px;';
-        base.style.cssText = `
-            position:absolute;${basePos}left:50%;transform:translateX(-50%);
-            width:${JOY_RADIUS * 2}px;height:${JOY_RADIUS * 2}px;border-radius:50%;
-            background:rgba(255,255,255,0.05);border:2px solid rgba(255,255,255,0.13);
-            pointer-events:none;
-        `;
-        const knob = document.createElement('div');
+        base.style.cssText = [
+            'position:absolute;',
+            pid === 0 ? 'bottom:28px;' : 'top:28px;',
+            `left:50%;transform:translateX(-50%);`,
+            `width:${JOY_RADIUS * 2}px;height:${JOY_RADIUS * 2}px;border-radius:50%;`,
+            'background:rgba(255,255,255,0.05);border:2px solid rgba(255,255,255,0.13);',
+            'pointer-events:none;',
+        ].join('');
+
         const kColor = pid === 0 ? '#ff3b3b' : '#3b8eff';
-        knob.style.cssText = `
-            position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
-            width:46px;height:46px;border-radius:50%;
-            background:${kColor};box-shadow:0 0 16px ${kColor};opacity:0.8;
-            pointer-events:none;
-        `;
+        const knob = document.createElement('div');
+        knob.style.cssText = [
+            'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);',
+            'width:46px;height:46px;border-radius:50%;',
+            `background:${kColor};box-shadow:0 0 16px ${kColor};opacity:0.85;`,
+            'pointer-events:none;',
+        ].join('');
         base.appendChild(knob);
         zone.appendChild(base);
         _overlay.appendChild(zone);
         _joyKnobs[pid] = knob;
 
         const joy = _joy[pid];
+        const kOff = JOY_RADIUS - 23;
+
         const onDown = e => {
             if (_done || joy.active) return;
             e.preventDefault();
@@ -102,13 +130,12 @@ function _build() {
         const onMove = e => {
             if (!joy.active || e.pointerId !== joy.id) return;
             e.preventDefault();
-            const rawX = e.clientX - joy.bx, rawY = e.clientY - joy.by;
-            const dist  = Math.sqrt(rawX * rawX + rawY * rawY);
-            const clamp = Math.min(1, dist / JOY_RADIUS);
-            const angle = Math.atan2(rawY, rawX);
-            joy.dx = Math.cos(angle) * clamp;
-            joy.dy = Math.sin(angle) * clamp;
-            const kOff = JOY_RADIUS - 23;
+            const rx = e.clientX - joy.bx, ry = e.clientY - joy.by;
+            const mag = Math.sqrt(rx * rx + ry * ry);
+            const s   = Math.min(1, mag / JOY_RADIUS);
+            const a   = Math.atan2(ry, rx);
+            joy.dx = Math.cos(a) * s;
+            joy.dy = Math.sin(a) * s;
             knob.style.transform = `translate(calc(-50% + ${joy.dx * kOff}px), calc(-50% + ${joy.dy * kOff}px))`;
         };
         const onUp = e => {
@@ -117,6 +144,7 @@ function _build() {
             joy.active = false; joy.dx = 0; joy.dy = 0;
             knob.style.transform = 'translate(-50%,-50%)';
         };
+
         zone.addEventListener('pointerdown',   onDown);
         zone.addEventListener('pointermove',   onMove);
         zone.addEventListener('pointerup',     onUp);
@@ -139,9 +167,12 @@ function _mkLabel(text, color) {
     return el;
 }
 
+// ── Three.js Scene ────────────────────────────────────────────────────────────
+
 function _initThree() {
     const w = _overlay.clientWidth  || 390;
     const h = _overlay.clientHeight || 680;
+    const aspect = w / h;
 
     _renderer = new THREE.WebGLRenderer({ antialias: true });
     _renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -153,96 +184,115 @@ function _initThree() {
 
     _scene = new THREE.Scene();
     _scene.background = new THREE.Color(0x04040e);
-    _scene.fog = new THREE.FogExp2(0x04040e, 0.045);
+    // Linear fog starts well beyond camera distance (15 u) — zero fog on any scene object.
+    _scene.fog = new THREE.Fog(0x04040e, 40, 80);
 
-    // Orthographic top-down camera — world +Z is at screen bottom (P1's side)
-    const aspect = w / h;
-    const vH     = 13;
+    // ── Camera ──
+    // We need the narrower screen axis to fit the full platform + margin.
+    // OrthographicCamera shown width  = vH * aspect
+    //                    shown height = vH
+    // On portrait phones aspect ≈ 0.57, so width is the tight axis.
+    // Solve: vH * aspect >= PLATFORM_R*2 + margin  →  vH = minWidth / min(aspect,1)
+    const minWorldWidth = PLATFORM_R * 2 + 4.5; // 13.7 — platform + 2.25 u margin each side
+    const vH = minWorldWidth / Math.min(aspect, 1.0);
+    // Portrait 0.57 → vH ≈ 24  → shown width 13.7 ✓ shown height 24
+    // Landscape 1.5 → vH ≈ 13.7 → shown width 20.5 ✓
+
     _camera = new THREE.OrthographicCamera(
-        -vH * aspect / 2,  vH * aspect / 2,
-         vH / 2,           -vH / 2,
+        -vH * aspect / 2,  vH * aspect / 2,   // left, right
+         vH / 2,          -vH / 2,             // top, bottom
         0.1, 100
     );
     _camera.position.set(0, 15, 0);
     _camera.lookAt(0, 0, 0);
-    _camera.up.set(0, 0, -1); // world -Z points to screen top → P1 (z=+2.8) appears at bottom
+    // camera.up = world -Z  →  screen-top = world-Z-negative  →  P1 (z=+2.8) at screen bottom ✓
+    _camera.up.set(0, 0, -1);
 
-    // Lights
-    _scene.add(new THREE.AmbientLight(0x2a3050, 4));
-    const sun = new THREE.DirectionalLight(0xffffff, 3);
+    // ── Lights ──
+    _scene.add(new THREE.AmbientLight(0x2a3050, 5));
+    const sun = new THREE.DirectionalLight(0xffffff, 3.5);
     sun.position.set(5, 14, 7);
     sun.castShadow = true;
     sun.shadow.mapSize.set(512, 512);
     _scene.add(sun);
 
-    // Platform body
-    const platGeo = new THREE.CylinderGeometry(PLATFORM_R, PLATFORM_R * 0.93, 0.45, 64);
-    const platMat = new THREE.MeshPhongMaterial({ color: 0x111830, shininess: 50, specular: 0x2244bb });
+    // ── Platform ──
+    const platGeo = new THREE.CylinderGeometry(PLATFORM_R, PLATFORM_R * 0.92, 0.4, 64);
+    const platMat = new THREE.MeshPhongMaterial({ color: 0x111830, shininess: 55, specular: 0x2244bb });
     const plat    = new THREE.Mesh(platGeo, platMat);
     plat.receiveShadow = true;
-    plat.position.y = -0.23;
+    plat.position.y = -0.2;
     _scene.add(plat);
 
-    // Platform edge ring
-    const edgeGeo = new THREE.TorusGeometry(PLATFORM_R, 0.1, 8, 80);
-    const edgeMat = new THREE.MeshBasicMaterial({ color: 0x2255dd });
-    const edge    = new THREE.Mesh(edgeGeo, edgeMat);
-    edge.rotation.x = Math.PI / 2;
-    edge.position.y = 0.0;
-    _scene.add(edge);
+    // Edge ring — glows blue
+    const edgeMesh = new THREE.Mesh(
+        new THREE.TorusGeometry(PLATFORM_R, 0.13, 8, 80),
+        new THREE.MeshBasicMaterial({ color: 0x3366ff })
+    );
+    edgeMesh.rotation.x = Math.PI / 2;
+    _scene.add(edgeMesh);
 
-    // Center divider line
-    const divGeo = new THREE.PlaneGeometry(PLATFORM_R * 2, 0.07);
-    const divMat = new THREE.MeshBasicMaterial({ color: 0x3355bb, transparent: true, opacity: 0.5, side: THREE.DoubleSide });
-    const div    = new THREE.Mesh(divGeo, divMat);
-    div.rotation.x = -Math.PI / 2;
-    div.position.y = 0.01;
-    _scene.add(div);
+    // Center divider (shows where P1/P2 zones split)
+    const divMesh = new THREE.Mesh(
+        new THREE.PlaneGeometry(PLATFORM_R * 2, 0.08),
+        new THREE.MeshBasicMaterial({ color: 0x4466cc, transparent: true, opacity: 0.55, side: THREE.DoubleSide })
+    );
+    divMesh.rotation.x = -Math.PI / 2;
+    divMesh.position.y = 0.01;
+    _scene.add(divMesh);
 
-    // Subtle grid overlay
+    // Subtle grid
     const grid = new THREE.GridHelper(PLATFORM_R * 2, 6, 0x1a2855, 0x1a2855);
     grid.position.y = 0.02;
     _scene.add(grid);
 
-    // Star field
-    const starVerts = [];
+    // Star field — distant; unaffected by scene fog (distance >> fog start)
+    const sv = [];
     for (let i = 0; i < 600; i++) {
-        const phi   = Math.acos(2 * Math.random() - 1);
-        const theta = Math.random() * Math.PI * 2;
-        const r     = 45 + Math.random() * 20;
-        starVerts.push(
-            Math.sin(phi) * Math.cos(theta) * r,
-            Math.cos(phi) * r,
-            Math.sin(phi) * Math.sin(theta) * r
-        );
+        const phi = Math.acos(2 * Math.random() - 1), theta = Math.random() * Math.PI * 2;
+        const r = 50 + Math.random() * 20;
+        sv.push(Math.sin(phi) * Math.cos(theta) * r, Math.cos(phi) * r, Math.sin(phi) * Math.sin(theta) * r);
     }
     const starGeo = new THREE.BufferGeometry();
-    starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starVerts, 3));
-    _scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.18 })));
+    starGeo.setAttribute('position', new THREE.Float32BufferAttribute(sv, 3));
+    _scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.22 })));
 
-    // Spheres + sphere glow lights
-    const colors   = [0xff3b3b, 0x3b8eff];
-    const emissive = [0x441111, 0x112244];
+    // ── Spheres, shadow discs, and glow lights ──
+    const sColor    = [0xff3b3b, 0x3b8eff];
+    const sEmissive = [0x551111, 0x112255];
     for (let pid = 0; pid < 2; pid++) {
-        const geo = new THREE.SphereGeometry(SPHERE_R, 24, 16);
         const mat = new THREE.MeshPhongMaterial({
-            color: colors[pid], emissive: emissive[pid],
-            emissiveIntensity: 0.9, shininess: 100, specular: 0xffffff,
+            color: sColor[pid], emissive: sEmissive[pid],
+            emissiveIntensity: 1.0, shininess: 120, specular: 0xffffff,
         });
-        const mesh = new THREE.Mesh(geo, mat);
+        const mesh = new THREE.Mesh(new THREE.SphereGeometry(SPHERE_R, 26, 18), mat);
         mesh.castShadow = true;
         _sphereMeshes[pid] = mesh;
         _scene.add(mesh);
 
-        const light = new THREE.PointLight(colors[pid], 3, 5.5);
+        // Under-shadow disc — gives top-down depth cue
+        const shadow = new THREE.Mesh(
+            new THREE.CircleGeometry(SPHERE_R * 0.82, 18),
+            new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.4, depthWrite: false })
+        );
+        shadow.rotation.x = -Math.PI / 2;
+        shadow.position.y = 0.022;
+        _shadowMeshes[pid] = shadow;
+        _scene.add(shadow);
+
+        // Per-sphere coloured point light
+        const light = new THREE.PointLight(sColor[pid], 4, 7);
         _sphereLights[pid] = light;
         _scene.add(light);
     }
 }
 
+// ── Round flow ────────────────────────────────────────────────────────────────
+
 function _startRound() {
     if (_done || !state.mgActive) return;
     _roundActive = false;
+
     _resetSphere(0);
     _resetSphere(1);
 
@@ -251,11 +301,50 @@ function _startRound() {
         if (_joyKnobs[pid]) _joyKnobs[pid].style.transform = 'translate(-50%,-50%)';
         const m = _sphereMeshes[pid];
         if (m) { m.position.set(_sp[pid].x, SPHERE_R, _sp[pid].z); m.visible = true; }
+        const s = _shadowMeshes[pid];
+        if (s) { s.position.set(_sp[pid].x, 0.022, _sp[pid].z); s.visible = true; }
     }
 
     if (_neutralEl) _neutralEl.textContent = 'KNOCK THEM OFF!';
-    setTimeout(() => { if (!_done && state.mgActive) _roundActive = true; }, 600);
+
+    // 600 ms grace period before round goes live
+    _after(() => {
+        if (_done || !state.mgActive) return;
+        _roundActive = true;
+        // 25-second timeout: tiebreak by proximity to centre
+        _after(_onRoundTimeout, ROUND_TIMEOUT_MS);
+    }, 600);
 }
+
+function _onRoundTimeout() {
+    if (!_roundActive || _done) return;
+    _roundActive = false;
+    sfx('countdown');
+    const d0 = Math.hypot(_sp[0].x, _sp[0].z);
+    const d1 = Math.hypot(_sp[1].x, _sp[1].z);
+    if (Math.abs(d0 - d1) < 0.4) {
+        if (_neutralEl) _neutralEl.textContent = 'TIME — TOO CLOSE! REPLAY!';
+        _after(() => { if (!_done && state.mgActive) _startRound(); }, 2000);
+    } else {
+        _resolveRound(d0 < d1 ? 0 : 1, 'TIME! ');
+    }
+}
+
+function _resolveRound(winner, prefix = '') {
+    _roundsWon[winner]++;
+    if (_scoreEls[winner]) _scoreEls[winner].textContent = `P${winner + 1}: ${_roundsWon[winner]}`;
+    if (_neutralEl) _neutralEl.textContent = `${prefix}P${winner + 1} WINS! ${_roundsWon[0]}–${_roundsWon[1]}`;
+
+    if (_roundsWon[winner] >= WIN_ROUNDS) {
+        _done = true; state.mgActive = false;
+        cancelAnimationFrame(_af); _af = null;
+        _after(() => { _destroy(); _onWin(winner); }, 1800);
+    } else {
+        _after(() => { if (!_done && state.mgActive) _startRound(); }, 2000);
+    }
+}
+
+// ── Game loop ─────────────────────────────────────────────────────────────────
 
 function _tick(now) {
     if (_done || !state.mgActive) return;
@@ -268,22 +357,38 @@ function _tick(now) {
         _checkFalls();
     }
 
-    // Update 3D mesh positions
+    // Sync 3D positions with physics state
     for (let pid = 0; pid < 2; pid++) {
         const sp = _sp[pid];
         const m  = _sphereMeshes[pid];
         const l  = _sphereLights[pid];
+        const sh = _shadowMeshes[pid];
+
         if (m) {
-            const py = sp.fallen ? Math.max(SPHERE_R - 15, SPHERE_R - sp.fallY * 7) : SPHERE_R;
+            // Sphere drops below platform once fallen (fallY grows each tick)
+            const py = sp.fallen ? Math.max(SPHERE_R - 20, SPHERE_R - sp.fallY * 9) : SPHERE_R;
             m.position.set(sp.x, py, sp.z);
             if (!sp.fallen) {
-                m.rotation.x += sp.vz * dt * 1.8;
-                m.rotation.z -= sp.vx * dt * 1.8;
+                // Rolling rotation — visually satisfying even in top-down view
+                m.rotation.x += sp.vz * dt * 1.9;
+                m.rotation.z -= sp.vx * dt * 1.9;
+                // Pulse emissive when near the edge (danger warning)
+                const distFromCentre = Math.hypot(sp.x, sp.z);
+                const danger = Math.max(0, Math.min(1, (distFromCentre / PLATFORM_R - 0.65) / 0.35));
+                m.material.emissiveIntensity = 1.0 + danger * 3.0 * (0.5 + 0.5 * Math.sin(now * 0.014));
             }
         }
+
         if (l) {
-            l.position.set(sp.x, SPHERE_R + 0.8, sp.z);
-            l.intensity = sp.fallen ? Math.max(0, 3 - sp.fallY * 2) : 3;
+            // Light follows the sphere, even as it drops
+            const py = sp.fallen ? Math.max(SPHERE_R - 20, SPHERE_R - sp.fallY * 9) + 1.2 : SPHERE_R + 1.2;
+            l.position.set(sp.x, py, sp.z);
+            l.intensity = sp.fallen ? Math.max(0, 4 - sp.fallY * 3) : 4;
+        }
+
+        if (sh) {
+            sh.position.set(sp.x, 0.022, sp.z);
+            sh.visible = !sp.fallen;
         }
     }
 
@@ -291,49 +396,53 @@ function _tick(now) {
     _af = requestAnimationFrame(_tick);
 }
 
+// ── Physics ───────────────────────────────────────────────────────────────────
+
 function _updatePhysics(dt) {
     for (let pid = 0; pid < 2; pid++) {
-        const sp  = _sp[pid];
-        const joy = _joy[pid];
-        if (sp.fallen) { sp.fallY += 5 * dt; continue; }
+        const sp = _sp[pid];
+        if (sp.fallen) { sp.fallY += 5.5 * dt; continue; }
 
-        // Joystick → world force.
-        // P2 holds phone upside-down: their visual "right" is world -X, so invert X.
-        // Their visual "forward" (toward P1) = joystick pushed down (positive joy.dy = world +Z) — no Z inversion needed.
-        const xSign = pid === 0 ? 1 : -1;
-        sp.vx += joy.dx * xSign * ACCEL * dt;
-        sp.vz += joy.dy         * ACCEL * dt;
+        // Compute input force — bot and human handled in same loop so damping is uniform
+        let fx = 0, fz = 0;
+        if (_isBot && pid === 1) {
+            const dx = _sp[0].x - sp.x, dz = _sp[0].z - sp.z;
+            const dist = Math.hypot(dx, dz);
+            if (dist > 0.1) { fx = (dx / dist) * ACCEL * 0.80; fz = (dz / dist) * ACCEL * 0.80; }
+        } else {
+            const joy = _joy[pid];
+            // P2 holds phone upside-down → their visual "right" = world -X
+            const xSign = pid === 0 ? 1 : -1;
+            fx = joy.dx * xSign * ACCEL;
+            fz = joy.dy         * ACCEL;
+        }
 
+        sp.vx += fx * dt;
+        sp.vz += fz * dt;
+
+        // Frame-rate-independent damping — sliding feel, not instant stop
         const d = Math.pow(DAMPING, dt * 60);
-        sp.vx *= d; sp.vz *= d;
+        sp.vx *= d;
+        sp.vz *= d;
 
         sp.x += sp.vx * dt;
         sp.z += sp.vz * dt;
     }
 
-    // Bot AI: P2 chases P1
-    if (_isBot && !_sp[1].fallen) {
-        const dx = _sp[0].x - _sp[1].x, dz = _sp[0].z - _sp[1].z;
-        const dist = Math.sqrt(dx * dx + dz * dz);
-        if (dist > 0.1) {
-            _sp[1].vx += (dx / dist) * ACCEL * dt * 0.75;
-            _sp[1].vz += (dz / dist) * ACCEL * dt * 0.75;
-        }
-    }
-
-    // Elastic sphere-sphere collision
+    // Elastic sphere-sphere collision (equal mass, restitution 1.15 = slightly superelastic)
     const dx = _sp[1].x - _sp[0].x, dz = _sp[1].z - _sp[0].z;
-    const dist = Math.sqrt(dx * dx + dz * dz);
+    const dist = Math.hypot(dx, dz);
     const minD = SPHERE_R * 2;
     if (dist < minD && dist > 0.001 && !_sp[0].fallen && !_sp[1].fallen) {
         const overlap = (minD - dist) / 2;
         const nx = dx / dist, nz = dz / dist;
+        // Push apart so they don't overlap next frame
         _sp[0].x -= nx * overlap; _sp[0].z -= nz * overlap;
         _sp[1].x += nx * overlap; _sp[1].z += nz * overlap;
         const dvx = _sp[1].vx - _sp[0].vx, dvz = _sp[1].vz - _sp[0].vz;
         const dot = dvx * nx + dvz * nz;
         if (dot < 0) {
-            const imp = dot * 1.15; // slightly superelastic for fun
+            const imp = dot * 1.15;
             _sp[0].vx += imp * nx; _sp[0].vz += imp * nz;
             _sp[1].vx -= imp * nx; _sp[1].vz -= imp * nz;
             sfx('land_good');
@@ -346,8 +455,7 @@ function _checkFalls() {
     const fell = [false, false];
     for (let pid = 0; pid < 2; pid++) {
         if (_sp[pid].fallen) continue;
-        const r = Math.sqrt(_sp[pid].x * _sp[pid].x + _sp[pid].z * _sp[pid].z);
-        if (r > PLATFORM_R + SPHERE_R * 0.3) {
+        if (Math.hypot(_sp[pid].x, _sp[pid].z) > PLATFORM_R + SPHERE_R * 0.3) {
             _sp[pid].fallen = true;
             fell[pid] = true;
             sfx('land_bad');
@@ -359,33 +467,25 @@ function _checkFalls() {
 
     if (fell[0] && fell[1]) {
         if (_neutralEl) _neutralEl.textContent = 'BOTH FELL! REPLAY!';
-        setTimeout(() => { if (!_done && state.mgActive) _startRound(); }, 2000);
+        _after(() => { if (!_done && state.mgActive) _startRound(); }, 2000);
         return;
     }
 
-    const winner = fell[0] ? 1 : 0;
-    _roundsWon[winner]++;
-    if (_scoreEls[winner]) _scoreEls[winner].textContent = `P${winner + 1}: ${_roundsWon[winner]}`;
-    if (_neutralEl) _neutralEl.textContent = `P${winner + 1} WINS! ${_roundsWon[0]}–${_roundsWon[1]}`;
-
-    if (_roundsWon[winner] >= WIN_ROUNDS) {
-        _done = true; state.mgActive = false;
-        cancelAnimationFrame(_af); _af = null;
-        setTimeout(() => { _destroy(); _onWin(winner); }, 1800);
-    } else {
-        setTimeout(() => { if (!_done && state.mgActive) _startRound(); }, 2000);
-    }
+    _resolveRound(fell[0] ? 1 : 0);
 }
 
+// ── Cleanup ───────────────────────────────────────────────────────────────────
+
 function _destroy() {
+    _done = true;                                     // block any deferred callbacks
+    _timers.forEach(clearTimeout); _timers.length = 0;
     _cleanups.forEach(f => f()); _cleanups.length = 0;
     cancelAnimationFrame(_af); _af = null;
     if (_scene) {
         _scene.traverse(obj => {
-            if (obj.geometry) obj.geometry.dispose();
+            obj.geometry?.dispose();
             if (obj.material) {
-                if (Array.isArray(obj.material)) obj.material.forEach(m => m.dispose());
-                else obj.material.dispose();
+                (Array.isArray(obj.material) ? obj.material : [obj.material]).forEach(m => m.dispose());
             }
         });
         _scene.clear();
@@ -393,7 +493,7 @@ function _destroy() {
     }
     if (_renderer) { _renderer.dispose(); _renderer = null; }
     _camera = null;
-    _sphereMeshes = [null, null]; _sphereLights = [null, null];
+    _sphereMeshes = [null, null]; _sphereLights = [null, null]; _shadowMeshes = [null, null];
     _joyKnobs = [null, null]; _scoreEls = [null, null];
     if (_overlay) { _overlay.remove(); _overlay = null; }
 }
