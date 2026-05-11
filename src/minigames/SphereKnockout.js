@@ -188,25 +188,20 @@ function _initThree() {
     _scene.fog = new THREE.Fog(0x04040e, 40, 80);
 
     // ── Camera ──
-    // We need the narrower screen axis to fit the full platform + margin.
-    // OrthographicCamera shown width  = vH * aspect
-    //                    shown height = vH
-    // On portrait phones aspect ≈ 0.57, so width is the tight axis.
-    // Solve: vH * aspect >= PLATFORM_R*2 + margin  →  vH = minWidth / min(aspect,1)
-    const minWorldWidth = PLATFORM_R * 2 + 4.5; // 13.7 — platform + 2.25 u margin each side
+    // Isometric-ish view from front-above (~40° elevation).
+    // Camera-right = world +X, so joystick X maps cleanly regardless of tilt.
+    // P1 (z=+2.8) projects to screen-bottom; P2 (z=-2.8) projects to screen-top ✓
+    const minWorldWidth = PLATFORM_R * 2 + 7;  // 16.2 — "further away" generous margin
     const vH = minWorldWidth / Math.min(aspect, 1.0);
-    // Portrait 0.57 → vH ≈ 24  → shown width 13.7 ✓ shown height 24
-    // Landscape 1.5 → vH ≈ 13.7 → shown width 20.5 ✓
 
     _camera = new THREE.OrthographicCamera(
-        -vH * aspect / 2,  vH * aspect / 2,   // left, right
-         vH / 2,          -vH / 2,             // top, bottom
-        0.1, 100
+        -vH * aspect / 2,  vH * aspect / 2,
+         vH / 2,          -vH / 2,
+        0.1, 120
     );
-    _camera.position.set(0, 15, 0);
+    _camera.position.set(0, 10, 13);
     _camera.lookAt(0, 0, 0);
-    // camera.up = world -Z  →  screen-top = world-Z-negative  →  P1 (z=+2.8) at screen bottom ✓
-    _camera.up.set(0, 0, -1);
+    // Default up = (0,1,0) — correct for iso view; do NOT set up to (0,0,-1)
 
     // ── Lights ──
     _scene.add(new THREE.AmbientLight(0x2a3050, 5));
@@ -365,8 +360,8 @@ function _tick(now) {
         const sh = _shadowMeshes[pid];
 
         if (m) {
-            // Sphere drops below platform once fallen (fallY grows each tick)
-            const py = sp.fallen ? Math.max(SPHERE_R - 20, SPHERE_R - sp.fallY * 9) : SPHERE_R;
+            // Parabolic drop when fallen; drift in X,Z carried by physics
+            const py = sp.fallen ? SPHERE_R - 4.8 * sp.fallY * sp.fallY : SPHERE_R;
             m.position.set(sp.x, py, sp.z);
             if (!sp.fallen) {
                 // Rolling rotation — visually satisfying even in top-down view
@@ -380,8 +375,7 @@ function _tick(now) {
         }
 
         if (l) {
-            // Light follows the sphere, even as it drops
-            const py = sp.fallen ? Math.max(SPHERE_R - 20, SPHERE_R - sp.fallY * 9) + 1.2 : SPHERE_R + 1.2;
+            const py = sp.fallen ? SPHERE_R - 4.8 * sp.fallY * sp.fallY + 1.2 : SPHERE_R + 1.2;
             l.position.set(sp.x, py, sp.z);
             l.intensity = sp.fallen ? Math.max(0, 4 - sp.fallY * 3) : 4;
         }
@@ -401,7 +395,12 @@ function _tick(now) {
 function _updatePhysics(dt) {
     for (let pid = 0; pid < 2; pid++) {
         const sp = _sp[pid];
-        if (sp.fallen) { sp.fallY += 5.5 * dt; continue; }
+        if (sp.fallen) {
+            sp.fallY += dt;          // fall duration in seconds
+            sp.x += sp.vx * dt;      // keep drifting outward from edge
+            sp.z += sp.vz * dt;
+            continue;
+        }
 
         // Compute input force — bot and human handled in same loop so damping is uniform
         let fx = 0, fz = 0;

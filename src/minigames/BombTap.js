@@ -17,12 +17,13 @@ let _canvas = null, _ctx = null, _overlay = null;
 let _W = 0, _H = 0, _af = null;
 let _bomb = null, _fuse = 0, _scoring = false;
 let _scoreEls = [null, null], _neutralEl = null;
+let _resetTimer = null;
 const _cleanups = [];
 
 export function start(isBot, onWin) {
     if (!state.mgActive) return;
     _done = false; _losses = [0, 0]; _onWin = onWin; _isBot = isBot;
-    _scoring = false;
+    _scoring = false; _cleanups.length = 0;
     _neutralEl = document.getElementById('mg-neutral');
     _build();
     requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -148,7 +149,7 @@ function _hitPlayer(loser) {
         setTimeout(() => { _destroy(); _onWin(winner); }, 1500);
         return;
     }
-    setTimeout(_resetBomb, 1200);
+    _resetTimer = setTimeout(() => { if (!_done && state.mgActive) _resetBomb(); }, 1200);
     _draw();
     _af = requestAnimationFrame(_tick);
 }
@@ -188,6 +189,7 @@ function _draw() {
 }
 
 function _destroy() {
+    clearTimeout(_resetTimer); _resetTimer = null;
     _cleanups.forEach(f => f()); _cleanups.length = 0;
     cancelAnimationFrame(_af); _af = null;
     if (_overlay) { _overlay.remove(); _overlay = null; }

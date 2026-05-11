@@ -60,7 +60,21 @@ function _startRound() {
         [1, 2].forEach(i => { const z = document.getElementById(`react-z-${i}`); z.className = 'reaction-zone go'; z.textContent = 'TAP!'; });
         document.getElementById('mg-neutral').textContent = 'NOW!';
         if (_isBot) setTimeout(() => { if (state.mgActive && !_done && !_roundDone) _tap(1); }, 200 + Math.random() * 500);
+        // Nobody tapped in time — redo round as a draw (no win awarded)
+        const goTimeout = setTimeout(() => {
+            if (!_done && !_roundDone) {
+                _roundDone = true;
+                _cleanups.forEach(f => f()); _cleanups.length = 0;
+                document.getElementById('mg-neutral').textContent = 'NO RESPONSE — RETRY!';
+                setTimeout(_startRound, 1200);
+            }
+        }, 3000);
+        _cleanups.push(() => clearTimeout(goTimeout));
     }, delay);
+}
+
+export function destroy() {
+    clearTimeout(_timer); _cleanups.forEach(f => f()); _cleanups.length = 0; _done = true;
 }
 
 function _tap(pid) {

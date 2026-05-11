@@ -1,6 +1,6 @@
-// P1 sees a template shape drawn on their canvas for 3 seconds.
-// Template hides; P2 must redraw it from memory on their canvas.
-// Score = pixel overlap (IoU on 16x16 grid). Best of 3 rounds.
+// P1 and P2 alternate roles each round: memorizer sees the template, drawer replicates it.
+// Score = memorizer gets 30pts participation, drawer gets IoU accuracy score.
+// Best of 3 rounds (most total points wins).
 import { state } from '../core/GameState.js';
 import { sfx } from '../engine/AudioManager.js';
 
@@ -47,7 +47,19 @@ const TEMPLATE_NAMES = ['TRIANGLE','HOUSE','CIRCLE','ARROW','CROSS','DIAMOND','S
 let _done = false, _round = 0, _scores = [0, 0], _onWin = null;
 let _ctxs = [null, null], _templateData = null;
 let _drawing = [false, false], _phase = 'memorize', _timer = null;
-let _isBot = false, _tIdx = 0;
+let _isBot = false, _tIdx = 0, _role = 0;
+const _canvasCleanups = [];
+const _timers = [];
+
+function _after(fn, ms) {
+    const id = setTimeout(() => {
+        const i = _timers.indexOf(id);
+        if (i >= 0) _timers.splice(i, 1);
+        fn();
+    }, ms);
+    _timers.push(id);
+    return id;
+}
 
 function _getOrCreateCanvas(pi) {
     const el = document.getElementById(`bb-canvas-${pi}`);
@@ -67,7 +79,11 @@ function _clearCanvas(ctx) {
 export function start(isBot, onWin) {
     if (!state.mgActive) return;
     _done = false; _round = 0; _scores = [0, 0]; _onWin = onWin; _isBot = isBot;
-    _drawing = [false, false]; _phase = 'memorize'; clearTimeout(_timer);
+    _drawing = [false, false]; _phase = 'memorize';
+    clearTimeout(_timer);
+    _timers.forEach(clearTimeout); _timers.length = 0;
+    _canvasCleanups.forEach(f => f()); _canvasCleanups.length = 0;
+    _role = 0;
 
     [1, 2].forEach(pi => {
         const canvas = _getOrCreateCanvas(pi);
@@ -78,14 +94,22 @@ export function start(isBot, onWin) {
         _clearCanvas(_ctxs[pi - 1]);
 
         const pid = pi - 1;
-        const onDown = (e) => { if (_done || _drawing[pid] === false && _phase !== 'draw' + pid && _phase !== 'draw') return;
+        const onDown = (e) => {
+            if (_done || _phase !== 'draw' || pid === _role) return; // only drawer can draw
             e.preventDefault(); const r=canvas.getBoundingClientRect();
-            _ctxs[pid].beginPath(); _ctxs[pid].moveTo(e.clientX-r.left,e.clientY-r.top); _drawing[pid]=true; };
+            _ctxs[pid].beginPath(); _ctxs[pid].moveTo(e.clientX-r.left,e.clientY-r.top); _drawing[pid]=true;
+        };
         const onMove = (e) => { if (!_drawing[pid]||_done) return; e.preventDefault();
             const r=canvas.getBoundingClientRect(); _ctxs[pid].lineTo(e.clientX-r.left,e.clientY-r.top); _ctxs[pid].stroke(); };
         const onUp   = () => { _drawing[pid] = false; };
         canvas.addEventListener('pointerdown', onDown); canvas.addEventListener('pointermove', onMove);
         canvas.addEventListener('pointerup', onUp); canvas.addEventListener('pointerleave', onUp);
+        _canvasCleanups.push(() => {
+            canvas.removeEventListener('pointerdown', onDown);
+            canvas.removeEventListener('pointermove', onMove);
+            canvas.removeEventListener('pointerup', onUp);
+            canvas.removeEventListener('pointerleave', onUp);
+        });
     });
 
     document.getElementById('mg-neutral').textContent = 'MEMORIZE — THEN REDRAW!';
@@ -97,41 +121,45 @@ function _startRound() {
     _round++;
     _phase = 'memorize';
     _tIdx  = Math.floor(Math.random() * TEMPLATES.length);
+    // Alternate roles: round 1 → P1 memorizes, round 2 → P2 memorizes, etc.
+    _role  = (_round - 1) % 2;
+    const drawer = 1 - _role;
 
     [0, 1].forEach(pid => { if (_ctxs[pid]) _clearCanvas(_ctxs[pid]); });
-    document.getElementById('bb-prompt-1').style.display = 'block';
-    document.getElementById('bb-prompt-1').textContent   = `MEMORIZE: ${TEMPLATE_NAMES[_tIdx]}`;
-    document.getElementById('bb-prompt-2').style.display = 'none';
-    document.getElementById('bb-score-1').textContent    = `${_scores[0]} pts`;
-    document.getElementById('bb-score-2').textContent    = `${_scores[1]} pts`;
+    document.getElementById(`bb-prompt-${_role + 1}`).style.display = 'block';
+    document.getElementById(`bb-prompt-${_role + 1}`).textContent   = `MEMORIZE: ${TEMPLATE_NAMES[_tIdx]}`;
+    document.getElementById(`bb-prompt-${drawer + 1}`).style.display = 'none';
+    document.getElementById('bb-score-1').textContent = `${_scores[0]} pts`;
+    document.getElementById('bb-score-2').textContent = `${_scores[1]} pts`;
 
-    // Draw template on P1's canvas only
-    const c1 = _ctxs[0];
-    if (c1) {
-        c1.strokeStyle = '#fbbf24'; c1.lineWidth = 5;
-        TEMPLATES[_tIdx](c1, c1.canvas.width, c1.canvas.height);
-        c1.strokeStyle = '#ffffff'; c1.lineWidth = 4;
+    // Draw template on memorizer's canvas only
+    const cMem = _ctxs[_role];
+    if (cMem) {
+        cMem.strokeStyle = '#fbbf24'; cMem.lineWidth = 5;
+        TEMPLATES[_tIdx](cMem, cMem.canvas.width, cMem.canvas.height);
+        cMem.strokeStyle = '#ffffff'; cMem.lineWidth = 4;
     }
     // Store template as downsampled grid
-    _templateData = _downsample(_ctxs[0]);
+    _templateData = _downsample(_ctxs[_role]);
 
-    document.getElementById('mg-neutral').textContent = `ROUND ${_round} — P1 MEMORIZE!`;
+    document.getElementById('mg-neutral').textContent = `ROUND ${_round} — P${_role + 1} MEMORIZE!`;
     sfx('countdown');
 
-    _timer = setTimeout(() => {
+    _timer = _after(() => {
         if (!state.mgActive || _done) return;
         _phase = 'draw';
-        // Hide P1 canvas, enable P2 drawing
-        _clearCanvas(_ctxs[0]);
-        document.getElementById('bb-prompt-1').style.display = 'none';
-        document.getElementById('bb-prompt-2').style.display = 'block';
-        document.getElementById('bb-prompt-2').textContent   = `ROUND ${_round} — REDRAW IT!`;
-        document.getElementById('mg-neutral').textContent    = 'P2: REDRAW FROM MEMORY!';
-        _ctxs[1].strokeStyle = '#ffffff'; _ctxs[1].lineWidth = 4;
+        // Hide memorizer's canvas content, enable drawer
+        _clearCanvas(_ctxs[_role]);
+        document.getElementById(`bb-prompt-${_role + 1}`).style.display = 'none';
+        document.getElementById(`bb-prompt-${drawer + 1}`).style.display = 'block';
+        document.getElementById(`bb-prompt-${drawer + 1}`).textContent   = `ROUND ${_round} — REDRAW IT!`;
+        document.getElementById('mg-neutral').textContent = `P${drawer + 1}: REDRAW FROM MEMORY!`;
+        _ctxs[drawer].strokeStyle = '#ffffff'; _ctxs[drawer].lineWidth = 4;
 
-        if (_isBot) setTimeout(() => { if (state.mgActive && !_done && _phase === 'draw') _botDraw(); }, 400);
+        // Bot draws if bot is the drawer (bot = pid 1)
+        if (_isBot && drawer === 1) _after(() => { if (state.mgActive && !_done && _phase === 'draw') _botDraw(); }, 400);
 
-        _timer = setTimeout(() => { if (state.mgActive && !_done && _phase === 'draw') _scoreRound(); }, DRAW_MS);
+        _after(() => { if (state.mgActive && !_done && _phase === 'draw') _scoreRound(); }, DRAW_MS);
     }, MEMORIZE_MS);
 }
 
@@ -139,20 +167,9 @@ function _botDraw() {
     const c = _ctxs[1];
     if (!c) return;
     c.strokeStyle = '#ffffff'; c.lineWidth = 4;
-    // Bot draws a rough version of the same template with slight noise
-    const noiseFn = (v, scale) => v + (Math.random() - 0.5) * scale;
-    const origFn  = TEMPLATES[_tIdx];
-    const noiseCtx = new Proxy(c, {
-        get(t, p) {
-            const val = t[p];
-            if (typeof val === 'function') return val.bind(t);
-            return val;
-        }
-    });
-    // Draw template at slight offset (bot imperfection)
     c.save();
     c.translate((Math.random()-0.5)*14, (Math.random()-0.5)*14);
-    origFn(c, c.canvas.width, c.canvas.height);
+    TEMPLATES[_tIdx](c, c.canvas.width, c.canvas.height);
     c.restore();
 }
 
@@ -168,7 +185,6 @@ function _downsample(ctx) {
             for (let py = Math.floor(gy*ch); py < Math.floor((gy+1)*ch); py++) {
                 for (let px = Math.floor(gx*cw); px < Math.floor((gx+1)*cw); px++) {
                     const i = (py * w + px) * 4;
-                    // Pixel is "ink" if significantly brighter than background
                     if (raw[i] > 40 || raw[i+1] > 40 || raw[i+2] > 40) ink++;
                     total++;
                 }
@@ -190,18 +206,18 @@ function _iou(g1, g2) {
 
 function _scoreRound() {
     if (_done) return;
-    clearTimeout(_timer);
+    _timers.forEach(clearTimeout); _timers.length = 0;
     _phase = 'scoring';
 
-    const p2Grid   = _downsample(_ctxs[1]);
-    const accuracy = _iou(_templateData || [], p2Grid);
+    const drawer = 1 - _role;
+    const drawerGrid = _downsample(_ctxs[drawer]);
+    const accuracy   = _iou(_templateData || [], drawerGrid);
 
-    // P1 gets fixed 50 points (was the template setter), P2 gets accuracy score
-    _scores[0] += 50;
-    _scores[1] += accuracy;
+    // Memorizer gets 30pts participation, drawer gets accuracy
+    _scores[_role]  += 30;
+    _scores[drawer] += accuracy;
 
-    document.getElementById('mm-neutral')?.textContent; // no-op guard
-    document.getElementById('mg-neutral').textContent = `P2 ACCURACY: ${accuracy}%`;
+    document.getElementById('mg-neutral').textContent = `P${drawer + 1} ACCURACY: ${accuracy}%`;
     document.getElementById('bb-score-1').textContent = `${_scores[0]} pts`;
     document.getElementById('bb-score-2').textContent = `${_scores[1]} pts`;
     sfx(accuracy > 60 ? 'coin_gain' : 'land_bad');
@@ -209,8 +225,14 @@ function _scoreRound() {
     if (_round >= MAX_ROUNDS) {
         _done = true; state.mgActive = false;
         const winner = _scores[0] > _scores[1] ? 0 : _scores[1] > _scores[0] ? 1 : -1;
-        setTimeout(() => _onWin(winner), 1000);
+        _after(() => _onWin(winner), 1000);
     } else {
-        setTimeout(_startRound, 2000);
+        _after(_startRound, 2000);
     }
+}
+
+export function destroy() {
+    _timers.forEach(clearTimeout); _timers.length = 0;
+    _canvasCleanups.forEach(f => f()); _canvasCleanups.length = 0;
+    _done = true;
 }

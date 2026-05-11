@@ -17,11 +17,13 @@ let _collectors = [], _dots = [];
 let _scores = [0, 0];
 let _scoreEls = [null, null], _timerEl = null, _neutralEl = null;
 const _cleanups = [];
+const _dotTimers = [];
 
 export function start(isBot, onWin) {
     if (!state.mgActive) return;
+    _dotTimers.forEach(clearTimeout); _dotTimers.length = 0;
     _done = false; _onWin = onWin; _isBot = isBot;
-    _scores = [0, 0]; _dots = []; _startTime = 0;
+    _scores = [0, 0]; _dots = []; _startTime = 0; _cleanups.length = 0;
     _neutralEl = document.getElementById('mg-neutral');
     _build();
     requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -135,6 +137,8 @@ function _tick(now) {
         if (nearest) {
             _collectors[1].x += (nearest.x - _collectors[1].x) * 0.14;
             _collectors[1].y += (nearest.y - _collectors[1].y) * 0.14;
+            // Clamp bot to its half (top half)
+            _collectors[1].y = Math.max(COLLECTOR_R, Math.min(_H / 2 - COLLECTOR_R, _collectors[1].y));
         }
     }
 
@@ -152,13 +156,20 @@ function _tick(now) {
                     c.stunUntil = now + STUN_MS;
                     sfx('land_bad');
                 }
-                // Respawn dot elsewhere
-                setTimeout(() => {
-                    d.x = DOT_R + Math.random() * (_W - DOT_R * 2);
-                    d.y = DOT_R + Math.random() * (_H - DOT_R * 2);
+                // Respawn dot in collector's half (red dots bottom, blue dots top)
+                const tid = setTimeout(() => {
+                    const idx = _dotTimers.indexOf(tid);
+                    if (idx >= 0) _dotTimers.splice(idx, 1);
+                    if (_done) return;
                     d.pid = Math.random() < 0.5 ? 0 : 1;
+                    d.x = DOT_R + Math.random() * (_W - DOT_R * 2);
+                    // Spawn in correct half so both halves have accessible dots
+                    d.y = d.pid === 0
+                        ? _H / 2 + DOT_R + Math.random() * (_H / 2 - DOT_R * 2)
+                        : DOT_R + Math.random() * (_H / 2 - DOT_R * 2);
                     d.active = true;
                 }, 600);
+                _dotTimers.push(tid);
             }
         }
     }
@@ -213,6 +224,7 @@ function _resolve() {
 }
 
 function _destroy() {
+    _dotTimers.forEach(clearTimeout); _dotTimers.length = 0;
     _cleanups.forEach(f => f()); _cleanups.length = 0;
     cancelAnimationFrame(_af); _af = null;
     if (_overlay) { _overlay.remove(); _overlay = null; }

@@ -65,6 +65,7 @@ let _controller   = null;
 let _onComplete   = null;
 let _botTraceInt  = null;
 let _standaloneMode = false;
+let _activeMod    = null;
 
 export function init(controller) {
     _controller = controller;
@@ -253,6 +254,7 @@ async function _launchGame() {
     try {
         const loader = MG_MODULES[state.mgType] || MG_MODULES.math;
         const mod    = await loader();
+        _activeMod = mod;
         mod.start(state.players[1].isBot, winMinigame);
     } catch (e) {
         console.error('[MinigameManager] _launchGame failed:', e);
@@ -292,6 +294,8 @@ export function endMinigame(winnerId) {
     clearInterval(_botTraceInt);
     _botTraceInt = null;
     state.mgActive = false;
+    if (_activeMod?.destroy) { try { _activeMod.destroy(); } catch(_) {} }
+    _activeMod = null;
     document.getElementById('minigame-layer').style.display = 'none';
 
     if (_standaloneMode) {

@@ -26,7 +26,8 @@ function _startRound() {
         .then(r => r.json())
         .then(d => { if (!_done && d.results?.length > 0) _setup(d.results[0]); else if (!_done) _setup(_rand()); })
         .catch(() => { if (!_done) _setup(_rand()); });
-    if (_isBot) setTimeout(() => { if (state.mgActive && !_done && !_roundDone) _tap(1, _answer); }, 4500 + Math.random() * 2500);
+    // Guard: bot only fires if answer is known (fetch may be slow)
+    if (_isBot) setTimeout(() => { if (state.mgActive && !_done && !_roundDone && _answer) _tap(1, _answer); }, 4500 + Math.random() * 2500);
 }
 
 function _rand() { return FALLBACK_TRIVIA[Math.floor(Math.random() * FALLBACK_TRIVIA.length)]; }
@@ -72,3 +73,5 @@ function _tap(pid, ans) {
         setTimeout(_startRound, 2000);
     }
 }
+
+export function destroy() { _done = true; }

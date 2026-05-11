@@ -9,6 +9,8 @@ const COLS = 6; // 6×3 grid
 
 let _cards = [], _firstIdx = null, _matched = [0, 0], _done = false;
 let _flipping = false, _currentPlayer = 0, _onWin = null, _isBot = false;
+const _timers = [];
+function _after(fn, ms) { const id = setTimeout(() => { const i = _timers.indexOf(id); if (i >= 0) _timers.splice(i,1); fn(); }, ms); _timers.push(id); return id; }
 
 function _buildGrid() {
     // Use mem-grid-1 as the single shared grid; hide mem-grid-2
@@ -59,14 +61,16 @@ export function start(isBot, onWin) {
         document.getElementById(`mem-score-${pi}`).textContent = '0 pairs';
     });
 
+    _timers.forEach(clearTimeout); _timers.length = 0;
+    _currentPlayer = Math.floor(Math.random() * 2); // random first player
     _buildGrid();
-    _setTheme(0);
+    _setTheme(_currentPlayer);
 
     // Flash all cards for memorize period
     _cards.forEach(c => c.revealed = true); _renderGrid();
-    setTimeout(() => {
+    _after(() => {
         _cards.forEach(c => c.revealed = false); _renderGrid();
-        if (_isBot && _currentPlayer === 1) setTimeout(_botTurn, 500);
+        if (_isBot && _currentPlayer === 1) _after(_botTurn, 500);
     }, 2000);
 }
 
@@ -81,7 +85,7 @@ function _tapCard(idx) {
     const a = _cards[_firstIdx], b = _cards[idx];
     _firstIdx = null; _flipping = true;
 
-    setTimeout(() => {
+    _after(() => {
         _flipping = false;
         if (a.emoji === b.emoji) {
             a.matched = b.matched = true;
@@ -94,12 +98,12 @@ function _tapCard(idx) {
                 _done = true; state.mgActive = false;
                 document.getElementById('minigame-layer').style.background = '';
                 const winner = _matched[0] > _matched[1] ? 0 : _matched[1] > _matched[0] ? 1 : -1;
-                setTimeout(() => _onWin(winner), 700);
+                _after(() => _onWin(winner), 700);
                 return;
             }
             // Match: same player goes again
             _setTheme(_currentPlayer);
-            if (_isBot && _currentPlayer === 1) setTimeout(_botTurn, 700);
+            if (_isBot && _currentPlayer === 1) _after(_botTurn, 700);
         } else {
             a.revealed = b.revealed = false;
             sfx('land_bad');
@@ -111,7 +115,7 @@ function _tapCard(idx) {
             document.getElementById('mg-neutral').innerHTML =
                 `<span style="color:${passColor};font-size:1.1em;">PASS THE PHONE → P${_currentPlayer + 1}!</span>`;
             layer.style.background = 'rgba(20,8,38,0.98)';
-            setTimeout(() => {
+            _after(() => {
                 if (!state.mgActive || _done) return;
                 _setTheme(_currentPlayer);
                 if (_isBot && _currentPlayer === 1) _botTurn();
@@ -143,6 +147,12 @@ function _botTurn() {
     const candidates = _cards.map((c, i) => i).filter(i => !_cards[i].matched && !_cards[i].revealed);
     if (candidates.length > 0) {
         const pick = candidates[Math.floor(Math.random() * candidates.length)];
-        setTimeout(() => { if (state.mgActive && !_done && !_flipping) _tapCard(pick); }, 700);
+        _after(() => { if (state.mgActive && !_done && !_flipping) _tapCard(pick); }, 700);
     }
+}
+
+export function destroy() {
+    _timers.forEach(clearTimeout); _timers.length = 0;
+    _done = true;
+    document.getElementById('minigame-layer').style.background = '';
 }

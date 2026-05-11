@@ -25,6 +25,7 @@ const _cleanups = [];
 
 export function start(isBot, onWin) {
     if (!state.mgActive) return;
+    _cleanups.forEach(f => f()); _cleanups.length = 0;
     _done = false; _onWin = onWin; _isBot = isBot;
     _startTime = 0; _lastTime = 0; _lastSpawn = 0;
     _asteroids = []; _health = [HEALTH_MAX, HEALTH_MAX];
@@ -308,3 +309,5 @@ function _destroy() {
     if (_overlay) { _overlay.remove(); _overlay = null; }
     _canvas = null; _ctx = null; _activePointers.clear();
 }
+
+export function destroy() { _done = true; cancelAnimationFrame(_af); _af = null; _cleanups.forEach(f => f()); _cleanups.length = 0; }

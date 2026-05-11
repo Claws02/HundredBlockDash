@@ -21,6 +21,7 @@ const MAX_WINS  = 2; // best of 3
 const SHAPE_COLORS = ['#ef4444','#3b82f6','#4ade80','#f59e0b','#a855f7','#ec4899','#06b6d4','#f97316'];
 
 let _done = false, _roundActive = false, _wins = [0, 0], _target = null, _onWin = null, _isBot = false;
+let _roundTimer = null;
 
 export function start(isBot, onWin) {
     if (!state.mgActive) return;
@@ -64,6 +65,14 @@ function _nextRound() {
         });
     });
 
+    clearTimeout(_roundTimer);
+    _roundTimer = setTimeout(() => {
+        if (state.mgActive && !_done && _roundActive) {
+            _roundActive = false;
+            document.getElementById('mg-neutral').textContent = 'TIME\'S UP!';
+            setTimeout(_nextRound, 1000);
+        }
+    }, 8000);
     if (_isBot) {
         setTimeout(() => {
             if (state.mgActive && !_done && _roundActive) _tap(1, _target.key, null);
@@ -74,6 +83,7 @@ function _nextRound() {
 function _tap(pid, shapeKey, tapCell) {
     if (!state.mgActive || _done || !_roundActive) return;
     _roundActive = false;
+    clearTimeout(_roundTimer);
     const correct = shapeKey === _target.key;
     const roundWinner = correct ? pid : (pid === 0 ? 1 : 0);
     _wins[roundWinner]++;
@@ -100,4 +110,9 @@ function _tap(pid, shapeKey, tapCell) {
     } else {
         setTimeout(_nextRound, 1300);
     }
+}
+
+export function destroy() {
+    clearTimeout(_roundTimer); _roundTimer = null;
+    _done = true;
 }

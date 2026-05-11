@@ -22,6 +22,7 @@ const _cleanups = [];
 
 export function start(isBot, onWin) {
     if (!state.mgActive) return;
+    _cleanups.forEach(f => f()); _cleanups.length = 0;
     _done = false; _onWin = onWin; _isBot = isBot;
     _startTime = 0; _activePointers = new Map();
     _botPath = null; _botStep = 0; _frameCount = 0; _cachedPcts = [0, 0];
@@ -222,3 +223,5 @@ function _destroy() {
     _canvas = null; _ctx = null; _paintGrid = null; _paintCtx = null;
     _scoreEls = [null, null]; _activePointers.clear();
 }
+
+export function destroy() { _done = true; cancelAnimationFrame(_af); _af = null; _cleanups.forEach(f => f()); _cleanups.length = 0; }
