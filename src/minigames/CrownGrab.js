@@ -18,6 +18,7 @@ const _cleanups = [];
 
 export function start(isBot, onWin) {
     if (!state.mgActive) return;
+    _cleanups.forEach(f => f()); _cleanups.length = 0;
     _done = false; _scores = [0, 0]; _onWin = onWin; _isBot = isBot;
     _holdStart = -1;
     _neutralEl = document.getElementById('mg-neutral');
@@ -146,11 +147,14 @@ function _tick(now) {
     }
 
     // Check hold scoring — must be carrying on YOUR side
-    if (_crown.carriedBy >= 0 && _holdStart >= 0) {
+    if (_crown.carriedBy >= 0) {
         const carrier = _avatars[_crown.carriedBy];
         const onOwnSide = _crown.carriedBy === 0 ? carrier.y > _H / 2 : carrier.y < _H / 2;
-        if (!onOwnSide) { _holdStart = -1; } // left own side
-        else if (now - _holdStart >= HOLD_MS) {
+        if (!onOwnSide) {
+            _holdStart = -1;
+        } else if (_holdStart < 0) {
+            _holdStart = now; // restart timer when re-entering own side
+        } else if (now - _holdStart >= HOLD_MS) {
             _doScore(_crown.carriedBy);
         } else {
             const prog = (now - _holdStart) / HOLD_MS;
@@ -225,3 +229,5 @@ function _destroy() {
     if (_overlay) { _overlay.remove(); _overlay = null; }
     _canvas = null; _ctx = null; _scoreEls = [null, null];
 }
+
+export function destroy() { _done = true; cancelAnimationFrame(_af); _af = null; _cleanups.forEach(f => f()); _cleanups.length = 0; }

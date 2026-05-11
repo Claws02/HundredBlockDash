@@ -15,9 +15,12 @@ const MAX_WINS = 2; // best of 3
 
 let _round = 0, _wins = [0, 0], _done = false, _roundDone = false, _onWin = null, _isBot = false;
 let _inkName = '';
+let _roundTimer = null, _botTimer = null;
 
 export function start(isBot, onWin) {
     if (!state.mgActive) return;
+    clearTimeout(_roundTimer); _roundTimer = null;
+    clearTimeout(_botTimer); _botTimer = null;
     _onWin = onWin; _isBot = isBot;
     _round = 0; _wins = [0, 0]; _done = false;
     [1, 2].forEach(i => {
@@ -61,11 +64,23 @@ function _nextRound() {
         });
     });
     document.getElementById('mg-neutral').textContent = 'TAP THE INK COLOR — NOT THE WORD!';
-    if (_isBot) setTimeout(() => { if (state.mgActive && !_done && !_roundDone) _tap(1, _inkName); }, 1000 + Math.random() * 1200);
+    if (_isBot) {
+        _botTimer = setTimeout(() => { _botTimer = null; if (state.mgActive && !_done && !_roundDone) _tap(1, _inkName); }, 1000 + Math.random() * 1200);
+    }
+    // 6s fallback so 2P human game can't hang if neither player taps
+    _roundTimer = setTimeout(() => {
+        _roundTimer = null;
+        if (!state.mgActive || _done || _roundDone) return;
+        _roundDone = true;
+        document.getElementById('mg-neutral').textContent = 'TIME\'S UP! — NEXT ROUND';
+        setTimeout(_nextRound, 1200);
+    }, 6000);
 }
 
 function _tap(pid, chosen) {
     if (!state.mgActive || _done || _roundDone) return;
+    clearTimeout(_roundTimer); _roundTimer = null;
+    clearTimeout(_botTimer); _botTimer = null;
     _roundDone = true; // first tap ends the round for both
     const correct = chosen === _inkName;
     const roundWinner = correct ? pid : (pid === 0 ? 1 : 0);
@@ -89,3 +104,5 @@ function _tap(pid, chosen) {
         setTimeout(_nextRound, 1600);
     }
 }
+
+export function destroy() { _done = true; clearTimeout(_roundTimer); _roundTimer = null; clearTimeout(_botTimer); _botTimer = null; }
