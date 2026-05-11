@@ -112,3 +112,8 @@ function _tap(pid, idx) {
         }
     }
 }
+
+export function destroy() {
+    clearInterval(_botInt); _botInt = null;
+    _done = true;
+}

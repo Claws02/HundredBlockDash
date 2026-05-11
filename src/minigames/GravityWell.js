@@ -173,8 +173,14 @@ function _tick() {
         _ball.vx = (_ball.vx + ax) * FRICTION;
         _ball.vy = (_ball.vy + ay) * FRICTION;
 
-        // Speed cap
+        // Keep ball moving — nudge if near-stalled to prevent indefinite game
         const spd = Math.hypot(_ball.vx, _ball.vy);
+        if (spd < 0.5) {
+            _ball.vx += (Math.random() - 0.5) * 0.8;
+            _ball.vy += (Math.random() - 0.5) * 0.8;
+        }
+
+        // Speed cap
         if (spd > SPEED_CAP) { _ball.vx *= SPEED_CAP / spd; _ball.vy *= SPEED_CAP / spd; }
 
         _ball.x += _ball.vx;
@@ -205,7 +211,8 @@ function _score(pid) {
     if (_scores[pid] >= WIN_SCORE) {
         _done = true; state.mgActive = false;
         clearInterval(_botInterval); _botInterval = null;
-        setTimeout(() => { cancelAnimationFrame(_af); _af = null; _destroy(); _onWin(pid); }, 1500);
+        cancelAnimationFrame(_af); _af = null;
+        setTimeout(() => { _destroy(); _onWin(pid); }, 1500);
         return;
     }
 

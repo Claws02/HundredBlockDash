@@ -15,6 +15,7 @@ const MAX_WINS   = 3; // best of 5
 
 let _pattern = [], _done = false, _roundDone = false, _input = [[], []];
 let _onWin = null, _isBot = false, _wins = [0, 0], _round = 0;
+let _showIv = null;
 
 export function start(isBot, onWin) {
     if (!state.mgActive) return;
@@ -56,7 +57,8 @@ function _startRound() {
     sfx('countdown');
 
     let i = 0;
-    const showIv = setInterval(() => {
+    clearInterval(_showIv);
+    _showIv = setInterval(() => {
         [1, 2].forEach(pi => {
             const lights = [...document.getElementById(`seq-display-${pi}`).children];
             lights.forEach(l => l.classList.remove('lit', 'seq-double'));
@@ -70,7 +72,7 @@ function _startRound() {
         if (i < _pattern.length) sfx('seq_lit');
         i++;
         if (i > _pattern.length) {
-            clearInterval(showIv);
+            clearInterval(_showIv); _showIv = null;
             setTimeout(() => {
                 [1, 2].forEach(pi =>
                     [...document.getElementById(`seq-display-${pi}`).children]
@@ -138,4 +140,9 @@ function _checkEnd(lastWinner) {
     } else {
         setTimeout(_startRound, 1600);
     }
+}
+
+export function destroy() {
+    clearInterval(_showIv); _showIv = null;
+    _done = true;
 }

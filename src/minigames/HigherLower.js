@@ -3,12 +3,14 @@ import { sfx } from '../engine/AudioManager.js';
 
 const HL_MAX = 7;
 let _secret = [0, 0], _guesses = [0, 0], _done = [false, false], _currentGuess = ['', ''], _onWin = null;
+let _foundAnswer = [false, false], _gameOver = false;
 
 export function start(isBot, onWin) {
     if (!state.mgActive) return;
     _onWin = onWin;
     _secret = [Math.floor(Math.random() * 100) + 1, Math.floor(Math.random() * 100) + 1];
     _guesses = [0, 0]; _done = [false, false]; _currentGuess = ['', ''];
+    _foundAnswer = [false, false]; _gameOver = false;
 
     [1, 2].forEach(pi => {
         document.getElementById(`hl-secret-${pi}`).style.display = 'block';
@@ -68,7 +70,7 @@ function _submit(pid) {
     const left = HL_MAX - _guesses[pid];
     const fb = document.getElementById(`hl-feedback-${pid + 1}`);
     if (guess === _secret[pid]) {
-        _done[pid] = true;
+        _done[pid] = true; _foundAnswer[pid] = true;
         fb.textContent = `✅ GOT IT in ${_guesses[pid]}!`; fb.style.color = '#4ade80';
         document.getElementById(`hl-guesses-${pid + 1}`).textContent = '';
         document.getElementById(`hl-input-${pid + 1}`).style.display = 'none';
@@ -89,18 +91,17 @@ function _submit(pid) {
 }
 
 function _resolve() {
+    if (_gameOver) return; _gameOver = true;
     state.mgActive = false;
-    const p0got = _done[0] && document.getElementById('hl-feedback-1').textContent.includes('✅');
-    const p1got = _done[1] && document.getElementById('hl-feedback-2').textContent.includes('✅');
     let winner = -1;
-    if (p0got && p1got) winner = _guesses[0] < _guesses[1] ? 0 : _guesses[1] < _guesses[0] ? 1 : -1;
-    else if (p0got) winner = 0;
-    else if (p1got) winner = 1;
+    if (_foundAnswer[0] && _foundAnswer[1]) winner = _guesses[0] < _guesses[1] ? 0 : _guesses[1] < _guesses[0] ? 1 : -1;
+    else if (_foundAnswer[0]) winner = 0;
+    else if (_foundAnswer[1]) winner = 1;
     setTimeout(() => _onWin(winner), 1200);
 }
 
 function _botGuess(pid, lo, hi) {
-    if (!state.mgActive || _done[pid]) return;
+    if (!state.mgActive || _done[pid] || _gameOver) return;
     const guess = Math.floor((lo + hi) / 2);
     _currentGuess[pid] = String(guess);
     _submit(pid);

@@ -12,12 +12,14 @@ const MAX_ROUNDS  = 3;
 
 let _done = false, _round = 0, _scores = [0, 0], _onWin = null, _isBot = false;
 let _pattern = [], _phase = 'idle', _memTimer = null, _recallTimer = null, _roundSeq = 0;
+let _nextRoundTimer = null, _winTimer = null;
 
 export function start(isBot, onWin) {
     if (!state.mgActive) return;
     _done = false; _round = 0; _scores = [0, 0]; _onWin = onWin; _isBot = isBot;
     _pattern = []; _phase = 'idle'; _roundSeq = 0;
     clearTimeout(_memTimer); clearTimeout(_recallTimer);
+    clearTimeout(_nextRoundTimer); clearTimeout(_winTimer);
 
     [1, 2].forEach(pi => {
         const grid = document.getElementById(`grid-recall-${pi}`);
@@ -137,8 +139,15 @@ function _scoreRound(seq) {
     if (_round >= MAX_ROUNDS) {
         _done = true; state.mgActive = false;
         const winner = _scores[0] > _scores[1] ? 0 : _scores[1] > _scores[0] ? 1 : -1;
-        setTimeout(() => _onWin(winner), 1200);
+        const seq = _roundSeq;
+        _winTimer = setTimeout(() => { if (_roundSeq === seq) _onWin(winner); }, 1200);
     } else {
-        setTimeout(_startRound, 2200);
+        _nextRoundTimer = setTimeout(_startRound, 2200);
     }
+}
+
+export function destroy() {
+    clearTimeout(_memTimer); clearTimeout(_recallTimer);
+    clearTimeout(_nextRoundTimer); clearTimeout(_winTimer);
+    _done = true;
 }
