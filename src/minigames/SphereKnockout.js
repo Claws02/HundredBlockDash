@@ -170,8 +170,8 @@ function _mkLabel(text, color) {
 // ── Three.js Scene ────────────────────────────────────────────────────────────
 
 function _initThree() {
-    const w = _overlay.clientWidth  || 390;
-    const h = _overlay.clientHeight || 680;
+    const w = window.innerWidth;
+    const h = window.innerHeight;
     const aspect = w / h;
 
     _renderer = new THREE.WebGLRenderer({ antialias: true });
