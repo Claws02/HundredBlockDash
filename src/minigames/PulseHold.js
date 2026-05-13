@@ -134,35 +134,26 @@ function _scoreRelease(pid, isTimeout = false) {
     scoreEl.textContent = `${score}% ${label}`;
     scoreEl.style.color = scale >= PEAK_THRESH ? '#4ade80' : scale >= 0.65 ? '#fbbf24' : '#ef4444';
     sfx(scale >= PEAK_THRESH ? 'land_good' : 'land_bad');
-    // If both have now released, finish the round immediately
-    if (_releaseScores[0] !== null && _releaseScores[1] !== null) {
-        _finishRound();
-        return;
-    }
     // Keep animating the other player if they haven't released yet
-    _animFrame = requestAnimationFrame(function cont(now) {
-        if (_done || (_releaseScores[0] !== null && _releaseScores[1] !== null)) { _finishRound(); return; }
-        // Only update the still-active player
-        [0, 1].forEach(p2 => {
-            if (_releaseScores[p2] !== null) return;
-            const ph = _phases[p2][_phaseIdx[p2]];
-            _phaseElapsed[p2] += 0.016;
-            if (_phaseElapsed[p2] > ph.dur && _phaseIdx[p2] < _phases[p2].length - 1) { _phaseElapsed[p2] = 0; _phaseIdx[p2]++; }
-            const scale2 = 0.2 + 0.8 * Math.abs(Math.sin(_phaseElapsed[p2] * ph.speed * Math.PI));
-            const c2 = document.getElementById(`pulse-circle-${p2 + 1}`);
-            c2.style.transform = `scale(${scale2.toFixed(3)})`;
-            const atPeak2 = scale2 >= PEAK_THRESH;
-            c2.style.borderColor = atPeak2 ? '#4ade80' : scale2 > 0.65 ? '#fbbf24' : '#ffffff';
-            c2.style.boxShadow   = atPeak2 ? '0 0 22px rgba(74,222,128,0.75)' : 'none';
+    if (_releaseScores[0] === null || _releaseScores[1] === null) {
+        _animFrame = requestAnimationFrame(function cont(now) {
+            if (_done || (_releaseScores[0] !== null && _releaseScores[1] !== null)) { _finishRound(); return; }
+            // Only update the still-active player
+            [0, 1].forEach(p2 => {
+                if (_releaseScores[p2] !== null) return;
+                const ph = _phases[p2][_phaseIdx[p2]];
+                _phaseElapsed[p2] += 0.016;
+                if (_phaseElapsed[p2] > ph.dur && _phaseIdx[p2] < _phases[p2].length - 1) { _phaseElapsed[p2] = 0; _phaseIdx[p2]++; }
+                const scale2 = 0.2 + 0.8 * Math.abs(Math.sin(_phaseElapsed[p2] * ph.speed * Math.PI));
+                const c2 = document.getElementById(`pulse-circle-${p2 + 1}`);
+                c2.style.transform = `scale(${scale2.toFixed(3)})`;
+                const atPeak2 = scale2 >= PEAK_THRESH;
+                c2.style.borderColor = atPeak2 ? '#4ade80' : scale2 > 0.65 ? '#fbbf24' : '#ffffff';
+                c2.style.boxShadow   = atPeak2 ? '0 0 22px rgba(74,222,128,0.75)' : 'none';
+            });
+            _animFrame = requestAnimationFrame(cont);
         });
-        _animFrame = requestAnimationFrame(cont);
-    });
-}
-
-export function destroy() {
-    cancelAnimationFrame(_animFrame); _animFrame = null;
-    _cleanups.forEach(f => f()); _cleanups.length = 0;
-    _done = true;
+    }
 }
 
 function _finishRound() {

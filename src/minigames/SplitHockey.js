@@ -20,7 +20,6 @@ const _cleanups = [];
 
 export function start(isBot, onWin) {
     if (!state.mgActive) return;
-    _cleanups.forEach(f => f()); _cleanups.length = 0;
     _done = false; _scores = [0, 0]; _onWin = onWin; _isBot = isBot;
     _scoring = false;
     _neutralEl = document.getElementById('mg-neutral');
@@ -215,5 +214,3 @@ function _destroy() {
     if (_overlay) { _overlay.remove(); _overlay = null; }
     _canvas = null; _ctx = null; _scoreEls = [null, null];
 }
-
-export function destroy() { _done = true; cancelAnimationFrame(_af); _af = null; _cleanups.forEach(f => f()); _cleanups.length = 0; }

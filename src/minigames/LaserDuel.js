@@ -16,7 +16,7 @@ let _canvas = null, _ctx = null, _overlay = null;
 let _W = 0, _H = 0, _af = null, _lastTime = 0;
 let _players = [], _lasers = [];
 let _scoreEls = [null, null], _neutralEl = null;
-let _botInterval = null, _gameTimeout = null;
+let _botInterval = null;
 const _cleanups = [];
 
 export function start(isBot, onWin) {
@@ -89,13 +89,6 @@ function _setup() {
         pointerPid.set(e.pointerId, pid);
         if (!(_isBot && pid === 1)) _players[pid].charging = true;
     };
-    const onMove = e => {
-        e.preventDefault();
-        const pid = pointerPid.get(e.pointerId);
-        if (pid === undefined || (_isBot && pid === 1)) return;
-        const cr = _canvas.getBoundingClientRect();
-        _players[pid].x = Math.max(30, Math.min(_W - 30, e.clientX - cr.left));
-    };
     const onUp = e => {
         const pid = pointerPid.get(e.pointerId);
         pointerPid.delete(e.pointerId);
@@ -108,23 +101,13 @@ function _setup() {
         if (pid !== undefined) _players[pid].charging = false;
     };
     _canvas.addEventListener('pointerdown',   onDown);
-    _canvas.addEventListener('pointermove',   onMove);
     _canvas.addEventListener('pointerup',     onUp);
     _canvas.addEventListener('pointercancel', onCancel);
     _cleanups.push(() => {
         _canvas.removeEventListener('pointerdown',   onDown);
-        _canvas.removeEventListener('pointermove',   onMove);
         _canvas.removeEventListener('pointerup',     onUp);
         _canvas.removeEventListener('pointercancel', onCancel);
     });
-
-    // 60-second match timeout
-    _gameTimeout = setTimeout(() => {
-        if (!_done) {
-            const winner = _players[0].shield > _players[1].shield ? 0 : _players[1].shield > _players[0].shield ? 1 : -1;
-            _resolve(winner < 0 ? 0 : winner); // default P1 wins on exact tie
-        }
-    }, 60000);
 
     if (_isBot) {
         _botInterval = setInterval(() => {
@@ -226,15 +209,13 @@ function _draw(now) {
 function _resolve(winner) {
     if (_done) return;
     _done = true; state.mgActive = false;
-    clearTimeout(_gameTimeout); _gameTimeout = null;
     cancelAnimationFrame(_af); _af = null;
     clearInterval(_botInterval); _botInterval = null;
-    if (_neutralEl) _neutralEl.textContent = winner >= 0 ? `P${winner + 1} WINS THE DUEL!` : 'TIE DUEL!';
+    if (_neutralEl) _neutralEl.textContent = `P${winner + 1} WINS THE DUEL!`;
     setTimeout(() => { _destroy(); _onWin(winner); }, 1500);
 }
 
 function _destroy() {
-    clearTimeout(_gameTimeout); _gameTimeout = null;
     clearInterval(_botInterval); _botInterval = null;
     _cleanups.forEach(f => f()); _cleanups.length = 0;
     cancelAnimationFrame(_af); _af = null;

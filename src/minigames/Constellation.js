@@ -2,7 +2,7 @@
 // First to finish the constellation wins the round; loser's round ends immediately.
 import { state } from '../core/GameState.js';
 import { sfx } from '../engine/AudioManager.js';
-import { getBotTraceIntervalRef } from './MinigameManager.js';
+import { getBotTraceIntervalRef, registerMinigameCleanup } from './MinigameManager.js';
 
 const NODE_COUNT = 5;
 const MAX_WINS   = 2; // best of 3
@@ -27,6 +27,10 @@ export function start(isBot, onWin) {
     if (!state.mgActive) return;
     _onWin = onWin; _isBot = isBot;
     _wins = [0, 0]; _done = false;
+    registerMinigameCleanup(() => {
+        clearInterval(_botInt);
+        _botInt = null;
+    });
     _startRound();
 }
 
@@ -78,15 +82,20 @@ function _render() {
             node.style.cssText = `left:${pos[0]}%;top:${pos[1]}%;transform:translate(-50%,-50%);`;
             node.textContent = i + 1;
             node.dataset.idx = i;
-            node.addEventListener('pointerdown', e => { e.stopPropagation(); _tap(pi - 1, i); });
+            node.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); _tap(pi - 1, i, node); });
             c.appendChild(node);
         });
     });
 }
 
-function _tap(pid, idx) {
+function _tap(pid, idx, node = null) {
     if (!state.mgActive || _done || _traceState[pid].done) return;
-    if (idx !== _traceState[pid].next) return; // wrong order — ignore
+    if (idx !== _traceState[pid].next) {
+        node?.classList.add('wrong-shape');
+        setTimeout(() => node?.classList.remove('wrong-shape'), 220);
+        sfx('land_bad');
+        return;
+    }
     _traceState[pid].next++;
 
     const c = document.getElementById(`trace-c-${pid + 1}`);
@@ -111,9 +120,4 @@ function _tap(pid, idx) {
             setTimeout(_startRound, 1600);
         }
     }
-}
-
-export function destroy() {
-    clearInterval(_botInt); _botInt = null;
-    _done = true;
 }

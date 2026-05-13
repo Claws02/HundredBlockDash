@@ -10,13 +10,12 @@ const MAX_ROUNDS  = 3;
 let _done = false, _round = 0, _wins = [0, 0], _onWin = null;
 let _codes = ['', ''], _guesses = [0, 0], _solved = [false, false];
 let _input = ['', ''], _roundOver = false, _isBot = false;
-let _roundSeq = 0;
 
 export function start(isBot, onWin) {
     if (!state.mgActive) return;
     _done = false; _round = 0; _wins = [0, 0]; _onWin = onWin; _isBot = isBot;
     _codes = ['', '']; _guesses = [0, 0]; _solved = [false, false];
-    _input = ['', '']; _roundOver = false; _roundSeq = 0;
+    _input = ['', '']; _roundOver = false;
 
     [1, 2].forEach(pi => {
         document.getElementById(`cb-history-${pi}`).style.display = 'block';
@@ -59,7 +58,6 @@ function _startRound() {
     if (!state.mgActive || _done || _round >= MAX_ROUNDS) return;
     _round++;
     _solved = [false, false]; _guesses = [0, 0]; _input = ['', '']; _roundOver = false;
-    _roundSeq++;
 
     // Generate codes with unique digits (1-4)
     _codes = [0, 1].map(() => {
@@ -147,7 +145,6 @@ function _checkRoundEnd() {
 
 function _botPlay() {
     if (!state.mgActive || _done || _solved[1] || _roundOver) return;
-    const mySeq = _roundSeq;
     // Intelligent bot: builds a candidate list and narrows with each result
     const remaining = [];
     for (let a = 1; a <= 4; a++)
@@ -158,7 +155,7 @@ function _botPlay() {
     const previous = [];
 
     const guessNext = () => {
-        if (!state.mgActive || _done || _solved[1] || _roundOver || _roundSeq !== mySeq) return;
+        if (!state.mgActive || _done || _solved[1] || _roundOver) return;
         // Filter remaining by previous results
         const candidates = remaining.filter(cand =>
             previous.every(({ guess, bulls, cows }) => {
@@ -171,13 +168,13 @@ function _botPlay() {
         // Type it in
         let i = 0;
         const typeNext = () => {
-            if (!state.mgActive || _done || _solved[1] || _roundOver || _roundSeq !== mySeq) return;
+            if (!state.mgActive || _done || _solved[1] || _roundOver) return;
             if (i < CODE_LEN) {
                 _inputDigit(1, parseInt(pick[i++]));
                 setTimeout(typeNext, 180 + Math.random() * 140);
             } else {
                 setTimeout(() => {
-                    if (!state.mgActive || _done || _solved[1] || _roundOver || _roundSeq !== mySeq) return;
+                    if (!state.mgActive || _done || _solved[1] || _roundOver) return;
                     const { bulls, cows } = _getBullsCows(pick, _codes[1]);
                     previous.push({ guess: pick, bulls, cows });
                     _submitGuess(1);
@@ -189,8 +186,4 @@ function _botPlay() {
     };
 
     setTimeout(guessNext, 600 + Math.random() * 400);
-}
-
-export function destroy() {
-    _done = true; _roundSeq++;
 }

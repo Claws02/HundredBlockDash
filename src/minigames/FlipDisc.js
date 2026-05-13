@@ -19,8 +19,6 @@ const _cleanups = [];
 
 export function start(isBot, onWin) {
     if (!state.mgActive) return;
-    clearInterval(_botFlipInterval); _botFlipInterval = null;
-    _cleanups.forEach(f => f()); _cleanups.length = 0;
     _done = false; _onWin = onWin; _isBot = isBot;
     _discs = []; _startTime = 0;
     _neutralEl = document.getElementById('mg-neutral');

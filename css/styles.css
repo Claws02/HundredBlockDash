@@ -14,6 +14,8 @@ body, html {
     background: #1a0b2e;
     font-family: 'Nunito', sans-serif;
     touch-action: none; user-select: none; -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    overscroll-behavior: none;
 }
 
 /* Core Layers */
@@ -28,7 +30,7 @@ body, html {
 #game-container canvas { display: block; width: 100vw !important; height: 100vh !important; outline: none; }
 
 #ui-layer { position: absolute; inset: 0; z-index: 10; pointer-events: none; display: none; }
-#minigame-layer { position: fixed; inset: 0; z-index: 100; background: rgba(20, 8, 38, 0.98); display: none; flex-direction: column; }
+#minigame-layer { position: fixed; inset: 0; z-index: 100; background: rgba(20, 8, 38, 0.98); display: none; flex-direction: column; padding-bottom: env(safe-area-inset-bottom); padding-top: env(safe-area-inset-top); }
 
 /* Splash & Char Select */
 #splash, #char-select {
@@ -206,6 +208,8 @@ body, html {
 #mg-neutral { height: 76px; background: #000; border-top: 2px solid #222; border-bottom: 2px solid #222; display: flex; align-items: center; justify-content: center; font-size: 26px; color: var(--gold); letter-spacing: 2px; flex-shrink: 0; width:100%; }
 .mg-ready-btn { font-size: 34px; padding: 16px 52px; border-radius: 16px; border: none; cursor: pointer; background: #fff; color: #000; }
 .mg-ready-btn.ready { background: #4ade80; }
+.mg-victory { animation: mgVictoryPulse .7s ease both; box-shadow: inset 0 0 70px rgba(245,200,66,.42); }
+@keyframes mgVictoryPulse { 0% { filter: brightness(1); transform: scale(1); } 35% { filter: brightness(1.7); transform: scale(1.015); } 100% { filter: brightness(1); transform: scale(1); } }
 
 /* Win Screen */
 #win-screen { position: fixed; inset: 0; z-index: 500; background: linear-gradient(135deg, #0f0c29, #302b63, #24243e); display: none; flex-direction: column; align-items: center; justify-content: center; overflow: hidden; }
@@ -245,6 +249,7 @@ body, html {
 .trivia-q { font-size: 18px; color: #fff; font-family: 'Nunito'; text-align: center; padding: 10px 16px; max-width: 340px; line-height: 1.4; display: none; margin-bottom: 10px; }
 .trivia-grid { display: none; grid-template-columns: 1fr 1fr; gap: 8px; width: 90%; max-width: 320px; }
 .trivia-btn { background: rgba(255,255,255,.12); border: 2px solid rgba(255,255,255,.3); color: #fff; font-size: 14px; font-family: 'Nunito'; padding: 10px 8px; border-radius: 12px; cursor: pointer; text-align: center; line-height: 1.3; transition: background .15s; }
+.trivia-btn:active, .trivia-btn.cm-tapped { transform: scale(.96); filter: brightness(1.25); }
 .trivia-btn.correct { background: rgba(74,222,128,.3); border-color: #4ade80; }
 .trivia-btn.wrong { background: rgba(239,68,68,.3); border-color: #ef4444; }
 
@@ -252,6 +257,7 @@ body, html {
 .trace-node { position: absolute; width: 38px; height: 38px; border-radius: 50%; background: rgba(255,255,255,.15); border: 3px solid rgba(255,255,255,.4); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 16px; transform: translate(-50%,-50%); cursor: pointer; transition: background .2s; z-index: 2; }
 .trace-node.next { background: rgba(245,200,66,.4); border-color: var(--gold); box-shadow: 0 0 12px var(--gold); animation: pulse 1s infinite; }
 .trace-node.done { background: rgba(74,222,128,.4); border-color: #4ade80; }
+.trace-node.wrong-shape { background: rgba(239,68,68,.45); border-color: #ef4444; box-shadow: 0 0 16px rgba(239,68,68,.7); }
 .trace-line { position: absolute; height: 3px; background: rgba(255,255,255,.2); transform-origin: left center; border-radius: 2px; pointer-events: none; }
 
 .reaction-zone { width: 90%; max-width: 320px; height: 160px; border-radius: 20px; display: none; align-items: center; justify-content: center; font-size: 36px; letter-spacing: 3px; cursor: pointer; border: 4px solid rgba(255,255,255,.2); background: rgba(255,255,255,.08); }
@@ -263,11 +269,15 @@ body, html {
 .color-round-label { font-size: 16px; color: rgba(255,255,255,.6); font-family: 'Nunito'; display: none; }
 .color-word { font-size: 42px; font-family: 'Bebas Neue'; letter-spacing: 3px; display: none; margin: 8px 0; }
 .color-btns { display: none; gap: 10px; flex-wrap: wrap; justify-content: center; width: 90%; max-width: 320px; }
-.color-btn { width: 54px; height: 54px; border-radius: 50%; border: 4px solid; cursor: pointer; transition: transform .1s; }
+.color-btn { width: 64px; height: 64px; border-radius: 50%; border: 4px solid; cursor: pointer; transition: transform .1s, filter .1s; color:#050505; font-family:'Bebas Neue'; font-size:18px; letter-spacing:1px; text-shadow:0 1px 0 rgba(255,255,255,.45); position:relative; overflow:hidden; }
 .color-btn:active { transform: scale(.88); }
+.color-btn::after { content: attr(data-symbol); position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:rgba(0,0,0,.62); font-size:22px; }
+.color-btn.cm-tapped { filter: brightness(1.45); transform: scale(.9); }
+.color-btn.cm-wrong { animation: badTap .24s ease 2; box-shadow:0 0 22px rgba(239,68,68,.75); }
 
-.memory-grid { display: none; grid-template-columns: repeat(3, 1fr); gap: 8px; width: 90%; max-width: 260px; }
+.memory-grid { display: none; grid-template-columns: repeat(3, 1fr); gap: 8px; width: 90%; max-width: 260px; touch-action:none; }
 .mem-card { background: rgba(255,255,255,.1); border: 2px solid rgba(255,255,255,.25); border-radius: 12px; aspect-ratio: 1; display: flex; align-items: center; justify-content: center; font-size: 28px; cursor: pointer; transition: background .2s; }
+.mem-card:active { transform: scale(.94); filter: brightness(1.35); }
 .mem-card.flipped { background: rgba(245,200,66,.2); border-color: var(--gold); }
 .mem-card.matched { background: rgba(74,222,128,.2); border-color: #4ade80; cursor: default; }
 .mem-score { display: none; font-size: 18px; color: rgba(255,255,255,.7); font-family: 'Nunito'; margin-top: 8px; }
@@ -276,8 +286,9 @@ body, html {
 .seq-light { width: 44px; height: 44px; border-radius: 12px; border: 3px solid; opacity: 0.4; transition: opacity .15s; }
 .seq-light.lit { opacity: 1; box-shadow: 0 0 14px currentColor; }
 .seq-btns { display: none; gap: 10px; }
-.seq-btn { width: 54px; height: 54px; border-radius: 14px; border: 3px solid; cursor: pointer; transition: opacity .1s, transform .1s; }
+.seq-btn { width: 68px; height: 68px; border-radius: 16px; border: 3px solid; cursor: pointer; transition: opacity .1s, transform .1s, filter .1s; position:relative; font-size:22px; }
 .seq-btn:active { opacity: .6; transform: scale(.9); }
+.seq-btn::after { content: attr(data-symbol); position:absolute; right:6px; bottom:2px; font-size:15px; color:rgba(0,0,0,.65); }
 
 .cd-timer { font-size: 48px; color: var(--gold); text-align: center; display: none; }
 .cd-tap-zone { width: 90%; max-width: 300px; padding: 28px; border-radius: 20px; border: 4px solid rgba(255,255,255,.3); background: rgba(255,255,255,.08); color: #fff; font-size: 24px; text-align: center; cursor: pointer; display: none; letter-spacing: 2px; transition: background .1s; }
@@ -286,10 +297,17 @@ body, html {
 
 .shape-target-label { font-size: 22px; color: var(--gold); letter-spacing: 2px; margin-bottom: 8px; display: none; }
 .shape-grid { display: none; grid-template-columns: repeat(3, 1fr); gap: 10px; width: 90%; max-width: 300px; }
-.shape-cell { background: rgba(255,255,255,.08); border: 2px solid rgba(255,255,255,.15); border-radius: 12px; padding: 10px; display: flex; align-items: center; justify-content: center; cursor: pointer; aspect-ratio: 1; transition: background .15s; }
+.shape-cell { background: rgba(255,255,255,.08); border: 2px solid rgba(255,255,255,.15); border-radius: 12px; padding: 10px; display: flex; align-items: center; justify-content: center; cursor: pointer; aspect-ratio: 1; transition: background .15s, transform .1s, filter .1s; }
 .shape-cell:active { background: rgba(255,255,255,.2); }
 .shape-cell.correct-shape { background: rgba(74,222,128,.2); border-color: #4ade80; }
 .shape-cell.wrong-shape { background: rgba(239,68,68,.2); border-color: #ef4444; }
+.shape-cell.tap-pop { transform: scale(.9); filter: brightness(1.45); }
+.shape-cell.wrong-shape, .cr-tap-zone.cr-wrong, .ooo-btn.ooo-wrong { animation: badTap .24s ease 2; }
+@keyframes badTap {
+    0%,100% { transform: translateX(0); }
+    25% { transform: translateX(-5px); }
+    75% { transform: translateX(5px); }
+}
 .sh-circle { width: 36px; height: 36px; border-radius: 50%; border: 4px solid; }
 .sh-square { width: 36px; height: 36px; border: 4px solid; border-radius: 4px; }
 .sh-triangle { width: 0; height: 0; border-left: 20px solid transparent; border-right: 20px solid transparent; border-bottom: 34px solid; }
@@ -432,6 +450,10 @@ body, html {
 .bb-prompt { display: none; font-size: 13px; color: rgba(255,255,255,.7); letter-spacing: 1px; text-align: center; }
 .bb-score { font-size: 15px; display: none; color: rgba(255,255,255,.7); }
 
+.trace-container { touch-action:none; }
+.trace-node { min-width: 46px; min-height: 46px; display:flex; align-items:center; justify-content:center; touch-action:none; }
+.trace-node::before { content:''; position:absolute; inset:-12px; border-radius:50%; }
+
 /* --- ColorMatch ink hint --- */
 .cm-ink-hint { display: block; font-family: 'Nunito'; font-size: 11px; font-weight: 800; letter-spacing: 1px; margin-top: 4px; }
 
@@ -442,7 +464,7 @@ body, html {
 
 /* --- Shape Tap icon --- */
 .shape-icon { font-size: 30px; line-height: 1; display: block; pointer-events: none; }
-.shape-cell { display: flex; align-items: center; justify-content: center; min-height: 52px; border-radius: 10px; background: rgba(255,255,255,0.07); border: 2px solid rgba(255,255,255,0.12); cursor: pointer; transition: background .12s; touch-action: manipulation; }
+.shape-cell { display: flex; align-items: center; justify-content: center; min-height: 62px; border-radius: 10px; background: rgba(255,255,255,0.07); border: 2px solid rgba(255,255,255,0.12); cursor: pointer; transition: background .12s, transform .1s, filter .1s; touch-action: none; }
 .shape-cell:active { background: rgba(255,255,255,0.18); }
 .shape-cell.correct-shape { background: rgba(74,222,128,0.25); border-color: #4ade80; }
 .shape-cell.wrong-shape   { background: rgba(239,68,68,0.25);  border-color: #ef4444; }

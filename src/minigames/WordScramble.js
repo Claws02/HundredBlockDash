@@ -10,7 +10,7 @@ const MAX_ROUNDS = 5;
 
 let _done = false, _round = 0, _wins = [0, 0], _onWin = null;
 let _roundActive = false, _currentWord = '', _usedWords = new Set();
-let _isBot = false, _roundTimer = null;
+let _isBot = false;
 
 export function start(isBot, onWin) {
     if (!state.mgActive) return;
@@ -28,13 +28,13 @@ export function start(isBot, onWin) {
     _nextRound();
 }
 
-function _scramble(word, depth = 0) {
+function _scramble(word) {
     const arr = word.split('');
     for (let i = arr.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [arr[i], arr[j]] = [arr[j], arr[i]];
     }
-    return arr.join('') === word && depth < 10 ? _scramble(word, depth + 1) : arr.join('');
+    return arr.join('') === word ? _scramble(word) : arr.join('');
 }
 
 function _nextRound() {
@@ -67,15 +67,6 @@ function _nextRound() {
 
     document.getElementById('mg-neutral').textContent = `ROUND ${_round}/${MAX_ROUNDS}`;
 
-    clearTimeout(_roundTimer);
-    _roundTimer = setTimeout(() => {
-        if (state.mgActive && !_done && _roundActive) {
-            _roundActive = false;
-            document.getElementById('mg-neutral').textContent = `TIME'S UP!`;
-            setTimeout(_nextRound, 1000);
-        }
-    }, 8000);
-
     if (_isBot) {
         setTimeout(() => {
             if (state.mgActive && !_done && _roundActive) _tap(1, Math.random() < 0.72);
@@ -86,7 +77,6 @@ function _nextRound() {
 function _tap(pid, correct) {
     if (_done || !_roundActive) return;
     _roundActive = false;
-    clearTimeout(_roundTimer);
 
     if (correct) {
         sfx('coin_gain');
@@ -106,9 +96,4 @@ function _tap(pid, correct) {
     } else {
         setTimeout(_nextRound, 1200);
     }
-}
-
-export function destroy() {
-    clearTimeout(_roundTimer); _roundTimer = null;
-    _done = true;
 }

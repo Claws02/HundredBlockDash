@@ -6,7 +6,6 @@ const MAX_WINS = 2; // best of 3
 let _startTime = 0, _stopped = [false, false], _stopTime = [0, 0];
 let _done = false, _resolved = false, _rafId = null, _onWin = null;
 let _wins = [0, 0], _isBot = false;
-let _botTimer = null, _resolveTimer = null, _roundTimeout = null;
 
 export function start(isBot, onWin) {
     if (!state.mgActive) return;
@@ -46,21 +45,11 @@ function _startRound() {
         document.getElementById('cd-timer-1').textContent = display;
         document.getElementById('cd-timer-2').textContent = display;
         if (!_stopped[0] || !_stopped[1]) _rafId = requestAnimationFrame(tick);
-        if (_stopped[0] && _stopped[1] && !_resolved) { _resolved = true; clearTimeout(_resolveTimer); _resolveTimer = setTimeout(_resolve, 800); }
+        if (_stopped[0] && _stopped[1] && !_resolved) { _resolved = true; setTimeout(_resolve, 800); }
     };
     _rafId = requestAnimationFrame(tick);
 
-    clearTimeout(_botTimer); clearTimeout(_roundTimeout);
-    if (_isBot) {
-        _botTimer = setTimeout(() => { if (state.mgActive && !_done && !_stopped[1]) _tap(1); }, 4750 + Math.random() * 500);
-    }
-    // Force-stop any player still waiting after 10s
-    _roundTimeout = setTimeout(() => {
-        if (!_done) {
-            if (!_stopped[0]) _tap(0);
-            if (!_stopped[1]) _tap(1);
-        }
-    }, 10000);
+    if (_isBot) setTimeout(() => { if (state.mgActive && !_done && !_stopped[1]) _tap(1); }, 4750 + Math.random() * 500);
 }
 
 function _tap(pid) {
@@ -78,7 +67,6 @@ function _tap(pid) {
 
 function _resolve() {
     if (_done) return;
-    clearTimeout(_botTimer); clearTimeout(_resolveTimer); clearTimeout(_roundTimeout);
     cancelAnimationFrame(_rafId);
     const d0 = Math.abs(_stopTime[0] - 5.0), d1 = Math.abs(_stopTime[1] - 5.0);
     const roundWinner = d0 < d1 ? 0 : d1 < d0 ? 1 : -1;
@@ -93,10 +81,4 @@ function _resolve() {
     } else {
         setTimeout(_startRound, 2200);
     }
-}
-
-export function destroy() {
-    clearTimeout(_botTimer); clearTimeout(_resolveTimer); clearTimeout(_roundTimeout);
-    cancelAnimationFrame(_rafId); _rafId = null;
-    _done = true;
 }

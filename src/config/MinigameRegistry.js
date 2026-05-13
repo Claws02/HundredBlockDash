@@ -14,7 +14,6 @@ export const MG_TYPES = [
     'splithockey', 'minelane', 'volleyzap', 'crowngrab', 'rocketrelic',
     'pulsepusher', 'sparksweep', 'tunnelcharge', 'shardstorm', 'flipdisc',
     'blitzblocks', 'relayrings', 'clashcomet', 'zonezap',
-    'sphereknockout',
 ];
 
 export const MG_INFO = {
@@ -63,8 +62,7 @@ export const MG_INFO = {
     blitzblocks:  { icon: '🧱', title: 'BLITZ BLOCKS',     desc: 'Blocks fall in 4 columns on your half! Tap the correct column to destroy each block before it hits the bottom. 3 misses = game over. First player to lose all lives loses!' },
     relayrings:   { icon: '⭕', title: 'RELAY RINGS',      desc: 'Tap the glowing ring before it fades away, then a new one appears! Miss a ring = 1.5 second penalty. First to collect 12 rings wins the round. Best of 3!' },
     clashcomet:   { icon: '☄️', title: 'CLASH COMET',      desc: 'Tap your half when the comet is near you to deflect it toward the opponent! The comet speeds up each strike. Score when it exits the opponent\'s edge. First to 5 wins!' },
-    zonezap:        { icon: '⚡', title: 'ZONE ZAP',          desc: 'Zones light up on your half — tap them before they fade to score! Zones last 1.5 seconds. Tap as many as possible in 20 seconds. Most zones zapped wins!' },
-    sphereknockout: { icon: '🌐', title: 'SPHERE KNOCKOUT',  desc: 'Roll your glowing sphere to smash the opponent off the floating platform! Use the joystick on your half to steer. Best of 3 rounds wins.' },
+    zonezap:      { icon: '⚡', title: 'ZONE ZAP',         desc: 'Zones light up on your half — tap them before they fade to score! Zones last 1.5 seconds. Tap as many as possible in 20 seconds. Most zones zapped wins!' },
 };
 
 // ============================================================
@@ -147,8 +145,7 @@ export const MG_ORIENTATION_MAP = {
     blitzblocks:  'faceoff',
     relayrings:   'faceoff',
     clashcomet:   'faceoff',
-    zonezap:        'faceoff',
-    sphereknockout: 'faceoff',
+    zonezap:      'faceoff',
 };
 
 export const FALLBACK_TRIVIA = [

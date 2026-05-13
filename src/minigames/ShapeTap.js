@@ -17,11 +17,11 @@ const SHAPES = [
 
 const GRID_SIZE = 6;
 const MAX_WINS  = 2; // best of 3
+const BOT_MISTAKE_RATE = 0.15;
 
 const SHAPE_COLORS = ['#ef4444','#3b82f6','#4ade80','#f59e0b','#a855f7','#ec4899','#06b6d4','#f97316'];
 
 let _done = false, _roundActive = false, _wins = [0, 0], _target = null, _onWin = null, _isBot = false;
-let _roundTimer = null;
 
 export function start(isBot, onWin) {
     if (!state.mgActive) return;
@@ -60,22 +60,23 @@ function _nextRound() {
             icon.textContent = shape.icon;
             icon.style.color = col;
             cell.appendChild(icon);
-            cell.addEventListener('pointerdown', () => _tap(pi - 1, shape.key, cell));
+            cell.addEventListener('pointerdown', e => {
+                e.preventDefault();
+                cell.classList.add('tap-pop');
+                setTimeout(() => cell.classList.remove('tap-pop'), 120);
+                _tap(pi - 1, shape.key, cell);
+            });
             g.appendChild(cell);
         });
     });
 
-    clearTimeout(_roundTimer);
-    _roundTimer = setTimeout(() => {
-        if (state.mgActive && !_done && _roundActive) {
-            _roundActive = false;
-            document.getElementById('mg-neutral').textContent = 'TIME\'S UP!';
-            setTimeout(_nextRound, 1000);
-        }
-    }, 8000);
     if (_isBot) {
         setTimeout(() => {
-            if (state.mgActive && !_done && _roundActive) _tap(1, _target.key, null);
+            if (!state.mgActive || _done || !_roundActive) return;
+            const botPick = Math.random() < BOT_MISTAKE_RATE
+                ? pool.find(shape => shape.key !== _target.key).key
+                : _target.key;
+            _tap(1, botPick, null);
         }, 500 + Math.random() * 900);
     }
 }
@@ -83,7 +84,6 @@ function _nextRound() {
 function _tap(pid, shapeKey, tapCell) {
     if (!state.mgActive || _done || !_roundActive) return;
     _roundActive = false;
-    clearTimeout(_roundTimer);
     const correct = shapeKey === _target.key;
     const roundWinner = correct ? pid : (pid === 0 ? 1 : 0);
     _wins[roundWinner]++;
@@ -110,9 +110,4 @@ function _tap(pid, shapeKey, tapCell) {
     } else {
         setTimeout(_nextRound, 1300);
     }
-}
-
-export function destroy() {
-    clearTimeout(_roundTimer); _roundTimer = null;
-    _done = true;
 }

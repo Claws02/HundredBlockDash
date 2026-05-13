@@ -164,10 +164,13 @@ function _tick(now) {
 
     if (remaining <= 0 || (!_alive[0] && !_alive[1])) { _resolve(); return; }
     if (!_alive[0] || !_alive[1]) {
+        // One snake dead — wait a beat then end
+        if (!_alive[0] && !_alive[1]) { _resolve(); return; }
         const dead = _alive[0] ? 1 : 0;
         if (_neutralEl) _neutralEl.textContent = `P${dead + 1}'S SNAKE DIED!`;
-        setTimeout(_resolve, 1000);
-        return; // stop RAF loop — _resolve() sets _done = true
+        // Give a grace period in case it was simultaneous
+        setTimeout(() => { if (!_done) _resolve(); }, 1000);
+        _done = true; // stop processing
     }
 
     _af = requestAnimationFrame(_tick);
@@ -277,7 +280,7 @@ function _draw() {
 }
 
 function _resolve() {
-    if (_done) return;
+    if (_done) return;  // may have been set in _tick's early-death path
     _done = true; state.mgActive = false;
     cancelAnimationFrame(_af); _af = null;
 

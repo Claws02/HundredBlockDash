@@ -403,7 +403,7 @@ export function resolveMsgModal() {
     if (state.gameState === 'ACKNOWLEDGE') { setTimeout(finishTurn, 300); return; }
     if (state.gameState === 'MINIGAME_ACK') {
         setTimeout(() => {
-            state.activePlayer = state.lastMinigameWinner >= 0 ? state.lastMinigameWinner : Math.floor(Math.random() * 2);
+            state.activePlayer = state.lastMinigameWinner >= 0 ? state.lastMinigameWinner : (state.activePlayer + 1) % 2;
             state.lastMinigameWinner = -1;
             proceedTurn();
         }, 300);
@@ -431,9 +431,9 @@ export function maybeTriggerMinigame() {
         MinigameManager.trigger((winnerId) => {
             const msg = winnerId >= 0
                 ? `${state.players[winnerId].name} wins — they roll first next turn!`
-                : 'It\'s a tie! Both players got coins. A random player goes first!';
+                : 'Nobody wins this time!';
             ModalManager.showMessage('MINIGAME OVER', msg, winnerId >= 0 ? '🏆' : '🤝');
-            if (state.players[1] && state.players[1].isBot) {
+            if (state.players[winnerId] && state.players[winnerId].isBot) {
                 setTimeout(() => { if (state.gameState === 'MINIGAME_ACK') resolveMsgModal(); }, 1500);
             }
         });

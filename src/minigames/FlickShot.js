@@ -25,7 +25,6 @@ let _W = 0, _H = 0;
 let _ball = null, _pads = null, _bricks = [];
 let _af = null, _scoring = false, _serving = 0, _lastTime = 0;
 let _scoreEls = [null, null], _neutralEl = null;
-let _interPointTimer = null;
 const _ptrMap = new Map();   // pointerId → player index (0 or 1)
 const _cleanups = [];
 
@@ -113,15 +112,12 @@ function _setup() {
 }
 
 function _destroy() {
-    clearTimeout(_interPointTimer); _interPointTimer = null;
     _cleanups.forEach(f => f()); _cleanups.length = 0;
     cancelAnimationFrame(_af); _af = null;
     if (_overlay) { _overlay.remove(); _overlay = null; }
     _canvas = null; _ctx = null; _scoreEls = [null, null];
     _ptrMap.clear();
 }
-
-export function destroy() { _done = true; _destroy(); }
 
 // ── Game setup ────────────────────────────────────────────────────────────────
 function _buildBricks() {
@@ -162,9 +158,6 @@ function _launchBall() {
 export function start(isBot, onWin) {
     if (!state.mgActive) return;
     cancelAnimationFrame(_af); _af = null;
-    clearTimeout(_interPointTimer); _interPointTimer = null;
-    _cleanups.forEach(f => f()); _cleanups.length = 0;
-    _ptrMap.clear();
     _done = false; _scores = [0, 0]; _onWin = onWin; _isBot = isBot;
     _serving = 0; _scoring = false; _lastTime = 0;
     _neutralEl = document.getElementById('mg-neutral');
@@ -310,8 +303,7 @@ function _score(pid) {
     // Next serve goes toward the player who just got scored on (the loser)
     _serving = 1 - pid;
 
-    _interPointTimer = setTimeout(() => {
-        _interPointTimer = null;
+    setTimeout(() => {
         if (_done || !state.mgActive) return;
         _buildBricks();
         _launchBall();

@@ -5,7 +5,6 @@ const MAX_WINS = 2; // best of 3
 
 let _done = false, _roundDone = false, _onWin = null, _isBot = false;
 let _wins = [0, 0], _answer = 0;
-let _botTimer = null, _roundTimer = null;
 
 export function start(isBot, onWin) {
     if (!state.mgActive) return;
@@ -49,23 +48,12 @@ function _startRound() {
 
     document.getElementById('mg-neutral').textContent = `P1 ${_wins[0]} — P2 ${_wins[1]}`;
 
-    clearTimeout(_botTimer); clearTimeout(_roundTimer);
-    if (_isBot) {
-        _botTimer = setTimeout(() => { if (state.mgActive && !_done && !_roundDone) _tap(1, _answer); }, 3000 + Math.random() * 2000);
-    }
-    _roundTimer = setTimeout(() => {
-        if (state.mgActive && !_done && !_roundDone) {
-            _roundDone = true;
-            document.getElementById('mg-neutral').textContent = 'TIME\'S UP! — NEXT ROUND';
-            setTimeout(_startRound, 1000);
-        }
-    }, 15000);
+    if (_isBot) setTimeout(() => { if (state.mgActive && !_done && !_roundDone) _tap(1, _answer); }, 3000 + Math.random() * 2000);
 }
 
 function _tap(pid, val) {
     if (!state.mgActive || _done || _roundDone) return;
     _roundDone = true;
-    clearTimeout(_botTimer); clearTimeout(_roundTimer);
 
     const correct = +val === _answer;
     const roundWinner = correct ? pid : (pid === 0 ? 1 : 0);
@@ -85,9 +73,4 @@ function _tap(pid, val) {
     } else {
         setTimeout(_startRound, 1800);
     }
-}
-
-export function destroy() {
-    clearTimeout(_botTimer); clearTimeout(_roundTimer);
-    _done = true;
 }

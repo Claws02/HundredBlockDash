@@ -4,7 +4,7 @@ import { sfx } from '../engine/AudioManager.js';
 
 const MAX_ROUNDS = 3;
 let _done = false, _round = 0, _wins = [0, 0], _next = [1, 1], _onWin = null;
-let _roundWon = false, _isBot = false, _roundTimer = null;
+let _roundWon = false, _isBot = false;
 
 export function start(isBot, onWin) {
     if (!state.mgActive) return;
@@ -45,27 +45,6 @@ function _startRound() {
     document.getElementById('mg-neutral').textContent = `ROUND ${_round} — GO!`;
     sfx('go');
 
-    clearTimeout(_roundTimer);
-    _roundTimer = setTimeout(() => {
-        if (!_done && !_roundWon) {
-            _roundWon = true;
-            const winner = _next[0] > _next[1] ? 0 : _next[1] > _next[0] ? 1 : -1;
-            if (winner >= 0) {
-                _wins[winner]++;
-                document.getElementById(`ss-score-${winner + 1}`).textContent = `${_wins[winner]} wins`;
-            }
-            document.getElementById('mg-neutral').textContent = winner >= 0 ? `TIMEOUT! P${winner + 1} AHEAD!` : 'TIMEOUT! DRAW!';
-            const winsNeeded = Math.ceil(MAX_ROUNDS / 2);
-            if ((winner >= 0 && (_wins[0] >= winsNeeded || _wins[1] >= winsNeeded)) || _round >= MAX_ROUNDS) {
-                _done = true; state.mgActive = false;
-                const w = _wins[0] > _wins[1] ? 0 : _wins[1] > _wins[0] ? 1 : -1;
-                setTimeout(() => _onWin(w), 800);
-            } else {
-                setTimeout(_startRound, 1500);
-            }
-        }
-    }, 20000);
-
     if (_isBot) _botPlay();
 }
 
@@ -101,7 +80,6 @@ function _tap(pid, num) {
 
     if (_next[pid] > 9) {
         _roundWon = true;
-        clearTimeout(_roundTimer);
         _wins[pid]++;
         document.getElementById(`ss-score-${pid + 1}`).textContent = `${_wins[pid]} wins`;
         document.getElementById('mg-neutral').textContent = `P${pid + 1} FINISHED! 🎉`;
@@ -115,9 +93,4 @@ function _tap(pid, num) {
             setTimeout(_startRound, 1500);
         }
     }
-}
-
-export function destroy() {
-    clearTimeout(_roundTimer); _roundTimer = null;
-    _done = true;
 }

@@ -5,17 +5,16 @@ import { state } from '../core/GameState.js';
 import { sfx } from '../engine/AudioManager.js';
 
 const SEQ_COLORS = [
-    { name: 'RED',    hex: '#ef4444' },
-    { name: 'BLUE',   hex: '#3b82f6' },
-    { name: 'GREEN',  hex: '#4ade80' },
-    { name: 'YELLOW', hex: '#fbbf24' },
+    { name: 'RED',    hex: '#ef4444', symbol: 'I' },
+    { name: 'BLUE',   hex: '#3b82f6', symbol: 'II' },
+    { name: 'GREEN',  hex: '#4ade80', symbol: 'III' },
+    { name: 'YELLOW', hex: '#fbbf24', symbol: 'IV' },
 ];
 const MAX_ROUNDS = 5;
 const MAX_WINS   = 3; // best of 5
 
 let _pattern = [], _done = false, _roundDone = false, _input = [[], []];
 let _onWin = null, _isBot = false, _wins = [0, 0], _round = 0;
-let _showIv = null;
 
 export function start(isBot, onWin) {
     if (!state.mgActive) return;
@@ -36,7 +35,10 @@ export function start(isBot, onWin) {
             btn.className = 'seq-btn bfont';
             btn.style.cssText = `background:${c.hex};border-color:${c.hex};color:#000;`;
             btn.textContent = c.name[0]; // R B G Y initial letter
-            btn.addEventListener('pointerdown', () => _tap(pi - 1, ci));
+            btn.dataset.symbol = c.symbol;
+            btn.title = c.name;
+            btn.setAttribute('aria-label', c.name);
+            btn.addEventListener('pointerdown', e => { e.preventDefault(); _tap(pi - 1, ci); });
             b.appendChild(btn);
         });
     });
@@ -57,8 +59,7 @@ function _startRound() {
     sfx('countdown');
 
     let i = 0;
-    clearInterval(_showIv);
-    _showIv = setInterval(() => {
+    const showIv = setInterval(() => {
         [1, 2].forEach(pi => {
             const lights = [...document.getElementById(`seq-display-${pi}`).children];
             lights.forEach(l => l.classList.remove('lit', 'seq-double'));
@@ -72,7 +73,7 @@ function _startRound() {
         if (i < _pattern.length) sfx('seq_lit');
         i++;
         if (i > _pattern.length) {
-            clearInterval(_showIv); _showIv = null;
+            clearInterval(showIv);
             setTimeout(() => {
                 [1, 2].forEach(pi =>
                     [...document.getElementById(`seq-display-${pi}`).children]
@@ -140,9 +141,4 @@ function _checkEnd(lastWinner) {
     } else {
         setTimeout(_startRound, 1600);
     }
-}
-
-export function destroy() {
-    clearInterval(_showIv); _showIv = null;
-    _done = true;
 }

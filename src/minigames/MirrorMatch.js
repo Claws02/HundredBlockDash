@@ -8,7 +8,7 @@ const COLS      = 3;
 const ROWS      = 3;
 const CELLS     = COLS * ROWS;
 const ROUND_MS  = 4000;
-const MAX_ROUNDS = 4;
+const MAX_ROUNDS = 3;
 
 let _done = false, _round = 0, _wins = [0, 0], _onWin = null;
 let _actor = 0, _source = [], _correct = [];

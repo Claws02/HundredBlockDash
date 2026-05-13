@@ -57,22 +57,37 @@ const MG_MODULES = {
     blitzblocks:  () => import('./BlitzBlocks.js'),
     relayrings:   () => import('./RelayRings.js'),
     clashcomet:   () => import('./ClashComet.js'),
-    zonezap:        () => import('./ZoneZap.js'),
-    sphereknockout: () => import('./SphereKnockout.js'),
+    zonezap:      () => import('./ZoneZap.js'),
 };
 
 let _controller   = null;
 let _onComplete   = null;
 let _botTraceInt  = null;
 let _standaloneMode = false;
-let _activeMod    = null;
+let _countdownActive = false;
+let _minigameTimeout = null;
+const _minigameCleanups = [];
 
 export function init(controller) {
     _controller = controller;
-    document.getElementById('mg-ready-1').addEventListener('click', () => setReady(0));
-    document.getElementById('mg-ready-2').addEventListener('click', () => setReady(1));
-    document.getElementById('btn-mg-intro-next').addEventListener('click', mgIntroNext);
-    document.getElementById('btn-mg-launch').addEventListener('click', launchMinigameUI);
+    document.getElementById('mg-ready-1').addEventListener('pointerdown', e => { e.preventDefault(); setReady(0); });
+    document.getElementById('mg-ready-2').addEventListener('pointerdown', e => { e.preventDefault(); setReady(1); });
+    document.getElementById('btn-mg-intro-next').addEventListener('pointerdown', e => { e.preventDefault(); mgIntroNext(); });
+    document.getElementById('btn-mg-launch').addEventListener('pointerdown', e => { e.preventDefault(); launchMinigameUI(); });
+
+    const blockBrowserGestures = e => {
+        if (state.gameState === 'MINIGAME' || state.gameState === 'MINIGAME_INTRO') e.preventDefault();
+    };
+    document.addEventListener('touchstart', blockBrowserGestures, { passive: false });
+    document.addEventListener('touchmove', blockBrowserGestures, { passive: false });
+    document.addEventListener('gesturestart', blockBrowserGestures, { passive: false });
+    document.addEventListener('contextmenu', blockBrowserGestures);
+
+    document.addEventListener('visibilitychange', () => {
+        if (state.gameState === 'MINIGAME' && document.hidden) {
+            document.getElementById('mg-neutral').textContent = 'PAUSED BY BROWSER';
+        }
+    });
 }
 
 // ---- Standalone entry point (called from minigame selector on main screen) ----
@@ -181,6 +196,9 @@ function launchMinigameUI() {
 }
 
 function _startMinigameLayer() {
+    _runMinigameCleanups();
+    clearTimeout(_minigameTimeout);
+    _countdownActive = false;
     state.gameState = 'MINIGAME';
     document.getElementById('minigame-layer').style.display = 'flex';
     state.mgReady  = [false, false];
@@ -221,12 +239,14 @@ function _startMinigameLayer() {
 // ---- Ready + countdown ----
 
 export function setReady(pid) {
+    if (_countdownActive || state.mgReady?.[pid]) return;
     state.mgReady[pid] = true;
     const btn = document.getElementById(`mg-ready-${pid + 1}`);
     btn.classList.add('ready'); btn.textContent = '✓ READY';
     sfx('countdown');
 
     if (state.mgReady[0] && state.mgReady[1]) {
+        _countdownActive = true;
         document.getElementById('mg-neutral').textContent = 'GET SET...';
         const cd = document.getElementById('mg-countdown');
         cd.style.display = 'block'; cd.textContent = '3'; sfx('countdown');
@@ -254,7 +274,13 @@ async function _launchGame() {
     try {
         const loader = MG_MODULES[state.mgType] || MG_MODULES.math;
         const mod    = await loader();
-        _activeMod = mod;
+        _minigameTimeout = setTimeout(() => {
+            if (state.gameState === 'MINIGAME' && state.mgActive) {
+                document.getElementById('mg-neutral').textContent = 'TIME! DRAW!';
+                sfx('land_bad');
+                endMinigame(-1);
+            }
+        }, 45000);
         mod.start(state.players[1].isBot, winMinigame);
     } catch (e) {
         console.error('[MinigameManager] _launchGame failed:', e);
@@ -265,37 +291,33 @@ async function _launchGame() {
 // ---- Win / end ----
 
 export function winMinigame(winnerId) {
-    if (winnerId < 0) {
-        const tieReward = Math.floor(MINIGAME_REWARD / 2);
-        state.players.forEach(p => { p.coins += tieReward; p.coinsEarned += tieReward; });
-        import('../ui/UIManager.js').then(({ animateCoinDisplay, toast, updateUI }) => {
-            state.players.forEach((p, i) => animateCoinDisplay(i, p.coins));
-            toast(`🤝 Tie! Both players get ${tieReward} coins!`, '#a78bfa');
-            updateUI();
-        });
-        sfx('mg_win');
-        endMinigame(-1);
-        return;
-    }
+    if (winnerId < 0) { endMinigame(-1); return; }
     const winner = state.players[winnerId];
     winner.mgWins++;
     winner.coins += MINIGAME_REWARD;
     winner.coinsEarned += MINIGAME_REWARD;
-    import('../ui/UIManager.js').then(({ animateCoinDisplay, toast, updateUI }) => {
+    import('../ui/UIManager.js').then(({ animateCoinDisplay, toast }) => {
         animateCoinDisplay(winnerId, winner.coins);
         toast(`🏆 ${winner.name} wins ${MINIGAME_REWARD} coins and goes first!`, '#f5c842');
-        updateUI();
     });
+    import('../ui/UIManager.js').then(({ updateUI }) => updateUI());
     sfx('mg_win');
-    endMinigame(winnerId);
+    const zone = document.getElementById(`mg-p${winnerId + 1}`);
+    zone?.classList.add('mg-victory');
+    document.getElementById('mg-neutral').textContent = `${winner.name.toUpperCase()} WINS!`;
+    setTimeout(() => {
+        zone?.classList.remove('mg-victory');
+        endMinigame(winnerId);
+    }, 700);
 }
 
 export function endMinigame(winnerId) {
+    clearTimeout(_minigameTimeout);
+    _minigameTimeout = null;
     clearInterval(_botTraceInt);
     _botTraceInt = null;
+    _runMinigameCleanups();
     state.mgActive = false;
-    if (_activeMod?.destroy) { try { _activeMod.destroy(); } catch(_) {} }
-    _activeMod = null;
     document.getElementById('minigame-layer').style.display = 'none';
 
     if (_standaloneMode) {
@@ -314,3 +336,13 @@ export function endMinigame(winnerId) {
 }
 
 export function getBotTraceIntervalRef() { return { set: v => { _botTraceInt = v; }, get: () => _botTraceInt }; }
+
+export function registerMinigameCleanup(fn) {
+    if (typeof fn === 'function') _minigameCleanups.push(fn);
+}
+
+function _runMinigameCleanups() {
+    while (_minigameCleanups.length) {
+        try { _minigameCleanups.pop()(); } catch (e) { console.warn('[MinigameManager] cleanup failed:', e); }
+    }
+}

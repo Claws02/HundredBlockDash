@@ -8,7 +8,7 @@ const TONES     = { H: 880, L: 330 };
 
 let _done = false, _round = 0, _wins = [0, 0], _onWin = null;
 let _sequence = [], _roundActive = false, _isBot = false;
-let _audioCtx = null, _roundTimer = null;
+let _audioCtx = null;
 
 function _ctx() {
     if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -82,14 +82,6 @@ function _nextRound() {
         if (!state.mgActive || _done) return;
         _roundActive = true;
         document.getElementById('mg-neutral').textContent = 'WHICH PATTERN?';
-        clearTimeout(_roundTimer);
-        _roundTimer = setTimeout(() => {
-            if (state.mgActive && !_done && _roundActive) {
-                _roundActive = false;
-                document.getElementById('mg-neutral').textContent = 'TIME\'S UP!';
-                setTimeout(_nextRound, 800);
-            }
-        }, 5000);
         if (_isBot) {
             setTimeout(() => {
                 if (state.mgActive && !_done && _roundActive) _tap(1, Math.random() < 0.65);
@@ -101,7 +93,6 @@ function _nextRound() {
 function _tap(pid, correct) {
     if (_done || !_roundActive) return;
     _roundActive = false;
-    clearTimeout(_roundTimer);
 
     if (correct) {
         sfx('coin_gain');
@@ -121,10 +112,4 @@ function _tap(pid, correct) {
     } else {
         setTimeout(_nextRound, 1400);
     }
-}
-
-export function destroy() {
-    clearTimeout(_roundTimer); _roundTimer = null;
-    _done = true;
-    if (_audioCtx) { _audioCtx.close().catch(() => {}); _audioCtx = null; }
 }

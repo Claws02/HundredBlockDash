@@ -377,12 +377,8 @@ function _showPassScreen(cb) {
 
     if (_neutralEl) _neutralEl.textContent = 'PASS THE PHONE!';
 
-    const autoTimeout = setTimeout(() => {
-        if (pass.parentNode) { pass.remove(); cb(); }
-    }, 15000);
     const onClick = e => {
         e.preventDefault();
-        clearTimeout(autoTimeout);
         pass.removeEventListener('pointerdown', onClick);
         pass.remove();
         cb();
