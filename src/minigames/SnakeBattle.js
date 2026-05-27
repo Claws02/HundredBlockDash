@@ -5,6 +5,15 @@
 import { state } from '../core/GameState.js';
 import { sfx } from '../engine/AudioManager.js';
 
+function _rrect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y);
+    ctx.arcTo(x + w, y, x + w, y + r, r); ctx.lineTo(x + w, y + h - r);
+    ctx.arcTo(x + w, y + h, x + w - r, y + h, r); ctx.lineTo(x + r, y + h);
+    ctx.arcTo(x, y + h, x, y + h - r, r); ctx.lineTo(x, y + r);
+    ctx.arcTo(x, y, x + r, y, r); ctx.closePath();
+}
+
 const GAME_DURATION   = 30000;
 const GRID_SIZE       = 20;
 const MOVE_INTERVAL   = 115; // ms between steps
@@ -164,13 +173,12 @@ function _tick(now) {
 
     if (remaining <= 0 || (!_alive[0] && !_alive[1])) { _resolve(); return; }
     if (!_alive[0] || !_alive[1]) {
-        // One snake dead — wait a beat then end
-        if (!_alive[0] && !_alive[1]) { _resolve(); return; }
+        // One snake dead — show message then end after a short grace period
         const dead = _alive[0] ? 1 : 0;
         if (_neutralEl) _neutralEl.textContent = `P${dead + 1}'S SNAKE DIED!`;
-        // Give a grace period in case it was simultaneous
-        setTimeout(() => { if (!_done) _resolve(); }, 1000);
-        _done = true; // stop processing
+        // Don't set _done here — let _resolve handle it after grace period
+        setTimeout(_resolve, 1000);
+        return; // stop scheduling further frames
     }
 
     _af = requestAnimationFrame(_tick);
@@ -271,8 +279,7 @@ function _draw() {
             const r = i === 0 ? 4 : 2; // rounder head
             const sx = seg.x * GRID_SIZE + 1, sy = seg.y * GRID_SIZE + 1;
             const sw = GRID_SIZE - 2,          sh = GRID_SIZE - 2;
-            _ctx.beginPath();
-            _ctx.roundRect(sx, sy, sw, sh, r);
+            _rrect(_ctx, sx, sy, sw, sh, r);
             _ctx.fill();
         });
         _ctx.globalAlpha = 1;

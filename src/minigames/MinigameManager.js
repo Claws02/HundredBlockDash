@@ -58,6 +58,7 @@ const MG_MODULES = {
     relayrings:   () => import('./RelayRings.js'),
     clashcomet:   () => import('./ClashComet.js'),
     zonezap:      () => import('./ZoneZap.js'),
+    mazedash:     () => import('./MazeDash.js'),
 };
 
 let _controller   = null;
@@ -276,9 +277,9 @@ async function _launchGame() {
         const mod    = await loader();
         _minigameTimeout = setTimeout(() => {
             if (state.gameState === 'MINIGAME' && state.mgActive) {
-                document.getElementById('mg-neutral').textContent = 'TIME! DRAW!';
+                document.getElementById('mg-neutral').textContent = 'TIME\'S UP! TIE!';
                 sfx('land_bad');
-                endMinigame(-1);
+                winMinigame(-1);
             }
         }, 45000);
         mod.start(state.players[1].isBot, winMinigame);
@@ -290,25 +291,57 @@ async function _launchGame() {
 
 // ---- Win / end ----
 
+const MINIGAME_TIE_REWARD = Math.floor(MINIGAME_REWARD / 2); // 5 coins each on tie
+
 export function winMinigame(winnerId) {
-    if (winnerId < 0) { endMinigame(-1); return; }
+    if (winnerId < 0) {
+        // TIE — both players get coins, coin flip decides who goes first
+        const flipWinner = Math.random() < 0.5 ? 0 : 1;
+        state.players.forEach(p => {
+            p.coins += MINIGAME_TIE_REWARD;
+            p.coinsEarned += MINIGAME_TIE_REWARD;
+        });
+        import('../ui/UIManager.js').then(({ animateCoinDisplay, toast, updateUI }) => {
+            state.players.forEach((p, i) => animateCoinDisplay(i, p.coins));
+            toast(`🤝 TIE! Both get ${MINIGAME_TIE_REWARD} coins — coin flip: ${state.players[flipWinner].name} goes first!`, '#a855f7');
+            updateUI();
+        });
+        sfx('coin_gain');
+        document.getElementById('mg-neutral').textContent = `TIE! 🪙 BOTH +${MINIGAME_TIE_REWARD} — COIN FLIP!`;
+        // Flash both player zones
+        const z1 = document.getElementById('mg-p1');
+        const z2 = document.getElementById('mg-p2');
+        z1?.classList.add('mg-victory');
+        z2?.classList.add('mg-victory');
+        state.lastMinigameTied = true;
+        setTimeout(() => {
+            z1?.classList.remove('mg-victory');
+            z2?.classList.remove('mg-victory');
+            document.getElementById('mg-neutral').textContent = `${state.players[flipWinner].name.toUpperCase()} GOES FIRST!`;
+            setTimeout(() => endMinigame(flipWinner), 600);
+        }, 700);
+        return;
+    }
     const winner = state.players[winnerId];
     winner.mgWins++;
     winner.coins += MINIGAME_REWARD;
     winner.coinsEarned += MINIGAME_REWARD;
-    import('../ui/UIManager.js').then(({ animateCoinDisplay, toast }) => {
+    import('../ui/UIManager.js').then(({ animateCoinDisplay, toast, updateUI }) => {
         animateCoinDisplay(winnerId, winner.coins);
         toast(`🏆 ${winner.name} wins ${MINIGAME_REWARD} coins and goes first!`, '#f5c842');
+        updateUI();
     });
-    import('../ui/UIManager.js').then(({ updateUI }) => updateUI());
     sfx('mg_win');
-    const zone = document.getElementById(`mg-p${winnerId + 1}`);
-    zone?.classList.add('mg-victory');
-    document.getElementById('mg-neutral').textContent = `${winner.name.toUpperCase()} WINS!`;
+    const winZone  = document.getElementById(`mg-p${winnerId + 1}`);
+    const loseZone = document.getElementById(`mg-p${2 - winnerId}`);
+    winZone?.classList.add('mg-victory');
+    loseZone?.classList.add('mg-defeat');
+    document.getElementById('mg-neutral').textContent = `${winner.name.toUpperCase()} WINS! +${MINIGAME_REWARD} 🪙`;
     setTimeout(() => {
-        zone?.classList.remove('mg-victory');
+        winZone?.classList.remove('mg-victory');
+        loseZone?.classList.remove('mg-defeat');
         endMinigame(winnerId);
-    }, 700);
+    }, 800);
 }
 
 export function endMinigame(winnerId) {

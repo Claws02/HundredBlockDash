@@ -14,6 +14,7 @@ export const MG_TYPES = [
     'splithockey', 'minelane', 'volleyzap', 'crowngrab', 'rocketrelic',
     'pulsepusher', 'sparksweep', 'tunnelcharge', 'shardstorm', 'flipdisc',
     'blitzblocks', 'relayrings', 'clashcomet', 'zonezap',
+    'mazedash',
 ];
 
 export const MG_INFO = {
@@ -63,6 +64,7 @@ export const MG_INFO = {
     relayrings:   { icon: '⭕', title: 'RELAY RINGS',      desc: 'Tap the glowing ring before it fades away, then a new one appears! Miss a ring = 1.5 second penalty. First to collect 12 rings wins the round. Best of 3!' },
     clashcomet:   { icon: '☄️', title: 'CLASH COMET',      desc: 'Tap your half when the comet is near you to deflect it toward the opponent! The comet speeds up each strike. Score when it exits the opponent\'s edge. First to 5 wins!' },
     zonezap:      { icon: '⚡', title: 'ZONE ZAP',         desc: 'Zones light up on your half — tap them before they fade to score! Zones last 1.5 seconds. Tap as many as possible in 20 seconds. Most zones zapped wins!' },
+    mazedash:     { icon: '💎', title: 'MAZE DASH',        desc: 'Race through a 3D maze to grab the glowing gem at the center! Use your joystick to navigate. Players can bump and block each other. First to the gem wins — 30-second limit!' },
 };
 
 // ============================================================
@@ -146,6 +148,7 @@ export const MG_ORIENTATION_MAP = {
     relayrings:   'faceoff',
     clashcomet:   'faceoff',
     zonezap:      'faceoff',
+    mazedash:     'faceoff',
 };
 
 export const FALLBACK_TRIVIA = [

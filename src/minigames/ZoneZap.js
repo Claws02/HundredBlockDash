@@ -3,6 +3,15 @@
 import { state } from '../core/GameState.js';
 import { sfx } from '../engine/AudioManager.js';
 
+function _rrect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y);
+    ctx.arcTo(x + w, y, x + w, y + r, r); ctx.lineTo(x + w, y + h - r);
+    ctx.arcTo(x + w, y + h, x + w - r, y + h, r); ctx.lineTo(x + r, y + h);
+    ctx.arcTo(x, y + h, x, y + h - r, r); ctx.lineTo(x, y + r);
+    ctx.arcTo(x, y, x + r, y, r); ctx.closePath();
+}
+
 const GAME_DURATION  = 20000;
 const COLS           = 3;
 const ROWS           = 4;
@@ -173,7 +182,7 @@ function _draw(now) {
                 const rect = _zoneRect(col, row, pid);
                 _ctx.fillStyle = idleColor[pid];
                 _ctx.strokeStyle = 'rgba(255,255,255,0.06)'; _ctx.lineWidth = 1;
-                _ctx.beginPath(); _ctx.roundRect(rect.x, rect.y, rect.w, rect.h, 6);
+                _rrect(_ctx, rect.x, rect.y, rect.w, rect.h, 6);
                 _ctx.fill(); _ctx.stroke();
             }
         }
@@ -187,7 +196,7 @@ function _draw(now) {
             _ctx.fillStyle = litColor[pid] + (0.65 * life) + ')';
             _ctx.shadowColor = pid === 0 ? '#ff3b3b' : '#3b8eff';
             _ctx.shadowBlur  = 18 * life;
-            _ctx.beginPath(); _ctx.roundRect(rect.x, rect.y, rect.w, rect.h, 6);
+            _rrect(_ctx, rect.x, rect.y, rect.w, rect.h, 6);
             _ctx.fill(); _ctx.shadowBlur = 0;
 
             // Life bar at bottom of zone

@@ -146,15 +146,22 @@ function _tick(now) {
     }
 
     // Check hold scoring — must be carrying on YOUR side
-    if (_crown.carriedBy >= 0 && _holdStart >= 0) {
+    if (_crown.carriedBy >= 0) {
         const carrier = _avatars[_crown.carriedBy];
         const onOwnSide = _crown.carriedBy === 0 ? carrier.y > _H / 2 : carrier.y < _H / 2;
-        if (!onOwnSide) { _holdStart = -1; } // left own side
-        else if (now - _holdStart >= HOLD_MS) {
-            _doScore(_crown.carriedBy);
-        } else {
-            const prog = (now - _holdStart) / HOLD_MS;
-            if (_neutralEl) _neutralEl.textContent = `P${_crown.carriedBy + 1} holding… ${Math.ceil((1 - prog) * (HOLD_MS / 1000))}s`;
+        if (_holdStart >= 0) {
+            if (!onOwnSide) {
+                _holdStart = -1; // left own side — pause hold timer
+                if (_neutralEl) _neutralEl.textContent = 'GET BACK TO YOUR SIDE!';
+            } else if (now - _holdStart >= HOLD_MS) {
+                _doScore(_crown.carriedBy);
+            } else {
+                const prog = (now - _holdStart) / HOLD_MS;
+                if (_neutralEl) _neutralEl.textContent = `P${_crown.carriedBy + 1} holding… ${Math.ceil((1 - prog) * (HOLD_MS / 1000))}s`;
+            }
+        } else if (onOwnSide) {
+            // Returned to own side — restart hold timer
+            _holdStart = now;
         }
     }
 

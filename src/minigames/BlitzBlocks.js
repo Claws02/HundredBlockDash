@@ -4,6 +4,20 @@
 import { state } from '../core/GameState.js';
 import { sfx } from '../engine/AudioManager.js';
 
+function _rrect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.arcTo(x + w, y, x + w, y + r, r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+    ctx.lineTo(x + r, y + h);
+    ctx.arcTo(x, y + h, x, y + h - r, r);
+    ctx.lineTo(x, y + r);
+    ctx.arcTo(x, y, x + r, y, r);
+    ctx.closePath();
+}
+
 const COLS        = 4;
 const LIVES       = 3;
 const BLOCK_W     = 0;  // computed
@@ -178,8 +192,7 @@ function _draw() {
         const bx = b.lane * colW + 4;
         const bw = colW - 8;
         _ctx.fillStyle = b.color; _ctx.shadowColor = b.color; _ctx.shadowBlur = 12;
-        _ctx.beginPath();
-        _ctx.roundRect(bx, b.y - BLOCK_H / 2, bw, BLOCK_H, 5);
+        _rrect(_ctx, bx, b.y - BLOCK_H / 2, bw, BLOCK_H, 5);
         _ctx.fill(); _ctx.shadowBlur = 0;
     }
 }

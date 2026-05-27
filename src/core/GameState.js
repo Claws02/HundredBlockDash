@@ -39,6 +39,7 @@ export const state = {
     mgType:              '',
     mgReady:             [false, false],
     lastMinigameWinner:  -1,
+    lastMinigameTied:    false,
     minigameTimeout:     null,
 
     // Players — mesh reference populated by Renderer.init()
@@ -75,4 +76,5 @@ export function resetPlayers() {
     state.rollAgainPending = false;
     state.rollAgainSamePlayer = false;
     state.lastMinigameWinner  = -1;
+    state.lastMinigameTied    = false;
 }
