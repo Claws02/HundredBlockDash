@@ -19,7 +19,9 @@ const MX = -(MAZE_W * CELL_SIZE) / 2;   // -7
 const MZ = -(MAZE_H * CELL_SIZE) / 2;   // -7
 
 let _done = false, _onWin = null, _isBot = false;
-let _overlay = null, _renderer = null, _scene = null, _camera = null;
+let _overlay = null, _renderer = null, _scene = null;
+const _cameras = [null, null];
+let _W = 0, _H = 0;
 let _af = null, _startTime = 0, _lastTime = 0;
 let _cells = null;      // [row][col] { R: bool, B: bool }
 let _wallBoxes = [];    // [{minX,maxX,minZ,maxZ}] AABBs for collision
@@ -195,15 +197,16 @@ function _build() {
 // ── Three.js scene ────────────────────────────────────────────────────────────
 
 function _initThree() {
-    const w = _overlay.clientWidth  || 390;
-    const h = _overlay.clientHeight || 680;
-    const aspect = w / h;
+    _W = _overlay.clientWidth  || 390;
+    _H = _overlay.clientHeight || 680;
+    const halfAspect = _W / (_H / 2);   // each player's viewport is half-height
 
     _renderer = new THREE.WebGLRenderer({ antialias: true });
     _renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    _renderer.setSize(w, h);
+    _renderer.setSize(_W, _H);
     _renderer.shadowMap.enabled = true;
     _renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    _renderer.autoClear = false;
     _renderer.domElement.style.cssText = 'position:absolute;inset:0;z-index:1;pointer-events:none;';
     _overlay.insertBefore(_renderer.domElement, _overlay.firstChild);
 
@@ -211,16 +214,20 @@ function _initThree() {
     _scene.background = new THREE.Color(0x030308);
     _scene.fog = new THREE.Fog(0x030308, 36, 65);
 
-    // Isometric-ish camera matching SphereKnockout's approach
-    const minW = MAZE_W * CELL_SIZE + 6;   // 20 units
-    const vH   = minW / Math.min(aspect, 1.0);
-    _camera = new THREE.OrthographicCamera(
-        -vH * aspect / 2,  vH * aspect / 2,
-         vH / 2,           -vH / 2,
-        0.1, 120
-    );
-    _camera.position.set(0, 10, 13);
-    _camera.lookAt(0, 0, 0);
+    // Two independent top-down cameras — one per player half.
+    // Pure top-down: position directly above player, up=(0,0,-1) so world -z = screen up.
+    // Each camera shows a ~10-unit radius window around its player.
+    const vH = 10;
+    for (let pid = 0; pid < 2; pid++) {
+        _cameras[pid] = new THREE.OrthographicCamera(
+            -vH * halfAspect / 2,  vH * halfAspect / 2,
+             vH / 2,               -vH / 2,
+            0.1, 60
+        );
+        _cameras[pid].up.set(0, 0, -1);
+        _cameras[pid].position.set(0, 15, 0);
+        _cameras[pid].lookAt(0, 0, 0);
+    }
 
     // Lights
     _scene.add(new THREE.AmbientLight(0x1a2045, 6));
@@ -388,6 +395,26 @@ function _buildGem() {
     _scene.add(ring);
 }
 
+// ── Split-screen render ───────────────────────────────────────────────────────
+
+function _renderSplit() {
+    if (!_renderer || !_scene) return;
+    const halfH = Math.floor(_H / 2);
+    _renderer.clear();
+    for (let pid = 0; pid < 2; pid++) {
+        const p = _players[pid];
+        // Snap camera above this player each frame
+        _cameras[pid].position.set(p.x, 15, p.z);
+        _cameras[pid].lookAt(p.x, 0, p.z);
+        // P1 = bottom half (WebGL y=0 is canvas bottom); P2 = top half
+        const vy = pid === 0 ? 0 : halfH;
+        _renderer.setViewport(0, vy, _W, halfH);
+        _renderer.setScissor(0, vy, _W, halfH);
+        _renderer.setScissorTest(true);
+        _renderer.render(_scene, _cameras[pid]);
+    }
+}
+
 // ── Bot AI (BFS toward gem cell) ──────────────────────────────────────────────
 
 function _bfsNextStep(fc, fr, tc, tr) {
@@ -532,7 +559,7 @@ function _tick(now) {
         return;
     }
 
-    if (_renderer) _renderer.render(_scene, _camera);
+    _renderSplit();
     _af = requestAnimationFrame(_tick);
 }
 
@@ -542,7 +569,7 @@ function _resolve(winnerId) {
     if (_done) return;
     _done = true; state.mgActive = false;
     cancelAnimationFrame(_af); _af = null;
-    if (_renderer && _scene && _camera) _renderer.render(_scene, _camera);
+    _renderSplit();
     if (_neutralEl) {
         _neutralEl.textContent = winnerId >= 0
             ? `P${winnerId + 1} GRABS THE GEM! 💎`
@@ -570,5 +597,6 @@ function _destroy() {
     if (_overlay)  { _overlay.remove();   _overlay  = null; }
     _players[0].mesh = _players[0].light = null;
     _players[1].mesh = _players[1].light = null;
-    _gemMesh = null; _gemLight = null; _camera = null; _timerEl = null;
+    _gemMesh = null; _gemLight = null;
+    _cameras[0] = _cameras[1] = null; _timerEl = null;
 }
