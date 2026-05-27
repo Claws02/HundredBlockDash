@@ -58,6 +58,7 @@ const MG_MODULES = {
     relayrings:   () => import('./RelayRings.js'),
     clashcomet:   () => import('./ClashComet.js'),
     zonezap:      () => import('./ZoneZap.js'),
+    mazedash:     () => import('./MazeDash.js'),
 };
 
 let _controller   = null;
