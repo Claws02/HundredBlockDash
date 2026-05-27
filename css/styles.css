@@ -202,14 +202,26 @@ body, html {
 .ph-grip.p2 { animation: gripGlow2 2s ease-in-out infinite; }
 
 /* Minigame zone styles */
-.mg-zone { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; overflow: hidden; pointer-events: auto; width:100%; }
-#mg-p2 { background: rgba(59,142,255,.1); border-bottom: 3px solid var(--p2); transform: rotate(180deg); }
-#mg-p1 { background: rgba(255,59,59,.1); border-top: 3px solid var(--p1); }
-#mg-neutral { height: 76px; background: #000; border-top: 2px solid #222; border-bottom: 2px solid #222; display: flex; align-items: center; justify-content: center; font-size: 26px; color: var(--gold); letter-spacing: 2px; flex-shrink: 0; width:100%; }
-.mg-ready-btn { font-size: 34px; padding: 16px 52px; border-radius: 16px; border: none; cursor: pointer; background: #fff; color: #000; }
-.mg-ready-btn.ready { background: #4ade80; }
-.mg-victory { animation: mgVictoryPulse .7s ease both; box-shadow: inset 0 0 70px rgba(245,200,66,.42); }
-@keyframes mgVictoryPulse { 0% { filter: brightness(1); transform: scale(1); } 35% { filter: brightness(1.7); transform: scale(1.015); } 100% { filter: brightness(1); transform: scale(1); } }
+.mg-zone { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; overflow: hidden; pointer-events: auto; width:100%; transition: background 0.3s; }
+#mg-p2 { background: rgba(59,142,255,.12); border-bottom: 3px solid var(--p2); transform: rotate(180deg); }
+#mg-p1 { background: rgba(255,59,59,.12); border-top: 3px solid var(--p1); }
+#mg-neutral { height: 76px; background: linear-gradient(90deg, #0a0a0a 0%, #111 50%, #0a0a0a 100%); border-top: 2px solid #333; border-bottom: 2px solid #333; display: flex; align-items: center; justify-content: center; font-size: 24px; color: var(--gold); letter-spacing: 3px; flex-shrink: 0; width:100%; text-shadow: 0 0 12px rgba(245,200,66,.6); transition: color 0.2s; }
+.mg-ready-btn { font-size: 30px; padding: 16px 48px; border-radius: 16px; border: 3px solid rgba(255,255,255,.4); cursor: pointer; background: rgba(255,255,255,.12); color: #fff; letter-spacing: 2px; transition: background .15s, transform .1s, border-color .15s; }
+.mg-ready-btn:active { transform: scale(.94); }
+.mg-ready-btn.ready { background: rgba(74,222,128,.35); border-color: #4ade80; color: #4ade80; box-shadow: 0 0 20px rgba(74,222,128,.4); }
+.mg-victory { animation: mgVictoryPulse .8s ease both; }
+@keyframes mgVictoryPulse {
+    0%   { background-color: transparent; }
+    20%  { background-color: rgba(245,200,66,.32); box-shadow: inset 0 0 80px rgba(245,200,66,.5); filter: brightness(1.5); }
+    60%  { background-color: rgba(245,200,66,.18); box-shadow: inset 0 0 50px rgba(245,200,66,.3); filter: brightness(1.2); }
+    100% { background-color: transparent; box-shadow: none; filter: brightness(1); }
+}
+.mg-defeat { animation: mgDefeatFlash .6s ease both; }
+@keyframes mgDefeatFlash {
+    0%   { background-color: transparent; }
+    25%  { background-color: rgba(239,68,68,.28); box-shadow: inset 0 0 60px rgba(239,68,68,.4); filter: brightness(0.7) saturate(0.5); }
+    100% { background-color: transparent; box-shadow: none; filter: brightness(1) saturate(1); }
+}
 
 /* Win Screen */
 #win-screen { position: fixed; inset: 0; z-index: 500; background: linear-gradient(135deg, #0f0c29, #302b63, #24243e); display: none; flex-direction: column; align-items: center; justify-content: center; overflow: hidden; }
@@ -332,8 +344,13 @@ body, html {
 .hl-num-btn:active { background: rgba(245,200,66,.3); }
 .hl-submit-btn { background: linear-gradient(135deg, #3b82f6, #60a5fa); color: #fff; border: none; padding: 10px 24px; border-radius: 12px; font-size: 18px; font-family: 'Bebas Neue'; letter-spacing: 1px; cursor: pointer; width: 100%; }
 
-@keyframes countPop { 0% { transform: scale(0.5); opacity: 0; } 60% { transform: scale(1.3); } 100% { transform: scale(1); opacity: 1; } }
-#mg-countdown { position: absolute; font-size: 140px; color: var(--gold); text-shadow: 0 0 40px rgba(245,200,66,.8); pointer-events: none; z-index: 10; display: none; }
+@keyframes countPop {
+    0%   { transform: scale(0.2); opacity: 0; }
+    50%  { transform: scale(1.4); opacity: 1; }
+    75%  { transform: scale(0.95); }
+    100% { transform: scale(1); opacity: 1; }
+}
+#mg-countdown { position: absolute; font-size: 160px; color: var(--gold); text-shadow: 0 0 60px rgba(245,200,66,1), 0 0 20px rgba(245,200,66,.8); pointer-events: none; z-index: 10; display: none; }
 
 .btn-close-map { background: rgba(255,255,255,.16); color: #fff; border: none; padding: 10px 24px; border-radius: 10px; font-weight: bold; cursor: pointer; width: 100%; font-family: 'Bebas Neue'; font-size: 18px; letter-spacing: 1px; }
 

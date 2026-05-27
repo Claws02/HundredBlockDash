@@ -405,6 +405,7 @@ export function resolveMsgModal() {
         setTimeout(() => {
             state.activePlayer = state.lastMinigameWinner >= 0 ? state.lastMinigameWinner : (state.activePlayer + 1) % 2;
             state.lastMinigameWinner = -1;
+            state.lastMinigameTied   = false;
             proceedTurn();
         }, 300);
         return;
@@ -429,12 +430,19 @@ export function finishTurn() {
 export function maybeTriggerMinigame() {
     if (state.totalTurns > 0 && state.totalTurns % MINIGAME_EVERY_N_TURNS === 0) {
         MinigameManager.trigger((winnerId) => {
-            const msg = winnerId >= 0
-                ? `${state.players[winnerId].name} wins — they roll first next turn!`
-                : 'Nobody wins this time!';
-            ModalManager.showMessage('MINIGAME OVER', msg, winnerId >= 0 ? '🏆' : '🤝');
-            if (state.players[winnerId] && state.players[winnerId].isBot) {
-                setTimeout(() => { if (state.gameState === 'MINIGAME_ACK') resolveMsgModal(); }, 1500);
+            let msg, icon;
+            if (state.lastMinigameTied) {
+                state.lastMinigameTied = false;
+                msg = `It's a tie! Both players got coins — ${state.players[winnerId].name} goes first (coin flip)!`;
+                icon = '🪙';
+            } else {
+                msg = `${state.players[winnerId].name} wins — they roll first next turn!`;
+                icon = '🏆';
+            }
+            ModalManager.showMessage('MINIGAME OVER', msg, icon);
+            // Auto-dismiss in 1P mode when there's no human input needed
+            if (state.players[1].isBot) {
+                setTimeout(() => { if (state.gameState === 'MINIGAME_ACK') resolveMsgModal(); }, 1800);
             }
         });
     } else {

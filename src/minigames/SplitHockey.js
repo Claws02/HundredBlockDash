@@ -3,6 +3,15 @@
 import { state } from '../core/GameState.js';
 import { sfx } from '../engine/AudioManager.js';
 
+function _rrect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y);
+    ctx.arcTo(x + w, y, x + w, y + r, r); ctx.lineTo(x + w, y + h - r);
+    ctx.arcTo(x + w, y + h, x + w - r, y + h, r); ctx.lineTo(x + r, y + h);
+    ctx.arcTo(x, y + h, x, y + h - r, r); ctx.lineTo(x, y + r);
+    ctx.arcTo(x, y, x + r, y, r); ctx.closePath();
+}
+
 const WIN_SCORE = 5;
 const PUCK_R    = 14;
 const PAD_W     = 90;
@@ -197,8 +206,7 @@ function _draw() {
     const pColors = ['#ff3b3b', '#3b8eff'];
     for (const pad of _pads) {
         _ctx.fillStyle = pColors[pad.pid]; _ctx.shadowColor = pColors[pad.pid]; _ctx.shadowBlur = 14;
-        _ctx.beginPath();
-        _ctx.roundRect(pad.x - PAD_W/2, pad.y - PAD_H/2, PAD_W, PAD_H, 6);
+        _rrect(_ctx, pad.x - PAD_W/2, pad.y - PAD_H/2, PAD_W, PAD_H, 6);
         _ctx.fill(); _ctx.shadowBlur = 0;
     }
 

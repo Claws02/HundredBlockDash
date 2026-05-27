@@ -4,6 +4,15 @@
 import { state } from '../core/GameState.js';
 import { sfx } from '../engine/AudioManager.js';
 
+function _rrect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y);
+    ctx.arcTo(x + w, y, x + w, y + r, r); ctx.lineTo(x + w, y + h - r);
+    ctx.arcTo(x + w, y + h, x + w - r, y + h, r); ctx.lineTo(x + r, y + h);
+    ctx.arcTo(x, y + h, x, y + h - r, r); ctx.lineTo(x, y + r);
+    ctx.arcTo(x, y, x + r, y, r); ctx.closePath();
+}
+
 const SHIELD_W    = 110;
 const SHIELD_H    = 12;
 const LIVES       = 3;
@@ -176,8 +185,7 @@ function _draw(now) {
     const sColors = ['#ff3b3b', '#3b8eff'];
     for (const sh of _shields) {
         _ctx.fillStyle = sColors[sh.pid]; _ctx.shadowColor = sColors[sh.pid]; _ctx.shadowBlur = 16;
-        _ctx.beginPath();
-        _ctx.roundRect(sh.x - SHIELD_W / 2, sh.y - SHIELD_H / 2, SHIELD_W, SHIELD_H, 6);
+        _rrect(_ctx, sh.x - SHIELD_W / 2, sh.y - SHIELD_H / 2, SHIELD_W, SHIELD_H, 6);
         _ctx.fill();
         _ctx.shadowBlur = 0;
     }
