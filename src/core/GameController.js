@@ -158,7 +158,7 @@ export function executeRoll(flickVelocity) {
     if (state.cursedTarget[state.activePlayer]) {
         state.cursedTarget[state.activePlayer] = false;
         state.currentRollMode = 'cursed_forced';
-        UIManager.toast('💀 Cursed Die forces a bad roll!', '#ef4444');
+        UIManager.toast('\ud83d� Cursed Die forces a bad roll!', '#ef4444');
     } else if (p._warpNextRoll) {
         p._warpNextRoll = false; state.currentRollMode = 'forced_5';
     } else if (p._doubleNextRoll) {
@@ -603,7 +603,7 @@ export function closeGate() {
     if (state.gateOpen) {
         ModalManager.showMessage('🔓 GATE OPEN!', 'The path is clear! Both players may now pass through.', '🔓');
     } else {
-        ModalManager.showMessage('🚪 GATE HOLDS', `${state.players[pid].name} couldn't break through. Try again next turn!`, '🚪');
+        ModalManager.showMessage('\ud83d� GATE HOLDS', `${state.players[pid].name} couldn't break through. Try again next turn!`, '\ud83d�');
     }
     if (state.players[pid].isBot) setTimeout(() => { if (state.gameState === 'ACKNOWLEDGE') resolveMsgModal(); }, 1500);
 }
@@ -706,7 +706,7 @@ export function executeUseItem(pid, itemIdx) {
     const itemId = p.inv[itemIdx]; p.inv.splice(itemIdx, 1);
     if (opp._mirrored && ['cursed_die', 'anchor', 'swap', 'steal'].includes(itemId)) {
         opp._mirrored = false;
-        UIManager.toast(`🪞 Mirror reflected ${ITEMS[itemId].name} back!`, '#60a5fa');
+        UIManager.toast(`🪩 Mirror reflected ${ITEMS[itemId].name} back!`, '#60a5fa');
         sfx('shield'); UIManager.updateUI(); ModalManager.closeAllModals(); return;
     }
     UIManager.toast(`Used ${ITEMS[itemId].name}!`, '#f5c842'); sfx('buy');
@@ -719,7 +719,7 @@ function _applyItemEffect(p, itemId, isBot, opp) {
     opp = opp || state.players[(p.id + 1) % 2];
     if (itemId === 'warp_drive') { p._warpNextRoll = true; }
     if (itemId === 'double_die') { p._doubleNextRoll = true; }
-    if (itemId === 'cursed_die') { state.cursedTarget[(p.id + 1) % 2] = true; UIManager.toast(`💀 Cursed Die!`, '#ef4444'); }
+    if (itemId === 'cursed_die') { state.cursedTarget[(p.id + 1) % 2] = true; UIManager.toast(`\ud83d� Cursed Die!`, '#ef4444'); }
     if (itemId === 'tollbooth')  { state.board[p.pos].type = 'player_trap'; state.board[p.pos].owner = p.id; Renderer.updateSingleTile(p.pos); }
     if (itemId === 'shield')     { p._shielded = true; }
     if (itemId === 'rocket')     { movePlayer(p, 8, true); UIManager.updateUI(); ModalManager.closeAllModals(); }
@@ -745,7 +745,7 @@ function _applyItemEffect(p, itemId, isBot, opp) {
 
 export function confirmCustomDice(num) {
     ModalManager.closeAllModals();
-    UIManager.toast(`🎯 Custom Dice: moving ${num} spaces!`, '#f5c842');
+    UIManager.toast(`\ud83c� Custom Dice: moving ${num} spaces!`, '#f5c842');
     sfx('buy'); haptic([30, 50, 30]);
     setTimeout(() => movePlayer(state.players[state.activePlayer], num), 300);
 }
@@ -767,7 +767,7 @@ export function calculateWinner() {
     function row(label, val) { return `<div class="win-card-stat"><span>${label}</span><span>${val}</span></div>`; }
     function card(p, s, f) {
         const isW = !isTie && p === winner;
-        return `<div class="win-card${isW ? ' winner-card' : ''}"><div class="win-card-name">${isW ? '👑 ' : ''}${p.name}</div><div class="win-card-score">${s}</div>${row('💰 Coins earned', p.coinsEarned)}${row('💵 Coins left', p.coins)}${f ? row('🏁 Finish bonus', '+' + f) : ''}${row('🏆 Minigames won', p.mgWins)}${row('📍 Final space', p.pos >= 99 ? 'FINISHED' : p.pos)}</div>`;
+        return `<div class="win-card${isW ? ' winner-card' : ''}"><div class="win-card-name">${isW ? '👑 ' : ''}${p.name}</div><div class="win-card-score">${s}</div>${row('💰 Coins earned', p.coinsEarned)}${row('\ud83d� Coins left', p.coins)}${f ? row('🏁 Finish bonus', '+' + f) : ''}${row('🏆 Minigames won', p.mgWins)}${row('\ud83d� Final space', p.pos >= 99 ? 'FINISHED' : p.pos)}</div>`;
     }
     document.getElementById('win-cards').innerHTML = card(p1, p1s, p1f) + card(p2, p2s, p2f);
     const confettiEl = document.getElementById('win-confetti'); confettiEl.innerHTML = '';
