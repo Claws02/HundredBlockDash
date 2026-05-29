@@ -1,28 +1,35 @@
-// MazeDash — Race through a 3D maze to snatch the gem first! 30-second limit.
-// P1 (red) starts bottom-left, P2 (blue) starts top-right. Gem glows at the center.
+// MazeDash — Race through a larger maze to snatch the gem first! Top-down split-screen.
+// P1 (red) bottom half, P2 (blue) top half. Gem glows at the maze center.
 import { state } from '../core/GameState.js';
 import { sfx } from '../engine/AudioManager.js';
 
 const CELL_SIZE    = 2;
-const MAZE_W       = 7;
-const MAZE_H       = 7;
+const MAZE_W       = 13;
+const MAZE_H       = 13;
 const WALL_H       = 1.5;
 const WALL_T       = 0.18;
 const PLAYER_R     = 0.38;
-const PLAYER_SPEED = 4.8;
+const PLAYER_SPEED = 5.2;
 const GEM_R        = 0.24;
-const GAME_DURATION = 30000;
+const GAME_DURATION = 45000;
 const JOY_R        = 56;
 
-// World origin: maze is centered at (0,0)
-const MX = -(MAZE_W * CELL_SIZE) / 2;   // -7
-const MZ = -(MAZE_H * CELL_SIZE) / 2;   // -7
+// Half-size of the world area visible in each camera (orthographic units)
+const CAM_HALF = 8;
+
+// Maze world origin — centered at (0, 0)
+const MX = -(MAZE_W * CELL_SIZE) / 2;   // -13
+const MZ = -(MAZE_H * CELL_SIZE) / 2;   // -13
+const MAZE_W_WORLD = MAZE_W * CELL_SIZE; // 26
+const MAZE_H_WORLD = MAZE_H * CELL_SIZE; // 26
 
 let _done = false, _onWin = null, _isBot = false;
-let _overlay = null, _renderer = null, _scene = null, _camera = null;
+let _overlay = null, _renderer = null, _scene = null;
+const _cameras = [null, null];
+let _canvasW = 390, _canvasH = 680;
 let _af = null, _startTime = 0, _lastTime = 0;
-let _cells = null;      // [row][col] { R: bool, B: bool }
-let _wallBoxes = [];    // [{minX,maxX,minZ,maxZ}] AABBs for collision
+let _cells = null;
+let _wallBoxes = [];
 const _players = [
     { x: 0, z: 0, mesh: null, light: null },
     { x: 0, z: 0, mesh: null, light: null },
@@ -37,8 +44,6 @@ const _joy = [
 const _cleanups = [];
 const _timers   = [];
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
 function _after(fn, ms) {
     const id = setTimeout(() => { _timers.splice(_timers.indexOf(id), 1); fn(); }, ms);
     _timers.push(id);
@@ -51,7 +56,6 @@ function _genMaze() {
         Array.from({ length: MAZE_W }, () => ({ R: true, B: true }))
     );
     const vis = Array.from({ length: MAZE_H }, () => new Uint8Array(MAZE_W));
-
     function carve(c, r) {
         vis[r][c] = 1;
         const dirs = [[1,0],[-1,0],[0,1],[0,-1]].sort(() => Math.random() - 0.5);
@@ -85,12 +89,11 @@ function _buildWallBoxes() {
             }
         }
     }
-    // Outer boundary (thick enough to never escape)
-    const ot = 0.5, tw = MAZE_W * CELL_SIZE, th = MAZE_H * CELL_SIZE;
-    _wallBoxes.push({ minX: MX - ot, maxX: MX + tw + ot, minZ: MZ - ot,      maxZ: MZ + hw       });
-    _wallBoxes.push({ minX: MX - ot, maxX: MX + tw + ot, minZ: MZ + th - hw, maxZ: MZ + th + ot  });
-    _wallBoxes.push({ minX: MX - ot, maxX: MX + hw,      minZ: MZ - ot,      maxZ: MZ + th + ot  });
-    _wallBoxes.push({ minX: MX + tw - hw, maxX: MX + tw + ot, minZ: MZ - ot, maxZ: MZ + th + ot  });
+    const ot = 0.5;
+    _wallBoxes.push({ minX: MX - ot, maxX: MX + MAZE_W_WORLD + ot, minZ: MZ - ot,                maxZ: MZ + hw                   });
+    _wallBoxes.push({ minX: MX - ot, maxX: MX + MAZE_W_WORLD + ot, minZ: MZ + MAZE_H_WORLD - hw, maxZ: MZ + MAZE_H_WORLD + ot    });
+    _wallBoxes.push({ minX: MX - ot, maxX: MX + hw,                minZ: MZ - ot,                maxZ: MZ + MAZE_H_WORLD + ot    });
+    _wallBoxes.push({ minX: MX + MAZE_W_WORLD - hw, maxX: MX + MAZE_W_WORLD + ot, minZ: MZ - ot, maxZ: MZ + MAZE_H_WORLD + ot   });
 }
 
 function _resolveWalls(p) {
@@ -115,19 +118,55 @@ function _build() {
     _overlay = document.createElement('div');
     _overlay.style.cssText = 'position:absolute;inset:0;overflow:hidden;background:#030308;touch-action:none;';
 
-    const hud = document.createElement('div');
-    hud.style.cssText = 'position:absolute;top:0;left:0;right:0;height:32px;display:flex;justify-content:space-between;align-items:center;padding:0 14px;box-sizing:border-box;z-index:10;pointer-events:none;';
-    const mkLbl = (t, c) => {
-        const el = document.createElement('div');
-        el.style.cssText = `font-size:1rem;font-weight:900;color:${c};text-shadow:0 0 8px ${c};`;
-        el.textContent = t; return el;
-    };
-    hud.appendChild(mkLbl('P1', '#ff3b3b'));
-    _timerEl = mkLbl('30s', '#fbbf24');
-    hud.appendChild(_timerEl);
-    hud.appendChild(mkLbl('P2', '#3b8eff'));
-    _overlay.appendChild(hud);
+    // Split-screen divider line
+    const divider = document.createElement('div');
+    divider.style.cssText = [
+        'position:absolute;left:0;right:0;top:50%;height:3px;',
+        'background:linear-gradient(to right,#ff3b3b 0%,#ffffff 50%,#3b8eff 100%);',
+        'z-index:10;pointer-events:none;transform:translateY(-50%);',
+        'box-shadow:0 0 10px 2px rgba(255,255,255,0.4);',
+    ].join('');
+    _overlay.appendChild(divider);
 
+    // Timer badge centered on the divider
+    _timerEl = document.createElement('div');
+    _timerEl.style.cssText = [
+        'position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);',
+        'background:#000d;border:2px solid #fbbf24;border-radius:10px;',
+        'padding:2px 12px;font-size:1rem;font-weight:900;',
+        'color:#fbbf24;text-shadow:0 0 8px #fbbf24;z-index:11;pointer-events:none;',
+        'white-space:nowrap;',
+    ].join('');
+    _timerEl.textContent = '45s';
+    _overlay.appendChild(_timerEl);
+
+    // Player labels in their respective halves
+    const p1Label = document.createElement('div');
+    p1Label.style.cssText = 'position:absolute;bottom:calc(50% + 8px);left:14px;font-size:0.9rem;font-weight:900;color:#ff3b3b;text-shadow:0 0 8px #ff3b3b;z-index:10;pointer-events:none;';
+    p1Label.textContent = 'P1';
+    _overlay.appendChild(p1Label);
+
+    const p2Label = document.createElement('div');
+    p2Label.style.cssText = 'position:absolute;top:calc(50% + 8px);left:14px;font-size:0.9rem;font-weight:900;color:#3b8eff;text-shadow:0 0 8px #3b8eff;z-index:10;pointer-events:none;';
+    p2Label.textContent = 'P2';
+    _overlay.appendChild(p2Label);
+
+    // Gem compass arrows pointing toward center for each player
+    const mkArrow = (pid) => {
+        const el = document.createElement('div');
+        el.style.cssText = [
+            'position:absolute;',
+            pid === 0 ? 'bottom:calc(50% + 8px);right:14px;' : 'top:calc(50% + 8px);right:14px;',
+            'font-size:0.75rem;font-weight:900;color:#ffd700;',
+            'text-shadow:0 0 6px #ffd700;z-index:10;pointer-events:none;',
+        ].join('');
+        el.textContent = '💎 →';
+        return el;
+    };
+    _overlay.appendChild(mkArrow(0));
+    _overlay.appendChild(mkArrow(1));
+
+    // Joystick zones: P1 = bottom half, P2 = top half
     for (let pid = 0; pid < 2; pid++) {
         const zone = document.createElement('div');
         zone.style.cssText = `position:absolute;${pid === 0 ? 'top:50%;bottom:0;' : 'top:0;bottom:50%;'}left:0;right:0;z-index:5;`;
@@ -158,7 +197,7 @@ function _build() {
             e.preventDefault();
             const rb = base.getBoundingClientRect();
             joy.active = true; joy.id = e.pointerId;
-            joy.bx = rb.left + rb.width / 2;
+            joy.bx = rb.left + rb.width  / 2;
             joy.by = rb.top  + rb.height / 2;
         };
         const onMove = e => {
@@ -195,88 +234,96 @@ function _build() {
 // ── Three.js scene ────────────────────────────────────────────────────────────
 
 function _initThree() {
-    const w = _overlay.clientWidth  || 390;
-    const h = _overlay.clientHeight || 680;
-    const aspect = w / h;
+    _canvasW = _overlay.clientWidth  || 390;
+    _canvasH = _overlay.clientHeight || 680;
+    const halfH  = _canvasH / 2;
+    const aspect = _canvasW / halfH;
 
     _renderer = new THREE.WebGLRenderer({ antialias: true });
     _renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    _renderer.setSize(w, h);
+    _renderer.setSize(_canvasW, _canvasH);
     _renderer.shadowMap.enabled = true;
     _renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    _renderer.autoClear = false;
     _renderer.domElement.style.cssText = 'position:absolute;inset:0;z-index:1;pointer-events:none;';
     _overlay.insertBefore(_renderer.domElement, _overlay.firstChild);
 
     _scene = new THREE.Scene();
     _scene.background = new THREE.Color(0x030308);
-    _scene.fog = new THREE.Fog(0x030308, 36, 65);
 
-    // Isometric-ish camera matching SphereKnockout's approach
-    const minW = MAZE_W * CELL_SIZE + 6;   // 20 units
-    const vH   = minW / Math.min(aspect, 1.0);
-    _camera = new THREE.OrthographicCamera(
-        -vH * aspect / 2,  vH * aspect / 2,
-         vH / 2,           -vH / 2,
-        0.1, 120
-    );
-    _camera.position.set(0, 10, 13);
-    _camera.lookAt(0, 0, 0);
+    // Two top-down orthographic cameras
+    for (let i = 0; i < 2; i++) {
+        const halfW = CAM_HALF * aspect;
+        const cam = new THREE.OrthographicCamera(
+            -halfW,  halfW,
+             CAM_HALF, -CAM_HALF,
+            0.1, 120
+        );
+        cam.up.set(0, 0, -1);
+        cam.position.set(0, 40, 0);
+        cam.lookAt(new THREE.Vector3(0, 0, 0));
+        _cameras[i] = cam;
+    }
 
     // Lights
-    _scene.add(new THREE.AmbientLight(0x1a2045, 6));
-    const sun = new THREE.DirectionalLight(0x8888ff, 2.8);
-    sun.position.set(5, 14, 9);
+    _scene.add(new THREE.AmbientLight(0x1a2045, 7));
+    const sun = new THREE.DirectionalLight(0x8888ff, 2.5);
+    sun.position.set(5, 20, 9);
     sun.castShadow = true;
     sun.shadow.mapSize.set(1024, 1024);
-    sun.shadow.camera.left = sun.shadow.camera.bottom = -18;
-    sun.shadow.camera.right = sun.shadow.camera.top   =  18;
-    sun.shadow.camera.near = 1; sun.shadow.camera.far  = 50;
+    sun.shadow.camera.left = sun.shadow.camera.bottom = -20;
+    sun.shadow.camera.right = sun.shadow.camera.top   =  20;
+    sun.shadow.camera.near = 1; sun.shadow.camera.far  = 80;
     _scene.add(sun);
-
-    // Stars
-    const sPos = new Float32Array(600 * 3);
-    for (let i = 0; i < sPos.length; i++) sPos[i] = (Math.random() - 0.5) * 120;
-    const sGeo = new THREE.BufferGeometry();
-    sGeo.setAttribute('position', new THREE.BufferAttribute(sPos, 3));
-    _scene.add(new THREE.Points(sGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.15 })));
 
     _buildMazeMeshes();
     _buildPlayerMeshes();
     _buildGem();
 }
 
+function _updateCamera(cam, player) {
+    const halfW     = Math.abs(cam.right);
+    const halfH_world = Math.abs(cam.top);
+
+    // Clamp so the view stays within maze bounds
+    const cx = Math.max(MX + halfW,       Math.min(MX + MAZE_W_WORLD - halfW,       player.x));
+    const cz = Math.max(MZ + halfH_world, Math.min(MZ + MAZE_H_WORLD - halfH_world, player.z));
+
+    cam.position.set(cx, 40, cz);
+    cam.lookAt(new THREE.Vector3(cx, 0, cz));
+}
+
 function _buildMazeMeshes() {
-    // Dark floor
+    // Floor
     const floor = new THREE.Mesh(
-        new THREE.PlaneGeometry(MAZE_W * CELL_SIZE + 3, MAZE_H * CELL_SIZE + 3),
+        new THREE.PlaneGeometry(MAZE_W_WORLD + 3, MAZE_H_WORLD + 3),
         new THREE.MeshStandardMaterial({ color: 0x070b16, roughness: 0.95, metalness: 0.05 })
     );
     floor.rotation.x = -Math.PI / 2;
     floor.receiveShadow = true;
     _scene.add(floor);
 
-    // Subtle grid lines on floor
+    // Grid lines
     const lineMat = new THREE.LineBasicMaterial({ color: 0x1a2060, transparent: true, opacity: 0.35 });
     for (let i = 0; i <= MAZE_W; i++) {
         const x = MX + i * CELL_SIZE;
         const g = new THREE.BufferGeometry().setFromPoints([
-            new THREE.Vector3(x, 0.01, MZ), new THREE.Vector3(x, 0.01, MZ + MAZE_H * CELL_SIZE)
+            new THREE.Vector3(x, 0.01, MZ), new THREE.Vector3(x, 0.01, MZ + MAZE_H_WORLD)
         ]);
         _scene.add(new THREE.Line(g, lineMat));
     }
     for (let j = 0; j <= MAZE_H; j++) {
         const z = MZ + j * CELL_SIZE;
         const g = new THREE.BufferGeometry().setFromPoints([
-            new THREE.Vector3(MX, 0.01, z), new THREE.Vector3(MX + MAZE_W * CELL_SIZE, 0.01, z)
+            new THREE.Vector3(MX, 0.01, z), new THREE.Vector3(MX + MAZE_W_WORLD, 0.01, z)
         ]);
         _scene.add(new THREE.Line(g, lineMat));
     }
 
-    // Start zone indicators
-    _addZoneRing(-6, 6,   0xff3b3b); // P1
-    _addZoneRing( 6, -6,  0x3b8eff); // P2
+    // Start zone rings
+    _addZoneRing(MX + 0.5 * CELL_SIZE,              MZ + (MAZE_H - 0.5) * CELL_SIZE, 0xff3b3b); // P1
+    _addZoneRing(MX + (MAZE_W - 0.5) * CELL_SIZE,   MZ + 0.5 * CELL_SIZE,            0x3b8eff); // P2
 
-    // Shared wall material (neon teal glow)
     const wallMat = new THREE.MeshStandardMaterial({
         color: 0x0c1430, roughness: 0.45, metalness: 0.35,
         emissive: 0x1a3060, emissiveIntensity: 0.55,
@@ -303,11 +350,10 @@ function _buildMazeMeshes() {
     }
 
     // Outer walls
-    const tw = MAZE_W * CELL_SIZE, th = MAZE_H * CELL_SIZE;
-    _addWall(MX + tw / 2, MZ,       tw + WALL_T, WALL_T, outerMat);
-    _addWall(MX + tw / 2, MZ + th,  tw + WALL_T, WALL_T, outerMat);
-    _addWall(MX,          MZ + th / 2, WALL_T, th + WALL_T, outerMat);
-    _addWall(MX + tw,     MZ + th / 2, WALL_T, th + WALL_T, outerMat);
+    _addWall(MX + MAZE_W_WORLD / 2, MZ,                   MAZE_W_WORLD + WALL_T, WALL_T, outerMat);
+    _addWall(MX + MAZE_W_WORLD / 2, MZ + MAZE_H_WORLD,    MAZE_W_WORLD + WALL_T, WALL_T, outerMat);
+    _addWall(MX,                    MZ + MAZE_H_WORLD / 2, WALL_T, MAZE_H_WORLD + WALL_T, outerMat);
+    _addWall(MX + MAZE_W_WORLD,     MZ + MAZE_H_WORLD / 2, WALL_T, MAZE_H_WORLD + WALL_T, outerMat);
 
     // Corner posts
     const pillarMat = new THREE.MeshStandardMaterial({
@@ -350,13 +396,13 @@ function _buildPlayerMeshes() {
         const c = cfg[pid];
         p.mesh = new THREE.Mesh(
             new THREE.SphereGeometry(PLAYER_R, 16, 12),
-            new THREE.MeshStandardMaterial({ color: c.color, emissive: c.emissive, emissiveIntensity: 0.7, roughness: 0.35, metalness: 0.4 })
+            new THREE.MeshStandardMaterial({ color: c.color, emissive: c.emissive, emissiveIntensity: 0.8, roughness: 0.3, metalness: 0.4 })
         );
         p.mesh.castShadow = true;
         p.mesh.position.set(p.x, PLAYER_R, p.z);
         _scene.add(p.mesh);
 
-        p.light = new THREE.PointLight(c.light, 2.8, 4.5);
+        p.light = new THREE.PointLight(c.light, 3.0, 5.0);
         p.light.position.set(p.x, PLAYER_R + 0.4, p.z);
         _scene.add(p.light);
     }
@@ -374,11 +420,10 @@ function _buildGem() {
     _gemMesh.castShadow = true;
     _scene.add(_gemMesh);
 
-    _gemLight = new THREE.PointLight(0xffaa00, 3.5, 6);
+    _gemLight = new THREE.PointLight(0xffaa00, 4.0, 7);
     _gemLight.position.set(0, 1, 0);
     _scene.add(_gemLight);
 
-    // Gold floor ring under gem
     const ring = new THREE.Mesh(
         new THREE.RingGeometry(0.35, 0.6, 32),
         new THREE.MeshBasicMaterial({ color: 0xffd700, transparent: true, opacity: 0.4, side: THREE.DoubleSide })
@@ -399,10 +444,10 @@ function _bfsNextStep(fc, fr, tc, tr) {
     outer: while (q.length) {
         const [c, r] = q.shift();
         const nbrs = [];
-        if (!_cells[r][c].R && c + 1 < MAZE_W)         nbrs.push([c + 1, r]);
-        if (c > 0 && !_cells[r][c - 1].R)               nbrs.push([c - 1, r]);
-        if (!_cells[r][c].B && r + 1 < MAZE_H)          nbrs.push([c, r + 1]);
-        if (r > 0 && !_cells[r - 1][c].B)               nbrs.push([c, r - 1]);
+        if (!_cells[r][c].R && c + 1 < MAZE_W)        nbrs.push([c + 1, r]);
+        if (c > 0 && !_cells[r][c - 1].R)              nbrs.push([c - 1, r]);
+        if (!_cells[r][c].B && r + 1 < MAZE_H)         nbrs.push([c, r + 1]);
+        if (r > 0 && !_cells[r - 1][c].B)              nbrs.push([c, r - 1]);
         for (const [nc, nr] of nbrs) {
             if (dist[nr][nc] !== -1) continue;
             dist[nr][nc] = dist[r][c] + 1;
@@ -447,7 +492,7 @@ export function start(isBot, onWin) {
     _genMaze();
     _buildWallBoxes();
 
-    // Reset player positions to opposite corners
+    // Opposite corners of the 13×13 maze
     _players[0].x = MX + 0.5 * CELL_SIZE;
     _players[0].z = MZ + (MAZE_H - 0.5) * CELL_SIZE;
     _players[1].x = MX + (MAZE_W - 0.5) * CELL_SIZE;
@@ -474,7 +519,7 @@ function _tick(now) {
 
     if (_isBot) _updateBot(now);
 
-    // Move each player
+    // Move players
     for (let pid = 0; pid < 2; pid++) {
         const p = _players[pid];
         let mdx, mdz;
@@ -497,7 +542,7 @@ function _tick(now) {
         const d2 = dx * dx + dz * dz;
         const minD = PLAYER_R * 2;
         if (d2 < minD * minD && d2 > 1e-10) {
-            const d  = Math.sqrt(d2);
+            const d    = Math.sqrt(d2);
             const push = (minD - d) / 2;
             const nx = dx / d, nz = dz / d;
             a.x += nx * push; a.z += nz * push;
@@ -514,17 +559,17 @@ function _tick(now) {
         _gemMesh.position.y  = GEM_R + 0.3 + Math.sin(elapsed * 0.0022) * 0.14;
     }
     if (_gemLight) {
-        _gemLight.intensity = 3.0 + Math.sin(elapsed * 0.006) * 0.9;
+        _gemLight.intensity = 3.5 + Math.sin(elapsed * 0.006) * 1.0;
     }
 
-    // Win check: first player to reach gem
+    // Win check: first player to touch the gem
     for (let pid = 0; pid < 2; pid++) {
         if (Math.hypot(_players[pid].x, _players[pid].z) < PLAYER_R + GEM_R + 0.12) {
             _resolve(pid); return;
         }
     }
 
-    // Timer expiry: closest player wins (tie if equidistant)
+    // Timer expiry: closest to gem wins
     if (remaining <= 0) {
         const d0 = Math.hypot(_players[0].x, _players[0].z);
         const d1 = Math.hypot(_players[1].x, _players[1].z);
@@ -532,8 +577,31 @@ function _tick(now) {
         return;
     }
 
-    if (_renderer) _renderer.render(_scene, _camera);
+    _renderSplitScreen();
     _af = requestAnimationFrame(_tick);
+}
+
+function _renderSplitScreen() {
+    if (!_renderer || !_scene) return;
+    const halfH = Math.floor(_canvasH / 2);
+
+    _renderer.setScissorTest(true);
+
+    // P1 — bottom half (WebGL y=0 is screen bottom, so DOM bottom = WebGL 0)
+    _updateCamera(_cameras[0], _players[0]);
+    _renderer.setScissor(0, 0, _canvasW, halfH);
+    _renderer.setViewport(0, 0, _canvasW, halfH);
+    _renderer.clear(true, true, true);
+    _renderer.render(_scene, _cameras[0]);
+
+    // P2 — top half
+    _updateCamera(_cameras[1], _players[1]);
+    _renderer.setScissor(0, halfH, _canvasW, halfH);
+    _renderer.setViewport(0, halfH, _canvasW, halfH);
+    _renderer.clear(true, true, true);
+    _renderer.render(_scene, _cameras[1]);
+
+    _renderer.setScissorTest(false);
 }
 
 // ── Resolution ────────────────────────────────────────────────────────────────
@@ -542,7 +610,7 @@ function _resolve(winnerId) {
     if (_done) return;
     _done = true; state.mgActive = false;
     cancelAnimationFrame(_af); _af = null;
-    if (_renderer && _scene && _camera) _renderer.render(_scene, _camera);
+    _renderSplitScreen();
     if (_neutralEl) {
         _neutralEl.textContent = winnerId >= 0
             ? `P${winnerId + 1} GRABS THE GEM! 💎`
@@ -570,5 +638,7 @@ function _destroy() {
     if (_overlay)  { _overlay.remove();   _overlay  = null; }
     _players[0].mesh = _players[0].light = null;
     _players[1].mesh = _players[1].light = null;
-    _gemMesh = null; _gemLight = null; _camera = null; _timerEl = null;
+    _gemMesh = null; _gemLight = null;
+    _cameras[0] = _cameras[1] = null;
+    _timerEl = null;
 }
