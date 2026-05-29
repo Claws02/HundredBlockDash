@@ -4,24 +4,24 @@ import { state } from '../core/GameState.js';
 import { sfx } from '../engine/AudioManager.js';
 
 const CELL_SIZE    = 2;
-const MAZE_W       = 13;
-const MAZE_H       = 13;
+const MAZE_W       = 25;
+const MAZE_H       = 25;
 const WALL_H       = 1.5;
 const WALL_T       = 0.18;
 const PLAYER_R     = 0.38;
 const PLAYER_SPEED = 5.2;
 const GEM_R        = 0.24;
-const GAME_DURATION = 45000;
+const GAME_DURATION = 60000;
 const JOY_R        = 56;
 
-// Half-size of the world area visible in each camera (orthographic units)
-const CAM_HALF = 8;
-
 // Maze world origin — centered at (0, 0)
-const MX = -(MAZE_W * CELL_SIZE) / 2;   // -13
-const MZ = -(MAZE_H * CELL_SIZE) / 2;   // -13
-const MAZE_W_WORLD = MAZE_W * CELL_SIZE; // 26
-const MAZE_H_WORLD = MAZE_H * CELL_SIZE; // 26
+const MX = -(MAZE_W * CELL_SIZE) / 2;   // -25
+const MZ = -(MAZE_H * CELL_SIZE) / 2;   // -25
+const MAZE_W_WORLD = MAZE_W * CELL_SIZE; // 50
+const MAZE_H_WORLD = MAZE_H * CELL_SIZE; // 50
+
+// Padding around the full maze in world units (for camera framing)
+const CAM_PAD = 3;
 
 let _done = false, _onWin = null, _isBot = false;
 let _overlay = null, _renderer = null, _scene = null;
@@ -137,7 +137,7 @@ function _build() {
         'color:#fbbf24;text-shadow:0 0 8px #fbbf24;z-index:11;pointer-events:none;',
         'white-space:nowrap;',
     ].join('');
-    _timerEl.textContent = '45s';
+    _timerEl.textContent = '60s';
     _overlay.appendChild(_timerEl);
 
     // Player labels in their respective halves
@@ -251,12 +251,13 @@ function _initThree() {
     _scene = new THREE.Scene();
     _scene.background = new THREE.Color(0x030308);
 
-    // Two top-down orthographic cameras
+    // Two identical top-down cameras, both framing the full maze centered
+    const camHalfH = MAZE_H_WORLD / 2 + CAM_PAD;          // 28
+    const camHalfW = camHalfH * (_canvasW / (_canvasH / 2)); // aspect of one half
     for (let i = 0; i < 2; i++) {
-        const halfW = CAM_HALF * aspect;
         const cam = new THREE.OrthographicCamera(
-            -halfW,  halfW,
-             CAM_HALF, -CAM_HALF,
+            -camHalfW,  camHalfW,
+             camHalfH, -camHalfH,
             0.1, 120
         );
         cam.up.set(0, 0, -1);
@@ -271,8 +272,8 @@ function _initThree() {
     sun.position.set(5, 20, 9);
     sun.castShadow = true;
     sun.shadow.mapSize.set(1024, 1024);
-    sun.shadow.camera.left = sun.shadow.camera.bottom = -20;
-    sun.shadow.camera.right = sun.shadow.camera.top   =  20;
+    sun.shadow.camera.left = sun.shadow.camera.bottom = -30;
+    sun.shadow.camera.right = sun.shadow.camera.top   =  30;
     sun.shadow.camera.near = 1; sun.shadow.camera.far  = 80;
     _scene.add(sun);
 
@@ -281,17 +282,6 @@ function _initThree() {
     _buildGem();
 }
 
-function _updateCamera(cam, player) {
-    const halfW     = Math.abs(cam.right);
-    const halfH_world = Math.abs(cam.top);
-
-    // Clamp so the view stays within maze bounds
-    const cx = Math.max(MX + halfW,       Math.min(MX + MAZE_W_WORLD - halfW,       player.x));
-    const cz = Math.max(MZ + halfH_world, Math.min(MZ + MAZE_H_WORLD - halfH_world, player.z));
-
-    cam.position.set(cx, 40, cz);
-    cam.lookAt(new THREE.Vector3(cx, 0, cz));
-}
 
 function _buildMazeMeshes() {
     // Floor
@@ -587,15 +577,13 @@ function _renderSplitScreen() {
 
     _renderer.setScissorTest(true);
 
-    // P1 — bottom half (WebGL y=0 is screen bottom, so DOM bottom = WebGL 0)
-    _updateCamera(_cameras[0], _players[0]);
+    // P1 — bottom half (WebGL y=0 is screen bottom)
     _renderer.setScissor(0, 0, _canvasW, halfH);
     _renderer.setViewport(0, 0, _canvasW, halfH);
     _renderer.clear(true, true, true);
     _renderer.render(_scene, _cameras[0]);
 
     // P2 — top half
-    _updateCamera(_cameras[1], _players[1]);
     _renderer.setScissor(0, halfH, _canvasW, halfH);
     _renderer.setViewport(0, halfH, _canvasW, halfH);
     _renderer.clear(true, true, true);
