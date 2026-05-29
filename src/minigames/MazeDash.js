@@ -1,4 +1,4 @@
-// MazeDash — Race through a larger maze to snatch the gem first! Top-down split-screen.
+// MazeDash — Race through a 20×20 maze to snatch the gem! Top-down split-screen + minimap.
 // P1 (red) bottom half, P2 (blue) top half. Gem glows at the maze center.
 import { state } from '../core/GameState.js';
 import { sfx } from '../engine/AudioManager.js';
@@ -14,10 +14,10 @@ const GEM_R        = 0.24;
 const GAME_DURATION = 50000;
 const JOY_R        = 56;
 
-// World units visible from player center to edge (orthographic half-size)
-const CAM_HALF = 6;
+// World units visible from player center to each edge of the camera view.
+// 20×20 grid = 40 world units total. CAM_HALF=14 shows 28 of those 40 units.
+const CAM_HALF = 14;
 
-// Maze world origin — centered at (0, 0)
 const MX = -(MAZE_W * CELL_SIZE) / 2;   // -20
 const MZ = -(MAZE_H * CELL_SIZE) / 2;   // -20
 const MAZE_W_WORLD = MAZE_W * CELL_SIZE; // 40
@@ -26,6 +26,7 @@ const MAZE_H_WORLD = MAZE_H * CELL_SIZE; // 40
 let _done = false, _onWin = null, _isBot = false;
 let _overlay = null, _renderer = null, _scene = null;
 const _cameras = [null, null];
+let _camHalfW = CAM_HALF; // computed from actual canvas aspect at init
 let _canvasW = 390, _canvasH = 680;
 let _af = null, _startTime = 0, _lastTime = 0;
 let _cells = null;
@@ -37,6 +38,7 @@ const _players = [
 let _gemMesh = null, _gemLight = null;
 let _botDir = { dx: 0, dz: 0 }, _botTimer = 0;
 let _timerEl = null, _neutralEl = null;
+let _minimapCanvas = null;
 const _joy = [
     { dx: 0, dy: 0, active: false, id: -1, bx: 0, by: 0, knob: null },
     { dx: 0, dy: 0, active: false, id: -1, bx: 0, by: 0, knob: null },
@@ -90,10 +92,10 @@ function _buildWallBoxes() {
         }
     }
     const ot = 0.5;
-    _wallBoxes.push({ minX: MX - ot, maxX: MX + MAZE_W_WORLD + ot, minZ: MZ - ot,                maxZ: MZ + hw                   });
-    _wallBoxes.push({ minX: MX - ot, maxX: MX + MAZE_W_WORLD + ot, minZ: MZ + MAZE_H_WORLD - hw, maxZ: MZ + MAZE_H_WORLD + ot    });
-    _wallBoxes.push({ minX: MX - ot, maxX: MX + hw,                minZ: MZ - ot,                maxZ: MZ + MAZE_H_WORLD + ot    });
-    _wallBoxes.push({ minX: MX + MAZE_W_WORLD - hw, maxX: MX + MAZE_W_WORLD + ot, minZ: MZ - ot, maxZ: MZ + MAZE_H_WORLD + ot   });
+    _wallBoxes.push({ minX: MX - ot, maxX: MX + MAZE_W_WORLD + ot, minZ: MZ - ot,                maxZ: MZ + hw                    });
+    _wallBoxes.push({ minX: MX - ot, maxX: MX + MAZE_W_WORLD + ot, minZ: MZ + MAZE_H_WORLD - hw, maxZ: MZ + MAZE_H_WORLD + ot     });
+    _wallBoxes.push({ minX: MX - ot, maxX: MX + hw,                minZ: MZ - ot,                maxZ: MZ + MAZE_H_WORLD + ot     });
+    _wallBoxes.push({ minX: MX + MAZE_W_WORLD - hw, maxX: MX + MAZE_W_WORLD + ot, minZ: MZ - ot, maxZ: MZ + MAZE_H_WORLD + ot    });
 }
 
 function _resolveWalls(p) {
@@ -118,53 +120,50 @@ function _build() {
     _overlay = document.createElement('div');
     _overlay.style.cssText = 'position:absolute;inset:0;overflow:hidden;background:#030308;touch-action:none;';
 
-    // Split-screen divider line
-    const divider = document.createElement('div');
-    divider.style.cssText = [
-        'position:absolute;left:0;right:0;top:50%;height:3px;',
-        'background:linear-gradient(to right,#ff3b3b 0%,#ffffff 50%,#3b8eff 100%);',
-        'z-index:10;pointer-events:none;transform:translateY(-50%);',
-        'box-shadow:0 0 10px 2px rgba(255,255,255,0.4);',
-    ].join('');
-    _overlay.appendChild(divider);
+    // Thin divider lines flanking the minimap
+    const divL = document.createElement('div');
+    divL.style.cssText = 'position:absolute;top:50%;left:0;right:calc(50% + 70px);height:2px;background:linear-gradient(to right,#ff3b3b,rgba(255,255,255,0.5));transform:translateY(-50%);z-index:8;pointer-events:none;';
+    _overlay.appendChild(divL);
+    const divR = document.createElement('div');
+    divR.style.cssText = 'position:absolute;top:50%;left:calc(50% + 70px);right:0;height:2px;background:linear-gradient(to right,rgba(255,255,255,0.5),#3b8eff);transform:translateY(-50%);z-index:8;pointer-events:none;';
+    _overlay.appendChild(divR);
 
-    // Timer badge centered on the divider
+    // Minimap — 2D canvas centered on the divider
+    const MAP_SIZE = 130;
+    _minimapCanvas = document.createElement('canvas');
+    _minimapCanvas.width  = MAP_SIZE * 2; // retina
+    _minimapCanvas.height = MAP_SIZE * 2;
+    _minimapCanvas.style.cssText = [
+        `position:absolute;`,
+        `width:${MAP_SIZE}px;height:${MAP_SIZE}px;`,
+        `left:50%;top:50%;transform:translate(-50%,-50%);`,
+        'z-index:9;pointer-events:none;border-radius:50%;',
+        'border:2px solid rgba(255,255,255,0.55);',
+        'box-shadow:0 0 14px 3px rgba(255,255,255,0.25);',
+    ].join('');
+    _overlay.appendChild(_minimapCanvas);
+
+    // Timer — top-left of P1's half
     _timerEl = document.createElement('div');
     _timerEl.style.cssText = [
-        'position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);',
-        'background:#000d;border:2px solid #fbbf24;border-radius:10px;',
-        'padding:2px 12px;font-size:1rem;font-weight:900;',
-        'color:#fbbf24;text-shadow:0 0 8px #fbbf24;z-index:11;pointer-events:none;',
-        'white-space:nowrap;',
+        'position:absolute;left:10px;bottom:calc(50% + 8px);',
+        'background:#000d;border:1.5px solid #fbbf24;border-radius:8px;',
+        'padding:2px 9px;font-size:0.85rem;font-weight:900;',
+        'color:#fbbf24;text-shadow:0 0 8px #fbbf24;z-index:10;pointer-events:none;',
     ].join('');
     _timerEl.textContent = '50s';
     _overlay.appendChild(_timerEl);
 
-    // Player labels in their respective halves
+    // Player labels
     const p1Label = document.createElement('div');
-    p1Label.style.cssText = 'position:absolute;bottom:calc(50% + 8px);left:14px;font-size:0.9rem;font-weight:900;color:#ff3b3b;text-shadow:0 0 8px #ff3b3b;z-index:10;pointer-events:none;';
+    p1Label.style.cssText = 'position:absolute;left:10px;bottom:8px;font-size:0.85rem;font-weight:900;color:#ff3b3b;text-shadow:0 0 8px #ff3b3b;z-index:10;pointer-events:none;';
     p1Label.textContent = 'P1';
     _overlay.appendChild(p1Label);
 
     const p2Label = document.createElement('div');
-    p2Label.style.cssText = 'position:absolute;top:calc(50% + 8px);left:14px;font-size:0.9rem;font-weight:900;color:#3b8eff;text-shadow:0 0 8px #3b8eff;z-index:10;pointer-events:none;';
+    p2Label.style.cssText = 'position:absolute;left:10px;top:8px;font-size:0.85rem;font-weight:900;color:#3b8eff;text-shadow:0 0 8px #3b8eff;z-index:10;pointer-events:none;';
     p2Label.textContent = 'P2';
     _overlay.appendChild(p2Label);
-
-    // Gem compass arrows pointing toward center for each player
-    const mkArrow = (pid) => {
-        const el = document.createElement('div');
-        el.style.cssText = [
-            'position:absolute;',
-            pid === 0 ? 'bottom:calc(50% + 8px);right:14px;' : 'top:calc(50% + 8px);right:14px;',
-            'font-size:0.75rem;font-weight:900;color:#ffd700;',
-            'text-shadow:0 0 6px #ffd700;z-index:10;pointer-events:none;',
-        ].join('');
-        el.textContent = '💎 →';
-        return el;
-    };
-    _overlay.appendChild(mkArrow(0));
-    _overlay.appendChild(mkArrow(1));
 
     // Joystick zones: P1 = bottom half, P2 = top half
     for (let pid = 0; pid < 2; pid++) {
@@ -231,13 +230,81 @@ function _build() {
     mg.appendChild(_overlay);
 }
 
+// ── Minimap (2D canvas) ───────────────────────────────────────────────────────
+
+function _drawMinimap() {
+    if (!_minimapCanvas || !_cells) return;
+    const S   = _minimapCanvas.width;  // canvas pixel size (retina ×2)
+    const ctx = _minimapCanvas.getContext('2d');
+
+    // Clip to circle
+    ctx.clearRect(0, 0, S, S);
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(S / 2, S / 2, S / 2, 0, Math.PI * 2);
+    ctx.clip();
+
+    // Background
+    ctx.fillStyle = 'rgba(2,4,18,0.92)';
+    ctx.fillRect(0, 0, S, S);
+
+    // World → minimap pixel  (Z+ goes DOWN to match camera orientation: up=(0,0,-1))
+    const toM = (wx, wz) => [
+        ((wx - MX) / MAZE_W_WORLD) * S,
+        ((wz - MZ) / MAZE_H_WORLD) * S,
+    ];
+
+    // Outer border wall
+    ctx.strokeStyle = 'rgba(60,100,220,0.8)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(0, 0, S, S);
+
+    // Internal walls
+    ctx.strokeStyle = 'rgba(50,90,200,0.65)';
+    ctx.lineWidth = 1;
+    for (let r = 0; r < MAZE_H; r++) {
+        for (let c = 0; c < MAZE_W; c++) {
+            if (_cells[r][c].R && c < MAZE_W - 1) {
+                const [x0, y0] = toM(MX + (c + 1) * CELL_SIZE, MZ + r * CELL_SIZE);
+                const [x1, y1] = toM(MX + (c + 1) * CELL_SIZE, MZ + (r + 1) * CELL_SIZE);
+                ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+            }
+            if (_cells[r][c].B && r < MAZE_H - 1) {
+                const [x0, y0] = toM(MX + c * CELL_SIZE,       MZ + (r + 1) * CELL_SIZE);
+                const [x1, y1] = toM(MX + (c + 1) * CELL_SIZE, MZ + (r + 1) * CELL_SIZE);
+                ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+            }
+        }
+    }
+
+    // Gem (gold dot)
+    const [gx, gy] = toM(0, 0);
+    ctx.fillStyle = '#ffd700';
+    ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 6;
+    ctx.beginPath(); ctx.arc(gx, gy, 5, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // Players
+    const colors = ['#ff3b3b', '#3b8eff'];
+    for (let i = 0; i < 2; i++) {
+        const [px, py] = toM(_players[i].x, _players[i].z);
+        ctx.fillStyle = colors[i];
+        ctx.shadowColor = colors[i]; ctx.shadowBlur = 8;
+        ctx.beginPath(); ctx.arc(px, py, 6, 0, Math.PI * 2); ctx.fill();
+        ctx.shadowBlur = 0;
+    }
+
+    ctx.restore();
+}
+
 // ── Three.js scene ────────────────────────────────────────────────────────────
 
 function _initThree() {
     _canvasW = _overlay.clientWidth  || 390;
     _canvasH = _overlay.clientHeight || 680;
-    const halfH  = _canvasH / 2;
-    const aspect = _canvasW / halfH;
+
+    // Each camera covers half the screen height → compute horizontal half-size
+    _camHalfW = CAM_HALF * (_canvasW / (_canvasH / 2));
 
     _renderer = new THREE.WebGLRenderer({ antialias: true });
     _renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -251,15 +318,14 @@ function _initThree() {
     _scene = new THREE.Scene();
     _scene.background = new THREE.Color(0x030308);
 
-    // Two top-down orthographic cameras that follow each player
-    const camHalfW = CAM_HALF * (_canvasW / (_canvasH / 2));
+    // Two independent top-down orthographic cameras, one per player
     for (let i = 0; i < 2; i++) {
         const cam = new THREE.OrthographicCamera(
-            -camHalfW,  camHalfW,
+            -_camHalfW, _camHalfW,
              CAM_HALF, -CAM_HALF,
             0.1, 120
         );
-        cam.up.set(0, 0, -1);
+        cam.up.set(0, 0, -1);  // Z- is screen-up (north)
         cam.position.set(0, 40, 0);
         cam.lookAt(new THREE.Vector3(0, 0, 0));
         _cameras[i] = cam;
@@ -281,18 +347,15 @@ function _initThree() {
     _buildGem();
 }
 
-
+// Move a camera to track its player, clamped so view never exits the maze.
 function _updateCamera(cam, player) {
-    const halfW = Math.abs(cam.right);
-    const halfH = Math.abs(cam.top);
-    const cx = Math.max(MX + halfW,  Math.min(MX + MAZE_W_WORLD - halfW,  player.x));
-    const cz = Math.max(MZ + halfH,  Math.min(MZ + MAZE_H_WORLD - halfH,  player.z));
+    const cx = Math.max(MX + _camHalfW,  Math.min(MX + MAZE_W_WORLD - _camHalfW,  player.x));
+    const cz = Math.max(MZ + CAM_HALF,   Math.min(MZ + MAZE_H_WORLD - CAM_HALF,   player.z));
     cam.position.set(cx, 40, cz);
     cam.lookAt(new THREE.Vector3(cx, 0, cz));
 }
 
 function _buildMazeMeshes() {
-    // Floor
     const floor = new THREE.Mesh(
         new THREE.PlaneGeometry(MAZE_W_WORLD + 3, MAZE_H_WORLD + 3),
         new THREE.MeshStandardMaterial({ color: 0x070b16, roughness: 0.95, metalness: 0.05 })
@@ -301,7 +364,7 @@ function _buildMazeMeshes() {
     floor.receiveShadow = true;
     _scene.add(floor);
 
-    // Grid lines
+    // Subtle cell grid lines
     const lineMat = new THREE.LineBasicMaterial({ color: 0x1a2060, transparent: true, opacity: 0.35 });
     for (let i = 0; i <= MAZE_W; i++) {
         const x = MX + i * CELL_SIZE;
@@ -319,8 +382,8 @@ function _buildMazeMeshes() {
     }
 
     // Start zone rings
-    _addZoneRing(MX + 0.5 * CELL_SIZE,              MZ + (MAZE_H - 0.5) * CELL_SIZE, 0xff3b3b); // P1
-    _addZoneRing(MX + (MAZE_W - 0.5) * CELL_SIZE,   MZ + 0.5 * CELL_SIZE,            0x3b8eff); // P2
+    _addZoneRing(MX + 0.5 * CELL_SIZE,            MZ + (MAZE_H - 0.5) * CELL_SIZE, 0xff3b3b);
+    _addZoneRing(MX + (MAZE_W - 0.5) * CELL_SIZE, MZ + 0.5 * CELL_SIZE,            0x3b8eff);
 
     const wallMat = new THREE.MeshStandardMaterial({
         color: 0x0c1430, roughness: 0.45, metalness: 0.35,
@@ -331,29 +394,22 @@ function _buildMazeMeshes() {
         emissive: 0x0a1f80, emissiveIntensity: 0.75,
     });
 
-    // Internal walls
     for (let r = 0; r < MAZE_H; r++) {
         for (let c = 0; c < MAZE_W; c++) {
             if (_cells[r][c].R && c < MAZE_W - 1) {
-                const wx = MX + (c + 1) * CELL_SIZE;
-                const wz = MZ + r * CELL_SIZE + CELL_SIZE / 2;
-                _addWall(wx, wz, WALL_T, CELL_SIZE, wallMat);
+                _addWall(MX + (c + 1) * CELL_SIZE, MZ + r * CELL_SIZE + CELL_SIZE / 2, WALL_T, CELL_SIZE, wallMat);
             }
             if (_cells[r][c].B && r < MAZE_H - 1) {
-                const wx = MX + c * CELL_SIZE + CELL_SIZE / 2;
-                const wz = MZ + (r + 1) * CELL_SIZE;
-                _addWall(wx, wz, CELL_SIZE, WALL_T, wallMat);
+                _addWall(MX + c * CELL_SIZE + CELL_SIZE / 2, MZ + (r + 1) * CELL_SIZE, CELL_SIZE, WALL_T, wallMat);
             }
         }
     }
 
-    // Outer walls
     _addWall(MX + MAZE_W_WORLD / 2, MZ,                   MAZE_W_WORLD + WALL_T, WALL_T, outerMat);
     _addWall(MX + MAZE_W_WORLD / 2, MZ + MAZE_H_WORLD,    MAZE_W_WORLD + WALL_T, WALL_T, outerMat);
     _addWall(MX,                    MZ + MAZE_H_WORLD / 2, WALL_T, MAZE_H_WORLD + WALL_T, outerMat);
     _addWall(MX + MAZE_W_WORLD,     MZ + MAZE_H_WORLD / 2, WALL_T, MAZE_H_WORLD + WALL_T, outerMat);
 
-    // Corner posts
     const pillarMat = new THREE.MeshStandardMaterial({
         color: 0x0a1030, emissive: 0x0a1f80, emissiveIntensity: 0.9,
     });
@@ -490,7 +546,6 @@ export function start(isBot, onWin) {
     _genMaze();
     _buildWallBoxes();
 
-    // Opposite corners of the 13×13 maze
     _players[0].x = MX + 0.5 * CELL_SIZE;
     _players[0].z = MZ + (MAZE_H - 0.5) * CELL_SIZE;
     _players[1].x = MX + (MAZE_W - 0.5) * CELL_SIZE;
@@ -517,7 +572,6 @@ function _tick(now) {
 
     if (_isBot) _updateBot(now);
 
-    // Move players
     for (let pid = 0; pid < 2; pid++) {
         const p = _players[pid];
         let mdx, mdz;
@@ -560,14 +614,13 @@ function _tick(now) {
         _gemLight.intensity = 3.5 + Math.sin(elapsed * 0.006) * 1.0;
     }
 
-    // Win check: first player to touch the gem
+    // Win check
     for (let pid = 0; pid < 2; pid++) {
         if (Math.hypot(_players[pid].x, _players[pid].z) < PLAYER_R + GEM_R + 0.12) {
             _resolve(pid); return;
         }
     }
 
-    // Timer expiry: closest to gem wins
     if (remaining <= 0) {
         const d0 = Math.hypot(_players[0].x, _players[0].z);
         const d1 = Math.hypot(_players[1].x, _players[1].z);
@@ -576,6 +629,7 @@ function _tick(now) {
     }
 
     _renderSplitScreen();
+    _drawMinimap();
     _af = requestAnimationFrame(_tick);
 }
 
@@ -609,6 +663,7 @@ function _resolve(winnerId) {
     _done = true; state.mgActive = false;
     cancelAnimationFrame(_af); _af = null;
     _renderSplitScreen();
+    _drawMinimap();
     if (_neutralEl) {
         _neutralEl.textContent = winnerId >= 0
             ? `P${winnerId + 1} GRABS THE GEM! 💎`
@@ -638,5 +693,5 @@ function _destroy() {
     _players[1].mesh = _players[1].light = null;
     _gemMesh = null; _gemLight = null;
     _cameras[0] = _cameras[1] = null;
-    _timerEl = null;
+    _minimapCanvas = null; _timerEl = null;
 }
