@@ -1,11 +1,11 @@
-// MazeDash — Race through a 20×20 maze to snatch the gem! Top-down split-screen + minimap.
-// P1 (red) bottom half, P2 (blue) top half. Gem glows at the maze center.
+// MazeDash — Race through a 19×19 maze to snatch the gem! Top-down split-screen + minimap.
+// P1 (red) bottom half, P2 (blue) top half. Gem at exact maze center.
 import { state } from '../core/GameState.js';
 import { sfx } from '../engine/AudioManager.js';
 
 const CELL_SIZE    = 2;
-const MAZE_W       = 20;
-const MAZE_H       = 20;
+const MAZE_W       = 19;   // odd → clean center cell
+const MAZE_H       = 19;
 const WALL_H       = 1.5;
 const WALL_T       = 0.18;
 const PLAYER_R     = 0.38;
@@ -14,19 +14,25 @@ const GEM_R        = 0.24;
 const GAME_DURATION = 50000;
 const JOY_R        = 56;
 
-// World units visible from player center to each edge of the camera view.
-// 20×20 grid = 40 world units total. CAM_HALF=14 shows 28 of those 40 units.
-const CAM_HALF = 14;
+// Each camera shows this many world-units from the player to the edge of the screen.
+// 19 cells × CELL_SIZE = 38 world units total. CAM_HALF=10 shows 20 of those 38.
+const CAM_HALF = 10;
 
-const MX = -(MAZE_W * CELL_SIZE) / 2;   // -20
-const MZ = -(MAZE_H * CELL_SIZE) / 2;   // -20
-const MAZE_W_WORLD = MAZE_W * CELL_SIZE; // 40
-const MAZE_H_WORLD = MAZE_H * CELL_SIZE; // 40
+// Maze world origin — centered at (0,0)
+const MX = -(MAZE_W * CELL_SIZE) / 2;   // -19
+const MZ = -(MAZE_H * CELL_SIZE) / 2;   // -19
+const MAZE_W_WORLD = MAZE_W * CELL_SIZE; // 38
+const MAZE_H_WORLD = MAZE_H * CELL_SIZE; // 38
+
+// Gem lives at the center cell — for odd MAZE_W/H this is exactly world (0,0)
+const GEM_CELL = Math.floor(MAZE_W / 2); // 9
+const GEM_X = MX + GEM_CELL * CELL_SIZE + CELL_SIZE / 2; // 0
+const GEM_Z = MZ + GEM_CELL * CELL_SIZE + CELL_SIZE / 2; // 0
 
 let _done = false, _onWin = null, _isBot = false;
 let _overlay = null, _renderer = null, _scene = null;
 const _cameras = [null, null];
-let _camHalfW = CAM_HALF; // computed from actual canvas aspect at init
+let _camHalfW = CAM_HALF; // set from real aspect ratio in _initThree
 let _canvasW = 390, _canvasH = 680;
 let _af = null, _startTime = 0, _lastTime = 0;
 let _cells = null;
@@ -120,30 +126,29 @@ function _build() {
     _overlay = document.createElement('div');
     _overlay.style.cssText = 'position:absolute;inset:0;overflow:hidden;background:#030308;touch-action:none;';
 
-    // Thin divider lines flanking the minimap
+    // Divider lines flanking the minimap
     const divL = document.createElement('div');
-    divL.style.cssText = 'position:absolute;top:50%;left:0;right:calc(50% + 70px);height:2px;background:linear-gradient(to right,#ff3b3b,rgba(255,255,255,0.5));transform:translateY(-50%);z-index:8;pointer-events:none;';
+    divL.style.cssText = 'position:absolute;top:50%;left:0;right:calc(50% + 72px);height:2px;background:linear-gradient(to right,#ff3b3b,rgba(255,255,255,0.4));transform:translateY(-50%);z-index:8;pointer-events:none;';
     _overlay.appendChild(divL);
     const divR = document.createElement('div');
-    divR.style.cssText = 'position:absolute;top:50%;left:calc(50% + 70px);right:0;height:2px;background:linear-gradient(to right,rgba(255,255,255,0.5),#3b8eff);transform:translateY(-50%);z-index:8;pointer-events:none;';
+    divR.style.cssText = 'position:absolute;top:50%;left:calc(50% + 72px);right:0;height:2px;background:linear-gradient(to right,rgba(255,255,255,0.4),#3b8eff);transform:translateY(-50%);z-index:8;pointer-events:none;';
     _overlay.appendChild(divR);
 
-    // Minimap — 2D canvas centered on the divider
-    const MAP_SIZE = 130;
+    // Minimap — 2D canvas centered on divider
+    const MAP_PX = 132;
     _minimapCanvas = document.createElement('canvas');
-    _minimapCanvas.width  = MAP_SIZE * 2; // retina
-    _minimapCanvas.height = MAP_SIZE * 2;
+    _minimapCanvas.width  = MAP_PX * 2;
+    _minimapCanvas.height = MAP_PX * 2;
     _minimapCanvas.style.cssText = [
-        `position:absolute;`,
-        `width:${MAP_SIZE}px;height:${MAP_SIZE}px;`,
-        `left:50%;top:50%;transform:translate(-50%,-50%);`,
+        `position:absolute;width:${MAP_PX}px;height:${MAP_PX}px;`,
+        'left:50%;top:50%;transform:translate(-50%,-50%);',
         'z-index:9;pointer-events:none;border-radius:50%;',
-        'border:2px solid rgba(255,255,255,0.55);',
+        'border:2px solid rgba(255,255,255,0.6);',
         'box-shadow:0 0 14px 3px rgba(255,255,255,0.25);',
     ].join('');
     _overlay.appendChild(_minimapCanvas);
 
-    // Timer — top-left of P1's half
+    // Timer
     _timerEl = document.createElement('div');
     _timerEl.style.cssText = [
         'position:absolute;left:10px;bottom:calc(50% + 8px);',
@@ -165,7 +170,7 @@ function _build() {
     p2Label.textContent = 'P2';
     _overlay.appendChild(p2Label);
 
-    // Joystick zones: P1 = bottom half, P2 = top half
+    // Joystick zones
     for (let pid = 0; pid < 2; pid++) {
         const zone = document.createElement('div');
         zone.style.cssText = `position:absolute;${pid === 0 ? 'top:50%;bottom:0;' : 'top:0;bottom:50%;'}left:0;right:0;z-index:5;`;
@@ -230,37 +235,33 @@ function _build() {
     mg.appendChild(_overlay);
 }
 
-// ── Minimap (2D canvas) ───────────────────────────────────────────────────────
+// ── Minimap ───────────────────────────────────────────────────────────────────
 
 function _drawMinimap() {
     if (!_minimapCanvas || !_cells) return;
-    const S   = _minimapCanvas.width;  // canvas pixel size (retina ×2)
+    const S   = _minimapCanvas.width;   // canvas pixels (2× for retina)
     const ctx = _minimapCanvas.getContext('2d');
 
-    // Clip to circle
     ctx.clearRect(0, 0, S, S);
+
+    // Clip everything to the circle
     ctx.save();
     ctx.beginPath();
-    ctx.arc(S / 2, S / 2, S / 2, 0, Math.PI * 2);
+    ctx.arc(S / 2, S / 2, S / 2 - 1, 0, Math.PI * 2);
     ctx.clip();
 
     // Background
     ctx.fillStyle = 'rgba(2,4,18,0.92)';
     ctx.fillRect(0, 0, S, S);
 
-    // World → minimap pixel  (Z+ goes DOWN to match camera orientation: up=(0,0,-1))
+    // World → minimap pixel. Z+ goes downward on screen (camera up = Z-).
     const toM = (wx, wz) => [
         ((wx - MX) / MAZE_W_WORLD) * S,
         ((wz - MZ) / MAZE_H_WORLD) * S,
     ];
 
-    // Outer border wall
-    ctx.strokeStyle = 'rgba(60,100,220,0.8)';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(0, 0, S, S);
-
     // Internal walls
-    ctx.strokeStyle = 'rgba(50,90,200,0.65)';
+    ctx.strokeStyle = 'rgba(55,100,210,0.7)';
     ctx.lineWidth = 1;
     for (let r = 0; r < MAZE_H; r++) {
         for (let c = 0; c < MAZE_W; c++) {
@@ -270,27 +271,43 @@ function _drawMinimap() {
                 ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
             }
             if (_cells[r][c].B && r < MAZE_H - 1) {
-                const [x0, y0] = toM(MX + c * CELL_SIZE,       MZ + (r + 1) * CELL_SIZE);
+                const [x0, y0] = toM(MX + c       * CELL_SIZE, MZ + (r + 1) * CELL_SIZE);
                 const [x1, y1] = toM(MX + (c + 1) * CELL_SIZE, MZ + (r + 1) * CELL_SIZE);
                 ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
             }
         }
     }
 
+    // Camera viewport rectangles — show each player where they're looking
+    const vpColors = ['rgba(255,59,59,0.35)', 'rgba(59,142,255,0.35)'];
+    const vpBorder = ['rgba(255,80,80,0.8)',  'rgba(80,150,255,0.8)'];
+    for (let i = 0; i < 2; i++) {
+        const p = _players[i];
+        const cx = Math.max(MX + _camHalfW,  Math.min(MX + MAZE_W_WORLD - _camHalfW,  p.x));
+        const cz = Math.max(MZ + CAM_HALF,   Math.min(MZ + MAZE_H_WORLD - CAM_HALF,   p.z));
+        const [vx0, vy0] = toM(cx - _camHalfW, cz - CAM_HALF);
+        const [vx1, vy1] = toM(cx + _camHalfW, cz + CAM_HALF);
+        ctx.fillStyle = vpColors[i];
+        ctx.fillRect(vx0, vy0, vx1 - vx0, vy1 - vy0);
+        ctx.strokeStyle = vpBorder[i];
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(vx0, vy0, vx1 - vx0, vy1 - vy0);
+    }
+
     // Gem (gold dot)
-    const [gx, gy] = toM(0, 0);
+    const [gx, gy] = toM(GEM_X, GEM_Z);
     ctx.fillStyle = '#ffd700';
-    ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 6;
+    ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 8;
     ctx.beginPath(); ctx.arc(gx, gy, 5, 0, Math.PI * 2); ctx.fill();
     ctx.shadowBlur = 0;
 
-    // Players
-    const colors = ['#ff3b3b', '#3b8eff'];
+    // Player dots
+    const dotColors = ['#ff3b3b', '#3b8eff'];
     for (let i = 0; i < 2; i++) {
         const [px, py] = toM(_players[i].x, _players[i].z);
-        ctx.fillStyle = colors[i];
-        ctx.shadowColor = colors[i]; ctx.shadowBlur = 8;
-        ctx.beginPath(); ctx.arc(px, py, 6, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = dotColors[i];
+        ctx.shadowColor = dotColors[i]; ctx.shadowBlur = 8;
+        ctx.beginPath(); ctx.arc(px, py, 5, 0, Math.PI * 2); ctx.fill();
         ctx.shadowBlur = 0;
     }
 
@@ -302,8 +319,6 @@ function _drawMinimap() {
 function _initThree() {
     _canvasW = _overlay.clientWidth  || 390;
     _canvasH = _overlay.clientHeight || 680;
-
-    // Each camera covers half the screen height → compute horizontal half-size
     _camHalfW = CAM_HALF * (_canvasW / (_canvasH / 2));
 
     _renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -318,16 +333,19 @@ function _initThree() {
     _scene = new THREE.Scene();
     _scene.background = new THREE.Color(0x030308);
 
-    // Two independent top-down orthographic cameras, one per player
+    // Two top-down orthographic cameras.
+    // rotation.set(-PI/2, 0, 0) points the camera straight down:
+    //   camera -Z (forward) → world -Y  (down)
+    //   camera +X (right)   → world +X  (east)
+    //   camera +Y (up)      → world -Z  (north = screen up)
     for (let i = 0; i < 2; i++) {
         const cam = new THREE.OrthographicCamera(
-            -_camHalfW, _camHalfW,
-             CAM_HALF, -CAM_HALF,
+            -_camHalfW,  _camHalfW,
+             CAM_HALF,  -CAM_HALF,
             0.1, 120
         );
-        cam.up.set(0, 0, -1);  // Z- is screen-up (north)
+        cam.rotation.set(-Math.PI / 2, 0, 0);
         cam.position.set(0, 40, 0);
-        cam.lookAt(new THREE.Vector3(0, 0, 0));
         _cameras[i] = cam;
     }
 
@@ -337,8 +355,8 @@ function _initThree() {
     sun.position.set(5, 20, 9);
     sun.castShadow = true;
     sun.shadow.mapSize.set(1024, 1024);
-    sun.shadow.camera.left = sun.shadow.camera.bottom = -30;
-    sun.shadow.camera.right = sun.shadow.camera.top   =  30;
+    sun.shadow.camera.left = sun.shadow.camera.bottom = -28;
+    sun.shadow.camera.right = sun.shadow.camera.top   =  28;
     sun.shadow.camera.near = 1; sun.shadow.camera.far  = 80;
     _scene.add(sun);
 
@@ -347,12 +365,12 @@ function _initThree() {
     _buildGem();
 }
 
-// Move a camera to track its player, clamped so view never exits the maze.
+// Pan a camera to centre on the player, clamped to maze bounds.
 function _updateCamera(cam, player) {
     const cx = Math.max(MX + _camHalfW,  Math.min(MX + MAZE_W_WORLD - _camHalfW,  player.x));
     const cz = Math.max(MZ + CAM_HALF,   Math.min(MZ + MAZE_H_WORLD - CAM_HALF,   player.z));
     cam.position.set(cx, 40, cz);
-    cam.lookAt(new THREE.Vector3(cx, 0, cz));
+    // rotation is fixed (set once in _initThree), no lookAt needed
 }
 
 function _buildMazeMeshes() {
@@ -364,7 +382,7 @@ function _buildMazeMeshes() {
     floor.receiveShadow = true;
     _scene.add(floor);
 
-    // Subtle cell grid lines
+    // Cell grid lines
     const lineMat = new THREE.LineBasicMaterial({ color: 0x1a2060, transparent: true, opacity: 0.35 });
     for (let i = 0; i <= MAZE_W; i++) {
         const x = MX + i * CELL_SIZE;
@@ -470,12 +488,12 @@ function _buildGem() {
             roughness: 0.08, metalness: 0.85,
         })
     );
-    _gemMesh.position.set(0, GEM_R + 0.3, 0);
+    _gemMesh.position.set(GEM_X, GEM_R + 0.3, GEM_Z);
     _gemMesh.castShadow = true;
     _scene.add(_gemMesh);
 
     _gemLight = new THREE.PointLight(0xffaa00, 4.0, 7);
-    _gemLight.position.set(0, 1, 0);
+    _gemLight.position.set(GEM_X, 1, GEM_Z);
     _scene.add(_gemLight);
 
     const ring = new THREE.Mesh(
@@ -483,7 +501,7 @@ function _buildGem() {
         new THREE.MeshBasicMaterial({ color: 0xffd700, transparent: true, opacity: 0.4, side: THREE.DoubleSide })
     );
     ring.rotation.x = -Math.PI / 2;
-    ring.position.set(0, 0.02, 0);
+    ring.position.set(GEM_X, 0.02, GEM_Z);
     _scene.add(ring);
 }
 
@@ -524,9 +542,7 @@ function _updateBot(now) {
     const p  = _players[1];
     const c  = Math.max(0, Math.min(MAZE_W - 1, Math.floor((p.x - MX) / CELL_SIZE)));
     const r  = Math.max(0, Math.min(MAZE_H - 1, Math.floor((p.z - MZ) / CELL_SIZE)));
-    const gc = Math.floor(MAZE_W / 2);
-    const gr = Math.floor(MAZE_H / 2);
-    const next = _bfsNextStep(c, r, gc, gr);
+    const next = _bfsNextStep(c, r, GEM_CELL, GEM_CELL);
     if (!next) { _botDir = { dx: 0, dz: 0 }; return; }
     const tx = MX + next[0] * CELL_SIZE + CELL_SIZE / 2;
     const tz = MZ + next[1] * CELL_SIZE + CELL_SIZE / 2;
@@ -546,6 +562,7 @@ export function start(isBot, onWin) {
     _genMaze();
     _buildWallBoxes();
 
+    // Opposite corners of the 19×19 maze
     _players[0].x = MX + 0.5 * CELL_SIZE;
     _players[0].z = MZ + (MAZE_H - 0.5) * CELL_SIZE;
     _players[1].x = MX + (MAZE_W - 0.5) * CELL_SIZE;
@@ -614,16 +631,17 @@ function _tick(now) {
         _gemLight.intensity = 3.5 + Math.sin(elapsed * 0.006) * 1.0;
     }
 
-    // Win check
+    // Win check — distance to actual gem position
     for (let pid = 0; pid < 2; pid++) {
-        if (Math.hypot(_players[pid].x, _players[pid].z) < PLAYER_R + GEM_R + 0.12) {
+        const p = _players[pid];
+        if (Math.hypot(p.x - GEM_X, p.z - GEM_Z) < PLAYER_R + GEM_R + 0.12) {
             _resolve(pid); return;
         }
     }
 
     if (remaining <= 0) {
-        const d0 = Math.hypot(_players[0].x, _players[0].z);
-        const d1 = Math.hypot(_players[1].x, _players[1].z);
+        const d0 = Math.hypot(_players[0].x - GEM_X, _players[0].z - GEM_Z);
+        const d1 = Math.hypot(_players[1].x - GEM_X, _players[1].z - GEM_Z);
         _resolve(Math.abs(d0 - d1) < 0.5 ? -1 : d0 < d1 ? 0 : 1);
         return;
     }
