@@ -15,8 +15,8 @@ const GAME_DURATION = 50000;
 const JOY_R        = 56;
 
 // Each camera shows this many world-units from the player to the edge of the screen.
-// 19 cells × CELL_SIZE = 38 world units total. CAM_HALF=10 shows 20 of those 38.
-const CAM_HALF = 10;
+// 19 cells × CELL_SIZE = 38 world units total. CAM_HALF=8 shows 16 of those 38.
+const CAM_HALF = 8;
 
 // Maze world origin — centered at (0,0)
 const MX = -(MAZE_W * CELL_SIZE) / 2;   // -19
@@ -334,19 +334,18 @@ function _initThree() {
     _scene.background = new THREE.Color(0x030308);
 
     // Two top-down orthographic cameras.
-    // rotation.set(-PI/2, 0, 0) points the camera straight down:
-    //   camera -Z (forward) → world -Y  (down)
-    //   camera +X (right)   → world +X  (east)
-    //   camera +Y (up)      → world -Z  (north = screen up)
+    // We bypass Three.js position/rotation/quaternion machinery entirely and
+    // write the 4×4 world matrix directly each frame — this is the only approach
+    // guaranteed to work across all Three.js versions for straight-down cameras.
     for (let i = 0; i < 2; i++) {
         const cam = new THREE.OrthographicCamera(
             -_camHalfW,  _camHalfW,
              CAM_HALF,  -CAM_HALF,
             0.1, 120
         );
-        cam.rotation.set(-Math.PI / 2, 0, 0);
-        cam.position.set(0, 40, 0);
+        cam.matrixAutoUpdate = false;
         _cameras[i] = cam;
+        _updateCamera(cam, _players[i]); // set initial matrix
     }
 
     // Lights
@@ -365,12 +364,42 @@ function _initThree() {
     _buildGem();
 }
 
-// Pan a camera to centre on the player, clamped to maze bounds.
+// Pan a camera to follow the player (clamped to maze bounds).
+// Directly writes the world matrix and its inverse — bypasses Three.js
+// position/quaternion machinery so it works in all library versions.
+//
+// World matrix for a pure top-down camera at (cx, H, cz):
+//   local +X → world +X  (screen right = east)
+//   local +Y → world -Z  (screen up    = north)
+//   local -Z → world -Y  (camera looks downward)
+//
+//   | 1  0  0  cx |
+//   | 0  0  1  H  |
+//   | 0 -1  0  cz |
+//   | 0  0  0  1  |
+//
+// Its inverse (view matrix):
+//   | 1  0  0  -cx |
+//   | 0  0 -1   cz |
+//   | 0  1  0  -H  |
+//   | 0  0  0   1  |
 function _updateCamera(cam, player) {
     const cx = Math.max(MX + _camHalfW,  Math.min(MX + MAZE_W_WORLD - _camHalfW,  player.x));
     const cz = Math.max(MZ + CAM_HALF,   Math.min(MZ + MAZE_H_WORLD - CAM_HALF,   player.z));
-    cam.position.set(cx, 40, cz);
-    // rotation is fixed (set once in _initThree), no lookAt needed
+    const H  = 40;
+
+    cam.matrixWorld.set(
+        1,  0,  0,  cx,
+        0,  0,  1,  H,
+        0, -1,  0,  cz,
+        0,  0,  0,  1
+    );
+    cam.matrixWorldInverse.set(
+        1,  0,  0,  -cx,
+        0,  0, -1,   cz,
+        0,  1,  0,  -H,
+        0,  0,  0,   1
+    );
 }
 
 function _buildMazeMeshes() {
