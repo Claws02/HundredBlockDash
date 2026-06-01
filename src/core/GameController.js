@@ -8,6 +8,7 @@ import {
     ALL_CHAR_TYPES, HQ_META, CHAR_ICONS,
 } from '../config/GameConfig.js';
 import { CITY_GRAPH, JUNCTION_IDS, DISTRICT_NAMES, DISTRICT_KEYS, BRANCH_OPTIONS } from '../config/BoardGraph.js';
+import { MAP_REGISTRY } from '../config/MapRegistry.js';
 import { getShuffledPool } from '../config/ContractPool.js';
 import { sfx, haptic } from '../engine/AudioManager.js';
 import * as Renderer from '../engine/Renderer.js';
@@ -53,7 +54,7 @@ export function confirmCharSelect() {
         if (state.playStyle === '1p') {
             const types = ALL_CHAR_TYPES.filter(t => t !== state.p1CharSelection);
             state.players[1].charType = types[Math.floor(Math.random() * types.length)];
-            startGame();
+            goToMapSelect();
         } else {
             state.charSelectStep = 2;
             document.getElementById('cs-title').textContent = 'PLAYER 2: CHOOSE CHARACTER';
@@ -62,16 +63,80 @@ export function confirmCharSelect() {
         }
     } else {
         state.players[1].charType = state.p2CharSelection;
-        startGame();
+        goToMapSelect();
     }
+}
+
+// ============================================================
+// MAP SELECT
+// ============================================================
+
+export function goToMapSelect() {
+    document.getElementById('char-select').style.display = 'none';
+    document.getElementById('map-select').style.display  = 'flex';
+    _populateMapSelectScreen();
+}
+
+function _populateMapSelectScreen() {
+    const grid = document.getElementById('map-select-grid');
+    if (!grid) return;
+    grid.innerHTML = '';
+    MAP_REGISTRY.forEach(map => {
+        const card = document.createElement('div');
+        card.className = `map-card bfont${!map.available ? ' map-card-locked' : ''}`;
+        card.dataset.mapId = map.id;
+        if (!map.available) card.setAttribute('aria-disabled', 'true');
+        card.style.setProperty('--map-color', map.color || '#60a5fa');
+        card.innerHTML =
+            `<span class="map-card-icon">${map.icon}</span>` +
+            `<span class="map-card-name">${map.name}</span>` +
+            `<span class="map-card-desc">${map.desc}</span>` +
+            (!map.available ? '<span class="map-card-soon">COMING SOON</span>' : '');
+        if (map.available) {
+            card.addEventListener('click', () => selectMap(map.id));
+        }
+        grid.appendChild(card);
+    });
+
+    // Pre-select first available map
+    const first = MAP_REGISTRY.find(m => m.available);
+    if (first) selectMap(first.id);
+}
+
+export function selectMap(mapId) {
+    state.selectedMap = mapId;
+    // Update card selection
+    document.querySelectorAll('.map-card').forEach(c => c.classList.toggle('sel', c.dataset.mapId === mapId));
+
+    // Update preview panel
+    const map = MAP_REGISTRY.find(m => m.id === mapId);
+    if (!map) return;
+    const preview = document.getElementById('map-preview-panel');
+    if (preview) {
+        preview.innerHTML =
+            `<div class="map-preview-icon">${map.icon}</div>` +
+            `<div class="map-preview-name bfont">${map.name}</div>` +
+            `<div class="map-preview-desc">${map.longDesc}</div>` +
+            `<div class="map-preview-tags">${map.tags.map(t => `<span class="map-tag">${t}</span>`).join('')}</div>`;
+    }
+
+    const confirmBtn = document.getElementById('btn-map-confirm');
+    if (confirmBtn) confirmBtn.disabled = false;
+}
+
+export function confirmMapSelect() {
+    if (!state.selectedMap) { UIManager.toast('Pick a map first!', '#ef4444'); return; }
+    document.getElementById('map-select').style.display = 'none';
+    startGame();
 }
 
 export function startGame() {
     if (state.gameStarted) return;
     state.gameStarted = true;
     if (state.playStyle === 'tabletop') document.body.classList.add('tabletop-mode');
-    document.getElementById('splash').style.display     = 'none';
-    document.getElementById('char-select').style.display = 'none';
+    document.getElementById('splash').style.display      = 'none';
+    document.getElementById('char-select').style.display  = 'none';
+    document.getElementById('map-select').style.display   = 'none';
     document.getElementById('game-container').style.display = 'block';
     setTimeout(() => {
         if (!state.gameStarted) return;

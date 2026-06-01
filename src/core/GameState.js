@@ -5,6 +5,7 @@
 export const state = {
     // Flow
     playStyle:           null,
+    selectedMap:         'city_circuit',
     gameState:           'INIT',
     cameraState:         'INIT',
     activePlayer:        0,
