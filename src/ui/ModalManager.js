@@ -1,13 +1,14 @@
 // ============================================================
-// MODAL MANAGER — shop, inventory, messages, pass prompts
+// MODAL MANAGER — shop, inventory, messages, pass prompts, duel
 // All modal HTML is in index.html; this file wires it up.
 // ============================================================
 
 import { state } from '../core/GameState.js';
-import { ITEMS, MAX_INV } from '../config/GameConfig.js';
+import { ITEMS, MAX_INV, DISTRICT_SHOPS, BA_DISCOUNT, GRAND_MALL_DISCOUNT, DUEL_BET_OPTIONS } from '../config/GameConfig.js';
 
-let _controller = null;
-let _wired      = false;
+let _controller    = null;
+let _wired         = false;
+let _duelBetCb     = null;
 
 export function init(controller) {
     _controller = controller;
@@ -39,41 +40,92 @@ export function showMessage(title, desc, icon) {
 
 // ---- Shop ----
 
-export function openShop() {
-    const p = state.players[state.activePlayer];
-    state.gameState = 'SHOP';
+export function openShop(district, discount) {
+    const p           = state.players[state.activePlayer];
+    const distKey     = district || 'ring';
+    const disc        = discount || 1.0;
+    const isFull      = p.inv.length >= MAX_INV;
+    const isGrandMall = distKey === 'shop' && disc <= GRAND_MALL_DISCOUNT + 0.01;
 
-    if (p.isBot) {
-        _botShop(p);
-        return;
-    }
+    // District title
+    const distTitles = {
+        ring: '🏪 ITEM SHOP',
+        fin:  '💹 WALL STREET EXCHANGE',
+        ba:   '🏚️ UNDERGROUND MARKET',
+        shop: isGrandMall ? '🛍️ GRAND MALL' : '🏪 SHOPPING PROMENADE',
+        ind:  '⚙️ POWER PLANT SUPPLY',
+    };
+    const titleEl = document.getElementById('shop-modal-title');
+    if (titleEl) titleEl.textContent = distTitles[distKey] || '🏪 ITEM SHOP';
 
     document.getElementById('shop-player-label').textContent = `${p.name} — ${p.coins} coins available`;
-    const isFull = p.inv.length >= MAX_INV;
     document.getElementById('inv-full-note').style.display = isFull ? 'block' : 'none';
-    Object.entries(ITEMS).forEach(([id, item]) => {
-        const btn = document.getElementById(`buy-${id}`);
-        if (btn) btn.disabled = p.coins < item.price || isFull;
-    });
+
+    // Build item list for this district
+    const allowedKeys = DISTRICT_SHOPS[distKey] || Object.keys(ITEMS);
+    const listEl = document.getElementById('shop-items-list');
+    if (listEl) {
+        listEl.innerHTML = allowedKeys.map(id => {
+            const item = ITEMS[id];
+            if (!item) return '';
+            const rawPrice  = item.price;
+            const price     = disc < 1.0 ? Math.ceil(rawPrice * disc) : rawPrice;
+            const canBuy    = p.coins >= price && !isFull;
+            const discLabel = disc < 1.0 ? ` <span class="shop-discount">(${Math.round((1 - disc) * 100)}% off)</span>` : '';
+            return `<div class="m-row">
+                <div class="m-row-info">
+                    <b>${item.icon} ${item.name}${discLabel}</b>
+                    <small>${item.desc}</small>
+                </div>
+                <button class="btn-buy" id="buy-${id}" data-item="${id}" data-cost="${price}"${canBuy ? '' : ' disabled'}>${price}💰</button>
+            </div>`;
+        }).join('');
+    }
+
+    if (disc < 1.0) {
+        const pct = Math.round((1 - disc) * 100);
+        const noteEl = document.getElementById('inv-full-note');
+        if (noteEl && !isFull) {
+            // show discount banner above full note area
+            const discBanner = document.getElementById('shop-discount-banner');
+            if (discBanner) { discBanner.style.display = 'block'; discBanner.textContent = `✨ ${pct}% discount applied!`; }
+        }
+    } else {
+        const discBanner = document.getElementById('shop-discount-banner');
+        if (discBanner) discBanner.style.display = 'none';
+    }
+
     showModal('shop-modal');
 }
 
-function _botShop(p) {
-    const opp = state.players[(state.activePlayer + 1) % 2];
-    const affordable = Object.keys(ITEMS).filter(k => p.coins >= ITEMS[k].price);
-    if (affordable.length > 0 && p.inv.length < MAX_INV) {
-        const ahead     = p.pos > opp.pos;
-        const preferred = ahead
-            ? affordable.filter(k => ['cursed_die', 'anchor', 'swap', 'steal'].includes(k))
-            : affordable.filter(k => ['shield', 'rocket', 'warp_drive', 'double_die'].includes(k));
-        const pool = preferred.length > 0 ? preferred : affordable;
-        const pick = pool[Math.floor(Math.random() * pool.length)];
-        p.coins -= ITEMS[pick].price;
-        p.inv.push(pick);
-        import('../ui/UIManager.js').then(({ toast }) => toast(`${p.name} bought ${ITEMS[pick].name}!`, '#a855f7'));
+// ---- Duel Modal ----
+
+export function showDuelModal(p, opp, callback) {
+    const infoEl = document.getElementById('duel-info');
+    if (infoEl) infoEl.textContent = `${p.name} vs ${opp.name} — ${p.name} sets the bet!`;
+
+    const betsEl = document.getElementById('duel-bet-options');
+    if (betsEl) {
+        betsEl.innerHTML = DUEL_BET_OPTIONS.map(amount => {
+            const maxBet = Math.min(p.coins, opp.coins);
+            const valid  = amount <= maxBet;
+            return `<button class="duel-bet-btn bfont" data-bet="${amount}"${valid ? '' : ' disabled'}>${amount}<br><span style="font-size:11px;font-family:'Nunito'">coins</span></button>`;
+        }).join('');
     }
-    state.gameState = 'ACKNOWLEDGE';
-    setTimeout(() => { if (state.gameState === 'ACKNOWLEDGE') _controller.finishTurn(); }, 1000);
+
+    _duelBetCb = callback;
+    showModal('duel-modal');
+
+    // Bot auto-selects highest affordable bet
+    if (p.isBot) {
+        const maxBet = Math.min(p.coins, opp.coins);
+        const botBet = [...DUEL_BET_OPTIONS].reverse().find(a => a <= maxBet) || DUEL_BET_OPTIONS[0];
+        setTimeout(() => {
+            closeAllModals();
+            const cb = _duelBetCb; _duelBetCb = null;
+            if (cb) cb(botBet);
+        }, 800);
+    }
 }
 
 // ---- Drop modal (inventory full) ----
@@ -84,7 +136,7 @@ export function openDropModal(player, newItemId, cost, returnState) {
     state.pendingShopAfterDrop = false;
     state.pendingReturnState   = returnState || (state.gameState === 'SHOP' ? 'shop' : 'finish_turn');
     document.getElementById('drop-inv-row').innerHTML = player.inv
-        .map((it, idx) => `<button class="drop-item-btn" data-drop-pid="${player.id}" data-drop-idx="${idx}" data-drop-new="${newItemId}">${ITEMS[it].icon} ${ITEMS[it].name}</button>`)
+        .map((it, idx) => `<button class="drop-item-btn" data-drop-pid="${player.id}" data-drop-idx="${idx}" data-drop-new="${newItemId}">${ITEMS[it]?.icon || '?'} ${ITEMS[it]?.name || it}</button>`)
         .join('');
     showModal('drop-modal');
 }
@@ -99,7 +151,7 @@ export function openUseModal() {
     }
     document.getElementById('use-player-label').textContent = `${p.name} — choose an item:`;
     document.getElementById('use-inv-row').innerHTML = p.inv
-        .map((it, idx) => `<button class="drop-item-btn" data-use-pid="${p.id}" data-use-idx="${idx}" style="flex-direction:column;align-items:flex-start;"><span>${ITEMS[it].icon} ${ITEMS[it].name}</span><small style="color:#999;font-size:11px;">${ITEMS[it].desc}</small></button>`)
+        .map((it, idx) => `<button class="drop-item-btn" data-use-pid="${p.id}" data-use-idx="${idx}" style="flex-direction:column;align-items:flex-start;"><span>${ITEMS[it]?.icon || '?'} ${ITEMS[it]?.name || it}</span><small style="color:#999;font-size:11px;">${ITEMS[it]?.desc || ''}</small></button>`)
         .join('');
     showModal('use-modal');
 }
@@ -135,10 +187,10 @@ function _wireStaticButtons() {
     // Shop close
     document.getElementById('btn-close-shop').addEventListener('click', () => _controller.closeShopModal());
 
-    // Shop buy buttons (delegated)
+    // Shop buy buttons (delegated on shop-modal)
     document.getElementById('shop-modal').addEventListener('click', e => {
         const btn = e.target.closest('[data-item]');
-        if (btn) _controller.buyItem(btn.dataset.item, parseInt(btn.dataset.cost));
+        if (btn && !btn.disabled) _controller.buyItem(btn.dataset.item, parseInt(btn.dataset.cost));
     });
 
     // Shop offer
@@ -168,4 +220,14 @@ function _wireStaticButtons() {
         if (btn) _controller.executeUseItem(parseInt(btn.dataset.usePid), parseInt(btn.dataset.useIdx));
     });
     document.getElementById('btn-cancel-use').addEventListener('click', () => closeAllModals());
+
+    // Duel modal — bet buttons (delegated)
+    document.getElementById('duel-modal')?.addEventListener('click', e => {
+        const btn = e.target.closest('[data-bet]');
+        if (!btn || btn.disabled) return;
+        const amount = parseInt(btn.dataset.bet);
+        closeAllModals();
+        if (_duelBetCb) { const cb = _duelBetCb; _duelBetCb = null; cb(amount); }
+        else _controller.confirmDuelBet(amount);
+    });
 }

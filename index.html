@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Hundred Space Hustle</title>
+    <title>Hundred Block Dash</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/cannon.js/0.6.2/cannon.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
@@ -16,7 +16,7 @@
     <!-- SPLASH / MODE SELECT -->
     <div id="splash">
         <div class="screen-content">
-            <div class="stitle bfont">HUNDRED<br>SPACE<span> HUSTLE</span></div>
+            <div class="stitle bfont">HUNDRED<br>BLOCK<span> DASH</span></div>
             <div style="color:rgba(255,255,255,.9);margin-bottom:16px;font-size:16px;font-family:'Nunito';font-weight:bold;">SELECT PLAY MODE</div>
             <div style="display:flex;flex-direction:column;width:100%;">
                 <button class="sbtn bfont" data-mode="1p">1 PLAYER vs BOT<br><span style="font-size:13px;font-family:'Nunito'">Play against Borat the Bot</span></button>
@@ -45,11 +45,16 @@
     <div id="char-select">
         <div class="screen-content">
             <div class="m-title bfont" id="cs-title" style="color:var(--p1)">PLAYER 1: CHOOSE CHARACTER</div>
-            <div class="char-grid">
+            <div class="char-grid char-grid-3col">
                 <div class="char-card sel" data-char="slime"><span class="char-icon">💧</span><span class="char-name">Slime</span></div>
                 <div class="char-card" data-char="ghost"><span class="char-icon">👻</span><span class="char-name">Ghost</span></div>
                 <div class="char-card" data-char="boxy"><span class="char-icon">🧊</span><span class="char-name">Boxy</span></div>
                 <div class="char-card" data-char="bunny"><span class="char-icon">🐰</span><span class="char-name">Bunny</span></div>
+                <div class="char-card" data-char="cabbie"><span class="char-icon">🚕</span><span class="char-name">Cabbie</span></div>
+                <div class="char-card" data-char="vendor"><span class="char-icon">🌮</span><span class="char-name">Vendor</span></div>
+                <div class="char-card" data-char="banker"><span class="char-icon">💼</span><span class="char-name">Banker</span></div>
+                <div class="char-card" data-char="bodyguard"><span class="char-icon">🦺</span><span class="char-name">Bodyguard</span></div>
+                <div class="char-card" data-char="investor"><span class="char-icon">📈</span><span class="char-name">Investor</span></div>
             </div>
             <button class="btn-primary bfont" id="btn-char-confirm">CONFIRM</button>
         </div>
@@ -61,12 +66,12 @@
     <div id="map-ui">
         <div class="map-panel">
             <div class="map-header">
-                <div class="map-title bfont">🗺️ MAP EXPLORER</div>
-                <div class="map-counter bfont" id="map-counter">— spaces left</div>
+                <div class="map-title bfont">🗺️ CITY MAP</div>
+                <div class="map-counter bfont" id="map-counter">City Ring Road</div>
             </div>
             <div id="map-drag-hint" style="font-family:'Nunito'">👆 Drag the 3D board to explore · Tap a tile for details</div>
-            <input type="range" min="0" max="99" value="0" id="map-slider">
-            <div class="map-labels"><span>START</span><span>GATE</span><span>FINISH</span></div>
+            <input type="range" min="0" max="67" value="0" id="map-slider">
+            <div class="map-labels"><span>START</span><span>DISTRICTS</span><span>LOOP</span></div>
             <button class="btn-close-map bfont" id="btn-close-map">RETURN TO GAME</button>
         </div>
     </div>
@@ -76,8 +81,23 @@
         <div class="sic-desc" id="sic-desc"></div>
     </div>
 
+    <!-- Branch Choice Overlay (outside modal system — no overlay dim) -->
+    <div id="branch-choice-overlay" style="display:none;">
+        <div class="branch-header">
+            <div class="branch-title bfont" id="branch-title">CHOOSE YOUR PATH</div>
+            <div class="branch-subtitle">Pick a direction to move</div>
+        </div>
+        <div id="branch-cards" class="branch-cards"></div>
+    </div>
+
     <!-- HUD & Actions -->
     <div id="ui-layer">
+        <!-- Round counter (centered top) -->
+        <div id="round-counter" class="bfont">ROUND 0/20</div>
+
+        <!-- Contracts strip (below round counter) -->
+        <div id="contracts-strip" style="display:none;"></div>
+
         <div class="hud-bar" id="hud-p2">
             <div class="hud-info">
                 <div class="hud-name bfont p2c" id="hud-name-p2">🎩 PLAYER 2</div>
@@ -85,9 +105,12 @@
             </div>
             <div class="hud-badges">
                 <div class="hud-turn-badge bfont">YOUR TURN</div>
-                <div class="hud-pos-badge bfont" id="p2-pos-badge">Space 0</div>
+                <div class="hud-pos-badge bfont" id="p2-pos-badge">City Ring Road</div>
             </div>
-            <div class="hud-coins bfont">💰 <span id="p2-coins">0</span></div>
+            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">
+                <div class="hud-coins bfont">💰 <span id="p2-coins">0</span></div>
+                <div class="hud-ally-slots" id="p2-ally-slots"></div>
+            </div>
         </div>
         <div class="hud-bar" id="hud-p1">
             <div class="hud-info">
@@ -96,20 +119,25 @@
             </div>
             <div class="hud-badges">
                 <div class="hud-turn-badge bfont">YOUR TURN</div>
-                <div class="hud-pos-badge bfont" id="p1-pos-badge">Space 0</div>
+                <div class="hud-pos-badge bfont" id="p1-pos-badge">City Ring Road</div>
             </div>
-            <div class="hud-coins bfont">💰 <span id="p1-coins">0</span></div>
+            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">
+                <div class="hud-coins bfont">💰 <span id="p1-coins">0</span></div>
+                <div class="hud-ally-slots" id="p1-ally-slots"></div>
+            </div>
         </div>
 
         <div class="action-row" id="p2-actions" style="top:calc(var(--hud-h) + 12px);">
             <button class="btn-action roll-btn bfont" data-roll="1">🎲 ROLL</button>
             <button class="btn-action map-btn bfont" data-map="1">🗺️ MAP</button>
             <button class="btn-action bfont" data-items="1">🎒 ITEMS</button>
+            <button class="btn-action cabbie-btn bfont" data-cabbie="1" style="display:none;">🚕</button>
         </div>
         <div class="action-row" id="p1-actions" style="bottom:calc(var(--hud-h) + 12px);">
             <button class="btn-action roll-btn bfont" data-roll="0">🎲 ROLL</button>
             <button class="btn-action map-btn bfont" data-map="0">🗺️ MAP</button>
             <button class="btn-action bfont" data-items="0">🎒 ITEMS</button>
+            <button class="btn-action cabbie-btn bfont" data-cabbie="0" style="display:none;">🚕</button>
         </div>
         <div id="swipe-zone"><div class="swipe-hint bfont">👆 SWIPE UP<br>OR TAP ROLL</div></div>
     </div>
@@ -181,47 +209,35 @@
             <div class="hl-feedback" id="hl-feedback-2" style="display:none;"></div>
             <div class="hl-guesses-left" id="hl-guesses-2" style="display:none;"></div>
             <div class="hl-input-row" id="hl-input-2" style="display:none;"></div>
-            <!-- PulseHold -->
             <div class="pulse-zone" id="pulse-zone-2" style="display:none;"><div class="pulse-circle" id="pulse-circle-2"></div></div>
             <div class="pulse-score" id="pulse-score-2" style="display:none;"></div>
-            <!-- GridRecall -->
             <div class="grid-recall" id="grid-recall-2" style="display:none;"></div>
             <div class="grid-recall-score mem-score" id="grid-recall-score-2" style="display:none;"></div>
-            <!-- WordScramble -->
             <div class="ws-scramble bfont" id="ws-scramble-2" style="display:none;"></div>
             <div class="ws-options" id="ws-options-2" style="display:none;"></div>
             <div class="ws-score mem-score" id="ws-score-2" style="display:none;"></div>
-            <!-- ColorRush -->
             <div class="cr-word bfont" id="cr-word-2" style="display:none;"></div>
             <div class="cr-tap-zone bfont" id="cr-tap-2" style="display:none;">TAP!</div>
             <div class="cr-score bfont" id="cr-score-2" style="display:none;">0</div>
-            <!-- RhythmTap -->
             <div class="rhythm-zone bfont" id="rhythm-zone-2" style="display:none;">TAP THE BEAT!</div>
             <div class="rhythm-score mem-score" id="rhythm-score-2" style="display:none;">0</div>
-            <!-- SpeedSort -->
             <div class="ss-grid" id="ss-grid-2" style="display:none;"></div>
             <div class="ss-score mem-score" id="ss-score-2" style="display:none;">0 wins</div>
-            <!-- FlickShot -->
             <div class="fs-arena" id="fs-arena-2" style="display:none;"></div>
             <div class="fs-score mem-score" id="fs-score-2" style="display:none;">0 wins</div>
-            <!-- CodeBreaker -->
             <div class="cb-history" id="cb-history-2" style="display:none;"></div>
             <div class="cb-btns" id="cb-btns-2" style="display:none;"></div>
             <div class="cb-score mem-score" id="cb-score-2" style="display:none;">0 wins</div>
-            <!-- SoundMatch -->
             <div class="sm-options" id="sm-options-2" style="display:none;"></div>
             <div class="sm-score mem-score" id="sm-score-2" style="display:none;">0 wins</div>
-            <!-- TetherTap -->
             <div class="tt-zone" id="tt-zone-2" style="display:none;">
                 <div class="tt-ring" id="tt-ring-2"></div>
                 <div class="tt-target" id="tt-target-2"></div>
             </div>
             <div class="tt-score mem-score" id="tt-score-2" style="display:none;">0 wins</div>
-            <!-- MirrorMatch -->
             <div class="mm-source" id="mm-source-2" style="display:none;"></div>
             <div class="mm-options" id="mm-options-2" style="display:none;"></div>
             <div class="mm-score mem-score" id="mm-score-2" style="display:none;">0 wins</div>
-            <!-- BlindBuild -->
             <canvas class="bb-canvas" id="bb-canvas-2" style="display:none;"></canvas>
             <div class="bb-prompt bfont" id="bb-prompt-2" style="display:none;"></div>
             <div class="bb-score mem-score" id="bb-score-2" style="display:none;">0 pts</div>
@@ -253,47 +269,35 @@
             <div class="hl-feedback" id="hl-feedback-1" style="display:none;"></div>
             <div class="hl-guesses-left" id="hl-guesses-1" style="display:none;"></div>
             <div class="hl-input-row" id="hl-input-1" style="display:none;"></div>
-            <!-- PulseHold -->
             <div class="pulse-zone" id="pulse-zone-1" style="display:none;"><div class="pulse-circle" id="pulse-circle-1"></div></div>
             <div class="pulse-score" id="pulse-score-1" style="display:none;"></div>
-            <!-- GridRecall -->
             <div class="grid-recall" id="grid-recall-1" style="display:none;"></div>
             <div class="grid-recall-score mem-score" id="grid-recall-score-1" style="display:none;"></div>
-            <!-- WordScramble -->
             <div class="ws-scramble bfont" id="ws-scramble-1" style="display:none;"></div>
             <div class="ws-options" id="ws-options-1" style="display:none;"></div>
             <div class="ws-score mem-score" id="ws-score-1" style="display:none;"></div>
-            <!-- ColorRush -->
             <div class="cr-word bfont" id="cr-word-1" style="display:none;"></div>
             <div class="cr-tap-zone bfont" id="cr-tap-1" style="display:none;">TAP!</div>
             <div class="cr-score bfont" id="cr-score-1" style="display:none;">0</div>
-            <!-- RhythmTap -->
             <div class="rhythm-zone bfont" id="rhythm-zone-1" style="display:none;">TAP THE BEAT!</div>
             <div class="rhythm-score mem-score" id="rhythm-score-1" style="display:none;">0</div>
-            <!-- SpeedSort -->
             <div class="ss-grid" id="ss-grid-1" style="display:none;"></div>
             <div class="ss-score mem-score" id="ss-score-1" style="display:none;">0 wins</div>
-            <!-- FlickShot -->
             <div class="fs-arena" id="fs-arena-1" style="display:none;"></div>
             <div class="fs-score mem-score" id="fs-score-1" style="display:none;">0 wins</div>
-            <!-- CodeBreaker -->
             <div class="cb-history" id="cb-history-1" style="display:none;"></div>
             <div class="cb-btns" id="cb-btns-1" style="display:none;"></div>
             <div class="cb-score mem-score" id="cb-score-1" style="display:none;">0 wins</div>
-            <!-- SoundMatch -->
             <div class="sm-options" id="sm-options-1" style="display:none;"></div>
             <div class="sm-score mem-score" id="sm-score-1" style="display:none;">0 wins</div>
-            <!-- TetherTap -->
             <div class="tt-zone" id="tt-zone-1" style="display:none;">
                 <div class="tt-ring" id="tt-ring-1"></div>
                 <div class="tt-target" id="tt-target-1"></div>
             </div>
             <div class="tt-score mem-score" id="tt-score-1" style="display:none;">0 wins</div>
-            <!-- MirrorMatch -->
             <div class="mm-source" id="mm-source-1" style="display:none;"></div>
             <div class="mm-options" id="mm-options-1" style="display:none;"></div>
             <div class="mm-score mem-score" id="mm-score-1" style="display:none;">0 wins</div>
-            <!-- BlindBuild -->
             <canvas class="bb-canvas" id="bb-canvas-1" style="display:none;"></canvas>
             <div class="bb-prompt bfont" id="bb-prompt-1" style="display:none;"></div>
             <div class="bb-score mem-score" id="bb-score-1" style="display:none;">0 pts</div>
@@ -305,31 +309,24 @@
         <div class="win-confetti" id="win-confetti"></div>
         <div class="win-crown">👑</div>
         <div class="win-name bfont" id="win-name">PLAYER 1</div>
-        <div class="win-subtitle" id="win-subtitle">WINS THE HUSTLE!</div>
+        <div class="win-subtitle" id="win-subtitle">WINS THE CITY!</div>
         <div class="win-cards" id="win-cards"></div>
         <button class="btn-primary win-btn" id="btn-play-again">PLAY AGAIN</button>
     </div>
 
     <!-- Modals -->
     <div id="modal-overlay">
+        <!-- Shop Modal (items generated dynamically) -->
         <div class="modal-box" id="shop-modal" style="display:none;max-height:88vh;overflow-y:auto;">
-            <div class="m-title bfont" style="color:#a855f7;">🏪 ITEM SHOP</div>
+            <div class="m-title bfont" style="color:#a855f7;" id="shop-modal-title">🏪 ITEM SHOP</div>
             <div class="m-desc" id="shop-player-label">Spend coins wisely.</div>
+            <div id="shop-discount-banner" class="shop-discount-banner" style="display:none;"></div>
             <div id="inv-full-note" class="inv-full-note" style="display:none;">⚠️ Inventory full — drop an item to buy.</div>
-            <div class="m-row"><div class="m-row-info"><b>🚀 Warp Drive</b><small>Forces your next roll to be a 5</small></div><button class="btn-buy" id="buy-warp_drive" data-item="warp_drive" data-cost="12">12💰</button></div>
-            <div class="m-row"><div class="m-row-info"><b>💥 Double Die</b><small>Roll 2 dice — move sum</small></div><button class="btn-buy" id="buy-double_die" data-item="double_die" data-cost="15">15💰</button></div>
-            <div class="m-row"><div class="m-row-info"><b>💀 Cursed Die</b><small>Force opponent's next roll to 1 or 2</small></div><button class="btn-buy" id="buy-cursed_die" data-item="cursed_die" data-cost="18">18💰</button></div>
-            <div class="m-row"><div class="m-row-info"><b>🚧 Tollbooth</b><small>Place on current space — enemies pay 5c</small></div><button class="btn-buy" id="buy-tollbooth" data-item="tollbooth" data-cost="10">10💰</button></div>
-            <div class="m-row"><div class="m-row-info"><b>🛡️ Shield</b><small>Block the next negative space effect</small></div><button class="btn-buy" id="buy-shield" data-item="shield" data-cost="8">8💰</button></div>
-            <div class="m-row"><div class="m-row-info"><b>🛸 Rocket</b><small>Instantly move forward 8 spaces</small></div><button class="btn-buy" id="buy-rocket" data-item="rocket" data-cost="20">20💰</button></div>
-            <div class="m-row"><div class="m-row-info"><b>⚓ Anchor</b><small>Place trap — sends opponent back 5</small></div><button class="btn-buy" id="buy-anchor" data-item="anchor" data-cost="14">14💰</button></div>
-            <div class="m-row"><div class="m-row-info"><b>🔄 Swap</b><small>Swap board positions with your opponent</small></div><button class="btn-buy" id="buy-swap" data-item="swap" data-cost="25">25💰</button></div>
-            <div class="m-row"><div class="m-row-info"><b>🐷 Steal</b><small>Take 10 coins from your opponent</small></div><button class="btn-buy" id="buy-steal" data-item="steal" data-cost="22">22💰</button></div>
-            <div class="m-row"><div class="m-row-info"><b>🪞 Mirror</b><small>Reflect the next item used against you</small></div><button class="btn-buy" id="buy-mirror" data-item="mirror" data-cost="16">16💰</button></div>
-            <div class="m-row"><div class="m-row-info"><b>🎯 Custom Dice</b><small>Pick any number 1–6 as your next roll</small></div><button class="btn-buy" id="buy-custom_dice" data-item="custom_dice" data-cost="20">20💰</button></div>
+            <div id="shop-items-list"></div>
             <button class="btn-close" id="btn-close-shop">LEAVE SHOP</button>
         </div>
 
+        <!-- Message Modal -->
         <div class="modal-box" id="msg-modal" style="display:none;">
             <div style="font-size:48px;margin-bottom:8px;" id="msg-icon"></div>
             <div class="m-title bfont" id="msg-title"></div>
@@ -337,6 +334,7 @@
             <button class="btn-close primary" id="btn-msg-continue">CONTINUE</button>
         </div>
 
+        <!-- Shop Offer (pass-through) -->
         <div class="modal-box" id="shop-offer-modal" style="display:none;">
             <div style="font-size:48px;margin-bottom:8px;">🏪</div>
             <div class="m-title bfont" style="color:#a855f7;">SHOP NEARBY!</div>
@@ -345,6 +343,7 @@
             <button class="btn-close" id="btn-shop-offer-skip">KEEP MOVING</button>
         </div>
 
+        <!-- Custom Dice Modal -->
         <div class="modal-box" id="custom-dice-modal" style="display:none;">
             <div style="font-size:48px;margin-bottom:8px;">🎯</div>
             <div class="m-title bfont" style="color:#f5c842;">CUSTOM DICE</div>
@@ -360,12 +359,14 @@
             <button class="btn-close" id="btn-cancel-custom-dice">CANCEL</button>
         </div>
 
+        <!-- Pass Modal -->
         <div class="modal-box" id="pass-modal" style="display:none;">
             <div class="m-title bfont" style="color:#4ade80;">TURN OVER</div>
             <div class="m-desc" id="pass-desc" style="font-family:'Nunito';"></div>
             <button class="btn-close primary" id="btn-resolve-pass">I'M READY</button>
         </div>
 
+        <!-- Drop Modal -->
         <div class="modal-box" id="drop-modal" style="display:none;">
             <div class="m-title bfont" style="color:#f97316;">📦 INVENTORY FULL</div>
             <div class="m-desc" style="font-family:'Nunito';">Drop one item to make room:</div>
@@ -373,13 +374,43 @@
             <button class="btn-close" id="btn-cancel-drop">CANCEL</button>
         </div>
 
+        <!-- Use Item Modal -->
         <div class="modal-box" id="use-modal" style="display:none;">
             <div class="m-title bfont">🎒 USE AN ITEM</div>
             <div class="m-desc" id="use-player-label" style="font-family:'Nunito';">Choose an item:</div>
             <div class="drop-inv-row" id="use-inv-row"></div>
             <button class="btn-close" id="btn-cancel-use">CANCEL</button>
         </div>
+
+        <!-- Duel Modal -->
+        <div class="modal-box" id="duel-modal" style="display:none;">
+            <div style="font-size:52px;margin-bottom:4px;">⚔️</div>
+            <div class="m-title bfont" style="color:#ff6b35;">DUEL!</div>
+            <div class="m-desc" id="duel-info" style="font-family:'Nunito';margin-bottom:6px;"></div>
+            <div class="m-desc" style="font-family:'Nunito';font-size:13px;color:rgba(255,255,255,.6);margin-bottom:16px;">Winner takes the pot — set your bet!</div>
+            <div id="duel-bet-options" class="duel-bet-options"></div>
+        </div>
+
+        <!-- Ally Encounter Modal -->
+        <div class="modal-box" id="ally-encounter-modal" style="display:none;">
+            <div style="font-size:56px;margin-bottom:4px;" id="ally-enc-icon">?</div>
+            <div class="m-title bfont" style="color:#4ade80;" id="ally-enc-name">ALLY SPOTTED!</div>
+            <div class="m-desc" id="ally-enc-desc" style="font-family:'Nunito';"></div>
+            <div class="m-desc" id="ally-enc-slots" style="font-family:'Nunito';font-size:13px;color:rgba(255,255,255,.6);margin-bottom:16px;"></div>
+            <button class="btn-close primary" id="btn-ally-claim" style="margin-bottom:8px;">⚔️ COMPETE FOR ALLY</button>
+            <button class="btn-close" id="btn-ally-pass">PASS</button>
+        </div>
+
+        <!-- Ally Steal Modal -->
+        <div class="modal-box" id="ally-steal-modal" style="display:none;">
+            <div style="font-size:48px;margin-bottom:4px;">🤜</div>
+            <div class="m-title bfont" style="color:#f97316;">STEAL AN ALLY!</div>
+            <div class="m-desc" id="ally-steal-pname" style="font-family:'Nunito';margin-bottom:12px;"></div>
+            <div id="ally-steal-list" class="ally-steal-list"></div>
+            <button class="btn-close" id="btn-ally-steal-cancel" style="margin-top:8px;">NEVER MIND</button>
+        </div>
     </div>
+
     <div id="toast-box"></div>
 
     <script type="module" src="src/main.js"></script>

@@ -1,16 +1,24 @@
 // ============================================================
-// UI MANAGER — HUD, toasts, space card, map, coin animation
+// UI MANAGER — HUD, toasts, space card, map, branch choice, allies
 // Reads GameState; never contains game rules.
 // ============================================================
 
 import { state } from '../core/GameState.js';
-import { ITEMS, SPACE_DESCS } from '../config/GameConfig.js';
-import { getPos, boardCurve, getTileMeshes, setMapCameraTarget, mapCamera, onResize, getCamera } from '../engine/Renderer.js';
+import { ITEMS, ALLIES, SPACE_META, SPACE_DESCS, DISTRICT_BIOMES, HQ_META } from '../config/GameConfig.js';
+import { CITY_GRAPH, ALL_NODES_ORDERED, BRANCH_OPTIONS, JUNCTION_IDS, DISTRICT_NAMES } from '../config/BoardGraph.js';
+import { getPos, getTileMeshes, setMapCameraTarget, mapCamera, onResize, getCamera } from '../engine/Renderer.js';
 
 let _controller = null;
 const _coinTargets = [0, 0];
 const _coinCurrent = [0, 0];
 let   _coinFrame   = null;
+
+// Path choice overlay — one stored callback handles both branch choice and Cabbie picker
+let _pathChoiceCb = null;
+
+// Ally modal callbacks
+let _allyEncounterCb = null;
+let _allyStealCb     = null;
 
 const raycaster = new THREE.Raycaster();
 const mouse     = new THREE.Vector2();
@@ -20,6 +28,8 @@ export function init(controller) {
     _initBackground();
     _wireMapEvents();
     _wireSwipeEvents();
+    _wireBranchChoiceEvents();
+    _wireAllyModalEvents();
     window.addEventListener('resize', onResize);
 }
 
@@ -29,22 +39,222 @@ export function updateUI() {
     state.players.forEach((p, i) => {
         if (_coinTargets[i] !== p.coins) animateCoinDisplay(i, p.coins);
         document.getElementById(`p${i + 1}-inv`).innerHTML = p.inv
-            .map(it => `<div class="inv-slot" title="${ITEMS[it].name}">${ITEMS[it].icon}</div>`)
+            .map(it => `<div class="inv-slot" title="${ITEMS[it]?.name || it}">${ITEMS[it]?.icon || '?'}</div>`)
             .join('');
         const isActive = i === state.activePlayer;
         document.getElementById(`hud-p${i + 1}`).classList.toggle('active-turn', isActive);
         document.getElementById(`p${i + 1}-actions`).style.display =
             (isActive && state.gameState === 'PRE_ROLL' && !p.isBot) ? 'flex' : 'none';
-        const spacesLeft = 99 - p.pos;
-        document.getElementById(`p${i + 1}-pos-badge`).textContent =
-            p.pos === 0 ? 'START' : p.pos >= 99 ? 'FINISHED!' : `${spacesLeft} left`;
+
+        // Position badge shows district name
+        const node = CITY_GRAPH[p.pos];
+        const districtKey = node?.district || 'ring';
+        const biome = DISTRICT_BIOMES[districtKey];
+        const districtLabel = biome?.name || DISTRICT_NAMES[districtKey] || districtKey;
+        document.getElementById(`p${i + 1}-pos-badge`).textContent = districtLabel;
+
+        // Ally HUD slots
+        _updateAllySlots(i, p);
+
+        // Show Cabbie button if player has Cabbie ally and hasn't used it this round
+        const cabbieBtn = document.querySelector(`[data-cabbie="${i}"]`);
+        if (cabbieBtn) {
+            const hasCabbie = p.allies.some(a => a.type === 'cabbie') && !p.cabbieUsedThisRound;
+            cabbieBtn.style.display = (isActive && state.gameState === 'PRE_ROLL' && !p.isBot && hasCabbie) ? '' : 'none';
+        }
     });
+
+    if (state.gameState === 'PRE_ROLL' || state.gameState === 'ACKNOWLEDGE') {
+        updateContracts();
+    }
+    updateRoundCounter(state.currentRound, 20);
+}
+
+function _updateAllySlots(playerIdx, p) {
+    const slotsEl = document.getElementById(`p${playerIdx + 1}-ally-slots`);
+    if (!slotsEl) return;
+    const MAX = 2;
+    let html = '';
+    for (let i = 0; i < MAX; i++) {
+        const a = p.allies[i];
+        if (a) {
+            const info = ALLIES[a.type] || {};
+            html += `<div class="ally-slot-badge" title="${info.name || a.type}">${info.icon || '?'}<span class="ally-turns">${a.turnsRemaining}</span></div>`;
+        } else {
+            html += `<div class="ally-slot-empty"></div>`;
+        }
+    }
+    slotsEl.innerHTML = html;
 }
 
 export function setPlayerNames() {
     document.getElementById('hud-name-p1').textContent = `🚗 ${state.players[0].name.toUpperCase()}`;
     document.getElementById('hud-name-p2').innerHTML   =
         `🎩 ${state.players[1].name.toUpperCase()}${state.players[1].isBot ? ' <span class="bot-badge">BOT</span>' : ''}`;
+}
+
+// ---- Round Counter ----
+
+export function updateRoundCounter(current, total) {
+    const el = document.getElementById('round-counter');
+    if (el) el.textContent = `ROUND ${current || 0}/${total || 20}`;
+}
+
+// ---- Contracts Strip ----
+
+export function updateContracts() {
+    const strip = document.getElementById('contracts-strip');
+    if (!strip) return;
+    if (!state.activeContracts || state.activeContracts.length === 0) {
+        strip.style.display = 'none';
+        return;
+    }
+    strip.style.display = 'flex';
+    strip.innerHTML = state.activeContracts.map(c => {
+        const progress = c._progress || 0;
+        const needed   = (c.type === 'land_coin' || c.type === 'land_coin_big' || c.type === 'win_minigames' || c.type === 'visit_shops') ? (c.param || 1) : 1;
+        const progStr  = needed > 1 ? ` (${progress}/${needed})` : '';
+        return `<div class="contract-pill" title="${c.desc}">
+            <span class="contract-icon">${c.icon}</span>
+            <span class="contract-text">${c.desc}${progStr}</span>
+            <span class="contract-reward">+${c.reward}💰</span>
+        </div>`;
+    }).join('');
+}
+
+// ---- Branch / Path Choice Overlay ----
+
+export function showBranchChoice(options) {
+    _pathChoiceCb = null; // use _controller.onBranchChosen
+    _renderPathOverlay(options, 'CHOOSE YOUR PATH');
+}
+
+export function hideBranchChoice() {
+    const overlay = document.getElementById('branch-choice-overlay');
+    if (overlay) overlay.style.display = 'none';
+}
+
+export function showCabbieJunctionPicker(callback) {
+    _pathChoiceCb = callback;
+    _renderPathOverlay([
+        { nodeId: 'bp_a', label: 'Junction A', desc: 'Near Financial District & Ring Road North', arrow: '↑' },
+        { nodeId: 'bp_b', label: 'Junction B', desc: 'Near Back Alley & Ring Road East',          arrow: '→' },
+        { nodeId: 'bp_c', label: 'Junction C', desc: 'Near Shopping Promenade & Ring Road South', arrow: '↓' },
+        { nodeId: 'bp_d', label: 'Junction D', desc: 'Near Industrial Zone & Ring Road West',     arrow: '←' },
+    ], '🚕 CABBIE — TELEPORT TO');
+}
+
+function _renderPathOverlay(options, title) {
+    const overlay = document.getElementById('branch-choice-overlay');
+    if (!overlay) return;
+    const titleEl = document.getElementById('branch-title');
+    if (titleEl) titleEl.textContent = title;
+    const cardsEl = document.getElementById('branch-cards');
+    if (cardsEl) {
+        cardsEl.innerHTML = options.map(opt =>
+            `<button class="branch-card bfont" data-node="${opt.nodeId}">
+                <span class="branch-arrow">${opt.arrow}</span>
+                <span class="branch-label">${opt.label}</span>
+                <span class="branch-desc">${opt.desc}</span>
+            </button>`
+        ).join('');
+    }
+    overlay.style.display = 'flex';
+}
+
+function _wireBranchChoiceEvents() {
+    const overlay = document.getElementById('branch-choice-overlay');
+    if (!overlay) return;
+    overlay.addEventListener('click', e => {
+        const btn = e.target.closest('[data-node]');
+        if (!btn) return;
+        overlay.style.display = 'none';
+        const nodeId = btn.dataset.node;
+        if (_pathChoiceCb) {
+            const cb = _pathChoiceCb;
+            _pathChoiceCb = null;
+            cb(nodeId);
+        } else {
+            _controller.onBranchChosen(nodeId);
+        }
+    });
+}
+
+// ---- Ally Encounter Modal ----
+
+export function showAllyEncounterModal(ally, playerAllies, callback) {
+    _allyEncounterCb = callback;
+    const modal = document.getElementById('ally-encounter-modal');
+    if (!modal) return;
+    const slotsLeft = 2 - (playerAllies ? playerAllies.length : 0);
+    const iconEl   = document.getElementById('ally-enc-icon');
+    const nameEl   = document.getElementById('ally-enc-name');
+    const descEl   = document.getElementById('ally-enc-desc');
+    const slotsEl  = document.getElementById('ally-enc-slots');
+    if (iconEl)  iconEl.textContent  = ally?.icon  || '?';
+    if (nameEl)  nameEl.textContent  = ally?.name  || 'Ally';
+    if (descEl)  descEl.textContent  = ally?.desc  || '';
+    if (slotsEl) slotsEl.textContent = slotsLeft > 0
+        ? `You have ${slotsLeft} ally slot${slotsLeft !== 1 ? 's' : ''} available.`
+        : 'Your ally slots are full — an old ally will be replaced.';
+    document.querySelectorAll('.modal-box').forEach(b => b.style.display = 'none');
+    modal.style.display = 'block';
+    document.getElementById('modal-overlay').classList.add('act');
+}
+
+// ---- Ally Steal Modal ----
+
+export function showAllyStealModal(target, callback) {
+    _allyStealCb = callback;
+    const modal = document.getElementById('ally-steal-modal');
+    if (!modal) return;
+    const pnameEl = document.getElementById('ally-steal-pname');
+    const listEl  = document.getElementById('ally-steal-list');
+    if (pnameEl) pnameEl.textContent = `Choose which of ${target.name}'s allies to target:`;
+    if (listEl) {
+        listEl.innerHTML = target.allies.map((a, idx) => {
+            const info = ALLIES[a.type] || {};
+            return `<button class="ally-steal-btn" data-ally-idx="${idx}">
+                <span class="ally-steal-icon">${info.icon || '?'}</span>
+                <div class="ally-steal-info">
+                    <b>${info.name || a.type}</b>
+                    <small>${info.desc || ''} &middot; ${a.turnsRemaining} turn${a.turnsRemaining !== 1 ? 's' : ''} left</small>
+                </div>
+            </button>`;
+        }).join('');
+    }
+    document.querySelectorAll('.modal-box').forEach(b => b.style.display = 'none');
+    modal.style.display = 'block';
+    document.getElementById('modal-overlay').classList.add('act');
+}
+
+function _wireAllyModalEvents() {
+    // Ally encounter buttons
+    document.getElementById('btn-ally-claim')?.addEventListener('click', () => {
+        document.getElementById('modal-overlay').classList.remove('act');
+        document.getElementById('ally-encounter-modal').style.display = 'none';
+        if (_allyEncounterCb) { const cb = _allyEncounterCb; _allyEncounterCb = null; cb(true); }
+    });
+    document.getElementById('btn-ally-pass')?.addEventListener('click', () => {
+        document.getElementById('modal-overlay').classList.remove('act');
+        document.getElementById('ally-encounter-modal').style.display = 'none';
+        if (_allyEncounterCb) { const cb = _allyEncounterCb; _allyEncounterCb = null; cb(false); }
+    });
+
+    // Ally steal list (event delegation)
+    document.getElementById('ally-steal-list')?.addEventListener('click', e => {
+        const btn = e.target.closest('[data-ally-idx]');
+        if (!btn) return;
+        document.getElementById('modal-overlay').classList.remove('act');
+        document.getElementById('ally-steal-modal').style.display = 'none';
+        const idx = parseInt(btn.dataset.allyIdx);
+        if (_allyStealCb) { const cb = _allyStealCb; _allyStealCb = null; cb(idx); }
+    });
+    document.getElementById('btn-ally-steal-cancel')?.addEventListener('click', () => {
+        document.getElementById('modal-overlay').classList.remove('act');
+        document.getElementById('ally-steal-modal').style.display = 'none';
+        if (_allyStealCb) { const cb = _allyStealCb; _allyStealCb = null; cb(-1); }
+    });
 }
 
 // ---- Toasts ----
@@ -81,10 +291,14 @@ export function openMap() {
     state.cameraState = 'MAP';
     document.getElementById('ui-layer').style.display = 'none';
     document.getElementById('map-ui').style.display   = 'flex';
-    const slider = document.getElementById('map-slider');
-    slider.value = state.players[state.activePlayer].pos;
+
+    const playerPos = state.players[state.activePlayer].pos;
+    const posIdx    = ALL_NODES_ORDERED.indexOf(playerPos);
+    const slider    = document.getElementById('map-slider');
+    slider.max      = ALL_NODES_ORDERED.length - 1;
+    slider.value    = posIdx >= 0 ? posIdx : 0;
     document.getElementById('map-tooltip').style.display = 'none';
-    setMapCameraTarget(state.players[state.activePlayer].pos, 50, 20);
+    setMapCameraTarget(posIdx >= 0 ? posIdx : 0, 50, 20);
     updateMapSlider();
 }
 
@@ -99,11 +313,13 @@ export function closeMap() {
 }
 
 export function updateMapSlider() {
-    const val = parseInt(document.getElementById('map-slider').value);
+    const val    = parseInt(document.getElementById('map-slider').value);
     setMapCameraTarget(val, 40, 25);
     document.getElementById('map-tooltip').style.display = 'none';
-    const spacesLeft = 99 - state.players[state.activePlayer].pos;
-    document.getElementById('map-counter').textContent = `${spacesLeft} to finish`;
+    const nodeId = ALL_NODES_ORDERED[val];
+    const node   = nodeId ? CITY_GRAPH[nodeId] : null;
+    const label  = node ? (DISTRICT_BIOMES[node.district]?.name || DISTRICT_NAMES[node.district] || node.district) : '—';
+    document.getElementById('map-counter').textContent = label;
 }
 
 function _wireMapEvents() {
@@ -144,14 +360,16 @@ function _wireMapEvents() {
         const hits = raycaster.intersectObjects(getTileMeshes());
         const tt   = document.getElementById('map-tooltip');
         if (hits.length > 0) {
-            const td   = hits[0].object.userData;
-            if (td.idx === undefined) { tt.style.display = 'none'; return; }
-            const dist = td.idx - state.players[state.activePlayer].pos;
-            const tile = state.board[td.idx];
-            const meta = (window.SPACE_META_REF || {})[tile?.type] || { ic: '❓', n: tile?.type || '?', c: 0xffffff };
-            const distText = dist === 0 ? '📍 YOU ARE HERE' : (dist > 0 ? `${dist} AHEAD` : `${Math.abs(dist)} BEHIND`);
-            const cStr = meta.c.toString(16).padStart(6, '0');
-            tt.innerHTML = `<span style="color:#${cStr}">${meta.ic} ${meta.n}</span><br><span class="map-dist">${distText}</span>`;
+            const td     = hits[0].object.userData;
+            const nodeId = td.nodeId;
+            if (!nodeId) { tt.style.display = 'none'; return; }
+            const node   = CITY_GRAPH[nodeId];
+            const tile   = state.board[nodeId];
+            const type   = tile?.type || node?.type || 'coin';
+            const meta   = SPACE_META[type] || { ic: '❓', n: type, c: 0xffffff };
+            const cStr   = meta.c.toString(16).padStart(6, '0');
+            const dist   = node ? (DISTRICT_BIOMES[node.district]?.name || DISTRICT_NAMES[node.district] || '') : '';
+            tt.innerHTML = `<span style="color:#${cStr}">${meta.ic} ${meta.n}</span><br><span class="map-dist">${dist}</span>`;
             tt.style.left = Math.min(Math.max(e.clientX, 120), W - 120) + 'px';
             tt.style.top  = Math.min(e.clientY, H - 80) + 'px';
             tt.style.display = 'block';
