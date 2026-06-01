@@ -510,3 +510,130 @@ body { overscroll-behavior: none; -webkit-overflow-scrolling: auto; }
     .action-btn { font-size: 13px; padding: 6px 10px; }
     .mg-intro-overlay, .minigame-layer { font-size: 14px; }
 }
+
+/* ============================================================
+   CITY CIRCUIT — NEW ELEMENTS
+   ============================================================ */
+
+/* --- Char grid 3-column for 9 characters --- */
+.char-grid-3col { grid-template-columns: repeat(3, 1fr) !important; }
+
+/* --- Round Counter --- */
+#round-counter {
+    position: absolute; top: calc(var(--hud-h) + 6px); left: 50%; transform: translateX(-50%);
+    z-index: 18; background: rgba(0,0,0,.7); border: 1px solid rgba(255,255,255,.2);
+    color: var(--gold); font-size: 14px; letter-spacing: 2px; padding: 4px 14px;
+    border-radius: 20px; pointer-events: none; white-space: nowrap;
+    text-shadow: 0 0 10px rgba(245,200,66,.5);
+}
+
+/* --- Contracts Strip --- */
+#contracts-strip {
+    position: absolute; top: calc(var(--hud-h) + 36px); left: 50%; transform: translateX(-50%);
+    z-index: 17; display: flex; gap: 6px; pointer-events: none;
+    max-width: calc(100vw - 24px); overflow-x: auto; padding: 2px 0;
+    scrollbar-width: none;
+}
+#contracts-strip::-webkit-scrollbar { display: none; }
+.contract-pill {
+    display: flex; align-items: center; gap: 5px;
+    background: rgba(0,0,0,.8); border: 1px solid rgba(255,255,255,.2);
+    border-radius: 20px; padding: 4px 10px; white-space: nowrap;
+    font-family: 'Nunito'; font-size: 12px; color: rgba(255,255,255,.85);
+    flex-shrink: 0;
+}
+.contract-pill.done { opacity: 0.4; text-decoration: line-through; }
+.contract-icon { font-size: 14px; }
+.contract-text { color: rgba(255,255,255,.7); max-width: 140px; overflow: hidden; text-overflow: ellipsis; }
+.contract-reward { color: #4ade80; font-weight: 800; font-size: 11px; }
+
+/* --- Ally HUD Slots --- */
+.hud-ally-slots { display: flex; gap: 3px; }
+.ally-slot-badge {
+    position: relative; width: 22px; height: 22px; background: rgba(74,222,128,.2);
+    border: 1px solid #4ade80; border-radius: 6px; display: flex; align-items: center;
+    justify-content: center; font-size: 11px; cursor: default;
+}
+.ally-turns {
+    position: absolute; bottom: -4px; right: -4px; background: #4ade80; color: #000;
+    font-size: 8px; font-weight: 900; width: 12px; height: 12px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center; font-family: 'Nunito';
+}
+.ally-slot-empty {
+    width: 22px; height: 22px; background: rgba(255,255,255,.06);
+    border: 1px dashed rgba(255,255,255,.18); border-radius: 6px;
+}
+
+/* --- Cabbie button in action row --- */
+.cabbie-btn { background: linear-gradient(135deg, #78350f, #f59e0b) !important; color: #000 !important; border: none !important; font-size: 18px !important; }
+
+/* --- Branch Choice Overlay --- */
+#branch-choice-overlay {
+    position: fixed; inset: 0; z-index: 190;
+    background: rgba(0,0,0,.92);
+    display: none; flex-direction: column; align-items: center; justify-content: center;
+    gap: 16px; padding: 24px;
+}
+.branch-header { text-align: center; }
+.branch-title { font-size: 36px; color: var(--gold); letter-spacing: 3px; text-shadow: 0 0 20px rgba(245,200,66,.7); }
+.branch-subtitle { font-family: 'Nunito'; font-size: 14px; color: rgba(255,255,255,.5); letter-spacing: 1px; text-transform: uppercase; margin-top: 4px; }
+.branch-cards { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; width: 100%; max-width: 480px; }
+.branch-card {
+    flex: 1; min-width: 130px; max-width: 160px;
+    background: rgba(255,255,255,.08); border: 2px solid rgba(255,255,255,.3);
+    color: #fff; border-radius: 20px; padding: 18px 12px; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; gap: 8px;
+    transition: background .15s, border-color .15s, transform .1s;
+}
+.branch-card:active { transform: scale(.95); background: rgba(245,200,66,.2); border-color: var(--gold); }
+.branch-arrow { font-size: 48px; line-height: 1; }
+.branch-label { font-size: 16px; letter-spacing: 1px; color: var(--gold); text-align: center; line-height: 1.2; }
+.branch-desc { font-family: 'Nunito'; font-size: 11px; color: rgba(255,255,255,.55); text-align: center; line-height: 1.4; }
+
+/* --- Duel Modal --- */
+.duel-bet-options { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin-bottom: 8px; }
+.duel-bet-btn {
+    width: 64px; height: 64px; border-radius: 16px; border: 2px solid rgba(255,107,53,.5);
+    background: rgba(255,107,53,.15); color: #fff; font-size: 24px; cursor: pointer;
+    transition: background .15s, transform .1s, border-color .15s;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
+}
+.duel-bet-btn:not(:disabled):active { background: rgba(255,107,53,.4); border-color: #ff6b35; transform: scale(.92); }
+.duel-bet-btn:disabled { opacity: .35; cursor: not-allowed; }
+
+/* --- Ally Steal List --- */
+.ally-steal-list { display: flex; flex-direction: column; gap: 8px; width: 100%; margin-bottom: 4px; }
+.ally-steal-btn {
+    display: flex; align-items: center; gap: 12px;
+    background: rgba(255,255,255,.08); border: 2px solid rgba(255,255,255,.25);
+    color: #fff; border-radius: 14px; padding: 12px 14px; cursor: pointer;
+    transition: background .15s, border-color .15s; text-align: left; width: 100%;
+}
+.ally-steal-btn:active { background: rgba(249,115,22,.2); border-color: #f97316; }
+.ally-steal-icon { font-size: 28px; flex-shrink: 0; }
+.ally-steal-info { display: flex; flex-direction: column; }
+.ally-steal-info b { font-family: 'Bebas Neue'; font-size: 18px; letter-spacing: 1px; color: #fff; }
+.ally-steal-info small { font-family: 'Nunito'; font-size: 11px; color: rgba(255,255,255,.55); line-height: 1.4; }
+
+/* --- Shop discount badge --- */
+.shop-discount-banner {
+    background: rgba(74,222,128,.15); border: 1px solid rgba(74,222,128,.4);
+    color: #4ade80; border-radius: 10px; padding: 6px 12px; font-size: 13px;
+    font-family: 'Nunito'; font-weight: 800; margin-bottom: 8px; text-align: center;
+}
+.shop-discount { color: #4ade80; font-family: 'Nunito'; font-size: 11px; font-weight: 800; }
+
+/* --- HQ tile glow animation --- */
+@keyframes hqGlow {
+    0%, 100% { box-shadow: 0 0 12px rgba(251,191,36,.4); }
+    50%       { box-shadow: 0 0 28px rgba(251,191,36,.9), 0 0 50px rgba(251,191,36,.4); }
+}
+
+/* --- District color CSS variables --- */
+:root {
+    --dist-ring:  #cbd5e1;
+    --dist-fin:   #60a5fa;
+    --dist-ba:    #f87171;
+    --dist-shop:  #f472b6;
+    --dist-ind:   #fbbf24;
+}

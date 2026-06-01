@@ -74,6 +74,14 @@ document.querySelectorAll('[data-items]').forEach(btn => {
     });
 });
 
+document.querySelectorAll('[data-cabbie]').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const pid = parseInt(btn.dataset.cabbie);
+        if (!GameController.isMyTurn(pid)) return;
+        GameController.activateCabbie(pid);
+    });
+});
+
 // ============================================================
 // GATE OVERLAY  (not managed by ModalManager)
 // ============================================================
