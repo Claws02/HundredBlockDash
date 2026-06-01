@@ -3,6 +3,10 @@
 // ============================================================
 export const GATE_THRESHOLD      = 15;
 export const GATE_NUM_DICE       = 5;
+
+// Hundred Block Dash — classic 100-space linear map
+export const HBD_GATE_POS    = 75;
+export const HBD_SHOP_SPACES = new Set([20, 40, 60, 80]);
 export const MAX_INV             = 3;
 export const MINIGAME_REWARD     = 10;
 export const MINIGAME_EVERY_N_TURNS = 4;
@@ -162,6 +166,20 @@ export const DISTRICT_BIOMES = {
 
 export function getBiomeForDistrict(district) {
     return DISTRICT_BIOMES[district] || DISTRICT_BIOMES.ring;
+}
+
+// Hundred Block Dash biomes — 4 zones by position
+export const HBD_BIOMES = [
+    { name: 'Lush Forest', bgTop: '#0f380f', bgBot: '#1b4a1b', fog: 0x0f380f, floorEdge: 0x22c55e, pathTint: 0x4ade80 },
+    { name: 'Magma Core',  bgTop: '#3f0f0f', bgBot: '#6b1313', fog: 0x3f0f0f, floorEdge: 0xf97316, pathTint: 0xf59e0b },
+    { name: 'Magic Glade', bgTop: '#380f3f', bgBot: '#5c126b', fog: 0x380f3f, floorEdge: 0xd946ef, pathTint: 0xc084fc },
+    { name: 'The Void',    bgTop: '#0a0a1a', bgBot: '#141433', fog: 0x0a0a1a, floorEdge: 0x3b82f6, pathTint: 0x60a5fa },
+];
+export function getBiomeForSpace(idx) {
+    if (idx < 25) return HBD_BIOMES[0];
+    if (idx < 50) return HBD_BIOMES[1];
+    if (idx < 75) return HBD_BIOMES[2];
+    return HBD_BIOMES[3];
 }
 
 // HQ display names and icons for win screen / toasts

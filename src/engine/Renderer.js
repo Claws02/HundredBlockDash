@@ -1,9 +1,9 @@
 // ============================================================
-// RENDERER — Three.js scene, circular city circuit map
+// RENDERER — Three.js scene, city circuit + hundred block dash
 // ============================================================
 
 import { state } from '../core/GameState.js';
-import { SPACE_META, DISTRICT_BIOMES, getBiomeForDistrict, ALLIES, CHAR_ICONS } from '../config/GameConfig.js';
+import { SPACE_META, DISTRICT_BIOMES, getBiomeForDistrict, HBD_BIOMES, getBiomeForSpace, ALLIES, CHAR_ICONS, HBD_GATE_POS } from '../config/GameConfig.js';
 import { CITY_GRAPH, ALL_NODES_ORDERED, JUNCTION_IDS } from '../config/BoardGraph.js';
 import * as Physics from './Physics.js';
 
@@ -15,8 +15,11 @@ const tileMeshes    = [];
 const textureCache  = {};
 const _camHelper    = new THREE.PerspectiveCamera();
 
-// Node position map: nodeId → THREE.Vector3
+// Node position map: nodeId → THREE.Vector3 (City Circuit)
 const nodePositions = new Map();
+// HBD linear path positions: index 0-99 → THREE.Vector3
+const hbdPositions  = [];
+export let boardCurve = null; // HBD CatmullRom curve, null for City Circuit
 // Ally mesh markers on map: nodeId → mesh
 const allyMarkers   = new Map();
 
@@ -85,6 +88,7 @@ function buildNodePositions() {
 }
 
 export function getPos(nodeId) {
+    if (typeof nodeId === 'number') return hbdPositions[Math.max(0, Math.min(nodeId, 99))] || new THREE.Vector3();
     return nodePositions.get(nodeId) || new THREE.Vector3(0, 0, 0);
 }
 
@@ -100,24 +104,59 @@ function buildCamCurve() {
 }
 
 export function getNodeT(nodeId) {
+    if (typeof nodeId === 'number') return nodeId / 99;
     const idx = ALL_NODES_ORDERED.indexOf(nodeId);
     if (idx < 0) return 0;
     return idx / _camCurveLen;
+}
+
+// ---- HBD board ----
+
+function buildHBDPositions() {
+    const waypoints = [
+        new THREE.Vector3(0, 0, 0),     new THREE.Vector3(0, 0, -30),
+        new THREE.Vector3(40, 0, -60),  new THREE.Vector3(60, 0, -100),
+        new THREE.Vector3(20, 0, -140), new THREE.Vector3(-40, 0, -160),
+        new THREE.Vector3(-60, 0, -200),new THREE.Vector3(-20, 0, -240),
+        new THREE.Vector3(30, 0, -280), new THREE.Vector3(40, 0, -320),
+        new THREE.Vector3(0, 0, -360),  new THREE.Vector3(-40, 0, -400),
+    ];
+    boardCurve = new THREE.CatmullRomCurve3(waypoints);
+    const pts = boardCurve.getSpacedPoints(99);
+    hbdPositions.length = 0;
+    pts.forEach(p => hbdPositions.push(p.clone()));
+}
+
+function _buildHBDPath() {
+    const tubeGeo = new THREE.TubeGeometry(boardCurve, 200, 1.5, 8, false);
+    const tubeMat = new THREE.MeshStandardMaterial({
+        color: 0x6366f1, emissive: 0x6366f1, transparent: true, opacity: 0.15, roughness: 0.8,
+    });
+    const mesh = new THREE.Mesh(tubeGeo, tubeMat);
+    mesh.position.y = -0.5;
+    boardGrp.add(mesh);
 }
 
 // ---- Scene init ----
 
 export function init(container) {
     container.innerHTML = '';
-    buildNodePositions();
+    const isHBD = state.selectedMap === 'hundred_block_dash';
+
+    if (isHBD) {
+        buildHBDPositions();
+        boardCurve = boardCurve; // already set
+    } else {
+        buildNodePositions();
+    }
 
     scene = new THREE.Scene();
-    scene.fog = new THREE.FogExp2(0x0f0f1e, 0.008);
+    scene.fog = new THREE.FogExp2(isHBD ? 0x0f380f : 0x0f0f1e, isHBD ? 0.005 : 0.008);
 
     const W = Math.max(window.innerWidth  || 300, 300);
     const H = Math.max(window.innerHeight || 500, 500);
     camera = new THREE.PerspectiveCamera(50, W / H, 0.1, 1000);
-    camera.position.set(0, 50, 60);
+    camera.position.set(0, isHBD ? 30 : 50, isHBD ? 40 : 60);
     camera.lookAt(0, 0, 0);
 
     renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -129,16 +168,20 @@ export function init(container) {
     scene.add(new THREE.AmbientLight(0xffffff, 0.7));
     const sun = new THREE.DirectionalLight(0xffffff, 1.2);
     sun.position.set(20, 60, 30); sun.castShadow = true;
-    sun.shadow.camera.left = sun.shadow.camera.bottom = -80;
-    sun.shadow.camera.right = sun.shadow.camera.top = 80;
+    sun.shadow.camera.left = sun.shadow.camera.bottom = isHBD ? -30 : -80;
+    sun.shadow.camera.right = sun.shadow.camera.top = isHBD ? 30 : 80;
     scene.add(sun);
 
     boardGrp = new THREE.Group();
     diceGrp  = new THREE.Group();
     scene.add(boardGrp, diceGrp);
 
-    buildCamCurve();
-    _buildPathTubes();
+    if (isHBD) {
+        _buildHBDPath();
+    } else {
+        buildCamCurve();
+        _buildPathTubes();
+    }
 
     Physics.init();
     drawTiles();
@@ -222,8 +265,53 @@ function _getCachedTileTexture(spc, bInfo, overrideLabel, b) {
 
 export function drawTiles() {
     tileMeshes.forEach(m => boardGrp.remove(m));
-    floatingIcons.splice(4); // keep the 4 junction spheres at the front
     tileMeshes.length = 0;
+
+    if (Array.isArray(state.board)) {
+        // ---- HBD: integer-indexed array ----
+        floatingIcons.length = 0;
+        state.board.forEach((b, i) => {
+            const isGate = (i === HBD_GATE_POS);
+            const spc    = SPACE_META[b.type] || SPACE_META.coin;
+            const bInfo  = getBiomeForSpace(i);
+            const label  = b.type === 'player_trap' ? 'TOLL' : (isGate && state.gateOpen ? 'OPEN' : null);
+            const key    = `hbd_${spc.e}_${bInfo.floorEdge}_${spc.ic}_${label}_${b.owner ?? ''}`;
+            if (!textureCache[key]) {
+                const tcx = document.createElement('canvas').getContext('2d');
+                tcx.canvas.width = tcx.canvas.height = 256;
+                tcx.fillStyle = '#' + spc.e.toString(16).padStart(6, '0');
+                tcx.fillRect(0, 0, 256, 256);
+                tcx.strokeStyle = '#' + bInfo.floorEdge.toString(16).padStart(6, '0');
+                tcx.lineWidth = 14; tcx.strokeRect(7, 7, 242, 242);
+                tcx.textAlign = 'center'; tcx.textBaseline = 'middle';
+                tcx.font = '80px serif'; tcx.fillText(spc.ic, 128, 90);
+                tcx.font = 'bold 34px "Bebas Neue",sans-serif'; tcx.fillStyle = '#fff';
+                const lbl = label || spc.n;
+                const words = lbl.split(' ');
+                if (words.length > 1) { tcx.fillText(words[0], 128, 168); tcx.fillText(words.slice(1).join(' '), 128, 208); }
+                else tcx.fillText(words[0], 128, 188);
+                textureCache[key] = new THREE.CanvasTexture(tcx.canvas);
+            }
+            let emColor = isGate ? (state.gateOpen ? 0x22c55e : 0xb45309) : spc.e;
+            if (b.type === 'player_trap') emColor = state.players[b.owner]?.color ?? 0xf97316;
+            const baseMat  = new THREE.MeshPhysicalMaterial({ map: textureCache[key], roughness: 0.3, metalness: 0.1, clearcoat: 0.2, emissive: emColor, emissiveIntensity: 0.45 });
+            const baseMesh = new THREE.Mesh(_hexGeo, baseMat);
+            baseMesh.receiveShadow = true; baseMesh.castShadow = true;
+            const pos = getPos(i).clone();
+            baseMesh.position.copy(pos);
+            if (i < 99) baseMesh.lookAt(getPos(i + 1).clone().setY(0));
+            baseMesh.userData = { idx: i };
+            tileMeshes.push(baseMesh);
+            boardGrp.add(baseMesh);
+            if (isGate) _buildHBDGateMesh(i, pos);
+            else if (b.type === 'shop') _buildHBDShopMesh(i, pos);
+            else if (spc.geo && GEOS[spc.geo]) _buildFloatingIcon(pos, spc, b);
+        });
+        return;
+    }
+
+    // ---- City Circuit: string-keyed object ----
+    floatingIcons.splice(4); // keep the 4 junction spheres at the front
 
     Object.entries(state.board).forEach(([nodeId, b]) => {
         if (JUNCTION_IDS.has(nodeId)) return;
@@ -267,6 +355,53 @@ export function drawTiles() {
 
 export function updateSingleTile() { drawTiles(); }
 export function getTileMeshes()    { return tileMeshes; }
+
+// ---- HBD-specific tile decorations ----
+
+function _buildHBDGateMesh(idx, pos) {
+    const gateOpen  = state.gateOpen;
+    const gateColor = gateOpen ? 0x4ade80 : 0xfbbf24;
+    const gateEmit  = gateOpen ? 0x22c55e : 0xb45309;
+    const gateMat   = new THREE.MeshPhysicalMaterial({ color: gateColor, emissive: gateEmit, emissiveIntensity: 1.2, metalness: 0.95, roughness: 0.05 });
+    const gateGrp   = new THREE.Group();
+    gateGrp.position.copy(pos);
+    const t = Math.max(0.001, Math.min(idx / 99, 0.999));
+    const tangent = boardCurve.getTangent(t).normalize();
+    gateGrp.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), tangent);
+    const pillarGeo = new THREE.BoxGeometry(0.55, 7, 0.55);
+    [-2.2, 2.2].forEach(x => {
+        const p = new THREE.Mesh(pillarGeo, gateMat); p.position.set(x, 3.5, 0); p.castShadow = true; gateGrp.add(p);
+    });
+    const cross = new THREE.Mesh(new THREE.BoxGeometry(5.5, 0.6, 0.55), gateMat); cross.position.set(0, 7.2, 0); cross.castShadow = true; gateGrp.add(cross);
+    const barMat = new THREE.MeshPhysicalMaterial({ color: gateOpen ? 0x86efac : 0xfcd34d, emissive: gateEmit, emissiveIntensity: 0.6, metalness: 0.8, roughness: 0.15, transparent: gateOpen, opacity: gateOpen ? 0.35 : 1.0 });
+    const barGeo = new THREE.BoxGeometry(0.22, 4.2, 0.22);
+    for (let b = -2; b <= 2; b++) { const bar = new THREE.Mesh(barGeo, barMat); bar.position.set(b * 0.88, 3.1, 0); gateGrp.add(bar); }
+    const gemMat = new THREE.MeshPhysicalMaterial({ color: gateOpen ? 0xffffff : 0xfef08a, emissive: gateOpen ? 0x4ade80 : 0xfbbf24, emissiveIntensity: 2.0, transparent: true, opacity: 0.9 });
+    [-2.2, 2.2].forEach(x => {
+        const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.45), gemMat);
+        gem.position.set(x, 7.6, 0);
+        gateGrp.add(gem);
+        floatingIcons.push({ mesh: gem, baseY: 7.6, speed: 1.1, phase: x > 0 ? Math.PI : 0, group: gateGrp });
+    });
+    boardGrp.add(gateGrp); tileMeshes.push(gateGrp);
+}
+
+function _buildHBDShopMesh(idx, pos) {
+    const shopGrp = new THREE.Group();
+    const t = Math.max(0.001, Math.min(idx / 99, 0.999));
+    const tangent = boardCurve.getTangent(t).normalize();
+    const right   = new THREE.Vector3(0, 1, 0).cross(tangent).normalize();
+    shopGrp.position.copy(pos).addScaledVector(right, 3.2); shopGrp.position.y = 0;
+    shopGrp.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), tangent);
+    const counterMat = new THREE.MeshPhysicalMaterial({ color: 0x78350f, emissive: 0x3b1a06, emissiveIntensity: 0.3, roughness: 0.7 });
+    const counter = new THREE.Mesh(new THREE.BoxGeometry(3, 1.2, 1.5), counterMat); counter.position.set(0, 0.6, 0); counter.castShadow = true; shopGrp.add(counter);
+    const awningMat = new THREE.MeshPhysicalMaterial({ color: 0xa855f7, emissive: 0x7c3aed, emissiveIntensity: 0.6 });
+    const awning = new THREE.Mesh(new THREE.BoxGeometry(3.5, 0.2, 2), awningMat); awning.position.set(0, 2.2, 0); shopGrp.add(awning);
+    const signMat = new THREE.MeshPhysicalMaterial({ color: 0xfbbf24, emissive: 0xf59e0b, emissiveIntensity: 1.5 });
+    const sign = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.6, 0.1), signMat); sign.position.set(0, 2.8, -0.9); shopGrp.add(sign);
+    shopGrp.userData = { idx, type: '_shop' };
+    boardGrp.add(shopGrp); tileMeshes.push(shopGrp);
+}
 
 function _buildGateMesh(nodeId, pos) {
     const gateOpen = state.gateOpen;
@@ -430,11 +565,20 @@ export function createCharacterMesh(type, colorCode) {
 }
 
 function buildPlayerMeshes() {
+    const isHBD = state.selectedMap === 'hundred_block_dash';
     state.players.forEach(p => {
         p.mesh = createCharacterMesh(p.charType, p.color);
-        const pos = getPos('r1').clone();
-        pos.x += p.id === 0 ? -1.2 : 1.2;
-        p.mesh.position.set(pos.x, 0, pos.z);
+        if (isHBD) {
+            const pos = getPos(0).clone();
+            const tangent = boardCurve.getTangent(0);
+            const right   = new THREE.Vector3(0, 1, 0).cross(tangent).normalize();
+            pos.addScaledVector(right, p.id === 0 ? -0.7 : 0.7);
+            p.mesh.position.set(pos.x, 0, pos.z);
+        } else {
+            const pos = getPos('r1').clone();
+            pos.x += p.id === 0 ? -1.2 : 1.2;
+            p.mesh.position.set(pos.x, 0, pos.z);
+        }
         scene.add(p.mesh);
     });
 }
@@ -510,26 +654,43 @@ export function updateAllyPositions(player) {
 
 // ---- Biome visuals ----
 
-export function updateBiomeVisuals(district) {
-    const b = getBiomeForDistrict(district || 'ring');
+export function updateBiomeVisuals(districtOrIdx) {
+    let b;
+    if (typeof districtOrIdx === 'number') {
+        b = getBiomeForSpace(districtOrIdx);
+        if (scene && scene.fog) scene.fog.color.set(b.fog);
+    } else {
+        b = getBiomeForDistrict(districtOrIdx || 'ring');
+        if (scene && scene.fog) scene.fog.color.set(b.fog);
+    }
     document.getElementById('bg-gradient').style.background = `linear-gradient(to bottom, ${b.bgTop}, ${b.bgBot})`;
-    if (scene && scene.fog) scene.fog.color.set(b.fog);
 }
 
 // ---- Player hop animation ----
 
 export function animatePlayerHop(player, targetNodeId, onComplete) {
     const dest = getPos(targetNodeId).clone();
-    // Side offset so two players don't overlap
-    const nextId = CITY_GRAPH[targetNodeId]?.next?.[0];
-    if (nextId && !JUNCTION_IDS.has(nextId)) {
-        const nextPos = getPos(nextId);
-        const fwd     = new THREE.Vector3().subVectors(nextPos, dest).normalize();
-        const right   = new THREE.Vector3(0, 1, 0).cross(fwd).normalize();
-        if (right.lengthSq() > 0.001) dest.addScaledVector(right, player.id === 0 ? -0.7 : 0.7);
-        player.mesh.lookAt(dest.clone().add(fwd));
-    }
     dest.y = 0;
+    if (typeof targetNodeId === 'number') {
+        // HBD: use curve tangent for orientation
+        if (boardCurve) {
+            const t = Math.max(0.001, Math.min(targetNodeId / 99, 0.999));
+            const tangent = boardCurve.getTangent(t).normalize();
+            const right   = new THREE.Vector3(0, 1, 0).cross(tangent).normalize();
+            dest.addScaledVector(right, player.id === 0 ? -0.7 : 0.7);
+            player.mesh.lookAt(dest.clone().add(tangent));
+        }
+    } else {
+        // City Circuit: use graph next node for orientation
+        const nextId = CITY_GRAPH[targetNodeId]?.next?.[0];
+        if (nextId && !JUNCTION_IDS.has(nextId)) {
+            const nextPos = getPos(nextId);
+            const fwd     = new THREE.Vector3().subVectors(nextPos, dest).normalize();
+            const right   = new THREE.Vector3(0, 1, 0).cross(fwd).normalize();
+            if (right.lengthSq() > 0.001) dest.addScaledVector(right, player.id === 0 ? -0.7 : 0.7);
+            player.mesh.lookAt(dest.clone().add(fwd));
+        }
+    }
     player.prevPos = player.pos;
     activeAnims.push({
         obj: player.mesh.position, start: player.mesh.position.clone(), to: dest,
@@ -540,20 +701,39 @@ export function animatePlayerHop(player, targetNodeId, onComplete) {
 // ---- Flyover (game start) ----
 
 export function startFlyover(onComplete) {
-    const flyObj = { angle: 0, height: 90, dist: 110 };
-    activeAnims.push({
-        obj: flyObj, start: { angle: 0, height: 90, dist: 110 }, to: { angle: Math.PI * 1.5, height: 28, dist: 55 },
-        dur: 4.5,
-        onUpdate: () => {
-            camera.position.set(
-                Math.cos(flyObj.angle) * flyObj.dist,
-                flyObj.height,
-                Math.sin(flyObj.angle) * flyObj.dist
-            );
-            camera.lookAt(0, 0, 0);
-        },
-        onComplete,
-    });
+    if (state.selectedMap === 'hundred_block_dash') {
+        // Linear flyover: sweep along boardCurve
+        const flyObj = { p: 0 };
+        activeAnims.push({
+            obj: flyObj, start: { p: 0 }, to: { p: 0.08 }, dur: 4.0,
+            onUpdate: () => {
+                const safeT   = Math.max(0.001, Math.min(flyObj.p, 0.999));
+                const pt      = boardCurve.getPoint(safeT);
+                const tangent = boardCurve.getTangent(safeT).normalize();
+                if (pt && !isNaN(pt.x)) {
+                    camera.position.copy(pt).add(new THREE.Vector3(0, 30, 20));
+                    camera.lookAt(pt.clone().add(tangent.clone().multiplyScalar(20)));
+                }
+            },
+            onComplete,
+        });
+    } else {
+        // City Circuit: circular flyover
+        const flyObj = { angle: 0, height: 90, dist: 110 };
+        activeAnims.push({
+            obj: flyObj, start: { angle: 0, height: 90, dist: 110 }, to: { angle: Math.PI * 1.5, height: 28, dist: 55 },
+            dur: 4.5,
+            onUpdate: () => {
+                camera.position.set(
+                    Math.cos(flyObj.angle) * flyObj.dist,
+                    flyObj.height,
+                    Math.sin(flyObj.angle) * flyObj.dist
+                );
+                camera.lookAt(0, 0, 0);
+            },
+            onComplete,
+        });
+    }
 }
 
 // ---- Map camera ----

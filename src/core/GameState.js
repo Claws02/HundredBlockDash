@@ -108,9 +108,10 @@ export const state = {
 };
 
 export function resetPlayers() {
+    const startPos = state.selectedMap === 'hundred_block_dash' ? 0 : 'r1';
     state.players.forEach(p => {
         p.coins = 10; p.coinsEarned = 10; p.mgWins = 0;
-        p.pos = 'r1'; p.prevPos = 'r1';
+        p.pos = startPos; p.prevPos = startPos;
         p.inv = []; p.mesh = null;
         p._warpNextRoll = false; p._doubleNextRoll = false;
         p._shielded = false; p._mirrored = false;

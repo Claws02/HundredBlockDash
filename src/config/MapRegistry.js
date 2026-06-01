@@ -14,6 +14,16 @@
 
 export const MAP_REGISTRY = [
     {
+        id:        'hundred_block_dash',
+        name:      'Hundred Block Dash',
+        icon:      '🏁',
+        desc:      'Race 100 spaces to the crown — first to finish wins!',
+        longDesc:  'Sprint along a winding 100-space path divided into four biomes. The Gate at space 75 blocks your way until someone rolls 15+ with 5 dice. Land on shops, pick up items, and trigger minigames every 4 turns. First player to reach space 99 wins!',
+        tags:      ['100 Spaces', '4 Biomes', 'The Gate', 'Items & Shops'],
+        color:     '#f59e0b',
+        available: true,
+    },
+    {
         id:        'city_circuit',
         name:      'City Circuit',
         icon:      '🏙️',
