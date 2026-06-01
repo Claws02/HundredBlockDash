@@ -45,6 +45,19 @@ document.querySelectorAll('[data-char]').forEach(card => {
 document.getElementById('btn-char-confirm').addEventListener('click', () => GameController.confirmCharSelect());
 
 // ============================================================
+// MAP SELECT
+// ============================================================
+
+// Map cards are generated dynamically by GameController._populateMapSelectScreen
+// so we use event delegation on the grid container
+document.getElementById('map-select-grid').addEventListener('click', e => {
+    const card = e.target.closest('[data-map-id]');
+    if (card && !card.hasAttribute('aria-disabled')) GameController.selectMap(card.dataset.mapId);
+});
+
+document.getElementById('btn-map-confirm').addEventListener('click', () => GameController.confirmMapSelect());
+
+// ============================================================
 // HUD ACTION BUTTONS
 // ============================================================
 

@@ -637,3 +637,71 @@ body { overscroll-behavior: none; -webkit-overflow-scrolling: auto; }
     --dist-shop:  #f472b6;
     --dist-ind:   #fbbf24;
 }
+
+/* ============================================================
+   MAP SELECT SCREEN
+   ============================================================ */
+
+#map-select {
+    position: fixed; inset: 0; z-index: 1000;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background: linear-gradient(to bottom, #1e0c36, #4a093f);
+    padding: 20px; overflow-y: auto; touch-action: pan-y;
+}
+
+.map-select-content {
+    display: flex; flex-direction: column; align-items: center;
+    width: 100%; max-width: 480px; gap: 14px;
+}
+
+.map-select-layout {
+    display: flex; flex-direction: column; gap: 12px; width: 100%;
+}
+
+/* Grid of map cards (stacks for <2 maps, becomes 2-col when more added) */
+.map-select-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 10px; width: 100%;
+}
+
+.map-card {
+    background: rgba(0,0,0,0.4);
+    border: 2px solid rgba(255,255,255,0.25);
+    border-radius: 18px; padding: 16px 12px;
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+    cursor: pointer; text-align: center;
+    transition: border-color .2s, background .2s, transform .1s, box-shadow .2s;
+}
+.map-card:active { transform: scale(0.97); }
+.map-card.sel {
+    border-color: var(--map-color, #60a5fa);
+    background: rgba(96,165,250,0.12);
+    box-shadow: 0 0 24px rgba(96,165,250,0.35);
+}
+/* Override tint per-card using the CSS variable set inline */
+.map-card.sel { box-shadow: 0 0 24px color-mix(in srgb, var(--map-color, #60a5fa) 60%, transparent); }
+
+.map-card-locked { opacity: 0.45; cursor: default; }
+.map-card-icon   { font-size: 44px; line-height: 1; }
+.map-card-name   { font-size: 18px; letter-spacing: 1px; color: #fff; line-height: 1.1; }
+.map-card-desc   { font-family: 'Nunito'; font-size: 11px; color: rgba(255,255,255,.55); line-height: 1.35; }
+.map-card-soon   { background: rgba(245,158,11,.2); border: 1px solid rgba(245,158,11,.5); color: #fbbf24;
+                   font-family: 'Nunito'; font-size: 10px; font-weight: 800; padding: 2px 8px;
+                   border-radius: 10px; letter-spacing: 1px; }
+
+/* Preview panel shown below cards */
+.map-preview-panel {
+    background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 16px; padding: 18px 20px; width: 100%;
+    display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center;
+    min-height: 120px;
+}
+.map-preview-icon  { font-size: 36px; line-height: 1; }
+.map-preview-name  { font-size: 26px; color: var(--gold); letter-spacing: 2px; }
+.map-preview-desc  { font-family: 'Nunito'; font-size: 13px; color: rgba(255,255,255,.7);
+                     line-height: 1.5; max-width: 380px; }
+.map-preview-tags  { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; margin-top: 4px; }
+.map-tag           { background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.2);
+                     color: rgba(255,255,255,.75); font-family: 'Nunito'; font-size: 11px;
+                     font-weight: 700; padding: 3px 10px; border-radius: 20px; }
