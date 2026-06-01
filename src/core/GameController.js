@@ -6,6 +6,7 @@ import {
     DISTRICT_DOMINANCE_BONUS, FULL_CIRCUIT_BONUSES, CONTRACT_COUNT,
     DUEL_BET_OPTIONS, ALLIES, DISTRICT_SHOPS, BA_DISCOUNT, GRAND_MALL_DISCOUNT,
     ALL_CHAR_TYPES, HQ_META, CHAR_ICONS,
+    HBD_GATE_POS, HBD_SHOP_SPACES,
 } from '../config/GameConfig.js';
 import { CITY_GRAPH, JUNCTION_IDS, DISTRICT_NAMES, DISTRICT_KEYS, BRANCH_OPTIONS } from '../config/BoardGraph.js';
 import { MAP_REGISTRY } from '../config/MapRegistry.js';
@@ -142,7 +143,11 @@ export function startGame() {
         if (!state.gameStarted) return;
         UIManager.setPlayerNames();
         state.activePlayer = Math.floor(Math.random() * 2);
-        initCityBoard();
+        if (state.selectedMap === 'hundred_block_dash') {
+            generateBoard();
+        } else {
+            initCityBoard();
+        }
         Renderer.init(document.getElementById('game-container'));
         UIManager.initCoinDisplays();
         UIManager.updateUI();
@@ -151,8 +156,10 @@ export function startGame() {
             state.cameraState = 'FOLLOW';
             UIManager.toast(`${state.players[state.activePlayer].name} goes first!`,
                 state.activePlayer === 0 ? '#ff3b3b' : '#3b8eff');
-            _scheduleAllySpawn(1);
-            initContracts();
+            if (state.selectedMap !== 'hundred_block_dash') {
+                _scheduleAllySpawn(1);
+                initContracts();
+            }
             proceedTurn();
         });
     }, 100);
@@ -217,6 +224,37 @@ function _getDistrictPools() {
             ...Array(1).fill('cfwd'),     ...Array(1).fill('coin_big'), ...Array(1).fill('duel'),
         ],
     };
+}
+
+// ---- HBD board generation ----
+
+export function generateBoard() {
+    state.board = [{ type: 'start' }];
+    const earlyPool = [
+        ...Array(20).fill('coin'), ...Array(10).fill('coin_big'),
+        ...Array(8).fill('mystery'), ...Array(6).fill('boost'),
+        ...Array(5).fill('shortcut'), ...Array(4).fill('cfwd'),
+        ...Array(3).fill('truce'), ...Array(2).fill('lose'), ...Array(2).fill('trap'),
+    ];
+    while (earlyPool.length < 49) earlyPool.push('coin');
+    earlyPool.sort(() => Math.random() - 0.5);
+
+    const latePool = [
+        ...Array(12).fill('lose'), ...Array(10).fill('lose_big'),
+        ...Array(10).fill('trap'), ...Array(6).fill('magnet'),
+        ...Array(4).fill('cbwd'), ...Array(2).fill('mystery'),
+        ...Array(2).fill('truce'), ...Array(3).fill('coin'),
+        ...Array(3).fill('swap_space'),
+    ];
+    while (latePool.length < 49) latePool.push('lose');
+    latePool.sort(() => Math.random() - 0.5);
+
+    for (let i = 1; i <= 49; i++) state.board.push({ type: earlyPool[i - 1] });
+    for (let i = 50; i <= 98; i++) state.board.push({ type: latePool[i - 50] });
+    state.board.push({ type: 'start', n: 'FINISH', ic: '👑' });
+
+    state.board[HBD_GATE_POS] = { type: 'gate' };
+    HBD_SHOP_SPACES.forEach(i => { if (i !== HBD_GATE_POS) state.board[i] = { type: 'shop' }; });
 }
 
 // ============================================================
@@ -302,7 +340,8 @@ export function executeRoll(flickVelocity) {
         let finalResult = result;
         if (p._overchargeNextRoll) { p._overchargeNextRoll = false; finalResult = Math.min(result * 2, 12); UIManager.toast(`⚡ Overcharged! ${result}×2 = ${finalResult}`, '#eab308'); }
         else UIManager.toast(`Rolled a ${finalResult}!`, '#fff');
-        setTimeout(() => moveThroughGraph(state.players[state.activePlayer], finalResult), 500);
+        const mover = state.selectedMap === 'hundred_block_dash' ? _movePlayerHBD : moveThroughGraph;
+        setTimeout(() => mover(state.players[state.activePlayer], finalResult), 500);
     });
 }
 
@@ -433,6 +472,68 @@ export function onBranchChosen(nodeId) {
 }
 
 // ============================================================
+// HBD LINEAR MOVEMENT
+// ============================================================
+
+function _movePlayerHBD(p, steps, isForced = false) {
+    state.gameState = 'MOVING';
+    const startPos = p.pos;
+    const stepDir  = Math.sign(steps);
+    let curr   = p.pos;
+    let target = Math.max(0, Math.min(99, curr + steps));
+
+    if (stepDir === 0) { _resolveHBDSpace(p); return; }
+    // Gate blocks forward movement past position 75
+    if (!state.gateOpen && stepDir > 0 && startPos < HBD_GATE_POS && target >= HBD_GATE_POS) {
+        target = HBD_GATE_POS;
+    }
+
+    function hopNext() {
+        if (curr === target) { p.pos = target; _resolveHBDSpace(p); return; }
+        curr += stepDir;
+        // Offer shop pass-through on intermediate shop spaces
+        if (curr !== target && HBD_SHOP_SPACES.has(curr) && stepDir > 0) {
+            Renderer.animatePlayerHop(p, curr, () => {
+                if (p.isBot) {
+                    if (Math.random() < 0.4) {
+                        state.gameState = 'SHOP';
+                        openShop('ring', 1.0);
+                        setTimeout(() => { _afterPassThroughShop(); hopNext(); }, 2000);
+                    } else { setTimeout(hopNext, 300); }
+                } else {
+                    _passThroughResumeHop = hopNext;
+                    state.gameState = 'SHOP';
+                    ModalManager.showModal('shop-offer-modal');
+                }
+            });
+            return;
+        }
+        Renderer.animatePlayerHop(p, curr, hopNext);
+    }
+    hopNext();
+}
+
+function _resolveHBDSpace(p) {
+    // Win condition: reach the end
+    if (p.pos >= 99) {
+        sfx('win'); haptic([100, 50, 100, 50, 200]);
+        state.gameState = 'GAME_OVER';
+        ModalManager.showMessage(`👑 ${p.name} REACHED THE CROWN!`, 'Winner!', '👑');
+        setTimeout(calculateWinner, 2800);
+        return;
+    }
+    // Gate check
+    if (!state.gateOpen && p.pos === HBD_GATE_POS) { triggerGateChallenge(p); return; }
+    resolveSpace(p);
+}
+
+// Dispatcher: call the right movement function based on selected map
+function _doMove(p, steps) {
+    if (state.selectedMap === 'hundred_block_dash') _movePlayerHBD(p, steps, true);
+    else moveThroughGraph(p, steps);
+}
+
+// ============================================================
 // SPACE RESOLUTION
 // ============================================================
 
@@ -454,7 +555,8 @@ export function resolveSpace(p) {
 
     UIManager.showSpaceInfoCard(spc.n || space.type, SPACE_DESCS[space.type] || '');
     ModalManager.showMessage(spc.n || space.type.toUpperCase(), msg || 'Nothing happens.', spc.ic);
-    Renderer.updateBiomeVisuals(CITY_GRAPH[p.pos]?.district || 'ring');
+    if (state.selectedMap === 'hundred_block_dash') Renderer.updateBiomeVisuals(typeof p.pos === 'number' ? p.pos : 0);
+    else Renderer.updateBiomeVisuals(CITY_GRAPH[p.pos]?.district || 'ring');
 
     if (p.isBot && state.gameState === 'ACKNOWLEDGE') {
         setTimeout(() => { if (state.gameState === 'ACKNOWLEDGE') resolveMsgModal(); }, space.type === 'boost' ? 2500 : 1500);
@@ -531,6 +633,9 @@ export function resolveSpaceEffect(p, spaceType, space) {
         }
         case 'gate': case 'gate_open': return '';
         case 'shop': {
+            if (state.selectedMap === 'hundred_block_dash') {
+                setTimeout(() => openShop('ring', 1.0), 400); return null;
+            }
             const gNode   = CITY_GRAPH[p.pos];
             const distKey = gNode?.shopDistrict || 'ring';
             const disc    = distKey === 'ba' ? BA_DISCOUNT : 1.0;
@@ -558,6 +663,7 @@ export function resolveSpaceEffect(p, spaceType, space) {
 // ---- Forced movement helpers (graph-aware) ----
 
 function _skipForward(p, steps) {
+    if (state.selectedMap === 'hundred_block_dash') { _movePlayerHBD(p, steps, true); return; }
     let cur = p.pos;
     let left = steps;
     while (left > 0) {
@@ -565,7 +671,6 @@ function _skipForward(p, steps) {
         if (!gn) break;
         const nextId = gn.next[0];
         if (JUNCTION_IDS.has(nextId)) {
-            // Auto-take ring road at junctions during forced movement
             cur = CITY_GRAPH[nextId].next[0];
         } else {
             cur = nextId;
@@ -578,7 +683,7 @@ function _skipForward(p, steps) {
 }
 
 function _skipBackward(p, steps) {
-    // Backwards movement: traverse ALL_NODES_ORDERED in reverse
+    if (state.selectedMap === 'hundred_block_dash') { _movePlayerHBD(p, -steps, true); return; }
     const { ALL_NODES_ORDERED } = { ALL_NODES_ORDERED: _getAllNodesOrdered() };
     let idx = ALL_NODES_ORDERED.indexOf(p.pos);
     if (idx < 0) idx = 0;
@@ -670,18 +775,18 @@ export function finishTurn() {
 
 export function maybeTriggerMinigame() {
     if (state.totalTurns > 0 && state.totalTurns % MINIGAME_EVERY_N_TURNS === 0) {
-        // End of a full round (4 turns)
-        state.currentRound++;
-        _onRoundEnd();
-        // Check game-over BEFORE triggering minigame
-        if (state.currentRound >= TOTAL_ROUNDS) {
-            MinigameManager.trigger((winnerId) => {
-                _resolveMinigameResult(winnerId);
-                setTimeout(calculateWinner, 2200);
-            });
-        } else {
-            MinigameManager.trigger((winnerId) => _resolveMinigameResult(winnerId));
+        if (state.selectedMap !== 'hundred_block_dash') {
+            state.currentRound++;
+            _onRoundEnd();
+            if (state.currentRound >= TOTAL_ROUNDS) {
+                MinigameManager.trigger((winnerId) => {
+                    _resolveMinigameResult(winnerId);
+                    setTimeout(calculateWinner, 2200);
+                });
+                return;
+            }
         }
+        MinigameManager.trigger((winnerId) => _resolveMinigameResult(winnerId));
     } else {
         proceedTurn();
     }
@@ -703,10 +808,12 @@ function _resolveMinigameResult(winnerId) {
         if (i === winnerId) { p.consecutiveMgWins++; }
         else { p.consecutiveMgWins = 0; }
     });
-    _checkContract(state.players[winnerId], 'win_minigame');
-    _checkContract(state.players[winnerId], 'win_minigames', null, state.players[winnerId].consecutiveMgWins);
+    if (state.selectedMap !== 'hundred_block_dash') {
+        _checkContract(state.players[winnerId], 'win_minigame');
+        _checkContract(state.players[winnerId], 'win_minigames', null, state.players[winnerId].consecutiveMgWins);
+    }
     ModalManager.showMessage('MINIGAME OVER', msg, icon);
-    UIManager.updateRoundCounter(state.currentRound, TOTAL_ROUNDS);
+    if (state.selectedMap !== 'hundred_block_dash') UIManager.updateRoundCounter(state.currentRound, TOTAL_ROUNDS);
     if (state.players[1].isBot) {
         setTimeout(() => { if (state.gameState === 'MINIGAME_ACK') resolveMsgModal(); }, 1800);
     }
@@ -736,8 +843,24 @@ function _onRoundEnd() {
 export function proceedTurn() {
     UIManager.hideActionRows();
     const p = state.players[state.activePlayer];
-    Renderer.updateBiomeVisuals(CITY_GRAPH[p.pos]?.district || 'ring');
 
+    if (state.selectedMap === 'hundred_block_dash') {
+        Renderer.updateBiomeVisuals(typeof p.pos === 'number' ? p.pos : 0);
+        // Gate check at the start of turn (player parked on gate)
+        if (!state.gateOpen && p.pos === HBD_GATE_POS) {
+            triggerGateChallenge(p); return;
+        }
+        if (state.playStyle === 'pass' && state.totalTurns > 0 && !state.rollAgainSamePlayer) {
+            state.gameState = 'PASS_PROMPT';
+            ModalManager.showPassModal(`Pass the device to ${p.name}.`, false);
+        } else {
+            state.rollAgainSamePlayer = false;
+            startPreRoll();
+        }
+        return;
+    }
+
+    Renderer.updateBiomeVisuals(CITY_GRAPH[p.pos]?.district || 'ring');
     if (state.playStyle === 'pass' && state.totalTurns > 0 && !state.rollAgainSamePlayer) {
         state.gameState = 'PASS_PROMPT';
         ModalManager.showPassModal(`Pass the device to ${p.name}.`, false);
@@ -761,7 +884,10 @@ export function triggerGateChallenge(p) {
     state.gameState = 'GATE'; state.gateRolling = false;
     Physics.clearDice(Renderer.getDiceGroup());
     document.getElementById('ui-layer').style.display = 'none';
-    document.getElementById('gate-sub').textContent = `Roll ${GATE_NUM_DICE} dice. Score ${GATE_THRESHOLD}+ to break through the Industrial Zone!`;
+    const gateMsg = state.selectedMap === 'hundred_block_dash'
+        ? `Roll ${GATE_NUM_DICE} dice. Score ${GATE_THRESHOLD}+ to break through The Gate!`
+        : `Roll ${GATE_NUM_DICE} dice. Score ${GATE_THRESHOLD}+ to break through the Industrial Zone!`;
+    document.getElementById('gate-sub').textContent = gateMsg;
     document.getElementById('gate-result').textContent = '';
     document.getElementById('gate-sum').textContent = '';
     document.getElementById('gate-open-banner').style.display = 'none';
@@ -850,18 +976,22 @@ export function closeGate() {
     const p   = state.players[pid];
     state.gameState = 'ACKNOWLEDGE';
     if (state.gateOpen) {
-        // Continue movement past the gate if there are pending steps
-        ModalManager.showMessage('🔓 GATE OPEN!', 'The Industrial Zone is accessible! Both players may now enter.', '🔓');
-        if (_pendingStepsAfterGate > 0) {
+        const openMsg = state.selectedMap === 'hundred_block_dash'
+            ? 'The Gate is open! Both players may now pass through.'
+            : 'The Industrial Zone is accessible! Both players may now enter.';
+        ModalManager.showMessage('🔓 GATE OPEN!', openMsg, '🔓');
+        if (state.selectedMap !== 'hundred_block_dash' && _pendingStepsAfterGate > 0) {
             const steps = _pendingStepsAfterGate; _pendingStepsAfterGate = 0;
             setTimeout(() => { ModalManager.closeAllModals(); moveThroughGraph(p, steps); }, 2000);
             return;
         }
     } else {
         ModalManager.showMessage('🔒 GATE HOLDS', `${p.name} couldn't break through. Try again next turn!`, '🔒');
-        // Push player back out of Industrial
-        p.pos = 'bp_d';
-        if (p.mesh) p.mesh.position.copy(Renderer.getPos('bp_d'));
+        if (state.selectedMap !== 'hundred_block_dash') {
+            // City Circuit: push player back out of Industrial
+            p.pos = 'bp_d';
+            if (p.mesh) p.mesh.position.copy(Renderer.getPos('bp_d'));
+        }
     }
     if (p.isBot) setTimeout(() => { if (state.gameState === 'ACKNOWLEDGE') resolveMsgModal(); }, 1500);
 }
@@ -894,7 +1024,7 @@ function _botShop(p) {
     const available  = DISTRICT_SHOPS[distKey] || Object.keys(ITEMS);
     const affordable = available.filter(k => ITEMS[k] && p.coins >= Math.ceil(ITEMS[k].price * disc));
     if (affordable.length > 0 && p.inv.length < MAX_INV) {
-        const ahead     = Renderer.getNodeT(p.pos) > Renderer.getNodeT(opp.pos);
+        const ahead     = Renderer.getNodeT(p.pos) > Renderer.getNodeT(opp.pos); // works for both int and string
         const preferred = ahead
             ? affordable.filter(k => ['cursed_die','anchor','swap','steal'].includes(k))
             : affordable.filter(k => ['shield','rocket','warp_drive','double_die'].includes(k));
@@ -1003,7 +1133,7 @@ function _applyItemEffect(p, itemId, isBot, opp) {
     if (itemId === 'cursed_die')  { state.cursedTarget[(p.id+1)%2] = true; UIManager.toast(`💀 Cursed Die!`, '#ef4444'); }
     if (itemId === 'tollbooth')   { state.board[p.pos].type = 'player_trap'; state.board[p.pos].owner = p.id; Renderer.updateSingleTile(); }
     if (itemId === 'shield')        p._shielded = true;
-    if (itemId === 'rocket')      { moveThroughGraph(p, 8); UIManager.updateUI(); ModalManager.closeAllModals(); }
+    if (itemId === 'rocket')      { _doMove(p, 8); UIManager.updateUI(); ModalManager.closeAllModals(); }
     if (itemId === 'anchor')      { if (state.board[opp.pos]) { state.board[opp.pos].type = 'anchor_trap'; state.board[opp.pos].owner = p.id; Renderer.updateSingleTile(); UIManager.toast('⚓ Anchor placed!', '#f97316'); } }
     if (itemId === 'swap')        {
         const tmp = p.pos; p.pos = opp.pos; opp.pos = tmp;
@@ -1017,7 +1147,7 @@ function _applyItemEffect(p, itemId, isBot, opp) {
         if (isBot) {
             const pick = 6;
             UIManager.toast(`${p.name} picks ${pick} with Custom Dice!`, '#f5c842'); UIManager.updateUI();
-            if (state.gameState === 'PRE_ROLL') setTimeout(() => moveThroughGraph(p, pick), 400);
+            if (state.gameState === 'PRE_ROLL') setTimeout(() => _doMove(p, pick), 400);
         } else {
             ModalManager.closeAllModals(); UIManager.updateUI(); ModalManager.openCustomDiceModal();
         }
@@ -1028,7 +1158,7 @@ export function confirmCustomDice(num) {
     ModalManager.closeAllModals();
     UIManager.toast(`🎯 Custom Dice: moving ${num} spaces!`, '#f5c842');
     sfx('buy'); haptic([30,50,30]);
-    setTimeout(() => moveThroughGraph(state.players[state.activePlayer], num), 300);
+    setTimeout(() => _doMove(state.players[state.activePlayer], num), 300);
 }
 
 // ============================================================
@@ -1340,32 +1470,52 @@ function _claimContract(player, contractIdx) {
 
 export function calculateWinner() {
     const p1 = state.players[0], p2 = state.players[1];
-    // District dominance bonuses
-    DISTRICT_KEYS.forEach(dk => {
-        if (p1.districtsVisited[dk] > p2.districtsVisited[dk]) earnCoins(p1, DISTRICT_DOMINANCE_BONUS);
-        else if (p2.districtsVisited[dk] > p1.districtsVisited[dk]) earnCoins(p2, DISTRICT_DOMINANCE_BONUS);
-    });
-    const p1s = p1.coins, p2s = p2.coins;
-    const winner = p1s > p2s ? p1 : p2s > p1s ? p2 : (p1.fullCircuitsCompleted >= p2.fullCircuitsCompleted ? p1 : p2);
-    const isTie  = p1s === p2s && p1.fullCircuitsCompleted === p2.fullCircuitsCompleted;
+
+    let p1s, p2s, subtitle;
+    if (state.selectedMap === 'hundred_block_dash') {
+        const p1f = p1.pos >= 99 ? 50 : 0, p2f = p2.pos >= 99 ? 50 : 0;
+        p1s = p1.coins + p1f; p2s = p2.coins + p2f;
+        subtitle = 'WINS THE HUSTLE!';
+    } else {
+        // City Circuit: district dominance bonuses
+        DISTRICT_KEYS.forEach(dk => {
+            if (p1.districtsVisited[dk] > p2.districtsVisited[dk]) earnCoins(p1, DISTRICT_DOMINANCE_BONUS);
+            else if (p2.districtsVisited[dk] > p1.districtsVisited[dk]) earnCoins(p2, DISTRICT_DOMINANCE_BONUS);
+        });
+        p1s = p1.coins; p2s = p2.coins;
+        subtitle = 'WINS THE CITY!';
+    }
+
+    const tiebreaker = state.selectedMap === 'hundred_block_dash'
+        ? (p1.pos >= p2.pos ? p1 : p2)
+        : (p1.fullCircuitsCompleted >= p2.fullCircuitsCompleted ? p1 : p2);
+    const winner = p1s > p2s ? p1 : p2s > p1s ? p2 : tiebreaker;
+    const isTie  = p1s === p2s && (state.selectedMap === 'hundred_block_dash' ? p1.pos === p2.pos : p1.fullCircuitsCompleted === p2.fullCircuitsCompleted);
 
     ModalManager.closeAllModals();
     document.getElementById('ui-layer').style.display = 'none';
     document.getElementById('win-name').textContent = isTie ? 'TIE GAME!' : winner.name.toUpperCase();
-    document.getElementById('win-subtitle').textContent = isTie ? 'Both players finish equal.' : 'WINS THE CITY!';
+    document.getElementById('win-subtitle').textContent = isTie ? 'Both players finish equal.' : subtitle;
 
     function row(label, val) { return `<div class="win-card-stat"><span>${label}</span><span>${val}</span></div>`; }
-    function domRow(p) {
-        return DISTRICT_KEYS.map(dk => {
-            const o = state.players[(p.id+1)%2];
-            const icon = HQ_META[dk]?.icon || '🏛️';
-            const controlled = p.districtsVisited[dk] > o.districtsVisited[dk];
-            return `<div class="win-card-stat"><span>${icon} ${DISTRICT_NAMES[dk]}</span><span>${p.districtsVisited[dk]}x${controlled ? ' 👑' : ''}</span></div>`;
-        }).join('');
-    }
     function card(p, s) {
         const isW = !isTie && p === winner;
-        return `<div class="win-card${isW ? ' winner-card' : ''}"><div class="win-card-name">${isW?'👑 ':''}${p.name}</div><div class="win-card-score">${s}</div>${row('💰 Coins earned', p.coinsEarned)}${row('💵 Final coins', p.coins)}${row('🏆 Minigames won', p.mgWins)}${row('🔄 Full circuits', p.fullCircuitsCompleted)}${row('📋 Contracts', p.contractsClaimed)}${row('⚔️ Duels won', p.duelsWon)}${domRow(p)}</div>`;
+        let details;
+        if (state.selectedMap === 'hundred_block_dash') {
+            const fin = p.pos >= 99 ? 50 : 0;
+            details = `${row('💰 Coins earned', p.coinsEarned)}${row('💵 Coins left', p.coins)}${fin ? row('🏁 Finish bonus', '+' + fin) : ''}${row('🏆 Minigames won', p.mgWins)}${row('📍 Final space', p.pos >= 99 ? 'FINISHED' : p.pos)}`;
+        } else {
+            function domRow(pl) {
+                return DISTRICT_KEYS.map(dk => {
+                    const o = state.players[(pl.id+1)%2];
+                    const icon = HQ_META[dk]?.icon || '🏛️';
+                    const controlled = pl.districtsVisited[dk] > o.districtsVisited[dk];
+                    return `<div class="win-card-stat"><span>${icon} ${DISTRICT_NAMES[dk]}</span><span>${pl.districtsVisited[dk]}x${controlled ? ' 👑' : ''}</span></div>`;
+                }).join('');
+            }
+            details = `${row('💰 Coins earned', p.coinsEarned)}${row('💵 Final coins', p.coins)}${row('🏆 Minigames won', p.mgWins)}${row('🔄 Full circuits', p.fullCircuitsCompleted)}${row('📋 Contracts', p.contractsClaimed)}${row('⚔️ Duels won', p.duelsWon)}${domRow(p)}`;
+        }
+        return `<div class="win-card${isW ? ' winner-card' : ''}"><div class="win-card-name">${isW?'👑 ':''}${p.name}</div><div class="win-card-score">${s}</div>${details}</div>`;
     }
     document.getElementById('win-cards').innerHTML = card(p1, p1s) + card(p2, p2s);
 
