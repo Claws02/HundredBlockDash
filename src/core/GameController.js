@@ -163,8 +163,6 @@ export function startGame() {
 // ============================================================
 
 export function initCityBoard() {
-    const { DISTRICT_POOLS } = require('../config/BoardGraph.js') || {};
-    // Import pools directly
     const pools = _buildPools();
     state.board = {};
 
