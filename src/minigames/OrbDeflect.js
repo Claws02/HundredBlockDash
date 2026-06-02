@@ -233,9 +233,9 @@ function _update(dt) {
 
     // Orb spawning
     _gs.spawnTimer -= dt;
-    if (_gs.spawnTimer <= 0 && _gs.orbs.length < 2) {
+    if (_gs.spawnTimer <= 0 && _gs.orbs.length === 0) {
         _spawnOrb();
-        _gs.spawnTimer = 2.0;
+        _gs.spawnTimer = 9999; // only spawn again after a goal (reset in core-hit logic)
     }
 
     // Particles
@@ -251,7 +251,7 @@ function _update(dt) {
         if (_gs.barriers[i].life <= 0) _gs.barriers.splice(i, 1);
     }
 
-    const coreR = _cw * 0.14;
+    const coreR = _cw * 0.08;
 
     // Orbs
     for (let i = _gs.orbs.length - 1; i >= 0; i--) {
@@ -270,6 +270,7 @@ function _update(dt) {
             _gs.hp[0]--;
             _burst(orb.x, orb.y, C_P1, 20);
             _gs.orbs.splice(i, 1);
+            _gs.spawnTimer = 1.5; // respawn after short delay
             sfx('land_bad'); haptic('heavy');
             if (_gs.hp[0] <= 0) { _resolve(1); return; }
             continue;
@@ -279,6 +280,7 @@ function _update(dt) {
             _gs.hp[1]--;
             _burst(orb.x, orb.y, C_P2, 20);
             _gs.orbs.splice(i, 1);
+            _gs.spawnTimer = 1.5; // respawn after short delay
             sfx('land_bad'); haptic('heavy');
             if (_gs.hp[1] <= 0) { _resolve(0); return; }
             continue;
@@ -349,7 +351,7 @@ function _draw() {
     ctx.lineWidth = 4;
     ctx.globalCompositeOperation = 'lighter';
 
-    const coreR = _cw * 0.14;
+    const coreR = _cw * 0.08;
 
     // Cores
     _drawCore(ctx, _cw/2, _ch, coreR, C_P1, _gs.hp[0]);
