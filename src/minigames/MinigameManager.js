@@ -294,6 +294,8 @@ async function _launchGame() {
 const MINIGAME_TIE_REWARD = Math.floor(MINIGAME_REWARD / 2); // 5 coins each on tie
 
 export function winMinigame(winnerId) {
+    if (!state.mgActive) return;
+    state.mgActive = false;
     if (winnerId < 0) {
         // TIE — both players get coins, coin flip decides who goes first
         const flipWinner = Math.random() < 0.5 ? 0 : 1;
@@ -362,7 +364,7 @@ export function endMinigame(winnerId) {
     }
 
     document.getElementById('ui-layer').style.display = 'block';
-    state.cameraState = 'FOLLOW';
+    state.cameraState = 'FLYOVER';
     state.gameState   = 'MINIGAME_ACK';
     state.lastMinigameWinner = winnerId;
     if (_onComplete) _onComplete(winnerId);

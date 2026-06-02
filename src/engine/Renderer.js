@@ -705,14 +705,14 @@ export function startFlyover(onComplete) {
         // Linear flyover: sweep along boardCurve
         const flyObj = { p: 0 };
         activeAnims.push({
-            obj: flyObj, start: { p: 0 }, to: { p: 0.08 }, dur: 4.0,
+            obj: flyObj, start: { p: 0 }, to: { p: 1.0 }, dur: 5.5,
             onUpdate: () => {
                 const safeT   = Math.max(0.001, Math.min(flyObj.p, 0.999));
                 const pt      = boardCurve.getPoint(safeT);
                 const tangent = boardCurve.getTangent(safeT).normalize();
                 if (pt && !isNaN(pt.x)) {
-                    camera.position.copy(pt).add(new THREE.Vector3(0, 30, 20));
-                    camera.lookAt(pt.clone().add(tangent.clone().multiplyScalar(20)));
+                    camera.position.copy(pt).add(new THREE.Vector3(0, 65, 0));
+                    camera.lookAt(pt.clone().add(tangent.clone().multiplyScalar(40)).setY(0));
                 }
             },
             onComplete,
@@ -734,6 +734,34 @@ export function startFlyover(onComplete) {
             onComplete,
         });
     }
+}
+
+// ---- Post-minigame flyover (HBD: sweep from near end back to rearmost player) ----
+
+export function startPostMinigameFlyover(onComplete) {
+    if (state.selectedMap !== 'hundred_block_dash' || !boardCurve) {
+        if (onComplete) onComplete();
+        return;
+    }
+    const rearPos = Math.min(...state.players
+        .filter(p => typeof p.pos === 'number')
+        .map(p => p.pos));
+    const rearT = Math.max(0.001, Math.min(rearPos / 99, 0.999));
+    const flyObj = { p: 0.985 };
+    activeAnims.push({
+        obj: flyObj, start: { p: 0.985 }, to: { p: rearT }, dur: 3.5,
+        onUpdate: () => {
+            const safeT   = Math.max(0.001, Math.min(flyObj.p, 0.999));
+            const pt      = boardCurve.getPoint(safeT);
+            const tangent = boardCurve.getTangent(safeT).normalize();
+            if (pt && !isNaN(pt.x)) {
+                camera.position.copy(pt).add(new THREE.Vector3(0, 55, 0));
+                // Look backward (direction of travel during this reverse sweep)
+                camera.lookAt(pt.clone().addScaledVector(tangent, -40).setY(0));
+            }
+        },
+        onComplete,
+    });
 }
 
 // ---- Map camera ----
@@ -811,15 +839,26 @@ function _loop() {
     if (cs === 'FOLLOW') {
         const p = state.players[state.activePlayer];
         if (p?.mesh?.position) {
-            const prevPt  = getPos(p.prevPos || p.pos);
-            const currPt  = p.mesh.position;
-            const fwd     = new THREE.Vector3().subVectors(currPt, prevPt).normalize();
-            if (fwd.lengthSq() < 0.001) fwd.set(0, 0, -1);
-            const behind  = (state.playStyle === 'tabletop' && state.activePlayer === 1) ? 14 : -14;
-            const camTgt  = currPt.clone().addScaledVector(fwd, behind).add(new THREE.Vector3(0, 22, 0));
+            const currPt = p.mesh.position;
+            let fwd;
+            if (state.selectedMap === 'hundred_block_dash' && boardCurve && typeof p.pos === 'number') {
+                const t = Math.max(0.001, Math.min(p.pos / 99, 0.999));
+                fwd = boardCurve.getTangent(t).clone().normalize();
+            } else {
+                const prevPt = getPos(p.prevPos || p.pos);
+                fwd = new THREE.Vector3().subVectors(currPt, prevPt).normalize();
+                if (fwd.lengthSq() < 0.001) fwd.set(0, 0, -1);
+            }
+            const tabletopFlip = state.playStyle === 'tabletop' && state.activePlayer === 1;
+            const camOffset = tabletopFlip ? 14 : -14;
+            const camTgt = currPt.clone().addScaledVector(fwd, camOffset).add(new THREE.Vector3(0, 22, 0));
             if (!isNaN(camTgt.x)) camera.position.lerp(camTgt, 0.055);
             _camHelper.position.copy(camera.position);
-            _camHelper.lookAt(currPt.clone().add(new THREE.Vector3(0, 1, 0)));
+            // Look ahead of the player along the track direction
+            const lookTarget = state.selectedMap === 'hundred_block_dash'
+                ? currPt.clone().addScaledVector(fwd, 10).add(new THREE.Vector3(0, 0, 0))
+                : currPt.clone().add(new THREE.Vector3(0, 1, 0));
+            _camHelper.lookAt(lookTarget);
             camera.quaternion.slerp(_camHelper.quaternion, 0.07);
         }
     } else if (cs === 'MAP') {

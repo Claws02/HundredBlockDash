@@ -814,6 +814,7 @@ function _resolveMinigameResult(winnerId) {
         _checkContract(state.players[winnerId], 'win_minigames', null, state.players[winnerId].consecutiveMgWins);
     }
     ModalManager.showMessage('MINIGAME OVER', msg, icon);
+    Renderer.startPostMinigameFlyover(() => { state.cameraState = 'FOLLOW'; });
     if (state.selectedMap !== 'hundred_block_dash') UIManager.updateRoundCounter(state.currentRound, TOTAL_ROUNDS);
     if (state.players[1].isBot) {
         setTimeout(() => { if (state.gameState === 'MINIGAME_ACK') resolveMsgModal(); }, 1800);
