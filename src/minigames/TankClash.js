@@ -6,10 +6,10 @@ import { sfx, haptic } from '../engine/AudioManager.js';
 const ARENA_W      = 28;
 const ARENA_H      = 40;
 const TANK_RADIUS  = 1.2;
-const TANK_SPEED   = 0.07;
-const BULLET_R     = 0.3;
-const BULLET_SPEED = 0.6;
-const FIRE_CD      = 600; // ms
+const TANK_SPEED   = 0.04;
+const BULLET_R     = 0.55;
+const BULLET_SPEED = 0.45;
+const FIRE_CD      = 700; // ms
 const JOY_R        = 50;  // joystick base radius px
 
 const OBSTACLES = [
@@ -218,8 +218,8 @@ function _initThree() {
     _scene = new THREE.Scene();
     _scene.background = new THREE.Color(0x0f172a);
 
-    _camera = new THREE.PerspectiveCamera(55, w / h, 0.1, 100);
-    _camera.position.set(0, 42, 0);
+    _camera = new THREE.PerspectiveCamera(55, w / h, 0.1, 120);
+    _camera.position.set(0, 38, 8);
     _camera.lookAt(0, 0, 0);
 
     _scene.add(new THREE.AmbientLight(0xffffff, 0.5));
@@ -315,13 +315,28 @@ function _fire(pid) {
     sfx('go'); haptic('light');
 
     const tank = _tanks[pid];
-    const dir  = new THREE.Vector3(0, 0, 1).applyEuler(tank.rotation).normalize();
-    const b    = new THREE.Mesh(
-        new THREE.SphereGeometry(BULLET_R, 12, 12),
-        new THREE.MeshBasicMaterial({ color: pid === 0 ? 0xff5555 : 0x55aaff })
+    const dir    = new THREE.Vector3(0, 0, 1).applyEuler(tank.rotation).normalize();
+    const bColor = pid === 0 ? 0xff4422 : 0x22aaff;
+
+    // Outer glow shell (larger, semi-transparent)
+    const shell = new THREE.Mesh(
+        new THREE.SphereGeometry(BULLET_R * 1.9, 12, 12),
+        new THREE.MeshBasicMaterial({ color: bColor, transparent: true, opacity: 0.25 })
     );
+    // Inner bright core
+    const core = new THREE.Mesh(
+        new THREE.SphereGeometry(BULLET_R, 12, 12),
+        new THREE.MeshBasicMaterial({ color: 0xffffff })
+    );
+    const b = new THREE.Group();
+    b.add(shell, core);
     b.position.copy(tank.position).addScaledVector(dir, 1.8);
     b.position.y = 1.2;
+
+    // Point light so bullet illuminates nearby surfaces
+    const bLight = new THREE.PointLight(bColor, 2.5, 6);
+    b.add(bLight);
+
     _scene.add(b);
     _bullets.push({ mesh: b, vel: dir.multiplyScalar(BULLET_SPEED), pid, born: now });
 }
@@ -402,8 +417,10 @@ function _tick() {
 
         if (destroy) {
             _scene.remove(b.mesh);
-            b.mesh.geometry?.dispose();
-            b.mesh.material?.dispose();
+            b.mesh.traverse(c => {
+                c.geometry?.dispose();
+                if (c.material) (Array.isArray(c.material) ? c.material : [c.material]).forEach(m => m.dispose());
+            });
             _bullets.splice(i, 1);
         }
     }
