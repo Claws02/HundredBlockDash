@@ -6,11 +6,13 @@
 export const MG_TYPES = [
     'sumospheres',
     'tankclash',
+    'rhythmforge',
 ];
 
 export const MG_INFO = {
-    sumospheres: { icon: '⭕', title: 'SUMO SPHERES', desc: 'Drag your half to roll your sphere and knock the opponent off the arena! Build momentum for bigger hits. The arena shrinks after 30 seconds — last one standing wins!' },
-    tankclash:   { icon: '🎯', title: 'TANK CLASH',   desc: 'Use the left joystick to move and aim your tank, tap the right side to fire! Use cover to dodge shots. First to land 3 hits wins!' },
+    sumospheres: { icon: '⭕', title: 'SUMO SPHERES',  desc: 'Drag your half to roll your sphere and knock the opponent off the arena! Build momentum for bigger hits. The arena shrinks after 30 seconds — last one standing wins!' },
+    tankclash:   { icon: '🎯', title: 'TANK CLASH',    desc: 'Use the left joystick to move and aim your tank, tap the right side to fire! Use cover to dodge shots. First to land 3 hits wins!' },
+    rhythmforge: { icon: '🥁', title: 'RHYTHM FORGE',  desc: 'Tap the correct lane as notes reach the hit zone! 3 rounds of increasing difficulty — each player takes a turn. Perfect, Great, and Good hits score 3, 2, and 1 points. Most points overall wins!' },
 };
 
 // ============================================================
@@ -50,6 +52,7 @@ export const MG_ORIENTATIONS = {
 export const MG_ORIENTATION_MAP = {
     sumospheres: 'faceoff',
     tankclash:   'faceoff',
+    rhythmforge: 'faceoff',
 };
 
 export const FALLBACK_TRIVIA = [

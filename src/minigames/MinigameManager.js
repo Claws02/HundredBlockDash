@@ -14,6 +14,7 @@ import { sfx, haptic } from '../engine/AudioManager.js';
 const MG_MODULES = {
     sumospheres: () => import('./SumoSpheres.js'),
     tankclash:   () => import('./TankClash.js'),
+    rhythmforge: () => import('./RhythmForge.js'),
 };
 
 let _controller   = null;
