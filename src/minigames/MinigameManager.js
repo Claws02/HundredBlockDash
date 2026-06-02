@@ -15,6 +15,7 @@ const MG_MODULES = {
     sumospheres: () => import('./SumoSpheres.js'),
     tankclash:   () => import('./TankClash.js'),
     rhythmforge: () => import('./RhythmForge.js'),
+    orbdeflect:  () => import('./OrbDeflect.js'),
 };
 
 let _controller   = null;
