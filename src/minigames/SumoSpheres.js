@@ -1,5 +1,14 @@
 // Sumo Spheres — Drag your half to move. Knock the opponent off the arena!
 // P1 holds the bottom, P2 holds the top (face-off). Arena shrinks after 30s.
+//
+// ⚠️  SPEED / FRAME-RATE RULE (apply to every minigame):
+//   All movement values must be expressed as units-per-SECOND, not units-per-frame.
+//   Multiply every position delta by `dt` (elapsed seconds since last frame).
+//   Compute dt at the top of the game loop:
+//     const dt = _lastTick === 0 ? 1/60 : Math.min((now - _lastTick) / 1000, 0.1);
+//     _lastTick = now;
+//   Cap dt at 0.1 s so a tab-switch never causes a huge jump.
+//   This keeps speed identical on 60 Hz phones, 120 Hz tablets, and desktop browsers.
 import { state } from '../core/GameState.js';
 import { sfx, haptic } from '../engine/AudioManager.js';
 
