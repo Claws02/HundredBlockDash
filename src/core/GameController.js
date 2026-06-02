@@ -143,6 +143,7 @@ export function startGame() {
         if (!state.gameStarted) return;
         UIManager.setPlayerNames();
         state.activePlayer = Math.floor(Math.random() * 2);
+        resetPlayers();
         if (state.selectedMap === 'hundred_block_dash') {
             generateBoard();
         } else {
@@ -860,7 +861,8 @@ export function proceedTurn() {
         return;
     }
 
-    Renderer.updateBiomeVisuals(CITY_GRAPH[p.pos]?.district || 'ring');
+    if (state.selectedMap === 'hundred_block_dash') Renderer.updateBiomeVisuals(typeof p.pos === 'number' ? p.pos : 0);
+    else Renderer.updateBiomeVisuals(CITY_GRAPH[p.pos]?.district || 'ring');
     if (state.playStyle === 'pass' && state.totalTurns > 0 && !state.rollAgainSamePlayer) {
         state.gameState = 'PASS_PROMPT';
         ModalManager.showPassModal(`Pass the device to ${p.name}.`, false);
