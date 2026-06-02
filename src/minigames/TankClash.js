@@ -1,12 +1,21 @@
 // Tank Clash — Joystick to move/aim, tap right side to fire. First to 3 hits wins!
 // P1 holds the bottom, P2 holds the top (face-off). Obstacles for cover.
+//
+// ⚠️  SPEED / FRAME-RATE RULE (apply to every minigame):
+//   All movement values must be expressed as units-per-SECOND, not units-per-frame.
+//   Multiply every position delta by `dt` (elapsed seconds since last frame).
+//   Compute dt at the top of the game loop:
+//     const dt = _lastTick === 0 ? 1/60 : Math.min((now - _lastTick) / 1000, 0.1);
+//     _lastTick = now;
+//   Cap dt at 0.1 s so a tab-switch never causes a huge jump.
+//   This keeps speed identical on 60 Hz phones, 120 Hz tablets, and desktop browsers.
 import { state } from '../core/GameState.js';
 import { sfx, haptic } from '../engine/AudioManager.js';
 
 const ARENA_W      = 28;
 const ARENA_H      = 40;
 const TANK_RADIUS  = 1.2;
-const TANK_SPEED   = 0.6;    // world-units per second  (≈ 0.01 per frame at 60 fps)
+const TANK_SPEED   = 2.0;    // world-units per second  (≈ 0.033 per frame at 60 fps)
 const BULLET_R     = 0.55;
 const BULLET_SPEED = 27;     // world-units per second  (≈ 0.45 per frame at 60 fps)
 const FIRE_CD      = 700; // ms
