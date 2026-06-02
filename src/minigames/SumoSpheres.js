@@ -58,14 +58,40 @@ function _build() {
     _overlay = document.createElement('div');
     _overlay.style.cssText = 'position:absolute;inset:0;overflow:hidden;background:#1a1a2e;touch-action:none;';
 
-    // Touch zones — P2 on top, P1 on bottom
+    // Joystick zones — P2 on top, P1 on bottom
+    const JOY_R = 52; // base radius px
+    const _knobs = [null, null];
+
     for (let pid = 0; pid < 2; pid++) {
+        const color = pid === 0 ? '#ff3b3b' : '#3b8eff';
+
         const zone = document.createElement('div');
         zone.style.cssText = [
             'position:absolute;left:0;right:0;z-index:5;',
             pid === 0 ? 'top:50%;bottom:0;' : 'top:0;bottom:50%;',
         ].join('');
-        zone.dataset.pid = pid;
+
+        // Static joystick base, centered in each half
+        const base = document.createElement('div');
+        base.style.cssText = [
+            'position:absolute;left:50%;',
+            pid === 0 ? 'bottom:32px;transform:translateX(-50%);' : 'top:32px;transform:translateX(-50%);',
+            `width:${JOY_R * 2}px;height:${JOY_R * 2}px;border-radius:50%;`,
+            'background:rgba(255,255,255,0.05);border:2px solid rgba(255,255,255,0.15);',
+            'pointer-events:none;',
+        ].join('');
+
+        const knob = document.createElement('div');
+        knob.style.cssText = [
+            'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);',
+            'width:44px;height:44px;border-radius:50%;pointer-events:none;',
+            `background:${color};box-shadow:0 0 14px ${color};opacity:0.85;`,
+            'transition:transform .05s;',
+        ].join('');
+        base.appendChild(knob);
+        zone.appendChild(base);
+        _knobs[pid] = knob;
+        _overlay.appendChild(zone);
 
         const onDown = e => {
             if (_done || _activeTouches[e.pointerId]) return;
@@ -78,8 +104,12 @@ function _build() {
             if (!t) return;
             e.preventDefault();
             let dx = e.clientX - t.startX, dy = e.clientY - t.startY;
-            const dist = Math.sqrt(dx*dx + dy*dy), max = 40;
+            const dist = Math.sqrt(dx*dx + dy*dy), max = JOY_R;
             if (dist > max) { dx = dx/dist*max; dy = dy/dist*max; }
+            // Move knob visually (offset from center = dx/dy capped at JOY_R - knob_r)
+            const kOff = JOY_R - 22;
+            const nx = (dx / max) * kOff, ny = (dy / max) * kOff;
+            knob.style.transform = `translate(calc(-50% + ${nx}px), calc(-50% + ${ny}px))`;
             if (t.pid === 0) _input1.set(dx/max, dy/max);
             else             _input2.set(dx/max, dy/max);
         };
@@ -87,6 +117,7 @@ function _build() {
             const t = _activeTouches[e.pointerId];
             if (!t) return;
             e.preventDefault();
+            knob.style.transform = 'translate(-50%,-50%)';
             if (t.pid === 0) _input1.set(0, 0);
             else             _input2.set(0, 0);
             delete _activeTouches[e.pointerId];
@@ -102,7 +133,6 @@ function _build() {
             zone.removeEventListener('pointerup',     onUp);
             zone.removeEventListener('pointercancel', onUp);
         });
-        _overlay.appendChild(zone);
     }
 
     // Label strip dividing the two halves
