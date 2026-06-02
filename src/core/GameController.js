@@ -495,13 +495,13 @@ function _movePlayerHBD(p, steps, isForced = false) {
         if (curr !== target && HBD_SHOP_SPACES.has(curr) && stepDir > 0) {
             Renderer.animatePlayerHop(p, curr, () => {
                 if (p.isBot) {
-                    if (Math.random() < 0.4) {
-                        state.gameState = 'SHOP';
-                        openShop('ring', 1.0);
-                        setTimeout(() => { _afterPassThroughShop(); hopNext(); }, 2000);
-                    } else { setTimeout(hopNext, 300); }
+                    // Inline buy — must NOT call openShop/finishTurn mid-movement
+                    if (Math.random() < 0.4) _botPassThroughBuy(p);
+                    setTimeout(hopNext, 300);
                 } else {
                     _passThroughResumeHop = hopNext;
+                    state.pendingShopDistrict = 'ring';
+                    state.pendingShopDiscount = 1.0;
                     state.gameState = 'SHOP';
                     ModalManager.showModal('shop-offer-modal');
                 }
@@ -566,7 +566,7 @@ export function resolveSpace(p) {
 export function resolveSpaceEffect(p, spaceType, space) {
     const opp = state.players[(p.id + 1) % 2];
     switch (spaceType) {
-        case 'start':      return 'Back at the city start!';
+        case 'start':      return state.selectedMap === 'hundred_block_dash' ? 'Back at the start!' : 'Back at the city start!';
         case 'coin': {
             const bonus = _allyPassive(p, 'coin_bonus');
             earnCoins(p, 3 + bonus);
@@ -1038,6 +1038,19 @@ function _botShop(p) {
     setTimeout(() => { if (state.gameState === 'ACKNOWLEDGE') finishTurn(); }, 1000);
 }
 
+// Used only for HBD bot pass-through shops — does NOT call finishTurn
+function _botPassThroughBuy(p) {
+    const affordable = Object.keys(ITEMS).filter(k => p.coins >= ITEMS[k].price && p.inv.length < MAX_INV);
+    if (affordable.length === 0) return;
+    const preferred = affordable.filter(k => ['shield','warp_drive','double_die','rocket'].includes(k));
+    const pool = preferred.length > 0 ? preferred : affordable;
+    const pick = pool[Math.floor(Math.random() * pool.length)];
+    p.coins -= ITEMS[pick].price;
+    p.inv.push(pick);
+    UIManager.toast(`${p.name} grabbed ${ITEMS[pick].name}!`, '#a855f7');
+    UIManager.updateUI();
+}
+
 export function buyItem(itemId, cost) {
     const p = state.players[state.activePlayer];
     if (p.coins < cost) return;
@@ -1303,6 +1316,7 @@ function _grantAlly(player, allyType, turnsRemaining, shieldCharges) {
 }
 
 function _tickAllyTurns(playerIdx) {
+    if (state.selectedMap === 'hundred_block_dash') return;
     const p = state.players[playerIdx];
     for (let i = p.allies.length - 1; i >= 0; i--) {
         p.allies[i].turnsRemaining--;
@@ -1357,6 +1371,7 @@ function _botHasCabbie(p) {
 
 // Ally passive effect checks
 function _allyPassive(player, powerType) {
+    if (state.selectedMap === 'hundred_block_dash') return 0;
     const idx = player.allies.findIndex(a => ALLIES[a.type]?.powerType === powerType);
     if (idx < 0) return 0;
     if (powerType === 'coin_bonus') return 2;
@@ -1415,6 +1430,7 @@ function initContracts() {
 }
 
 function _checkContract(player, eventType, param, count) {
+    if (state.selectedMap === 'hundred_block_dash') return;
     for (let i = state.activeContracts.length - 1; i >= 0; i--) {
         const c = state.activeContracts[i];
         let fulfilled = false;

@@ -46,11 +46,18 @@ export function updateUI() {
         document.getElementById(`p${i + 1}-actions`).style.display =
             (isActive && state.gameState === 'PRE_ROLL' && !p.isBot) ? 'flex' : 'none';
 
-        // Position badge shows district name
-        const node = CITY_GRAPH[p.pos];
-        const districtKey = node?.district || 'ring';
-        const biome = DISTRICT_BIOMES[districtKey];
-        const districtLabel = biome?.name || DISTRICT_NAMES[districtKey] || districtKey;
+        // Position badge
+        let districtLabel;
+        if (state.selectedMap === 'hundred_block_dash') {
+            districtLabel = typeof p.pos === 'number'
+                ? (p.pos >= 99 ? 'FINISHED!' : `Space ${p.pos}`)
+                : 'Space 0';
+        } else {
+            const node = CITY_GRAPH[p.pos];
+            const districtKey = node?.district || 'ring';
+            const biome = DISTRICT_BIOMES[districtKey];
+            districtLabel = biome?.name || DISTRICT_NAMES[districtKey] || districtKey;
+        }
         document.getElementById(`p${i + 1}-pos-badge`).textContent = districtLabel;
 
         // Ally HUD slots
@@ -67,12 +74,18 @@ export function updateUI() {
     if (state.gameState === 'PRE_ROLL' || state.gameState === 'ACKNOWLEDGE') {
         updateContracts();
     }
-    updateRoundCounter(state.currentRound, 20);
+    if (state.selectedMap !== 'hundred_block_dash') {
+        updateRoundCounter(state.currentRound, 20);
+    } else {
+        const el = document.getElementById('round-counter');
+        if (el) el.textContent = state.totalTurns > 0 ? `TURN ${state.totalTurns}` : '';
+    }
 }
 
 function _updateAllySlots(playerIdx, p) {
     const slotsEl = document.getElementById(`p${playerIdx + 1}-ally-slots`);
     if (!slotsEl) return;
+    if (state.selectedMap === 'hundred_block_dash') { slotsEl.innerHTML = ''; return; }
     const MAX = 2;
     let html = '';
     for (let i = 0; i < MAX; i++) {
@@ -105,7 +118,7 @@ export function updateRoundCounter(current, total) {
 export function updateContracts() {
     const strip = document.getElementById('contracts-strip');
     if (!strip) return;
-    if (!state.activeContracts || state.activeContracts.length === 0) {
+    if (state.selectedMap === 'hundred_block_dash' || !state.activeContracts || state.activeContracts.length === 0) {
         strip.style.display = 'none';
         return;
     }
@@ -287,6 +300,10 @@ export function hideSpaceInfoCard() { document.getElementById('space-info-card')
 // ---- Map ----
 
 export function openMap() {
+    if (state.selectedMap === 'hundred_block_dash') {
+        toast('No map view in Hundred Block Dash — just keep rolling!', '#60a5fa');
+        return;
+    }
     state.gameState  = 'MAP';
     state.cameraState = 'MAP';
     document.getElementById('ui-layer').style.display = 'none';
