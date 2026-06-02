@@ -13,6 +13,7 @@ import { sfx, haptic } from '../engine/AudioManager.js';
 // Lazy-loaded minigame modules
 const MG_MODULES = {
     sumospheres: () => import('./SumoSpheres.js'),
+    tankclash:   () => import('./TankClash.js'),
 };
 
 let _controller   = null;

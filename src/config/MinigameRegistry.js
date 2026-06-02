@@ -5,10 +5,12 @@
 
 export const MG_TYPES = [
     'sumospheres',
+    'tankclash',
 ];
 
 export const MG_INFO = {
     sumospheres: { icon: '⭕', title: 'SUMO SPHERES', desc: 'Drag your half to roll your sphere and knock the opponent off the arena! Build momentum for bigger hits. The arena shrinks after 30 seconds — last one standing wins!' },
+    tankclash:   { icon: '🎯', title: 'TANK CLASH',   desc: 'Use the left joystick to move and aim your tank, tap the right side to fire! Use cover to dodge shots. First to land 3 hits wins!' },
 };
 
 // ============================================================
@@ -47,6 +49,7 @@ export const MG_ORIENTATIONS = {
 
 export const MG_ORIENTATION_MAP = {
     sumospheres: 'faceoff',
+    tankclash:   'faceoff',
 };
 
 export const FALLBACK_TRIVIA = [
