@@ -15,18 +15,60 @@ import { sfx, haptic } from '../engine/AudioManager.js';
 const ARENA_W      = 28;
 const ARENA_H      = 40;
 const TANK_RADIUS  = 1.2;
-const TANK_SPEED   = 2.0;    // world-units per second  (≈ 0.033 per frame at 60 fps)
+const TANK_SPEED   = 3.0;    // world-units per second
 const BULLET_R     = 0.55;
 const BULLET_SPEED = 27;     // world-units per second  (≈ 0.45 per frame at 60 fps)
 const FIRE_CD      = 700; // ms
 const JOY_R        = 50;  // joystick base radius px
 
-const OBSTACLES = [
-    { minX: -10, maxX: -4, minZ: -3, maxZ:  3 },
-    { minX:   4, maxX: 10, minZ: -3, maxZ:  3 },
-    { minX:  -3, maxX:  3, minZ:-12, maxZ: -9 },
-    { minX:  -3, maxX:  3, minZ:  9, maxZ: 12 },
+// Each map is an array of axis-aligned box obstacles { minX, maxX, minZ, maxZ }.
+// Rules: keep a clear corridor through the center so tanks can never fully cage
+// each other, and always leave each player a safe spawn zone near ±ARENA_H/2.
+const MAPS = [
+    // 0 — "Bunkers" (original): two side walls + two top/bottom pillars
+    [
+        { minX: -10, maxX: -4, minZ: -3, maxZ:  3 },
+        { minX:   4, maxX: 10, minZ: -3, maxZ:  3 },
+        { minX:  -3, maxX:  3, minZ:-12, maxZ: -9 },
+        { minX:  -3, maxX:  3, minZ:  9, maxZ: 12 },
+    ],
+    // 1 — "Cross": a plus-sign barrier forcing flanking routes
+    [
+        { minX:  -2, maxX:  2, minZ: -10, maxZ: 10 }, // vertical bar
+        { minX: -10, maxX: -4, minZ:  -2, maxZ:  2 }, // left arm
+        { minX:   4, maxX: 10, minZ:  -2, maxZ:  2 }, // right arm
+    ],
+    // 2 — "Diagonal gauntlet": staggered pillars left and right
+    [
+        { minX: -11, maxX: -6, minZ: -14, maxZ: -10 },
+        { minX:   6, maxX: 11, minZ:  -7, maxZ:  -3 },
+        { minX:  -3, maxX:  2, minZ:  -2, maxZ:   2 },
+        { minX:  -11, maxX: -6, minZ:   3, maxZ:   7 },
+        { minX:   6, maxX: 11, minZ:  10, maxZ:  14 },
+    ],
+    // 3 — "Box ring": ring of four small pillars around center
+    [
+        { minX:  -8, maxX: -5, minZ:  -8, maxZ: -5 },
+        { minX:   5, maxX:  8, minZ:  -8, maxZ: -5 },
+        { minX:  -8, maxX: -5, minZ:   5, maxZ:  8 },
+        { minX:   5, maxX:  8, minZ:   5, maxZ:  8 },
+        { minX:  -2, maxX:  2, minZ:  -2, maxZ:  2 }, // center block
+    ],
+    // 4 — "Corridor": two long parallel walls leaving narrow side lanes
+    [
+        { minX:  -7, maxX: -4, minZ: -16, maxZ:  16 },
+        { minX:   4, maxX:  7, minZ: -16, maxZ:  16 },
+    ],
+    // 5 — "Zigzag": alternating offset barriers
+    [
+        { minX: -12, maxX: -4, minZ: -14, maxZ: -11 },
+        { minX:   4, maxX: 12, minZ:  -5, maxZ:  -2 },
+        { minX: -12, maxX: -4, minZ:   2, maxZ:   5 },
+        { minX:   4, maxX: 12, minZ:  11, maxZ:  14 },
+    ],
 ];
+
+let _obstacles = MAPS[0]; // set per-round in start()
 
 let _done = false, _onWin = null, _isBot = false;
 let _overlay = null, _renderer = null, _scene = null, _camera = null;
@@ -50,6 +92,7 @@ export function start(isBot, onWin) {
     _done = false; _onWin = onWin; _isBot = isBot;
     _hp = [3, 3]; _lastFire = [0, 0];
     _tanks = []; _bullets = []; _activeTouches = {};
+    _obstacles = MAPS[Math.floor(Math.random() * MAPS.length)];
     _input = [new THREE.Vector2(), new THREE.Vector2()];
     _botWanderTarget = new THREE.Vector3();
     _lastTick = 0;
@@ -269,7 +312,7 @@ function _initThree() {
 
     // Obstacles
     const obsMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.6, metalness: 0.2 });
-    OBSTACLES.forEach(obs => {
+    _obstacles.forEach(obs => {
         const w2 = obs.maxX - obs.minX, d = obs.maxZ - obs.minZ;
         const m = new THREE.Mesh(new THREE.BoxGeometry(w2, 3, d), obsMat);
         m.position.set(obs.minX + w2/2, 1.5, obs.minZ + d/2);
@@ -377,7 +420,7 @@ function _tick(now) {
         tank.position.z = Math.max(-ARENA_H/2 + TANK_RADIUS, Math.min(ARENA_H/2 - TANK_RADIUS, tank.position.z));
 
         // Obstacle push-out
-        for (const obs of OBSTACLES) {
+        for (const obs of _obstacles) {
             const cx = Math.max(obs.minX, Math.min(tank.position.x, obs.maxX));
             const cz = Math.max(obs.minZ, Math.min(tank.position.z, obs.maxZ));
             const dx = tank.position.x - cx, dz = tank.position.z - cz;
@@ -400,7 +443,7 @@ function _tick(now) {
 
         // Obstacle
         if (!destroy) {
-            for (const obs of OBSTACLES) {
+            for (const obs of _obstacles) {
                 if (b.mesh.position.x > obs.minX && b.mesh.position.x < obs.maxX &&
                     b.mesh.position.z > obs.minZ && b.mesh.position.z < obs.maxZ) { destroy = true; break; }
             }
@@ -468,7 +511,7 @@ function _botTick() {
     for (let i = 1; i < 15 && los; i++) {
         const tx = bot.x + (p1.x - bot.x) * (i/15);
         const tz = bot.z + (p1.z - bot.z) * (i/15);
-        for (const obs of OBSTACLES) {
+        for (const obs of _obstacles) {
             if (tx > obs.minX && tx < obs.maxX && tz > obs.minZ && tz < obs.maxZ) { los = false; break; }
         }
     }
