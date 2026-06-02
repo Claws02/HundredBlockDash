@@ -6,9 +6,9 @@ import { sfx, haptic } from '../engine/AudioManager.js';
 const ARENA_W      = 28;
 const ARENA_H      = 40;
 const TANK_RADIUS  = 1.2;
-const TANK_SPEED   = 0.04;
+const TANK_SPEED   = 0.6;    // world-units per second  (≈ 0.01 per frame at 60 fps)
 const BULLET_R     = 0.55;
-const BULLET_SPEED = 0.45;
+const BULLET_SPEED = 27;     // world-units per second  (≈ 0.45 per frame at 60 fps)
 const FIRE_CD      = 700; // ms
 const JOY_R        = 50;  // joystick base radius px
 
@@ -24,7 +24,7 @@ let _overlay = null, _renderer = null, _scene = null, _camera = null;
 let _tanks = [], _bullets = [], _hp = [3, 3], _lastFire = [0, 0];
 let _input = [], _activeTouches = {};
 let _botWanderTarget = null;
-let _af = null;
+let _af = null, _lastTick = 0;
 const _cleanups = [];
 const _timers   = [];
 
@@ -43,6 +43,7 @@ export function start(isBot, onWin) {
     _tanks = []; _bullets = []; _activeTouches = {};
     _input = [new THREE.Vector2(), new THREE.Vector2()];
     _botWanderTarget = new THREE.Vector3();
+    _lastTick = 0;
     _build();
     requestAnimationFrame(() => requestAnimationFrame(() => {
         _initThree();
@@ -338,12 +339,17 @@ function _fire(pid) {
     b.add(bLight);
 
     _scene.add(b);
-    _bullets.push({ mesh: b, vel: dir.multiplyScalar(BULLET_SPEED), pid, born: now });
+    // vel is stored as a unit-direction; speed is applied per-second in _tick via dt
+    _bullets.push({ mesh: b, dir: dir.clone(), pid, born: now });
 }
 
-function _tick() {
+function _tick(now) {
     if (!state.mgActive || _done) return;
     _af = requestAnimationFrame(_tick);
+
+    // Delta-time capped at 100 ms so a tab-switch doesn't cause a huge jump
+    const dt = _lastTick === 0 ? 1/60 : Math.min((now - _lastTick) / 1000, 0.1);
+    _lastTick = now;
 
     // Move tanks
     for (let i = 0; i < 2; i++) {
@@ -352,8 +358,8 @@ function _tick() {
         const tank = _tanks[i];
 
         if (inp.lengthSq() > 0.01) {
-            tank.position.x += inp.x * TANK_SPEED;
-            tank.position.z += inp.y * TANK_SPEED;
+            tank.position.x += inp.x * TANK_SPEED * dt;
+            tank.position.z += inp.y * TANK_SPEED * dt;
             tank.rotation.y  = Math.atan2(inp.x, inp.y);
         }
 
@@ -377,7 +383,7 @@ function _tick() {
     // Move bullets
     for (let i = _bullets.length - 1; i >= 0; i--) {
         const b = _bullets[i];
-        b.mesh.position.add(b.vel);
+        b.mesh.position.addScaledVector(b.dir, BULLET_SPEED * dt);
         let destroy = false;
 
         // Wall
