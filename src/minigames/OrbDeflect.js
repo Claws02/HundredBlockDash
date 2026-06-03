@@ -442,10 +442,14 @@ function _resolve(winnerId) {
     if (neutralEl) neutralEl.textContent = winnerId === -1 ? 'DRAW!' : `P${winnerId + 1} WINS!`;
     sfx('mg_win'); haptic('heavy');
 
-    // Raw setTimeout — avoids _after's state.mgActive guard race on teardown
+    // Raw setTimeout — avoids _after's state.mgActive guard race on teardown.
+    // Always destroy to avoid leaving a stale overlay in the DOM; only call
+    // _onWin if mgActive is still true (prevents double-processing when the
+    // 45-second fallback fires first).
     const id = setTimeout(() => {
         _timers.splice(_timers.indexOf(id), 1);
-        if (state.mgActive) { _destroy(); _onWin(winnerId); }
+        _destroy();
+        if (state.mgActive) _onWin(winnerId);
     }, 1200);
     _timers.push(id);
 }

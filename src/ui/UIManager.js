@@ -80,6 +80,10 @@ export function updateUI() {
         const el = document.getElementById('round-counter');
         if (el) el.textContent = state.totalTurns > 0 ? `TURN ${state.totalTurns}` : '';
     }
+
+    if (state.playStyle === 'tabletop') {
+        document.body.classList.toggle('tabletop-p2-turn', state.activePlayer === 1);
+    }
 }
 
 function _updateAllySlots(playerIdx, p) {
@@ -406,17 +410,21 @@ function _wireSwipeEvents() {
     zone.addEventListener('touchstart', e => { sy = e.touches[0].clientY; st = Date.now(); });
     zone.addEventListener('touchend', e => {
         if (state.gameState !== 'PRE_ROLL' || state.players[state.activePlayer].isBot) return;
-        const dy  = sy - e.changedTouches[0].clientY;
-        const dt  = Math.max(Date.now() - st, 16);
+        const rawDy = sy - e.changedTouches[0].clientY;
+        const dt    = Math.max(Date.now() - st, 16);
+        // In tabletop mode P2 swipes downward from their perspective (upward in screen coords
+        // for P1, downward for P2). Accept either direction so both players can flick.
+        const dy  = state.playStyle === 'tabletop' ? Math.abs(rawDy) : rawDy;
         const vel = dy / dt;
         if (dy > 20 && vel > 0.2) _controller.executeRoll(Math.min(vel, 3.5));
     });
     zone.addEventListener('mousedown', e => { sy = e.clientY; st = Date.now(); });
     zone.addEventListener('mouseup', e => {
         if (state.gameState !== 'PRE_ROLL' || state.players[state.activePlayer].isBot) return;
-        const dy  = sy - e.clientY;
-        const dt  = Math.max(Date.now() - st, 16);
-        const vel = dy / dt;
+        const rawDy = sy - e.clientY;
+        const dt    = Math.max(Date.now() - st, 16);
+        const dy    = state.playStyle === 'tabletop' ? Math.abs(rawDy) : rawDy;
+        const vel   = dy / dt;
         if (dy > 20 && vel > 0.2) _controller.executeRoll(Math.min(vel, 3.5));
     });
 }

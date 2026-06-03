@@ -374,10 +374,14 @@ function _resolveGame() {
     sfx('mg_win');
 
     // ⚠️  Do NOT use _after() here — _after guards on state.mgActive but _done
-    // is true now. Use a raw tracked setTimeout so the callback always fires.
+    // is true now. Use a raw tracked setTimeout so cleanup always fires.
+    // Always destroy to avoid leaving a stale overlay in the DOM; only call
+    // _onWin if mgActive is still true (prevents double-processing when the
+    // 45-second fallback fires first).
     const id = setTimeout(() => {
         _timers.splice(_timers.indexOf(id), 1);
-        if (state.mgActive) { _destroy(); _onWin(winner); }
+        _destroy();
+        if (state.mgActive) _onWin(winner);
     }, 2500);
     _timers.push(id);
 }
