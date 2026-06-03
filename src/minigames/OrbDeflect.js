@@ -72,6 +72,8 @@ function _build() {
     _cleanups.push(() => window.removeEventListener('resize', onResize));
 
     _ctx = _canvas.getContext('2d');
+    // Apply DPR transform after context is created (first call to _sizeCanvas had no ctx yet)
+    { const dpr = Math.min(window.devicePixelRatio || 1, 2); _ctx.setTransform(dpr, 0, 0, dpr, 0, 0); }
 
     // Pointer handlers
     const onDown = e => {
@@ -127,9 +129,15 @@ function _build() {
 }
 
 function _sizeCanvas() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
     _cw = window.innerWidth;
     _ch = window.innerHeight;
-    if (_canvas) { _canvas.width = _cw; _canvas.height = _ch; }
+    if (_canvas) {
+        _canvas.width  = Math.round(_cw * dpr);
+        _canvas.height = Math.round(_ch * dpr);
+        // Scale all draw calls to logical (CSS-pixel) coordinates
+        if (_ctx) _ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
 }
 
 function _resetState() {

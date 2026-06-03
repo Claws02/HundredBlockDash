@@ -175,6 +175,13 @@ function _build() {
 
 // ── Three.js ──────────────────────────────────────────────────────────────────
 
+// Returns the camera height needed to see the full arena on any screen aspect ratio.
+function _camHeightForAspect(aspect) {
+    const halfFovRad = 25 * Math.PI / 180; // half of 50° FOV
+    const targetHalfWidth = ARENA_RADIUS + 3; // arena + small margin
+    return Math.max(40, targetHalfWidth / (Math.tan(halfFovRad) * aspect));
+}
+
 function _initThree() {
     const w = window.innerWidth, h = window.innerHeight;
 
@@ -187,10 +194,13 @@ function _initThree() {
 
     _scene = new THREE.Scene();
     _scene.background = new THREE.Color(0x1a1a2e);
-    _scene.fog = new THREE.Fog(0x1a1a2e, 30, 70);
 
-    _camera = new THREE.PerspectiveCamera(50, w / h, 0.1, 100);
-    _camera.position.set(0, 40, 10);
+    const aspect = w / h;
+    const camH = _camHeightForAspect(aspect);
+    // Scale fog with camera height so it never clips the arena on narrow screens
+    _scene.fog = new THREE.Fog(0x1a1a2e, camH * 1.5, camH * 4);
+    _camera = new THREE.PerspectiveCamera(50, aspect, 0.1, camH * 5);
+    _camera.position.set(0, camH, camH * 0.25);
     _camera.lookAt(0, 0, 0);
 
     _scene.add(new THREE.AmbientLight(0xffffff, 0.6));
@@ -233,9 +243,13 @@ function _initThree() {
 
     const onResize = () => {
         if (!_camera || !_renderer) return;
-        _camera.aspect = window.innerWidth / window.innerHeight;
+        const rw = window.innerWidth, rh = window.innerHeight;
+        const asp = rw / rh;
+        const rCamH = _camHeightForAspect(asp);
+        _camera.aspect = asp;
+        _camera.position.set(0, rCamH, rCamH * 0.25);
         _camera.updateProjectionMatrix();
-        _renderer.setSize(window.innerWidth, window.innerHeight);
+        _renderer.setSize(rw, rh);
     };
     window.addEventListener('resize', onResize);
     _cleanups.push(() => window.removeEventListener('resize', onResize));
