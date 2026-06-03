@@ -23,6 +23,8 @@ let _onComplete   = null;
 let _botTraceInt  = null;
 let _standaloneMode = false;
 let _countdownActive = false;
+let _countdownIv  = null;
+let _botReadyTimeout = null;
 let _minigameTimeout = null;
 const _minigameCleanups = [];
 
@@ -156,6 +158,8 @@ function launchMinigameUI() {
 function _startMinigameLayer() {
     _runMinigameCleanups();
     clearTimeout(_minigameTimeout);
+    clearInterval(_countdownIv); _countdownIv = null;
+    clearTimeout(_botReadyTimeout); _botReadyTimeout = null;
     _countdownActive = false;
     state.gameState = 'MINIGAME';
     document.getElementById('minigame-layer').style.display = 'flex';
@@ -191,7 +195,7 @@ function _startMinigameLayer() {
     });
     document.getElementById('mg-neutral').textContent = 'BOTH PLAYERS TAP READY!';
 
-    if (state.players[1].isBot) setTimeout(() => setReady(1), 800);
+    if (state.players[1].isBot) _botReadyTimeout = setTimeout(() => { _botReadyTimeout = null; setReady(1); }, 800);
 }
 
 // ---- Ready + countdown ----
@@ -210,14 +214,14 @@ export function setReady(pid) {
         cd.style.display = 'block'; cd.textContent = '3'; sfx('countdown');
         document.getElementById('minigame-layer').appendChild(cd);
         let count = 3;
-        const iv = setInterval(() => {
+        _countdownIv = setInterval(() => {
             count--;
             if (count > 0) {
                 cd.textContent = count; cd.style.animation = 'none'; void cd.offsetWidth; cd.style.animation = 'countPop .4s ease'; sfx('countdown');
             } else if (count === 0) {
                 cd.textContent = 'GO!'; cd.style.animation = 'none'; void cd.offsetWidth; cd.style.animation = 'countPop .4s ease'; sfx('go');
             } else {
-                clearInterval(iv);
+                clearInterval(_countdownIv); _countdownIv = null;
                 cd.style.display = 'none';
                 [1, 2].forEach(i => document.getElementById(`mg-ready-${i}`).style.display = 'none');
                 state.mgActive = true;

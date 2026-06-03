@@ -103,6 +103,13 @@ body, html {
 #hud-p2 { top: 0; border-bottom: 4px solid var(--p2); }
 #hud-p1 { bottom: 0; border-top: 4px solid var(--p1); }
 .tabletop-mode #hud-p2 { transform: rotate(180deg); }
+
+/* Tabletop mode: flip center UI elements when P2 is the active player */
+.tabletop-p2-turn #toast-box { transform: translate(-50%, -50%) rotate(180deg); }
+.tabletop-p2-turn .modal-box { transform: rotate(180deg); }
+.tabletop-p2-turn #space-info-card { bottom: auto; top: calc(var(--hud-h) + 90px); transform: translateX(-50%) rotate(180deg); }
+.tabletop-p2-turn #swipe-zone { transform: rotate(180deg); }
+.tabletop-p2-turn #gate-overlay > * { transform: rotate(180deg); }
 .hud-info { display: flex; flex-direction: column; gap: 2px; }
 .hud-name { font-size: 18px; letter-spacing: 2px; }
 .p1c { color: var(--p1); text-shadow: 0 0 10px var(--p1); }
