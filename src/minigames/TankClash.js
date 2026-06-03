@@ -258,6 +258,13 @@ function _mkZone(pid, type, label) {
 
 // ── Three.js ──────────────────────────────────────────────────────────────────
 
+// Returns the camera height needed to see the full arena on any screen aspect ratio.
+function _camHeightForAspect(aspect) {
+    const halfFovRad = 27.5 * Math.PI / 180; // half of 55° FOV
+    const targetHalfWidth = ARENA_W / 2 + 2; // arena half-width + margin
+    return Math.max(38, targetHalfWidth / (Math.tan(halfFovRad) * aspect));
+}
+
 function _initThree() {
     const w = window.innerWidth, h = window.innerHeight;
 
@@ -271,8 +278,10 @@ function _initThree() {
     _scene = new THREE.Scene();
     _scene.background = new THREE.Color(0x0f172a);
 
-    _camera = new THREE.PerspectiveCamera(55, w / h, 0.1, 120);
-    _camera.position.set(0, 38, 8);
+    const aspect = w / h;
+    const camH = _camHeightForAspect(aspect);
+    _camera = new THREE.PerspectiveCamera(55, aspect, 0.1, 120);
+    _camera.position.set(0, camH, camH * 0.21);
     _camera.lookAt(0, 0, 0);
 
     _scene.add(new THREE.AmbientLight(0xffffff, 0.5));
@@ -332,9 +341,13 @@ function _initThree() {
 
     const onResize = () => {
         if (!_camera || !_renderer) return;
-        _camera.aspect = window.innerWidth / window.innerHeight;
+        const rw = window.innerWidth, rh = window.innerHeight;
+        const asp = rw / rh;
+        const rCamH = _camHeightForAspect(asp);
+        _camera.aspect = asp;
+        _camera.position.set(0, rCamH, rCamH * 0.21);
         _camera.updateProjectionMatrix();
-        _renderer.setSize(window.innerWidth, window.innerHeight);
+        _renderer.setSize(rw, rh);
     };
     window.addEventListener('resize', onResize);
     _cleanups.push(() => window.removeEventListener('resize', onResize));
