@@ -261,8 +261,11 @@ function _mkZone(pid, type, label) {
 // Returns the camera height needed to see the full arena on any screen aspect ratio.
 function _camHeightForAspect(aspect) {
     const halfFovRad = 27.5 * Math.PI / 180; // half of 55° FOV
-    const targetHalfWidth = ARENA_W / 2 + 2; // arena half-width + margin
-    return Math.max(38, targetHalfWidth / (Math.tan(halfFovRad) * aspect));
+    const halfW = ARENA_W / 2 + 3; // 17 — fit width in horizontal FOV
+    const halfD = ARENA_H / 2 + 3; // 23 — fit depth in vertical FOV (ARENA_H=40 is taller than wide)
+    const hForWidth = halfW / (Math.tan(halfFovRad) * aspect);
+    const hForDepth = halfD / Math.tan(halfFovRad);
+    return Math.max(60, Math.max(hForWidth, hForDepth));
 }
 
 function _initThree() {
@@ -280,8 +283,8 @@ function _initThree() {
 
     const aspect = w / h;
     const camH = _camHeightForAspect(aspect);
-    _camera = new THREE.PerspectiveCamera(55, aspect, 0.1, 120);
-    _camera.position.set(0, camH, camH * 0.21);
+    _camera = new THREE.PerspectiveCamera(55, aspect, 0.1, 500);
+    _camera.position.set(0, camH, camH * 0.15);
     _camera.lookAt(0, 0, 0);
 
     _scene.add(new THREE.AmbientLight(0xffffff, 0.5));
@@ -345,7 +348,7 @@ function _initThree() {
         const asp = rw / rh;
         const rCamH = _camHeightForAspect(asp);
         _camera.aspect = asp;
-        _camera.position.set(0, rCamH, rCamH * 0.21);
+        _camera.position.set(0, rCamH, rCamH * 0.15);
         _camera.updateProjectionMatrix();
         _renderer.setSize(rw, rh);
     };

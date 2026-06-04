@@ -178,8 +178,11 @@ function _build() {
 // Returns the camera height needed to see the full arena on any screen aspect ratio.
 function _camHeightForAspect(aspect) {
     const halfFovRad = 25 * Math.PI / 180; // half of 50° FOV
-    const targetHalfWidth = ARENA_RADIUS + 3; // arena + small margin
-    return Math.max(40, targetHalfWidth / (Math.tan(halfFovRad) * aspect));
+    const r = ARENA_RADIUS + 4; // generous margin around the circle arena
+    // Fit the arena in BOTH horizontal (aspect-dependent) and vertical directions.
+    const hForWidth = r / (Math.tan(halfFovRad) * aspect);
+    const hForDepth = r / Math.tan(halfFovRad); // circle is same radius in all dirs
+    return Math.max(50, Math.max(hForWidth, hForDepth));
 }
 
 function _initThree() {
@@ -200,7 +203,7 @@ function _initThree() {
     // Scale fog with camera height so it never clips the arena on narrow screens
     _scene.fog = new THREE.Fog(0x1a1a2e, camH * 1.5, camH * 4);
     _camera = new THREE.PerspectiveCamera(50, aspect, 0.1, camH * 5);
-    _camera.position.set(0, camH, camH * 0.25);
+    _camera.position.set(0, camH, camH * 0.15);
     _camera.lookAt(0, 0, 0);
 
     _scene.add(new THREE.AmbientLight(0xffffff, 0.6));
@@ -247,7 +250,8 @@ function _initThree() {
         const asp = rw / rh;
         const rCamH = _camHeightForAspect(asp);
         _camera.aspect = asp;
-        _camera.position.set(0, rCamH, rCamH * 0.25);
+        _camera.position.set(0, rCamH, rCamH * 0.15);
+        _scene.fog = new THREE.Fog(0x1a1a2e, rCamH * 1.5, rCamH * 4);
         _camera.updateProjectionMatrix();
         _renderer.setSize(rw, rh);
     };
