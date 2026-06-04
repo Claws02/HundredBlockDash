@@ -261,11 +261,11 @@ function _mkZone(pid, type, label) {
 // Returns the camera height needed to see the full arena on any screen aspect ratio.
 function _camHeightForAspect(aspect) {
     const vFovHalf = 30 * Math.PI / 180; // half of 60° FOV
-    const halfW = ARENA_W / 2 + 4; // 18
-    const halfD = ARENA_H / 2 + 4; // 24
+    const halfW = ARENA_W / 2 + 7; // 21 — extra margin; *1.2 safety factor for iOS viewport quirks
+    const halfD = ARENA_H / 2 + 7; // 27
     const hForWidth = halfW / (Math.tan(vFovHalf) * aspect);
     const hForDepth = halfD / Math.tan(vFovHalf);
-    return Math.max(50, Math.max(hForWidth, hForDepth));
+    return Math.max(50, Math.max(hForWidth, hForDepth) * 1.2);
 }
 
 function _initThree() {
