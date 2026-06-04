@@ -9,6 +9,7 @@ import * as Physics from './Physics.js';
 
 let scene, camera, renderer, clock;
 let boardGrp, diceGrp;
+let _prevActivePlayer = -1;
 const activeAnims   = [];
 const floatingIcons = [];
 const tileMeshes    = [];
@@ -165,12 +166,17 @@ export function init(container) {
     renderer.shadowMap.enabled = true;
     container.appendChild(renderer.domElement);
 
-    scene.add(new THREE.AmbientLight(0xffffff, 0.7));
-    const sun = new THREE.DirectionalLight(0xffffff, 1.2);
+    // 3-light rig: soft purple ambient + warm key + cool blue rim
+    scene.add(new THREE.AmbientLight(0x9977bb, isHBD ? 0.52 : 0.48));
+    const sun = new THREE.DirectionalLight(isHBD ? 0xfff4d0 : 0xffeedd, isHBD ? 1.05 : 0.95);
     sun.position.set(20, 60, 30); sun.castShadow = true;
     sun.shadow.camera.left = sun.shadow.camera.bottom = isHBD ? -30 : -80;
     sun.shadow.camera.right = sun.shadow.camera.top = isHBD ? 30 : 80;
+    sun.shadow.mapSize.width = sun.shadow.mapSize.height = 2048;
     scene.add(sun);
+    const rimLight = new THREE.DirectionalLight(0x4466ee, 0.36);
+    rimLight.position.set(-25, 15, -35);
+    scene.add(rimLight);
 
     boardGrp = new THREE.Group();
     diceGrp  = new THREE.Group();
@@ -240,22 +246,53 @@ function _buildPathTubes() {
 
 // ---- Tile texture ----
 
+function _drawRichTile(tcx, colorHex, borderHex, icon, label) {
+    const W = 256, H = 256;
+    const r = (colorHex >> 16) & 0xff, g = (colorHex >> 8) & 0xff, b = colorHex & 0xff;
+    const lr = Math.min(255, r + 48), lg = Math.min(255, g + 48), lb = Math.min(255, b + 48);
+    // Radial gradient: lighter center fading to base color
+    const grad = tcx.createRadialGradient(W * 0.5, H * 0.38, 0, W * 0.5, H * 0.5, W * 0.78);
+    grad.addColorStop(0, `rgb(${lr},${lg},${lb})`);
+    grad.addColorStop(1, `#${colorHex.toString(16).padStart(6, '0')}`);
+    tcx.fillStyle = grad; tcx.fillRect(0, 0, W, H);
+    // Vignette at corners
+    const vig = tcx.createRadialGradient(W/2, H/2, W * 0.28, W/2, H/2, W * 0.84);
+    vig.addColorStop(0, 'rgba(0,0,0,0)'); vig.addColorStop(1, 'rgba(0,0,0,0.42)');
+    tcx.fillStyle = vig; tcx.fillRect(0, 0, W, H);
+    // Top specular highlight
+    const topG = tcx.createLinearGradient(0, 0, 0, 58);
+    topG.addColorStop(0, 'rgba(255,255,255,0.14)'); topG.addColorStop(1, 'rgba(255,255,255,0)');
+    tcx.fillStyle = topG; tcx.fillRect(0, 0, W, 58);
+    // Outer border
+    tcx.strokeStyle = '#' + borderHex.toString(16).padStart(6, '0');
+    tcx.lineWidth = 11; tcx.strokeRect(6, 6, 244, 244);
+    // Inner white highlight border
+    tcx.strokeStyle = 'rgba(255,255,255,0.22)'; tcx.lineWidth = 2; tcx.strokeRect(14, 14, 228, 228);
+    // Icon with drop shadow
+    tcx.save();
+    tcx.textAlign = 'center'; tcx.textBaseline = 'middle';
+    tcx.shadowColor = 'rgba(0,0,0,0.88)'; tcx.shadowBlur = 18; tcx.shadowOffsetY = 5; tcx.shadowOffsetX = 2;
+    tcx.font = '90px serif'; tcx.fillText(icon, W / 2, 95);
+    tcx.restore();
+    // Label with drop shadow
+    tcx.save();
+    tcx.textAlign = 'center'; tcx.textBaseline = 'middle';
+    tcx.fillStyle = '#fff';
+    tcx.shadowColor = 'rgba(0,0,0,0.95)'; tcx.shadowBlur = 10; tcx.shadowOffsetY = 3;
+    tcx.font = 'bold 27px "Bebas Neue",sans-serif';
+    const words = label.split(' ');
+    if (words.length > 1) { tcx.fillText(words[0], W/2, 168); tcx.fillText(words.slice(1).join(' '), W/2, 200); }
+    else tcx.fillText(label, W / 2, 186);
+    tcx.restore();
+}
+
 function _getCachedTileTexture(spc, bInfo, overrideLabel, b) {
     const label = overrideLabel || spc.n;
-    const key   = `${spc.e}_${bInfo.floorEdge}_${spc.ic}_${label}_${b?.owner ?? ''}`;
+    const key   = `rich2_${spc.e}_${bInfo.floorEdge}_${spc.ic}_${label}_${b?.owner ?? ''}`;
     if (textureCache[key]) return textureCache[key];
     const tcx = document.createElement('canvas').getContext('2d');
     tcx.canvas.width = tcx.canvas.height = 256;
-    tcx.fillStyle = '#' + spc.e.toString(16).padStart(6, '0');
-    tcx.fillRect(0, 0, 256, 256);
-    tcx.strokeStyle = '#' + bInfo.floorEdge.toString(16).padStart(6, '0');
-    tcx.lineWidth = 14; tcx.strokeRect(7, 7, 242, 242);
-    tcx.textAlign = 'center'; tcx.textBaseline = 'middle';
-    tcx.font = '80px serif'; tcx.fillText(spc.ic, 128, 90);
-    tcx.font = 'bold 34px "Bebas Neue",sans-serif'; tcx.fillStyle = '#fff';
-    const words = label.split(' ');
-    if (words.length > 1) { tcx.fillText(words[0], 128, 168); tcx.fillText(words.slice(1).join(' '), 128, 208); }
-    else tcx.fillText(words[0], 128, 188);
+    _drawRichTile(tcx, spc.e, bInfo.floorEdge, spc.ic, label);
     const tex = new THREE.CanvasTexture(tcx.canvas);
     textureCache[key] = tex;
     return tex;
@@ -275,26 +312,16 @@ export function drawTiles() {
             const spc    = SPACE_META[b.type] || SPACE_META.coin;
             const bInfo  = getBiomeForSpace(i);
             const label  = b.type === 'player_trap' ? 'TOLL' : (isGate && state.gateOpen ? 'OPEN' : null);
-            const key    = `hbd_${spc.e}_${bInfo.floorEdge}_${spc.ic}_${label}_${b.owner ?? ''}`;
+            const key    = `rich2_hbd_${spc.e}_${bInfo.floorEdge}_${spc.ic}_${label}_${b.owner ?? ''}`;
             if (!textureCache[key]) {
                 const tcx = document.createElement('canvas').getContext('2d');
                 tcx.canvas.width = tcx.canvas.height = 256;
-                tcx.fillStyle = '#' + spc.e.toString(16).padStart(6, '0');
-                tcx.fillRect(0, 0, 256, 256);
-                tcx.strokeStyle = '#' + bInfo.floorEdge.toString(16).padStart(6, '0');
-                tcx.lineWidth = 14; tcx.strokeRect(7, 7, 242, 242);
-                tcx.textAlign = 'center'; tcx.textBaseline = 'middle';
-                tcx.font = '80px serif'; tcx.fillText(spc.ic, 128, 90);
-                tcx.font = 'bold 34px "Bebas Neue",sans-serif'; tcx.fillStyle = '#fff';
-                const lbl = label || spc.n;
-                const words = lbl.split(' ');
-                if (words.length > 1) { tcx.fillText(words[0], 128, 168); tcx.fillText(words.slice(1).join(' '), 128, 208); }
-                else tcx.fillText(words[0], 128, 188);
+                _drawRichTile(tcx, spc.e, bInfo.floorEdge, spc.ic, label || spc.n);
                 textureCache[key] = new THREE.CanvasTexture(tcx.canvas);
             }
             let emColor = isGate ? (state.gateOpen ? 0x22c55e : 0xb45309) : spc.e;
             if (b.type === 'player_trap') emColor = state.players[b.owner]?.color ?? 0xf97316;
-            const baseMat  = new THREE.MeshPhysicalMaterial({ map: textureCache[key], roughness: 0.3, metalness: 0.1, clearcoat: 0.2, emissive: emColor, emissiveIntensity: 0.45 });
+            const baseMat  = new THREE.MeshPhysicalMaterial({ map: textureCache[key], roughness: 0.22, metalness: 0.18, clearcoat: 0.45, clearcoatRoughness: 0.2, emissive: emColor, emissiveIntensity: 0.55 });
             const baseMesh = new THREE.Mesh(_hexGeo, baseMat);
             baseMesh.receiveShadow = true; baseMesh.castShadow = true;
             const pos = getPos(i).clone();
@@ -327,7 +354,7 @@ export function drawTiles() {
         if (b.type === 'player_trap') emColor = state.players[b.owner]?.color ?? 0xf97316;
         if (b.type === 'hq') emColor = 0xa37810;
 
-        const baseMat  = new THREE.MeshPhysicalMaterial({ map: tex, roughness: 0.3, metalness: 0.1, clearcoat: 0.2, emissive: emColor, emissiveIntensity: 0.45 });
+        const baseMat  = new THREE.MeshPhysicalMaterial({ map: tex, roughness: 0.22, metalness: 0.18, clearcoat: 0.45, clearcoatRoughness: 0.2, emissive: emColor, emissiveIntensity: 0.55 });
         const baseMesh = new THREE.Mesh(_hexGeo, baseMat);
         baseMesh.receiveShadow = true; baseMesh.castShadow = true;
         const pos = getPos(nodeId);
@@ -834,6 +861,21 @@ function _loop() {
 
     // Update ally follower positions
     state.players.forEach(p => { if (p.mesh) updateAllyPositions(p); });
+
+    // Active player emissive glow — traverse only on turn change
+    if (state.activePlayer !== _prevActivePlayer) {
+        _prevActivePlayer = state.activePlayer;
+        state.players.forEach((p, i) => {
+            if (!p.mesh) return;
+            const isActive = i === state.activePlayer;
+            p.mesh.traverse(o => {
+                if (o.isMesh && o.material && !o.material.isMeshBasicMaterial) {
+                    o.material.emissive = new THREE.Color(isActive ? p.color : 0x000000);
+                    o.material.emissiveIntensity = isActive ? 0.38 : 0;
+                }
+            });
+        });
+    }
 
     const cs = state.cameraState;
     if (cs === 'FOLLOW') {

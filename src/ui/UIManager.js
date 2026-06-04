@@ -443,8 +443,27 @@ export function initCoinDisplays() {
 }
 
 export function animateCoinDisplay(pid, target) {
+    const gained = target - _coinTargets[pid];
+    if (gained > 0) _spawnCoinParticles(pid, gained);
     _coinTargets[pid] = target;
     if (!_coinFrame) _coinFrame = requestAnimationFrame(_tickCoin);
+}
+
+function _spawnCoinParticles(pid, gained) {
+    const el = document.getElementById(`p${pid + 1}-coins`);
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const count = gained >= 8 ? 7 : gained >= 3 ? 5 : 3;
+    for (let i = 0; i < count; i++) {
+        const p = document.createElement('div');
+        p.className = 'coin-particle';
+        p.textContent = '🪙';
+        const tx = (Math.random() - 0.5) * 72;
+        const ty = -28 - Math.random() * 52;
+        p.style.cssText = `left:${rect.left + rect.width * 0.5}px;top:${rect.top + rect.height * 0.5}px;--tx:${tx.toFixed(1)}px;--ty:${ty.toFixed(1)}px;animation-delay:${i * 58}ms;`;
+        document.body.appendChild(p);
+        setTimeout(() => p.remove(), 900 + i * 60);
+    }
 }
 
 function _tickCoin() {
