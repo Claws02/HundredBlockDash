@@ -849,14 +849,10 @@ function _loop() {
                 fwd = new THREE.Vector3().subVectors(currPt, prevPt).normalize();
                 if (fwd.lengthSq() < 0.001) fwd.set(0, 0, -1);
             }
-            const tabletopFlip = state.playStyle === 'tabletop' && state.activePlayer === 1;
             const camOffset = -14;
             const camTgt = currPt.clone().addScaledVector(fwd, camOffset).add(new THREE.Vector3(0, 22, 0));
             if (!isNaN(camTgt.x)) camera.position.lerp(camTgt, 0.055);
             _camHelper.position.copy(camera.position);
-            // For tabletop P2: flip camera up vector so scene renders upside-down.
-            // CSS rotate(180deg) on the canvas corrects it, giving P2 the same view as P1.
-            _camHelper.up.set(0, tabletopFlip ? -1 : 1, 0);
             const lookTarget = state.selectedMap === 'hundred_block_dash'
                 ? currPt.clone().addScaledVector(fwd, 10)
                 : currPt.clone().add(new THREE.Vector3(0, 1, 0));
