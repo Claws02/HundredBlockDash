@@ -713,3 +713,265 @@ body { overscroll-behavior: none; -webkit-overflow-scrolling: auto; }
 .map-tag           { background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.2);
                      color: rgba(255,255,255,.75); font-family: 'Nunito'; font-size: 11px;
                      font-weight: 700; padding: 3px 10px; border-radius: 20px; }
+
+/* ============================================================
+   VISUAL POLISH — ALL PHASES
+   ============================================================ */
+
+/* --- Enhanced design tokens --- */
+:root {
+    --glass:          rgba(255,255,255,0.06);
+    --glass-border:   rgba(255,255,255,0.13);
+    --glow-gold:      0 0 24px rgba(245,200,66,0.55), 0 0 50px rgba(245,200,66,0.2);
+    --shadow-deep:    0 24px 64px rgba(0,0,0,0.75);
+    --transition-sm:  all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-md:  all 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* --- Logo shimmer animation --- */
+@keyframes titleShimmer {
+    0%,100% { text-shadow: 0 0 24px rgba(245,200,66,0.55), 0 0 48px rgba(245,200,66,0.12); }
+    50%     { text-shadow: 0 0 48px rgba(245,200,66,1.0),  0 0 96px rgba(245,200,66,0.45), 0 0 140px rgba(245,200,66,0.18); }
+}
+.stitle {
+    animation: titleShimmer 3.2s ease-in-out infinite;
+    letter-spacing: 3px;
+}
+
+/* --- Character card unique gradient backgrounds --- */
+.char-card { transition: var(--transition-sm); }
+.char-card[data-char="slime"]     { background: linear-gradient(145deg, #0c1e40, #0e4a80); border-color: rgba(59,130,246,0.5); }
+.char-card[data-char="ghost"]     { background: linear-gradient(145deg, #1a0a2e, #3a1555); border-color: rgba(168,85,247,0.5); }
+.char-card[data-char="boxy"]      { background: linear-gradient(145deg, #062232, #0d4a5f); border-color: rgba(6,182,212,0.5); }
+.char-card[data-char="bunny"]     { background: linear-gradient(145deg, #2e0a1e, #5f1540); border-color: rgba(244,114,182,0.5); }
+.char-card[data-char="cabbie"]    { background: linear-gradient(145deg, #2a1e00, #4a3800); border-color: rgba(251,191,36,0.5); }
+.char-card[data-char="vendor"]    { background: linear-gradient(145deg, #2e1100, #5c2500); border-color: rgba(249,115,22,0.5); }
+.char-card[data-char="banker"]    { background: linear-gradient(145deg, #0a1428, #162445); border-color: rgba(96,165,250,0.5); }
+.char-card[data-char="bodyguard"] { background: linear-gradient(145deg, #0a1612, #152b20); border-color: rgba(74,222,128,0.5); }
+.char-card[data-char="investor"]  { background: linear-gradient(145deg, #052216, #0a4028); border-color: rgba(34,197,94,0.5); }
+
+.char-card:active:not(.sel) { transform: scale(0.97); }
+.char-card.sel { transform: scale(1.04); }
+.char-icon {
+    font-size: 42px;
+    filter: drop-shadow(0 4px 8px rgba(0,0,0,0.6));
+    transition: transform 0.2s ease;
+    display: block;
+    margin-bottom: 6px;
+}
+.char-card.sel .char-icon { transform: scale(1.12); }
+
+/* --- HUD glassmorphism --- */
+.hud-bar {
+    background: rgba(10, 6, 22, 0.9) !important;
+    backdrop-filter: blur(16px) saturate(1.5);
+    -webkit-backdrop-filter: blur(16px) saturate(1.5);
+    transition: box-shadow 0.35s ease;
+}
+#hud-p1.active-turn {
+    box-shadow: 0 -5px 32px rgba(255,59,59,0.38), 0 -1px 0 rgba(255,59,59,0.7), inset 0 1px 0 rgba(255,59,59,0.12) !important;
+    border-top-color: rgba(255,59,59,0.9) !important;
+}
+#hud-p2.active-turn {
+    box-shadow: 0 5px 32px rgba(59,142,255,0.38), 0 1px 0 rgba(59,142,255,0.7), inset 0 -1px 0 rgba(59,142,255,0.12) !important;
+    border-bottom-color: rgba(59,142,255,0.9) !important;
+}
+
+/* --- Coin display polish --- */
+.hud-coins {
+    filter: drop-shadow(0 0 8px rgba(74,222,128,0.55));
+    letter-spacing: 1px;
+}
+
+/* --- Action buttons upgrade --- */
+.btn-action {
+    background: rgba(10,7,22,0.75) !important;
+    border: 1.5px solid rgba(255,255,255,0.28) !important;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    letter-spacing: 0.5px;
+    transition: var(--transition-sm) !important;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.07) !important;
+}
+.btn-action:active { transform: scale(0.93) !important; }
+.btn-action.roll-btn {
+    background: linear-gradient(150deg, #b37c0c, #f5c842, #ffe066) !important;
+    border: none !important;
+    color: #1a0a00 !important;
+    text-shadow: 0 1px 0 rgba(255,255,255,0.35);
+    box-shadow: 0 6px 26px rgba(245,200,66,0.58), 0 0 0 1px rgba(245,200,66,0.28), inset 0 1px 0 rgba(255,255,255,0.32) !important;
+    letter-spacing: 1px;
+}
+.btn-action.roll-btn:active {
+    box-shadow: 0 2px 12px rgba(245,200,66,0.45) !important;
+}
+.btn-action.map-btn {
+    background: linear-gradient(145deg, #122060, #1e3fa0) !important;
+    border: none !important;
+    box-shadow: 0 4px 18px rgba(59,130,246,0.42), inset 0 1px 0 rgba(255,255,255,0.1) !important;
+}
+
+/* --- Modal backdrop polish --- */
+#modal-overlay {
+    background: radial-gradient(ellipse at 50% 38%, rgba(28,8,58,0.93), rgba(0,0,0,0.96)) !important;
+    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(5px);
+}
+.modal-box {
+    background: rgba(12, 8, 26, 0.97) !important;
+    border: 1px solid rgba(255,255,255,0.13) !important;
+    box-shadow: 0 32px 80px rgba(0,0,0,0.88), 0 0 0 1px rgba(255,255,255,0.04), inset 0 1px 0 rgba(255,255,255,0.07) !important;
+}
+
+/* --- Mode select button polish --- */
+.sbtn {
+    background: rgba(12,8,26,0.65) !important;
+    border: 1.5px solid rgba(255,255,255,0.2) !important;
+    backdrop-filter: blur(10px);
+    transition: var(--transition-sm) !important;
+    box-shadow: 0 4px 18px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.05) !important;
+}
+.sbtn:active { transform: scale(0.97); }
+.sbtn.sel, .sbtn:hover {
+    border-color: var(--gold) !important;
+    background: rgba(245,200,66,0.13) !important;
+    box-shadow: 0 6px 26px rgba(245,200,66,0.28), inset 0 1px 0 rgba(255,255,255,0.07) !important;
+}
+
+/* --- Primary button upgrade --- */
+.btn-primary {
+    background: linear-gradient(150deg, #c47c0a, #f5c842, #ffe066) !important;
+    box-shadow: 0 8px 34px rgba(245,200,66,0.58), 0 0 0 1px rgba(245,200,66,0.22), inset 0 1px 0 rgba(255,255,255,0.3) !important;
+    letter-spacing: 1.5px;
+    transition: transform 0.12s ease, box-shadow 0.12s ease !important;
+}
+.btn-primary:active {
+    transform: scale(0.95) !important;
+    box-shadow: 0 3px 16px rgba(245,200,66,0.38) !important;
+}
+
+/* --- Toast upgrade --- */
+.toast {
+    background: rgba(8, 5, 18, 0.96) !important;
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    box-shadow: 0 10px 36px rgba(0,0,0,0.65), 0 0 24px rgba(0,0,0,0.3) !important;
+    font-size: 20px !important;
+    padding: 10px 22px !important;
+    letter-spacing: 0.5px;
+    border-width: 1.5px !important;
+}
+
+/* --- Map panel glassmorphism --- */
+.map-panel {
+    background: rgba(8, 5, 20, 0.93) !important;
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    border: 1px solid rgba(255,255,255,0.11) !important;
+    box-shadow: 0 22px 64px rgba(0,0,0,0.88), inset 0 1px 0 rgba(255,255,255,0.07) !important;
+}
+
+/* --- Round counter + contracts upgrade --- */
+#round-counter {
+    background: rgba(6,3,16,0.9) !important;
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(245,200,66,0.24) !important;
+    box-shadow: 0 4px 18px rgba(0,0,0,0.55) !important;
+}
+
+/* --- Space info card upgrade --- */
+#space-info-card {
+    background: rgba(8,4,20,0.93) !important;
+    backdrop-filter: blur(14px);
+    border: 1px solid rgba(255,255,255,0.15) !important;
+    box-shadow: 0 14px 44px rgba(0,0,0,0.75) !important;
+}
+
+/* --- Branch choice upgrade --- */
+.branch-card {
+    background: rgba(255,255,255,0.07) !important;
+    backdrop-filter: blur(10px);
+    transition: var(--transition-sm) !important;
+}
+.branch-card:active {
+    background: rgba(245,200,66,0.16) !important;
+    border-color: var(--gold) !important;
+    transform: scale(0.95) !important;
+}
+.branch-arrow {
+    font-size: 52px !important;
+    filter: drop-shadow(0 4px 14px rgba(0,0,0,0.55));
+}
+
+/* --- Gate overlay upgrade --- */
+.gate-title {
+    filter: drop-shadow(0 0 24px rgba(245,158,11,0.95));
+}
+
+/* --- Win screen polish --- */
+.win-crown {
+    font-size: 92px !important;
+    filter: drop-shadow(0 0 32px rgba(245,200,66,0.95)) drop-shadow(0 8px 18px rgba(0,0,0,0.65));
+    animation: crownBounce .65s ease backwards !important;
+}
+.win-name {
+    font-size: 58px !important;
+    filter: drop-shadow(0 0 22px rgba(245,200,66,0.75));
+}
+.win-card {
+    background: rgba(255,255,255,0.06) !important;
+    border: 1px solid rgba(255,255,255,0.13) !important;
+    backdrop-filter: blur(10px);
+}
+.win-card.winner-card {
+    border-color: var(--gold) !important;
+    background: rgba(245,200,66,0.11) !important;
+    box-shadow: 0 0 34px rgba(245,200,66,0.22), inset 0 1px 0 rgba(255,255,255,0.1) !important;
+}
+.win-card-score {
+    filter: drop-shadow(0 0 12px rgba(245,200,66,0.52));
+}
+
+/* --- Map card upgrade --- */
+.map-card {
+    background: rgba(12,8,26,0.62) !important;
+    backdrop-filter: blur(10px);
+    transition: var(--transition-sm) !important;
+    box-shadow: 0 4px 18px rgba(0,0,0,0.42) !important;
+}
+.map-card:active:not(.map-card-locked) { transform: scale(0.97) !important; }
+
+/* --- Coin particle animation --- */
+@keyframes coinParticleFly {
+    0%   { transform: translate(0,0) scale(1.25); opacity: 1; }
+    100% { transform: translate(var(--tx,0px), var(--ty,-55px)) scale(0.35); opacity: 0; }
+}
+.coin-particle {
+    position: fixed;
+    pointer-events: none;
+    z-index: 9999;
+    font-size: 17px;
+    animation: coinParticleFly 0.72s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    will-change: transform, opacity;
+}
+
+/* --- Splash title size boost on tall screens --- */
+@media (min-height: 700px) {
+    .stitle { font-size: 68px !important; }
+}
+
+/* --- Inv slot polish --- */
+.inv-slot {
+    background: rgba(255,255,255,0.11) !important;
+    border: 1px solid rgba(255,255,255,0.18) !important;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
+}
+
+/* --- Ally slot badge polish --- */
+.ally-slot-badge {
+    box-shadow: 0 0 10px rgba(74,222,128,0.25);
+}
+
+/* --- Hud name glow fix --- */
+.p1c { text-shadow: 0 0 14px rgba(255,59,59,0.7), 0 0 30px rgba(255,59,59,0.25) !important; }
+.p2c { text-shadow: 0 0 14px rgba(59,142,255,0.7), 0 0 30px rgba(59,142,255,0.25) !important; }
