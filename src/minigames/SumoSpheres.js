@@ -177,17 +177,14 @@ function _build() {
 
 // Returns the camera height needed to see the full arena on any screen aspect ratio.
 function _camHeightForAspect(aspect) {
-    const halfFovRad = 25 * Math.PI / 180; // half of 50° FOV
-    const r = ARENA_RADIUS + 4; // generous margin around the circle arena
-    // Fit the arena in BOTH horizontal (aspect-dependent) and vertical directions.
-    const hForWidth = r / (Math.tan(halfFovRad) * aspect);
-    const hForDepth = r / Math.tan(halfFovRad); // circle is same radius in all dirs
-    return Math.max(50, Math.max(hForWidth, hForDepth));
+    const vFovHalf = 30 * Math.PI / 180; // half of 60° FOV
+    const r = ARENA_RADIUS + 10; // generous margin; *1.2 safety factor for iOS viewport quirks
+    // Portrait (aspect<1): width is the tight dimension, compute height to fit it.
+    // Landscape (aspect>=1): clamp aspect to 1 so height stays reasonable.
+    return Math.max(40, (r / (Math.tan(vFovHalf) * Math.min(aspect, 1))) * 1.2);
 }
 
 function _initThree() {
-    // Use actual container dimensions — window.inner* can mismatch the fixed
-    // overlay on mobile (iOS Safari large-vs-small viewport height quirk).
     const w = _overlay.clientWidth  || window.innerWidth;
     const h = _overlay.clientHeight || window.innerHeight;
 
@@ -195,9 +192,12 @@ function _initThree() {
     _renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     _renderer.setSize(w, h);
     _renderer.shadowMap.enabled = true;
-    // inset:0 makes the canvas fill the container regardless of its DPR-scaled
-    // attribute dimensions, which would otherwise be 2-3× too large on Retina phones.
-    _renderer.domElement.style.cssText = 'position:absolute;inset:0;z-index:1;pointer-events:none;';
+    // Set only positional styles — do NOT use style.cssText which would wipe
+    // the width/height that setSize() wrote, leaving the canvas at its DPR-scaled
+    // attribute size (2-3× too large on Retina phones, clipped by overflow:hidden).
+    const cs = _renderer.domElement.style;
+    cs.position = 'absolute'; cs.top = '0'; cs.left = '0';
+    cs.zIndex = '1'; cs.pointerEvents = 'none';
     _overlay.insertBefore(_renderer.domElement, _overlay.firstChild);
 
     _scene = new THREE.Scene();
@@ -205,10 +205,10 @@ function _initThree() {
 
     const aspect = w / h;
     const camH = _camHeightForAspect(aspect);
-    // Scale fog with camera height so it never clips the arena on narrow screens
     _scene.fog = new THREE.Fog(0x1a1a2e, camH * 1.5, camH * 4);
-    _camera = new THREE.PerspectiveCamera(50, aspect, 0.1, camH * 5);
-    _camera.position.set(0, camH, camH * 0.15);
+    // 60° FOV; camera straight overhead — no z-offset, simpler geometry.
+    _camera = new THREE.PerspectiveCamera(60, aspect, 0.1, camH * 6);
+    _camera.position.set(0, camH, 0);
     _camera.lookAt(0, 0, 0);
 
     _scene.add(new THREE.AmbientLight(0xffffff, 0.6));
@@ -256,7 +256,7 @@ function _initThree() {
         const asp = rw / rh;
         const rCamH = _camHeightForAspect(asp);
         _camera.aspect = asp;
-        _camera.position.set(0, rCamH, rCamH * 0.15);
+        _camera.position.set(0, rCamH, 0);
         _scene.fog = new THREE.Fog(0x1a1a2e, rCamH * 1.5, rCamH * 4);
         _camera.updateProjectionMatrix();
         _renderer.setSize(rw, rh);
