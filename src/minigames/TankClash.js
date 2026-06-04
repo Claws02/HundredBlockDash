@@ -133,7 +133,7 @@ function _build() {
         joyBase.style.cssText = [
             `width:${JOY_R*2}px;height:${JOY_R*2}px;border-radius:50%;`,
             'background:rgba(255,255,255,0.05);border:2px solid rgba(255,255,255,0.15);',
-            'position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);pointer-events:none;',
+            'position:absolute;left:50%;top:65%;transform:translate(-50%,-50%);pointer-events:none;',
         ].join('');
         const joyKnob = document.createElement('div');
         const kColor = pid === 0 ? '#ff3b3b' : '#3b8eff';
@@ -167,9 +167,9 @@ function _build() {
         const hpRow = document.createElement('div');
         hpRow.id = `tc-hp-${pid}`;
         hpRow.style.cssText = [
-            'position:absolute;left:50%;transform:translateX(-50%);',
-            pid === 0 ? 'top:8px;' : 'bottom:8px;',
-            'display:flex;gap:8px;pointer-events:none;z-index:10;',
+            'position:absolute;left:12px;',
+            pid === 0 ? 'top:12px;' : 'bottom:12px;',
+            'display:flex;flex-direction:column;gap:6px;pointer-events:none;z-index:10;',
         ].join('');
         for (let i = 0; i < 3; i++) {
             const pip = document.createElement('div');
@@ -261,11 +261,11 @@ function _mkZone(pid, type, label) {
 // Returns the camera height needed to see the full arena on any screen aspect ratio.
 function _camHeightForAspect(aspect) {
     const vFovHalf = 30 * Math.PI / 180; // half of 60° FOV
-    const halfW = ARENA_W / 2 + 7; // 21 — extra margin; *1.2 safety factor for iOS viewport quirks
-    const halfD = ARENA_H / 2 + 7; // 27
+    const halfW = ARENA_W / 2 + 5; // comfortable margin; *1.1 safety for iOS quirks
+    const halfD = ARENA_H / 2 + 5;
     const hForWidth = halfW / (Math.tan(vFovHalf) * aspect);
     const hForDepth = halfD / Math.tan(vFovHalf);
-    return Math.max(50, Math.max(hForWidth, hForDepth) * 1.2);
+    return Math.max(50, Math.max(hForWidth, hForDepth) * 1.1);
 }
 
 function _initThree() {

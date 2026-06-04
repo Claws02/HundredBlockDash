@@ -178,10 +178,10 @@ function _build() {
 // Returns the camera height needed to see the full arena on any screen aspect ratio.
 function _camHeightForAspect(aspect) {
     const vFovHalf = 30 * Math.PI / 180; // half of 60° FOV
-    const r = ARENA_RADIUS + 10; // generous margin; *1.2 safety factor for iOS viewport quirks
+    const r = ARENA_RADIUS + 7; // arena radius + comfortable margin; *1.1 safety for iOS quirks
     // Portrait (aspect<1): width is the tight dimension, compute height to fit it.
     // Landscape (aspect>=1): clamp aspect to 1 so height stays reasonable.
-    return Math.max(40, (r / (Math.tan(vFovHalf) * Math.min(aspect, 1))) * 1.2);
+    return Math.max(40, (r / (Math.tan(vFovHalf) * Math.min(aspect, 1))) * 1.1);
 }
 
 function _initThree() {
