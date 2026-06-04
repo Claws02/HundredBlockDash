@@ -260,17 +260,15 @@ function _mkZone(pid, type, label) {
 
 // Returns the camera height needed to see the full arena on any screen aspect ratio.
 function _camHeightForAspect(aspect) {
-    const halfFovRad = 27.5 * Math.PI / 180; // half of 55° FOV
-    const halfW = ARENA_W / 2 + 3; // 17 — fit width in horizontal FOV
-    const halfD = ARENA_H / 2 + 3; // 23 — fit depth in vertical FOV (ARENA_H=40 is taller than wide)
-    const hForWidth = halfW / (Math.tan(halfFovRad) * aspect);
-    const hForDepth = halfD / Math.tan(halfFovRad);
-    return Math.max(60, Math.max(hForWidth, hForDepth));
+    const vFovHalf = 30 * Math.PI / 180; // half of 60° FOV
+    const halfW = ARENA_W / 2 + 4; // 18
+    const halfD = ARENA_H / 2 + 4; // 24
+    const hForWidth = halfW / (Math.tan(vFovHalf) * aspect);
+    const hForDepth = halfD / Math.tan(vFovHalf);
+    return Math.max(50, Math.max(hForWidth, hForDepth));
 }
 
 function _initThree() {
-    // Use actual container dimensions — window.inner* can mismatch the fixed
-    // overlay on mobile (iOS Safari large-vs-small viewport height quirk).
     const w = _overlay.clientWidth  || window.innerWidth;
     const h = _overlay.clientHeight || window.innerHeight;
 
@@ -278,9 +276,12 @@ function _initThree() {
     _renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     _renderer.setSize(w, h);
     _renderer.shadowMap.enabled = true;
-    // inset:0 makes the canvas fill the container regardless of its DPR-scaled
-    // attribute dimensions, which would otherwise be 2-3× too large on Retina phones.
-    _renderer.domElement.style.cssText = 'position:absolute;inset:0;z-index:1;pointer-events:none;';
+    // Set only positional styles — do NOT use style.cssText which would wipe
+    // the width/height that setSize() wrote, leaving the canvas at its DPR-scaled
+    // attribute size (2-3× too large on Retina phones, clipped by overflow:hidden).
+    const cs = _renderer.domElement.style;
+    cs.position = 'absolute'; cs.top = '0'; cs.left = '0';
+    cs.zIndex = '1'; cs.pointerEvents = 'none';
     _overlay.insertBefore(_renderer.domElement, _overlay.firstChild);
 
     _scene = new THREE.Scene();
@@ -288,8 +289,9 @@ function _initThree() {
 
     const aspect = w / h;
     const camH = _camHeightForAspect(aspect);
-    _camera = new THREE.PerspectiveCamera(55, aspect, 0.1, 500);
-    _camera.position.set(0, camH, camH * 0.15);
+    // 60° FOV; camera straight overhead — no z-offset, simpler geometry.
+    _camera = new THREE.PerspectiveCamera(60, aspect, 0.1, 500);
+    _camera.position.set(0, camH, 0);
     _camera.lookAt(0, 0, 0);
 
     _scene.add(new THREE.AmbientLight(0xffffff, 0.5));
@@ -354,7 +356,7 @@ function _initThree() {
         const asp = rw / rh;
         const rCamH = _camHeightForAspect(asp);
         _camera.aspect = asp;
-        _camera.position.set(0, rCamH, rCamH * 0.15);
+        _camera.position.set(0, rCamH, 0);
         _camera.updateProjectionMatrix();
         _renderer.setSize(rw, rh);
     };
