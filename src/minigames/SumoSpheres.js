@@ -195,8 +195,9 @@ function _initThree() {
     _renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     _renderer.setSize(w, h);
     _renderer.shadowMap.enabled = true;
-    // top/left only — let setSize() own the CSS width/height so they match the buffer.
-    _renderer.domElement.style.cssText = 'position:absolute;top:0;left:0;z-index:1;pointer-events:none;';
+    // inset:0 makes the canvas fill the container regardless of its DPR-scaled
+    // attribute dimensions, which would otherwise be 2-3× too large on Retina phones.
+    _renderer.domElement.style.cssText = 'position:absolute;inset:0;z-index:1;pointer-events:none;';
     _overlay.insertBefore(_renderer.domElement, _overlay.firstChild);
 
     _scene = new THREE.Scene();
