@@ -26,6 +26,7 @@ let _branchChoiceCallback = null;
 let _allyMgCallback       = null;
 let _duelMgCallback       = null;
 let _pendingStepsAfterGate = 0;
+let _rollAgainActive = false;
 
 // ============================================================
 // FLOW ENTRY POINTS
@@ -759,14 +760,17 @@ export function resolveMsgModal() {
 }
 
 export function finishTurn() {
-    state.totalTurns++;
-    // Tick ally timers for the active player
-    _tickAllyTurns(state.activePlayer);
+    if (!_rollAgainActive) {
+        state.totalTurns++;
+        _tickAllyTurns(state.activePlayer);
+    }
+    _rollAgainActive = false;
 
     if (state.rollAgainPending) {
         state.rollAgainPending = false;
         state.rollAgainSamePlayer = true;
-        maybeTriggerMinigame();
+        _rollAgainActive = true; // next finishTurn skips totalTurns++ so minigame count isn't skewed
+        proceedTurn(); // let the player re-roll; minigame check fires after that turn completes
         return;
     }
     state.rollAgainSamePlayer = false;
