@@ -854,13 +854,11 @@ function _loop() {
             const camTgt = currPt.clone().addScaledVector(fwd, camOffset).add(new THREE.Vector3(0, 22, 0));
             if (!isNaN(camTgt.x)) camera.position.lerp(camTgt, 0.055);
             _camHelper.position.copy(camera.position);
-            // Look ahead of the player; flip look direction for P2 in tabletop so the
-            // CSS-rotated canvas shows the track running away correctly.
-            const lookAhead = (state.selectedMap === 'hundred_block_dash')
-                ? (tabletopFlip ? -10 : 10)
-                : 0;
+            // For tabletop P2: flip camera up vector so scene renders upside-down.
+            // CSS rotate(180deg) on the canvas corrects it, giving P2 the same view as P1.
+            _camHelper.up.set(0, tabletopFlip ? -1 : 1, 0);
             const lookTarget = state.selectedMap === 'hundred_block_dash'
-                ? currPt.clone().addScaledVector(fwd, lookAhead)
+                ? currPt.clone().addScaledVector(fwd, 10)
                 : currPt.clone().add(new THREE.Vector3(0, 1, 0));
             _camHelper.lookAt(lookTarget);
             camera.quaternion.slerp(_camHelper.quaternion, 0.07);
