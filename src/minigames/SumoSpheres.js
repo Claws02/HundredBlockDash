@@ -186,13 +186,17 @@ function _camHeightForAspect(aspect) {
 }
 
 function _initThree() {
-    const w = window.innerWidth, h = window.innerHeight;
+    // Use actual container dimensions — window.inner* can mismatch the fixed
+    // overlay on mobile (iOS Safari large-vs-small viewport height quirk).
+    const w = _overlay.clientWidth  || window.innerWidth;
+    const h = _overlay.clientHeight || window.innerHeight;
 
     _renderer = new THREE.WebGLRenderer({ antialias: true });
     _renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     _renderer.setSize(w, h);
     _renderer.shadowMap.enabled = true;
-    _renderer.domElement.style.cssText = 'position:absolute;inset:0;z-index:1;pointer-events:none;';
+    // top/left only — let setSize() own the CSS width/height so they match the buffer.
+    _renderer.domElement.style.cssText = 'position:absolute;top:0;left:0;z-index:1;pointer-events:none;';
     _overlay.insertBefore(_renderer.domElement, _overlay.firstChild);
 
     _scene = new THREE.Scene();
@@ -246,7 +250,8 @@ function _initThree() {
 
     const onResize = () => {
         if (!_camera || !_renderer) return;
-        const rw = window.innerWidth, rh = window.innerHeight;
+        const rw = _overlay.clientWidth  || window.innerWidth;
+        const rh = _overlay.clientHeight || window.innerHeight;
         const asp = rw / rh;
         const rCamH = _camHeightForAspect(asp);
         _camera.aspect = asp;
