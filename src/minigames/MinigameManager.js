@@ -162,7 +162,18 @@ function _startMinigameLayer() {
     clearTimeout(_botReadyTimeout); _botReadyTimeout = null;
     _countdownActive = false;
     state.gameState = 'MINIGAME';
-    document.getElementById('minigame-layer').style.display = 'flex';
+
+    // Sweep any orphaned game overlay left by a force-ended minigame.
+    // Game overlays (appended by each module's _build/_buildDOM) have no element ID;
+    // every permanent child of #minigame-layer does. Removing ID-less children
+    // prevents the previous game's end-state from reappearing as a ghost.
+    const layer = document.getElementById('minigame-layer');
+    Array.from(layer.children).filter(el => !el.id).forEach(el => el.remove());
+    // Also ensure a stale countdown element is hidden.
+    const cd = document.getElementById('mg-countdown');
+    if (cd) cd.style.display = 'none';
+
+    layer.style.display = 'flex';
     state.mgReady  = [false, false];
     state.mgActive = false;
 
@@ -236,13 +247,15 @@ async function _launchGame() {
     try {
         const loader = MG_MODULES[state.mgType] || MG_MODULES.math;
         const mod    = await loader();
+        // RhythmForge legitimately takes ~57 s (3 rounds × 2 players + transitions).
+        // 90 s gives every game a comfortable safety margin.
         _minigameTimeout = setTimeout(() => {
             if (state.gameState === 'MINIGAME' && state.mgActive) {
                 document.getElementById('mg-neutral').textContent = 'TIME\'S UP! TIE!';
                 sfx('land_bad');
                 winMinigame(-1);
             }
-        }, 45000);
+        }, 90000);
         mod.start(state.players[1].isBot, winMinigame);
     } catch (e) {
         console.error('[MinigameManager] _launchGame failed:', e);
