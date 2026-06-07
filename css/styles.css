@@ -585,18 +585,31 @@ body { overscroll-behavior: none; -webkit-overflow-scrolling: auto; }
 .branch-header { text-align: center; }
 .branch-title { font-size: 36px; color: var(--gold); letter-spacing: 3px; text-shadow: 0 0 20px rgba(245,200,66,.7); }
 .branch-subtitle { font-family: 'Nunito'; font-size: 14px; color: rgba(255,255,255,.5); letter-spacing: 1px; text-transform: uppercase; margin-top: 4px; }
-.branch-cards { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; width: 100%; max-width: 480px; }
+.branch-cards { display: flex; flex-direction: column; gap: 12px; width: 100%; max-width: 440px; }
 .branch-card {
-    flex: 1; min-width: 130px; max-width: 160px;
-    background: rgba(255,255,255,.08); border: 2px solid rgba(255,255,255,.3);
-    color: #fff; border-radius: 20px; padding: 18px 12px; cursor: pointer;
-    display: flex; flex-direction: column; align-items: center; gap: 8px;
-    transition: background .15s, border-color .15s, transform .1s;
+    display: flex; flex-direction: row; align-items: center; gap: 16px;
+    width: 100%; padding: 16px 18px; cursor: pointer; color: #fff;
+    background: rgba(255,255,255,.09);
+    border: 2px solid rgba(255,255,255,.15);
+    border-left: 5px solid var(--bc, #94a3b8);
+    border-radius: 16px;
+    transition: background .15s, transform .1s;
+    text-align: left;
 }
-.branch-card:active { transform: scale(.95); background: rgba(245,200,66,.2); border-color: var(--gold); }
-.branch-arrow { font-size: 48px; line-height: 1; }
-.branch-label { font-size: 16px; letter-spacing: 1px; color: var(--gold); text-align: center; line-height: 1.2; }
-.branch-desc { font-family: 'Nunito'; font-size: 11px; color: rgba(255,255,255,.55); text-align: center; line-height: 1.4; }
+.branch-card:active { transform: scale(.97); background: rgba(255,255,255,.18); }
+/* district accent colors */
+.branch-ring  { --bc: #94a3b8; }
+.branch-fin   { --bc: #3b82f6; }
+.branch-ba    { --bc: #ef4444; }
+.branch-shop  { --bc: #ec4899; }
+.branch-ind   { --bc: #eab308; }
+.bc-icon    { font-size: 44px; flex-shrink: 0; line-height: 1; }
+.bc-body    { display: flex; flex-direction: column; gap: 5px; flex: 1; }
+.bc-name    { font-size: 21px; letter-spacing: 1px; color: var(--bc, #fff); line-height: 1.1; }
+.bc-details { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.bc-spaces  { font-family: 'Nunito'; font-size: 13px; font-weight: 700; color: rgba(255,255,255,.9); background: rgba(255,255,255,.14); padding: 2px 9px; border-radius: 8px; white-space: nowrap; }
+.bc-desc    { font-family: 'Nunito'; font-size: 13px; color: rgba(255,255,255,.62); }
+.bc-chev    { font-size: 28px; color: var(--bc, #fff); opacity: .65; flex-shrink: 0; line-height: 1; }
 
 /* --- Duel Modal --- */
 .duel-bet-options { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin-bottom: 8px; }
@@ -887,21 +900,8 @@ body { overscroll-behavior: none; -webkit-overflow-scrolling: auto; }
     box-shadow: 0 14px 44px rgba(0,0,0,0.75) !important;
 }
 
-/* --- Branch choice upgrade --- */
-.branch-card {
-    background: rgba(255,255,255,0.07) !important;
-    backdrop-filter: blur(10px);
-    transition: var(--transition-sm) !important;
-}
-.branch-card:active {
-    background: rgba(245,200,66,0.16) !important;
-    border-color: var(--gold) !important;
-    transform: scale(0.95) !important;
-}
-.branch-arrow {
-    font-size: 52px !important;
-    filter: drop-shadow(0 4px 14px rgba(0,0,0,0.55));
-}
+/* --- Branch choice — backdrop blur --- */
+.branch-card { backdrop-filter: blur(8px); }
 
 /* --- Gate overlay upgrade --- */
 .gate-title {

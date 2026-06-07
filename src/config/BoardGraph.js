@@ -20,20 +20,20 @@ export const DISTRICT_KEYS = ['fin', 'ba', 'shop', 'ind'];
 // Branch junction descriptions shown in the path-choice UI
 export const BRANCH_OPTIONS = {
     bp_a: [
-        { nodeId: 'r1',    label: 'Ring Road',           desc: '5 spaces — safe & steady',               arrow: '↗' },
-        { nodeId: 'fin_0', label: 'Financial District',  desc: '10 spaces — high risk, high reward',     arrow: '↑' },
+        { nodeId: 'r1',    label: 'Ring Road',          desc: 'Safe & consistent',         icon: '🛣️', district: 'ring', spaces: 5  },
+        { nodeId: 'fin_0', label: 'Financial District', desc: 'High risk, high reward',    icon: '💹', district: 'fin',  spaces: 10 },
     ],
     bp_b: [
-        { nodeId: 'r6',   label: 'Ring Road',           desc: '5 spaces — safe & steady',               arrow: '↘' },
-        { nodeId: 'ba_0', label: 'Back Alley',          desc: '12 spaces — traps & shortcuts',          arrow: '→' },
+        { nodeId: 'r6',   label: 'Ring Road',           desc: 'Safe & consistent',         icon: '🛣️', district: 'ring', spaces: 5  },
+        { nodeId: 'ba_0', label: 'Back Alley',          desc: 'Traps & shortcuts',         icon: '🏚️', district: 'ba',   spaces: 12 },
     ],
     bp_c: [
-        { nodeId: 'r11',    label: 'Ring Road',           desc: '5 spaces — safe & steady',               arrow: '↙' },
-        { nodeId: 'shop_0', label: 'Shopping Promenade',  desc: '10 spaces — mystery & coin friendly',    arrow: '↓' },
+        { nodeId: 'r11',    label: 'Ring Road',          desc: 'Safe & consistent',         icon: '🛣️', district: 'ring', spaces: 5  },
+        { nodeId: 'shop_0', label: 'Shopping Promenade', desc: 'Coins & mystery spaces',    icon: '🛍️', district: 'shop', spaces: 10 },
     ],
     bp_d: [
-        { nodeId: 'r16',   label: 'Ring Road',           desc: '5 spaces — safe & steady',               arrow: '↖' },
-        { nodeId: 'ind_0', label: 'Industrial Zone 🔒',  desc: '8 spaces — locked by The Gate',          arrow: '←' },
+        { nodeId: 'r16',   label: 'Ring Road',          desc: 'Safe & consistent',          icon: '🛣️', district: 'ring', spaces: 5 },
+        { nodeId: 'ind_0', label: 'Industrial Zone',    desc: 'Locked by The Gate 🔒',      icon: '⚙️', district: 'ind',  spaces: 8 },
     ],
 };
 
