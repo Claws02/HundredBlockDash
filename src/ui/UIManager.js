@@ -6,7 +6,7 @@
 import { state } from '../core/GameState.js';
 import { ITEMS, ALLIES, SPACE_META, SPACE_DESCS, DISTRICT_BIOMES, HQ_META } from '../config/GameConfig.js';
 import { CITY_GRAPH, ALL_NODES_ORDERED, BRANCH_OPTIONS, JUNCTION_IDS, DISTRICT_NAMES } from '../config/BoardGraph.js';
-import { getPos, getTileMeshes, setMapCameraTarget, mapCamera, onResize, getCamera } from '../engine/Renderer.js';
+import { getPos, getTileMeshes, setMapCameraTarget, setHBDOverviewCamera, mapCamera, onResize, getCamera } from '../engine/Renderer.js';
 
 let _controller = null;
 const _coinTargets = [0, 0];
@@ -312,13 +312,17 @@ export function hideSpaceInfoCard() { document.getElementById('space-info-card')
 
 export function openMap() {
     if (state.selectedMap === 'hundred_block_dash') {
-        toast('No map view in Hundred Block Dash — just keep rolling!', '#60a5fa');
+        _openHBDMap();
         return;
     }
     state.gameState  = 'MAP';
     state.cameraState = 'MAP';
     document.getElementById('ui-layer').style.display = 'none';
     document.getElementById('map-ui').style.display   = 'flex';
+
+    document.querySelector('#map-ui .map-title').textContent = '🗺️ CITY MAP';
+    document.getElementById('map-drag-hint').textContent = '👆 Drag the 3D board to explore · Tap a tile for details';
+    document.querySelector('.map-labels').innerHTML = '<span>START</span><span>DISTRICTS</span><span>LOOP</span>';
 
     const playerPos = state.players[state.activePlayer].pos;
     const posIdx    = ALL_NODES_ORDERED.indexOf(playerPos);
@@ -328,6 +332,34 @@ export function openMap() {
     document.getElementById('map-tooltip').style.display = 'none';
     setMapCameraTarget(posIdx >= 0 ? posIdx : 0, 50, 20);
     updateMapSlider();
+}
+
+function _openHBDMap() {
+    state.gameState   = 'MAP';
+    state.cameraState = 'MAP';
+    document.getElementById('ui-layer').style.display = 'none';
+    document.getElementById('map-ui').style.display   = 'flex';
+
+    document.querySelector('#map-ui .map-title').textContent = '🗺️ BOARD MAP';
+    document.getElementById('map-drag-hint').textContent = '👆 Drag to explore · Tap a space for details';
+    document.querySelector('.map-labels').innerHTML = '<span>START</span><span>MIDWAY</span><span>FINISH</span>';
+
+    const playerPos = typeof state.players[state.activePlayer].pos === 'number'
+        ? state.players[state.activePlayer].pos : 0;
+    const slider = document.getElementById('map-slider');
+    slider.max   = 99;
+    slider.value = playerPos;
+    document.getElementById('map-tooltip').style.display = 'none';
+
+    setHBDOverviewCamera();
+    _updateHBDMapCounter(playerPos);
+}
+
+function _updateHBDMapCounter(idx) {
+    const space = Array.isArray(state.board) ? state.board[idx] : null;
+    const type  = space?.type || 'coin';
+    const meta  = SPACE_META[type] || { ic: '❓', n: type };
+    document.getElementById('map-counter').textContent = `Space ${idx}: ${meta.ic} ${meta.n}`;
 }
 
 export function closeMap() {
@@ -341,9 +373,14 @@ export function closeMap() {
 }
 
 export function updateMapSlider() {
-    const val    = parseInt(document.getElementById('map-slider').value);
-    setMapCameraTarget(val, 40, 25);
+    const val = parseInt(document.getElementById('map-slider').value);
     document.getElementById('map-tooltip').style.display = 'none';
+    if (state.selectedMap === 'hundred_block_dash') {
+        setMapCameraTarget(val, 40, 20);
+        _updateHBDMapCounter(val);
+        return;
+    }
+    setMapCameraTarget(val, 40, 25);
     const nodeId = ALL_NODES_ORDERED[val];
     const node   = nodeId ? CITY_GRAPH[nodeId] : null;
     const label  = node ? (DISTRICT_BIOMES[node.district]?.name || DISTRICT_NAMES[node.district] || node.district) : '—';
@@ -385,19 +422,37 @@ function _wireMapEvents() {
         mouse.x = (e.clientX / W) * 2 - 1;
         mouse.y = -(e.clientY / H) * 2 + 1;
         raycaster.setFromCamera(mouse, getCamera());
-        const hits = raycaster.intersectObjects(getTileMeshes());
+        const hits = raycaster.intersectObjects(getTileMeshes(), true);
         const tt   = document.getElementById('map-tooltip');
         if (hits.length > 0) {
-            const td     = hits[0].object.userData;
-            const nodeId = td.nodeId;
-            if (!nodeId) { tt.style.display = 'none'; return; }
-            const node   = CITY_GRAPH[nodeId];
-            const tile   = state.board[nodeId];
-            const type   = tile?.type || node?.type || 'coin';
-            const meta   = SPACE_META[type] || { ic: '❓', n: type, c: 0xffffff };
-            const cStr   = meta.c.toString(16).padStart(6, '0');
-            const dist   = node ? (DISTRICT_BIOMES[node.district]?.name || DISTRICT_NAMES[node.district] || '') : '';
-            tt.innerHTML = `<span style="color:#${cStr}">${meta.ic} ${meta.n}</span><br><span class="map-dist">${dist}</span>`;
+            const td = hits[0].object.userData;
+
+            if (state.selectedMap === 'hundred_block_dash') {
+                const idx = td.idx;
+                if (idx === undefined) { tt.style.display = 'none'; return; }
+                const space  = Array.isArray(state.board) ? state.board[idx] : null;
+                const type   = space?.type || 'coin';
+                const meta   = SPACE_META[type] || { ic: '❓', n: type, c: 0xffffff };
+                const cStr   = meta.c.toString(16).padStart(6, '0');
+                const playerPos = typeof state.players[state.activePlayer].pos === 'number'
+                    ? state.players[state.activePlayer].pos : 0;
+                const dist = idx - playerPos;
+                const distLabel = dist === 0 ? 'YOU ARE HERE'
+                    : dist > 0 ? `${dist} space${dist !== 1 ? 's' : ''} ahead`
+                    : `${-dist} space${-dist !== 1 ? 's' : ''} behind`;
+                tt.innerHTML = `<span style="color:#${cStr}">${meta.ic} ${meta.n}</span><br><span class="map-dist">Space ${idx} · ${distLabel}</span>`;
+            } else {
+                const nodeId = td.nodeId;
+                if (!nodeId) { tt.style.display = 'none'; return; }
+                const node   = CITY_GRAPH[nodeId];
+                const tile   = state.board[nodeId];
+                const type   = tile?.type || node?.type || 'coin';
+                const meta   = SPACE_META[type] || { ic: '❓', n: type, c: 0xffffff };
+                const cStr   = meta.c.toString(16).padStart(6, '0');
+                const dist   = node ? (DISTRICT_BIOMES[node.district]?.name || DISTRICT_NAMES[node.district] || '') : '';
+                tt.innerHTML = `<span style="color:#${cStr}">${meta.ic} ${meta.n}</span><br><span class="map-dist">${dist}</span>`;
+            }
+
             tt.style.left = Math.min(Math.max(e.clientX, 120), W - 120) + 'px';
             tt.style.top  = Math.min(e.clientY, H - 80) + 'px';
             tt.style.display = 'block';

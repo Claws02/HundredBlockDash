@@ -805,9 +805,24 @@ const mapCam = {
 export const mapCamera = mapCam;
 
 export function setMapCameraTarget(nodeId, offsetY = 50, offsetZ = 30) {
-    const pt = typeof nodeId === 'string' ? getPos(nodeId) : (nodePositions.get(ALL_NODES_ORDERED[nodeId]) || new THREE.Vector3());
+    let pt;
+    if (typeof nodeId === 'string') {
+        pt = getPos(nodeId);
+    } else if (Array.isArray(state.board)) {
+        pt = getPos(Math.max(0, Math.min(nodeId, 99)));
+    } else {
+        pt = nodePositions.get(ALL_NODES_ORDERED[nodeId]) || new THREE.Vector3();
+    }
     mapCam.targetPos.copy(pt).add(new THREE.Vector3(0, offsetY, offsetZ));
     mapCam.targetLook.copy(pt);
+    mapCam.dragCamStart.copy(mapCam.targetPos);
+    mapCam.dragLookStart.copy(mapCam.targetLook);
+}
+
+export function setHBDOverviewCamera() {
+    // HBD board spans x:[-60,60], z:[0,-400]; show from above looking toward mid-point
+    mapCam.targetPos.set(0, 240, 80);
+    mapCam.targetLook.set(0, 0, -170);
     mapCam.dragCamStart.copy(mapCam.targetPos);
     mapCam.dragLookStart.copy(mapCam.targetLook);
 }

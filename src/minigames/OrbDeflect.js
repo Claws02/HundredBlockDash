@@ -196,7 +196,7 @@ function _distToSegment(x1, y1, x2, y2, px, py) {
 }
 
 function _spawnOrb() {
-    const speed = _ch * 0.4;
+    const speed = _ch * 0.65;
     const angle = Math.random() * Math.PI * 2;
     _gs.orbs.push({
         x: _cw / 2, y: _ch / 2,
@@ -312,7 +312,7 @@ function _update(dt) {
                     orb.vy = (orb.vy - 2*dot*ny) * 1.05;
                     // Speed cap to prevent runaway acceleration
                     const spd = Math.hypot(orb.vx, orb.vy);
-                    const maxSpd = _ch * 0.9;
+                    const maxSpd = _ch * 1.4;
                     if (spd > maxSpd) { orb.vx = orb.vx/spd*maxSpd; orb.vy = orb.vy/spd*maxSpd; }
                     orb.x += nx * (orb.r - hit.d + 2);
                     orb.y += ny * (orb.r - hit.d + 2);
