@@ -450,7 +450,7 @@ function _offerBranchChoice(junctionId, onChosen) {
     // Check if Industrial path is locked
     const displayOptions = options.map(opt => {
         if (opt.nodeId === 'ind_0' && !state.gateOpen) {
-            return { ...opt, label: 'Industrial Zone 🔒', desc: '8 spaces — locked by The Gate' };
+            return { ...opt, label: 'Industrial Zone', desc: 'Locked by The Gate 🔒' };
         }
         return opt;
     });
@@ -1414,6 +1414,7 @@ function _startDuel(p, betAmount) {
         _checkContract(winner, 'duel_win');
         state.pendingDuelBet = 0;
         state.gameState = 'ACKNOWLEDGE';
+        Renderer.startPostMinigameFlyover(() => { state.cameraState = 'FOLLOW'; });
         setTimeout(finishTurn, 800);
     });
 }

@@ -154,10 +154,10 @@ export function hideBranchChoice() {
 export function showCabbieJunctionPicker(callback) {
     _pathChoiceCb = callback;
     _renderPathOverlay([
-        { nodeId: 'bp_a', label: 'Junction A', desc: 'Near Financial District & Ring Road North', arrow: '↑' },
-        { nodeId: 'bp_b', label: 'Junction B', desc: 'Near Back Alley & Ring Road East',          arrow: '→' },
-        { nodeId: 'bp_c', label: 'Junction C', desc: 'Near Shopping Promenade & Ring Road South', arrow: '↓' },
-        { nodeId: 'bp_d', label: 'Junction D', desc: 'Near Industrial Zone & Ring Road West',     arrow: '←' },
+        { nodeId: 'bp_a', label: 'Junction A', desc: 'Financial District entrance', icon: '💹', district: 'fin' },
+        { nodeId: 'bp_b', label: 'Junction B', desc: 'Back Alley entrance',         icon: '🏚️', district: 'ba'  },
+        { nodeId: 'bp_c', label: 'Junction C', desc: 'Shopping Promenade entrance', icon: '🛍️', district: 'shop'},
+        { nodeId: 'bp_d', label: 'Junction D', desc: 'Industrial Zone entrance',    icon: '⚙️', district: 'ind' },
     ], '🚕 CABBIE — TELEPORT TO');
 }
 
@@ -168,13 +168,20 @@ function _renderPathOverlay(options, title) {
     if (titleEl) titleEl.textContent = title;
     const cardsEl = document.getElementById('branch-cards');
     if (cardsEl) {
-        cardsEl.innerHTML = options.map(opt =>
-            `<button class="branch-card bfont" data-node="${opt.nodeId}">
-                <span class="branch-arrow">${opt.arrow}</span>
-                <span class="branch-label">${opt.label}</span>
-                <span class="branch-desc">${opt.desc}</span>
-            </button>`
-        ).join('');
+        cardsEl.innerHTML = options.map(opt => {
+            const dist    = opt.district || 'ring';
+            const spacesHtml = opt.spaces
+                ? `<span class="bc-spaces">${opt.spaces} spaces</span>`
+                : '';
+            return `<button class="branch-card branch-${dist} bfont" data-node="${opt.nodeId}">
+                <span class="bc-icon">${opt.icon || '⬤'}</span>
+                <span class="bc-body">
+                    <span class="bc-name">${opt.label}</span>
+                    <span class="bc-details">${spacesHtml}<span class="bc-desc">${opt.desc}</span></span>
+                </span>
+                <span class="bc-chev">›</span>
+            </button>`;
+        }).join('');
     }
     overlay.style.display = 'flex';
 }
