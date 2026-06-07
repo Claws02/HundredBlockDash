@@ -157,11 +157,11 @@ export const SPACE_DESCS = {
 // DISTRICT BIOMES — visual theming per district
 // ============================================================
 export const DISTRICT_BIOMES = {
-    ring:  { name: 'City Ring Road',     bgTop: '#0f0f1e', bgBot: '#1a1a38', fog: '#0f0f1e', floorEdge: 0x94a3b8, pathTint: 0xcbd5e1 },
-    fin:   { name: 'Financial District', bgTop: '#0c1f3e', bgBot: '#1e3a5f', fog: '#0c1f3e', floorEdge: 0x3b82f6, pathTint: 0x60a5fa },
-    ba:    { name: 'Back Alley',         bgTop: '#2d0a0a', bgBot: '#4a1010', fog: '#2d0a0a', floorEdge: 0xef4444, pathTint: 0xf87171 },
-    shop:  { name: 'Shopping Promenade', bgTop: '#2d0a3e', bgBot: '#4a1560', fog: '#2d0a3e', floorEdge: 0xec4899, pathTint: 0xf472b6 },
-    ind:   { name: 'Industrial Zone',    bgTop: '#1a1500', bgBot: '#2d2200', fog: '#1a1500', floorEdge: 0xeab308, pathTint: 0xfbbf24 },
+    ring:  { name: 'City Ring Road',     bgTop: '#5b9bd5', bgBot: '#87bce8', fog: '#a8d4f0', floorEdge: 0x94a3b8, pathTint: 0xcbd5e1 },
+    fin:   { name: 'Financial District', bgTop: '#2e6da4', bgBot: '#5491c8', fog: '#8ab8e0', floorEdge: 0x3b82f6, pathTint: 0x60a5fa },
+    ba:    { name: 'Back Alley',         bgTop: '#5a4040', bgBot: '#7a5555', fog: '#9a7070', floorEdge: 0xef4444, pathTint: 0xf87171 },
+    shop:  { name: 'Shopping Promenade', bgTop: '#6040a0', bgBot: '#8060c0', fog: '#b090d8', floorEdge: 0xec4899, pathTint: 0xf472b6 },
+    ind:   { name: 'Industrial Zone',    bgTop: '#8a7040', bgBot: '#a89060', fog: '#c8b080', floorEdge: 0xeab308, pathTint: 0xfbbf24 },
 };
 
 export function getBiomeForDistrict(district) {

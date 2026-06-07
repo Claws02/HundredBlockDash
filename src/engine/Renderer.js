@@ -152,7 +152,7 @@ export function init(container) {
     }
 
     scene = new THREE.Scene();
-    scene.fog = new THREE.FogExp2(isHBD ? 0x0f380f : 0x0f0f1e, isHBD ? 0.005 : 0.008);
+    scene.fog = new THREE.FogExp2(isHBD ? 0x0f380f : 0xa8d4f0, isHBD ? 0.005 : 0.003);
 
     const W = Math.max(window.innerWidth  || 300, 300);
     const H = Math.max(window.innerHeight || 500, 500);
@@ -166,15 +166,15 @@ export function init(container) {
     renderer.shadowMap.enabled = true;
     container.appendChild(renderer.domElement);
 
-    // 3-light rig: soft purple ambient + warm key + cool blue rim
-    scene.add(new THREE.AmbientLight(0x9977bb, isHBD ? 0.52 : 0.48));
-    const sun = new THREE.DirectionalLight(isHBD ? 0xfff4d0 : 0xffeedd, isHBD ? 1.05 : 0.95);
-    sun.position.set(20, 60, 30); sun.castShadow = true;
-    sun.shadow.camera.left = sun.shadow.camera.bottom = isHBD ? -30 : -80;
-    sun.shadow.camera.right = sun.shadow.camera.top = isHBD ? 30 : 80;
+    // 3-light rig
+    scene.add(new THREE.AmbientLight(isHBD ? 0x9977bb : 0xfff0d0, isHBD ? 0.52 : 1.2));
+    const sun = new THREE.DirectionalLight(isHBD ? 0xfff4d0 : 0xfff8e8, isHBD ? 1.05 : 2.0);
+    sun.position.set(isHBD ? 20 : 60, 60, isHBD ? 30 : -30); sun.castShadow = true;
+    sun.shadow.camera.left = sun.shadow.camera.bottom = isHBD ? -30 : -100;
+    sun.shadow.camera.right = sun.shadow.camera.top = isHBD ? 30 : 100;
     sun.shadow.mapSize.width = sun.shadow.mapSize.height = 2048;
     scene.add(sun);
-    const rimLight = new THREE.DirectionalLight(0x4466ee, 0.36);
+    const rimLight = new THREE.DirectionalLight(isHBD ? 0x4466ee : 0x88bbff, isHBD ? 0.36 : 0.5);
     rimLight.position.set(-25, 15, -35);
     scene.add(rimLight);
 
@@ -187,6 +187,7 @@ export function init(container) {
     } else {
         buildCamCurve();
         _buildPathTubes();
+        _buildCityScene();
     }
 
     Physics.init();
@@ -911,7 +912,485 @@ function _loop() {
     if (renderer && scene && camera) renderer.render(scene, camera);
 }
 
+// ============================================================
+// CITY CIRCUIT SCENE ENVIRONMENT
+// ============================================================
+
+let _cityEnvGroup = null;
+let _CM = null; // city materials
+
+function _initCityMaterials() {
+    return {
+        asphalt:    new THREE.MeshStandardMaterial({ color: 0x282828, roughness: 0.95, metalness: 0.0 }),
+        concrete:   new THREE.MeshStandardMaterial({ color: 0x8a8680, roughness: 0.85 }),
+        sidewalk:   new THREE.MeshStandardMaterial({ color: 0xb0a898, roughness: 0.80 }),
+        grass:      new THREE.MeshStandardMaterial({ color: 0x3d8a28, roughness: 0.95 }),
+        water:      new THREE.MeshPhysicalMaterial({ color: 0x3399cc, transparent: true, opacity: 0.72, roughness: 0.08, metalness: 0.2 }),
+        treeTrunk:  new THREE.MeshStandardMaterial({ color: 0x5a3010, roughness: 0.9 }),
+        treeLeaf:   new THREE.MeshStandardMaterial({ color: 0x2a7a18, roughness: 0.9 }),
+        bench:      new THREE.MeshStandardMaterial({ color: 0x8a6030, roughness: 0.8 }),
+        benchMetal: new THREE.MeshStandardMaterial({ color: 0x555555, metalness: 0.7, roughness: 0.4 }),
+        lampPole:   new THREE.MeshStandardMaterial({ color: 0x888888, metalness: 0.8, roughness: 0.3 }),
+        lampGlow:   new THREE.MeshStandardMaterial({ color: 0xffffcc, emissive: 0xffff44, emissiveIntensity: 1.0 }),
+        // Financial
+        finGlass:   new THREE.MeshPhysicalMaterial({ color: 0x5588cc, emissive: 0x113366, emissiveIntensity: 0.08, metalness: 0.75, roughness: 0.08, transparent: true, opacity: 0.88 }),
+        finFrame:   new THREE.MeshStandardMaterial({ color: 0xdde8ee, roughness: 0.5, metalness: 0.6 }),
+        // Back Alley
+        baBrick:    new THREE.MeshStandardMaterial({ color: 0x7a3020, roughness: 0.92 }),
+        baBrickAlt: new THREE.MeshStandardMaterial({ color: 0x5a2010, roughness: 0.95 }),
+        baMetal:    new THREE.MeshStandardMaterial({ color: 0x404040, roughness: 0.6, metalness: 0.5 }),
+        // Shopping
+        shopColors: [0xcc3388, 0x33aa55, 0x3377dd, 0xdd7700, 0x9933bb].map(c =>
+            new THREE.MeshStandardMaterial({ color: c, roughness: 0.55 })),
+        shopWindow: new THREE.MeshPhysicalMaterial({ color: 0xaaddff, transparent: true, opacity: 0.55, roughness: 0.05, metalness: 0.2 }),
+        shopSign:   new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.4 }),
+        // Industrial
+        indWall:    new THREE.MeshStandardMaterial({ color: 0x9a8840, roughness: 0.88 }),
+        indMetal:   new THREE.MeshStandardMaterial({ color: 0x556060, roughness: 0.5, metalness: 0.65 }),
+        indDoor:    new THREE.MeshStandardMaterial({ color: 0x444444, roughness: 0.8 }),
+        // Ring road civic
+        civicStone: new THREE.MeshStandardMaterial({ color: 0xccbba8, roughness: 0.82 }),
+        civicAccent:new THREE.MeshStandardMaterial({ color: 0x8a6a40, roughness: 0.7 }),
+    };
+}
+
+// Direction from origin outward through pos (XZ plane)
+function _outwardDir(pos) {
+    const d = new THREE.Vector3(pos.x, 0, pos.z);
+    if (d.lengthSq() < 0.001) d.set(1, 0, 0);
+    return d.normalize();
+}
+
+// Rotation so a building's +Z face points toward origin
+function _facingAngle(pos) {
+    return Math.atan2(-pos.x, -pos.z);
+}
+
+// ---- Ground ----
+
+function _buildCityGround() {
+    // Base asphalt disk
+    const base = new THREE.Mesh(new THREE.CircleGeometry(130, 64), _CM.asphalt);
+    base.rotation.x = -Math.PI / 2;
+    base.position.y = -0.62;
+    base.receiveShadow = true;
+    _cityEnvGroup.add(base);
+
+    // Center park (grass)
+    const park = new THREE.Mesh(new THREE.CircleGeometry(20, 32), _CM.grass);
+    park.rotation.x = -Math.PI / 2;
+    park.position.y = -0.59;
+    _cityEnvGroup.add(park);
+
+    // Sidewalk ring around park
+    const sw1 = new THREE.Mesh(new THREE.RingGeometry(20, 24, 64), _CM.sidewalk);
+    sw1.rotation.x = -Math.PI / 2; sw1.position.y = -0.60;
+    _cityEnvGroup.add(sw1);
+
+    // Road ring (ring road band)
+    const road1 = new THREE.Mesh(new THREE.RingGeometry(24, 42, 64), _CM.asphalt);
+    road1.rotation.x = -Math.PI / 2; road1.position.y = -0.61;
+    _cityEnvGroup.add(road1);
+
+    // Sidewalk between ring and districts
+    const sw2 = new THREE.Mesh(new THREE.RingGeometry(42, 50, 64), _CM.sidewalk);
+    sw2.rotation.x = -Math.PI / 2; sw2.position.y = -0.60;
+    _cityEnvGroup.add(sw2);
+
+    // District road band
+    const road2 = new THREE.Mesh(new THREE.RingGeometry(50, 72, 64), _CM.asphalt);
+    road2.rotation.x = -Math.PI / 2; road2.position.y = -0.61;
+    _cityEnvGroup.add(road2);
+
+    // Outer sidewalk
+    const sw3 = new THREE.Mesh(new THREE.RingGeometry(72, 82, 64), _CM.sidewalk);
+    sw3.rotation.x = -Math.PI / 2; sw3.position.y = -0.60;
+    _cityEnvGroup.add(sw3);
+
+    // Road markings on ring road — dashed center line (white segments)
+    const dashMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.15 });
+    const dashCount = 32;
+    for (let i = 0; i < dashCount; i++) {
+        const angle = (i / dashCount) * Math.PI * 2;
+        const dashGeo = new THREE.PlaneGeometry(0.25, 2.5);
+        const dash = new THREE.Mesh(dashGeo, dashMat);
+        dash.rotation.x = -Math.PI / 2;
+        dash.rotation.z = -angle;
+        dash.position.set(Math.cos(angle) * 33, -0.58, Math.sin(angle) * 33);
+        _cityEnvGroup.add(dash);
+    }
+}
+
+// ---- Center plaza (fountain + park) ----
+
+function _buildCityCenter() {
+    // Raised platform
+    const platform = new THREE.Mesh(new THREE.CylinderGeometry(9, 9, 0.4, 32), _CM.concrete);
+    platform.position.y = -0.38;
+    _cityEnvGroup.add(platform);
+
+    // Fountain basin wall
+    const basin = new THREE.Mesh(new THREE.CylinderGeometry(5.5, 5.5, 1.0, 32), _CM.concrete);
+    basin.position.y = 0.28;
+    _cityEnvGroup.add(basin);
+
+    // Water surface
+    const water = new THREE.Mesh(new THREE.CircleGeometry(5.2, 32), _CM.water);
+    water.rotation.x = -Math.PI / 2;
+    water.position.y = 0.82;
+    _cityEnvGroup.add(water);
+
+    // Fountain column
+    const colMat = new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.5, roughness: 0.4 });
+    const col = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.36, 3.5, 8), colMat);
+    col.position.y = 2.35;
+    _cityEnvGroup.add(col);
+
+    // Water spray (translucent cone)
+    const sprayMat = new THREE.MeshPhysicalMaterial({ color: 0x99ccff, transparent: true, opacity: 0.35, roughness: 0.1 });
+    const spray = new THREE.Mesh(new THREE.ConeGeometry(1.0, 2.2, 16), sprayMat);
+    spray.position.y = 5.1;
+    _cityEnvGroup.add(spray);
+
+    // Park trees (8 around perimeter)
+    for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2;
+        _cityEnvGroup.add(_mkTree(new THREE.Vector3(Math.cos(a) * 14, 0, Math.sin(a) * 14)));
+    }
+
+    // Benches facing fountain
+    for (let i = 0; i < 4; i++) {
+        const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+        const bPos = new THREE.Vector3(Math.cos(a) * 10, 0, Math.sin(a) * 10);
+        _cityEnvGroup.add(_mkBench(bPos, a + Math.PI));
+    }
+}
+
+// ---- Street lamps ----
+
+function _buildStreetLamps() {
+    const ringNodeIds = ['r1','r2','r3','r4','r5','r6','r7','r8','r9','r10',
+                         'r11','r12','r13','r14','r15','r16','r17','r18','r19','r20'];
+    ringNodeIds.forEach((id, idx) => {
+        if (idx % 2 !== 0) return; // every other node
+        const pos = getPos(id).clone();
+        const out = _outwardDir(pos);
+        // Lamp on outer side of ring road
+        const lPos = pos.clone().addScaledVector(out, 6);
+        lPos.y = 0;
+        _cityEnvGroup.add(_mkLampPost(lPos));
+        // Lamp on inner side
+        const lPos2 = pos.clone().addScaledVector(out, -6);
+        lPos2.y = 0;
+        _cityEnvGroup.add(_mkLampPost(lPos2));
+    });
+}
+
+// ---- Small helpers ----
+
+function _mkTree(pos) {
+    const grp = new THREE.Group();
+    grp.position.copy(pos);
+    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.3, 2.2, 6), _CM.treeTrunk);
+    trunk.position.y = 1.1; trunk.castShadow = true;
+    grp.add(trunk);
+    const leaves = new THREE.Mesh(new THREE.SphereGeometry(1.6, 8, 8), _CM.treeLeaf);
+    leaves.position.y = 3.3; leaves.scale.y = 1.15; leaves.castShadow = true;
+    grp.add(leaves);
+    return grp;
+}
+
+function _mkBench(pos, rotY) {
+    const grp = new THREE.Group();
+    grp.position.copy(pos); grp.rotation.y = rotY;
+    const seat = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.14, 0.65), _CM.bench);
+    seat.position.y = 0.72; grp.add(seat);
+    const back = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.85, 0.1), _CM.bench);
+    back.position.set(0, 1.14, -0.27); grp.add(back);
+    const legGeo = new THREE.BoxGeometry(0.14, 0.72, 0.65);
+    [-0.8, 0.8].forEach(x => { const leg = new THREE.Mesh(legGeo, _CM.benchMetal); leg.position.set(x, 0.36, 0); grp.add(leg); });
+    return grp;
+}
+
+function _mkLampPost(pos) {
+    const grp = new THREE.Group();
+    grp.position.copy(pos);
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.12, 8.5, 7), _CM.lampPole);
+    pole.position.y = 4.25; pole.castShadow = true; grp.add(pole);
+    const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 2.2, 6), _CM.lampPole);
+    arm.rotation.z = Math.PI / 2; arm.position.set(1.1, 8.4, 0); grp.add(arm);
+    const head = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.22, 0.55, 8), _CM.lampPole);
+    head.position.set(2.1, 8.2, 0); grp.add(head);
+    const glow = new THREE.Mesh(new THREE.SphereGeometry(0.18, 8, 8), _CM.lampGlow);
+    glow.position.set(2.1, 8.1, 0); grp.add(glow);
+    return grp;
+}
+
+// ---- District buildings ----
+
+function _mkSkyscraper(pos, isHQ) {
+    const grp = new THREE.Group();
+    grp.position.copy(pos);
+    const s = Math.abs(Math.round(pos.x * 7 + pos.z * 13)) % 100;
+    const h  = isHQ ? 32 : 15 + (s % 8) * 2;
+    const w  = isHQ ? 7  : 4 + (s % 3);
+    const d  = isHQ ? 7  : 4 + ((s + 2) % 3);
+
+    const tower = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), _CM.finGlass);
+    tower.position.y = h / 2; tower.castShadow = true; grp.add(tower);
+
+    // Setback crown
+    const crown = new THREE.Mesh(new THREE.BoxGeometry(w * 0.62, h * 0.28, d * 0.62), _CM.finGlass);
+    crown.position.y = h + h * 0.14; grp.add(crown);
+
+    // Spire
+    const spire = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.16, h * (isHQ ? 0.28 : 0.2), 6), _CM.finFrame);
+    spire.position.y = h * (isHQ ? 1.46 : 1.38); grp.add(spire);
+
+    // Horizontal window bands (frame strips)
+    const bandCount = Math.floor(h / 3);
+    const bandMat = new THREE.MeshStandardMaterial({ color: 0xaaccee, emissive: 0x223366, emissiveIntensity: 0.12, metalness: 0.8, roughness: 0.1 });
+    for (let b = 1; b < bandCount; b++) {
+        const band = new THREE.Mesh(new THREE.BoxGeometry(w + 0.05, 0.12, d + 0.05), bandMat);
+        band.position.y = b * 3; grp.add(band);
+    }
+
+    return grp;
+}
+
+function _mkBrickBuilding(pos, isHQ) {
+    const grp = new THREE.Group();
+    grp.position.copy(pos);
+    const s = Math.abs(Math.round(pos.x * 5 + pos.z * 11)) % 100;
+    const h = isHQ ? 14 : 6 + (s % 6);
+    const w = isHQ ? 9  : 5 + (s % 4);
+    const d = isHQ ? 7  : 4 + (s % 3);
+
+    const main = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), s % 2 === 0 ? _CM.baBrick : _CM.baBrickAlt);
+    main.position.y = h / 2; main.castShadow = true; grp.add(main);
+
+    // Flat roof parapet
+    const parapet = new THREE.Mesh(new THREE.BoxGeometry(w + 0.5, 0.5, d + 0.5), _CM.baBrickAlt);
+    parapet.position.y = h + 0.25; grp.add(parapet);
+
+    // Water tower (~every other)
+    if (s % 2 === 0 || isHQ) {
+        const tkMat = new THREE.MeshStandardMaterial({ color: 0x5a3010, roughness: 0.9 });
+        const tk = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.9, 1.8, 8), tkMat);
+        tk.position.y = h + 2.3; grp.add(tk);
+        const tkRoof = new THREE.Mesh(new THREE.ConeGeometry(1.05, 0.9, 8), _CM.baMetal);
+        tkRoof.position.y = h + 3.65; grp.add(tkRoof);
+        const legGeo = new THREE.CylinderGeometry(0.07, 0.07, 1.8, 4);
+        for (let i = 0; i < 4; i++) {
+            const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+            const leg = new THREE.Mesh(legGeo, _CM.baMetal);
+            leg.position.set(Math.cos(a) * 0.7, h + 1.3, Math.sin(a) * 0.7); grp.add(leg);
+        }
+    }
+
+    // Fire escape (side ladder)
+    if (s % 3 === 0) {
+        const escGrp = new THREE.Group();
+        escGrp.position.set(w / 2 + 0.06, 0, 0);
+        const rGeo = new THREE.BoxGeometry(0.07, h - 0.5, 0.07);
+        [[-0.55, h/2, 0],[0.55, h/2, 0]].forEach(([x,y,z]) => {
+            const r = new THREE.Mesh(rGeo, _CM.baMetal); r.position.set(x,y,z); escGrp.add(r);
+        });
+        for (let rr = 1; rr < h - 0.5; rr += 1.1) {
+            const rung = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.07, 1.1), _CM.baMetal);
+            rung.position.set(0, rr, 0); escGrp.add(rung);
+        }
+        grp.add(escGrp);
+    }
+
+    return grp;
+}
+
+function _mkShopBuilding(pos, colorIdx, isHQ) {
+    const grp = new THREE.Group();
+    grp.position.copy(pos);
+    const s = Math.abs(Math.round(pos.x * 3 + pos.z * 9)) % 100;
+    const ci  = colorIdx !== undefined ? colorIdx : s % _CM.shopColors.length;
+    const mat = _CM.shopColors[ci];
+    const h = isHQ ? 12 : 5 + (s % 5);
+    const w = isHQ ? 10 : 6 + (s % 4);
+    const d = isHQ ? 6  : 4 + (s % 2);
+
+    const main = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+    main.position.y = h / 2; main.castShadow = true; grp.add(main);
+
+    // Display window
+    const win = new THREE.Mesh(new THREE.BoxGeometry(w * 0.68, h * 0.44, 0.13), _CM.shopWindow);
+    win.position.set(0, h * 0.3, d / 2 + 0.07); grp.add(win);
+
+    // Awning
+    const awningMat = new THREE.MeshStandardMaterial({ color: mat.color, roughness: 0.55, emissive: mat.color, emissiveIntensity: 0.18 });
+    const awning = new THREE.Mesh(new THREE.BoxGeometry(w + 0.6, 0.14, 1.8), awningMat);
+    awning.rotation.x = -0.28; awning.position.set(0, h * 0.56, d / 2 + 0.8); grp.add(awning);
+
+    // Sign
+    const sign = new THREE.Mesh(new THREE.BoxGeometry(w * 0.55, 0.75, 0.12), _CM.shopSign);
+    sign.position.set(0, h * 0.76, d / 2 + 0.07); grp.add(sign);
+
+    // Dome for mall HQ
+    if (isHQ) {
+        const domeMat = new THREE.MeshPhysicalMaterial({ color: 0xaaddff, transparent: true, opacity: 0.5, roughness: 0.05, metalness: 0.3 });
+        const dome = new THREE.Mesh(new THREE.SphereGeometry(3.5, 16, 8, 0, Math.PI*2, 0, Math.PI/2), domeMat);
+        dome.position.set(0, h, 0); grp.add(dome);
+    }
+
+    return grp;
+}
+
+function _mkFactory(pos, isHQ) {
+    const grp = new THREE.Group();
+    grp.position.copy(pos);
+    const s = Math.abs(Math.round(pos.x * 11 + pos.z * 7)) % 100;
+    const h = isHQ ? 10 : 6 + (s % 5);
+    const w = isHQ ? 14 : 8 + (s % 6);
+    const d = isHQ ? 8  : 6 + (s % 3);
+
+    // Main warehouse body
+    const main = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), _CM.indWall);
+    main.position.y = h / 2; main.castShadow = true; grp.add(main);
+
+    // Corrugated roof (slight triangular ridge)
+    const roofGeo = new THREE.CylinderGeometry(0, w * 0.52, h * 0.2, 3);
+    const roof = new THREE.Mesh(roofGeo, _CM.indMetal);
+    roof.position.y = h + h * 0.1; roof.rotation.y = Math.PI / 6; grp.add(roof);
+
+    // Smokestacks
+    const numStacks = isHQ ? 3 : 1 + (s % 2);
+    for (let i = 0; i < numStacks; i++) {
+        const sx = (i - (numStacks - 1) / 2) * 2.8;
+        const sh = h * (isHQ ? 0.9 : 0.75);
+        const stack = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.5, sh, 8), _CM.indMetal);
+        stack.position.set(sx, h + sh / 2, 0); stack.castShadow = true; grp.add(stack);
+        // Smoke cap ring
+        const capMat = new THREE.MeshStandardMaterial({ color: 0x998888, transparent: true, opacity: 0.5 });
+        const cap = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.18, 6, 12), capMat);
+        cap.position.set(sx, h + sh, 0); cap.rotation.x = Math.PI / 2; grp.add(cap);
+    }
+
+    // Loading dock
+    const door = new THREE.Mesh(new THREE.BoxGeometry(2.8, 3.2, 0.14), _CM.indDoor);
+    door.position.set(0, 1.6, d / 2 + 0.08); grp.add(door);
+    // Door frame
+    const frameMat = new THREE.MeshStandardMaterial({ color: 0xfbbf24, roughness: 0.6 });
+    const frameH = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.22, 0.14), frameMat);
+    frameH.position.set(0, 3.3, d / 2 + 0.09); grp.add(frameH);
+
+    return grp;
+}
+
+function _mkCivicBuilding(pos) {
+    const grp = new THREE.Group();
+    grp.position.copy(pos);
+    const s = Math.abs(Math.round(pos.x * 7 + pos.z * 3)) % 100;
+
+    // 1-in-4 chance: tree instead of building
+    if (s % 4 === 0) { return _mkTree(pos); }
+
+    const h = 8 + (s % 6);
+    const w = 5 + (s % 3);
+    const d = 5 + (s % 2);
+
+    const main = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), _CM.civicStone);
+    main.position.y = h / 2; main.castShadow = true; grp.add(main);
+
+    // Columns on front face
+    const pilGeo = new THREE.CylinderGeometry(0.19, 0.22, h * 0.72, 8);
+    for (let p = -1; p <= 1; p++) {
+        const pil = new THREE.Mesh(pilGeo, _CM.civicAccent);
+        pil.position.set(p * (w / 3.2), h * 0.36, d / 2 + 0.25); grp.add(pil);
+    }
+
+    // Pediment
+    const ped = new THREE.Mesh(new THREE.CylinderGeometry(0, w * 0.52, h * 0.22, 3), _CM.civicStone);
+    ped.position.y = h + h * 0.11; ped.rotation.y = Math.PI / 6; grp.add(ped);
+
+    return grp;
+}
+
+// ---- Background skyline ----
+
+function _buildBackgroundSkyline() {
+    const count = 30;
+    const districtMats = { fin: _CM.finGlass, ba: _CM.baBrick, shop: _CM.shopColors[0], ind: _CM.indWall };
+    for (let i = 0; i < count; i++) {
+        const angle = (i / count) * Math.PI * 2;
+        const r = 88 + (i % 4) * 7;
+        const pos = new THREE.Vector3(Math.cos(angle) * r, 0, Math.sin(angle) * r);
+        const h = 8 + (i % 10) * 3.5;
+        const w = 5 + (i % 5);
+        const d = 5 + (i % 3);
+        // assign district by quadrant
+        const deg = ((angle * 180 / Math.PI) % 360 + 360) % 360;
+        let mat;
+        if (deg < 90)       mat = districtMats.fin;
+        else if (deg < 180) mat = districtMats.ba;
+        else if (deg < 270) mat = districtMats.shop;
+        else                mat = districtMats.ind;
+        const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+        mesh.position.copy(pos); mesh.position.y = h / 2;
+        _cityEnvGroup.add(mesh);
+    }
+}
+
+// ---- Per-node building placement ----
+
+function _buildAllDistrictBuildings() {
+    const boardData = state.board;
+    Object.keys(CITY_GRAPH).forEach(nodeId => {
+        if (JUNCTION_IDS.has(nodeId)) return;
+        const graphNode = CITY_GRAPH[nodeId];
+        const district  = graphNode?.district || 'ring';
+        const spaceType = boardData[nodeId]?.type;
+        const isHQ      = spaceType === 'hq';
+        const pos       = getPos(nodeId).clone();
+
+        const outDir = _outwardDir(pos);
+        // Ring road: push inward (toward center); districts: push outward
+        const offset = district === 'ring' ? -10 : 12;
+        const bPos = pos.clone().addScaledVector(outDir, offset);
+        bPos.y = 0;
+
+        let building;
+        switch (district) {
+            case 'fin':  building = _mkSkyscraper(bPos, isHQ); break;
+            case 'ba':   building = _mkBrickBuilding(bPos, isHQ); break;
+            case 'shop': building = _mkShopBuilding(bPos, undefined, isHQ); break;
+            case 'ind':  building = _mkFactory(bPos, isHQ); break;
+            case 'ring': building = _mkCivicBuilding(bPos); break;
+            default:     return;
+        }
+
+        if (building) {
+            building.rotation.y = _facingAngle(pos);
+            _cityEnvGroup.add(building);
+        }
+    });
+
+    _buildBackgroundSkyline();
+}
+
+// ---- Main entry ----
+
+function _buildCityScene() {
+    if (_cityEnvGroup) { scene.remove(_cityEnvGroup); _cityEnvGroup = null; }
+    _CM = _initCityMaterials();
+    _cityEnvGroup = new THREE.Group();
+    scene.add(_cityEnvGroup);
+
+    _buildCityGround();
+    _buildCityCenter();
+    _buildAllDistrictBuildings();
+    _buildStreetLamps();
+}
+
 export function cleanup() {
+    if (_cityEnvGroup) { scene?.remove(_cityEnvGroup); _cityEnvGroup = null; }
+    if (_CM) { Object.values(_CM).forEach(m => { try { m.dispose?.(); } catch(e){} }); _CM = null; }
     Object.values(textureCache).forEach(t => t.dispose());
     Object.keys(textureCache).forEach(k => delete textureCache[k]);
     tileMeshes.forEach(m => { try { m.geometry?.dispose(); m.material?.map?.dispose(); m.material?.dispose(); } catch(e){} });
