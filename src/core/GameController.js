@@ -3,17 +3,17 @@ import {
     GATE_THRESHOLD, GATE_NUM_DICE, MAX_INV, MAX_ALLIES, ALLY_TURNS, ALLY_SPAWN_DELAY_TURNS,
     MINIGAME_EVERY_N_TURNS, ITEMS, SPACE_META, SPACE_DESCS,
     TOTAL_ROUNDS, DISTRICT_HQ_FIRST_BONUS, DISTRICT_HQ_REVISIT_BONUS,
-    FULL_CIRCUIT_BONUSES, CONTRACT_COUNT,
+    FULL_CIRCUIT_BONUSES,
     ALLIES, BA_DISCOUNT, GRAND_MALL_DISCOUNT,
     ALL_CHAR_TYPES, HQ_META, CHAR_ICONS,
     HBD_GATE_POS, HBD_SHOP_SPACES,
 } from '../config/GameConfig.js';
 import { CITY_GRAPH, JUNCTION_IDS, DISTRICT_NAMES, DISTRICT_KEYS, BRANCH_OPTIONS } from '../config/BoardGraph.js';
 import { MAP_REGISTRY } from '../config/MapRegistry.js';
-import { getShuffledPool } from '../config/ContractPool.js';
 import * as Bot from './Bot.js';
 import { initCityBoard, generateBoard } from './BoardSetup.js';
 import { calculateWinner } from './WinScreen.js';
+import { initContracts, checkContract as _checkContract } from './Contracts.js';
 import { sfx, haptic } from '../engine/AudioManager.js';
 import * as Renderer from '../engine/Renderer.js';
 import * as Physics from '../engine/Physics.js';
@@ -1323,69 +1323,7 @@ export function confirmDuelBet(betAmount) {
     _startDuel(state.players[state.activePlayer], betAmount);
 }
 
-// ============================================================
-// CONTRACTS
-// ============================================================
-
-function initContracts() {
-    state.contractPool = getShuffledPool();
-    state.activeContracts = [];
-    for (let i = 0; i < CONTRACT_COUNT && state.contractPool.length > 0; i++) {
-        state.activeContracts.push(state.contractPool.shift());
-    }
-    UIManager.updateContracts();
-}
-
-function _checkContract(player, eventType, param, count) {
-    if (state.selectedMap === 'hundred_block_dash') return;
-    for (let i = state.activeContracts.length - 1; i >= 0; i--) {
-        const c = state.activeContracts[i];
-        let fulfilled = false;
-        if (c.type === eventType) {
-            if (param === null || param === undefined || c.param === null || c.param === undefined || c.param === param) {
-                if (c.type === 'win_minigames' || c.type === 'land_coin') {
-                    // Tracked separately via counters — skip here
-                } else {
-                    fulfilled = true;
-                }
-            }
-        }
-        if (fulfilled) _claimContract(player, i);
-    }
-}
-
-export function claimContractProgress(player, eventType, param) {
-    // For multi-step contracts (land_coin, win_minigames)
-    state.activeContracts.forEach((c, i) => {
-        if (c.type !== eventType) return;
-        if (c.param && param && c.param !== param) return;
-        c._progress = (c._progress || 0) + 1;
-        if (c._progress >= (c.param || 1)) _claimContract(player, i);
-        UIManager.updateContracts();
-    });
-}
-
-function _claimContract(player, contractIdx) {
-    const c = state.activeContracts[contractIdx];
-    if (!c) return;
-    let reward = c.reward;
-    // Investor ally: double first contract per round
-    const invIdx = player.allies.findIndex(a => a.type === 'investor');
-    if (invIdx >= 0 && !state.investorUsedThisRound[player.id]) {
-        reward *= 2;
-        state.investorUsedThisRound[player.id] = true;
-        UIManager.toast(`📈 Investor doubles contract reward!`, '#22c55e');
-    }
-    earnCoins(player, reward);
-    player.contractsClaimed++;
-    UIManager.toast(`${player.name} claims contract: +${reward} coins!`, '#fbbf24');
-    sfx('land_good');
-    state.activeContracts.splice(contractIdx, 1);
-    if (state.contractPool.length > 0) {
-        state.activeContracts.push(state.contractPool.shift());
-    }
-    UIManager.updateContracts();
-}
+// Contracts live in Contracts.js (_checkContract is imported as checkContract).
 
 // ============================================================
 // WIN SCREEN  (calculateWinner lives in WinScreen.js)
