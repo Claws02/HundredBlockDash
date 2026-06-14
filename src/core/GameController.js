@@ -3,7 +3,7 @@ import {
     GATE_THRESHOLD, GATE_NUM_DICE, MAX_INV, MAX_ALLIES, ALLY_TURNS, ALLY_SPAWN_DELAY_TURNS,
     MINIGAME_EVERY_N_TURNS, ITEMS, SPACE_META, SPACE_DESCS,
     TOTAL_ROUNDS, DISTRICT_HQ_FIRST_BONUS, DISTRICT_HQ_REVISIT_BONUS,
-    DISTRICT_DOMINANCE_BONUS, FULL_CIRCUIT_BONUSES, CONTRACT_COUNT,
+    FULL_CIRCUIT_BONUSES, CONTRACT_COUNT,
     ALLIES, BA_DISCOUNT, GRAND_MALL_DISCOUNT,
     ALL_CHAR_TYPES, HQ_META, CHAR_ICONS,
     HBD_GATE_POS, HBD_SHOP_SPACES,
@@ -12,6 +12,8 @@ import { CITY_GRAPH, JUNCTION_IDS, DISTRICT_NAMES, DISTRICT_KEYS, BRANCH_OPTIONS
 import { MAP_REGISTRY } from '../config/MapRegistry.js';
 import { getShuffledPool } from '../config/ContractPool.js';
 import * as Bot from './Bot.js';
+import { initCityBoard, generateBoard } from './BoardSetup.js';
+import { calculateWinner } from './WinScreen.js';
 import { sfx, haptic } from '../engine/AudioManager.js';
 import * as Renderer from '../engine/Renderer.js';
 import * as Physics from '../engine/Physics.js';
@@ -172,97 +174,7 @@ export function startGame() {
     }, 100);
 }
 
-// ============================================================
-// BOARD INITIALISATION
-// ============================================================
-
-export function initCityBoard() {
-    const pools = _buildPools();
-    state.board = {};
-
-    Object.values(CITY_GRAPH).forEach(node => {
-        if (node.isJunction) return; // junctions not in board
-        const base = node.type; // may be null (random), or fixed (shop/gate/hq/start)
-        if (base !== null) {
-            state.board[node.id] = { type: base === 'gate' && state.gateOpen ? 'gate_open' : base };
-        } else {
-            const pool = pools[node.district] || pools.ring;
-            state.board[node.id] = { type: pool.pop() || 'coin' };
-        }
-    });
-}
-
-function _buildPools() {
-    const { DISTRICT_POOLS } = { DISTRICT_POOLS: _getDistrictPools() };
-    const out = {};
-    for (const [key, arr] of Object.entries(DISTRICT_POOLS)) {
-        const pool = [...arr];
-        for (let i = pool.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [pool[i], pool[j]] = [pool[j], pool[i]];
-        }
-        out[key] = pool;
-    }
-    return out;
-}
-
-function _getDistrictPools() {
-    return {
-        ring: [
-            ...Array(5).fill('coin'), ...Array(3).fill('coin_big'),
-            ...Array(2).fill('trap'), ...Array(2).fill('lose'),
-            ...Array(2).fill('mystery'), ...Array(1).fill('boost'),
-            ...Array(1).fill('truce'), ...Array(1).fill('shortcut'),
-        ],
-        fin: [
-            ...Array(3).fill('coin_big'), ...Array(2).fill('lose_big'),
-            ...Array(1).fill('magnet'), ...Array(1).fill('duel'), ...Array(1).fill('coin'),
-        ],
-        ba: [
-            ...Array(3).fill('trap'), ...Array(2).fill('lose'),
-            ...Array(2).fill('magnet'), ...Array(2).fill('shortcut'), ...Array(1).fill('duel'),
-        ],
-        shop: [
-            ...Array(3).fill('mystery'), ...Array(2).fill('coin'),
-            ...Array(2).fill('coin_big'), ...Array(1).fill('duel'),
-        ],
-        ind: [
-            ...Array(1).fill('lose_big'), ...Array(1).fill('trap'),
-            ...Array(1).fill('cfwd'),     ...Array(1).fill('coin_big'), ...Array(1).fill('duel'),
-        ],
-    };
-}
-
-// ---- HBD board generation ----
-
-export function generateBoard() {
-    state.board = [{ type: 'start' }];
-    const earlyPool = [
-        ...Array(20).fill('coin'), ...Array(10).fill('coin_big'),
-        ...Array(8).fill('mystery'), ...Array(6).fill('boost'),
-        ...Array(5).fill('shortcut'), ...Array(4).fill('cfwd'),
-        ...Array(3).fill('truce'), ...Array(2).fill('lose'), ...Array(2).fill('trap'),
-    ];
-    while (earlyPool.length < 49) earlyPool.push('coin');
-    earlyPool.sort(() => Math.random() - 0.5);
-
-    const latePool = [
-        ...Array(12).fill('lose'), ...Array(10).fill('lose_big'),
-        ...Array(10).fill('trap'), ...Array(6).fill('magnet'),
-        ...Array(4).fill('cbwd'), ...Array(2).fill('mystery'),
-        ...Array(2).fill('truce'), ...Array(3).fill('coin'),
-        ...Array(3).fill('swap_space'),
-    ];
-    while (latePool.length < 49) latePool.push('lose');
-    latePool.sort(() => Math.random() - 0.5);
-
-    for (let i = 1; i <= 49; i++) state.board.push({ type: earlyPool[i - 1] });
-    for (let i = 50; i <= 98; i++) state.board.push({ type: latePool[i - 50] });
-    state.board.push({ type: 'start', n: 'FINISH', ic: '👑' });
-
-    state.board[HBD_GATE_POS] = { type: 'gate' };
-    HBD_SHOP_SPACES.forEach(i => { if (i !== HBD_GATE_POS) state.board[i] = { type: 'shop' }; });
-}
+// Board generation lives in BoardSetup.js (initCityBoard / generateBoard).
 
 // ============================================================
 // TURN FLOW
@@ -1476,70 +1388,8 @@ function _claimContract(player, contractIdx) {
 }
 
 // ============================================================
-// WIN SCREEN
+// WIN SCREEN  (calculateWinner lives in WinScreen.js)
 // ============================================================
-
-export function calculateWinner() {
-    const p1 = state.players[0], p2 = state.players[1];
-
-    let p1s, p2s, subtitle;
-    if (state.selectedMap === 'hundred_block_dash') {
-        const p1f = p1.pos >= 99 ? 50 : 0, p2f = p2.pos >= 99 ? 50 : 0;
-        p1s = p1.coins + p1f; p2s = p2.coins + p2f;
-        subtitle = 'WINS THE HUSTLE!';
-    } else {
-        // City Circuit: district dominance bonuses
-        DISTRICT_KEYS.forEach(dk => {
-            if (p1.districtsVisited[dk] > p2.districtsVisited[dk]) earnCoins(p1, DISTRICT_DOMINANCE_BONUS);
-            else if (p2.districtsVisited[dk] > p1.districtsVisited[dk]) earnCoins(p2, DISTRICT_DOMINANCE_BONUS);
-        });
-        p1s = p1.coins; p2s = p2.coins;
-        subtitle = 'WINS THE CITY!';
-    }
-
-    const tiebreaker = state.selectedMap === 'hundred_block_dash'
-        ? (p1.pos >= p2.pos ? p1 : p2)
-        : (p1.fullCircuitsCompleted >= p2.fullCircuitsCompleted ? p1 : p2);
-    const winner = p1s > p2s ? p1 : p2s > p1s ? p2 : tiebreaker;
-    const isTie  = p1s === p2s && (state.selectedMap === 'hundred_block_dash' ? p1.pos === p2.pos : p1.fullCircuitsCompleted === p2.fullCircuitsCompleted);
-
-    ModalManager.closeAllModals();
-    document.getElementById('ui-layer').style.display = 'none';
-    document.getElementById('win-name').textContent = isTie ? 'TIE GAME!' : winner.name.toUpperCase();
-    document.getElementById('win-subtitle').textContent = isTie ? 'Both players finish equal.' : subtitle;
-
-    function row(label, val) { return `<div class="win-card-stat"><span>${label}</span><span>${val}</span></div>`; }
-    function card(p, s) {
-        const isW = !isTie && p === winner;
-        let details;
-        if (state.selectedMap === 'hundred_block_dash') {
-            const fin = p.pos >= 99 ? 50 : 0;
-            details = `${row('💰 Coins earned', p.coinsEarned)}${row('💵 Coins left', p.coins)}${fin ? row('🏁 Finish bonus', '+' + fin) : ''}${row('🏆 Minigames won', p.mgWins)}${row('📍 Final space', p.pos >= 99 ? 'FINISHED' : p.pos)}`;
-        } else {
-            function domRow(pl) {
-                return DISTRICT_KEYS.map(dk => {
-                    const o = state.players[(pl.id+1)%2];
-                    const icon = HQ_META[dk]?.icon || '🏛️';
-                    const controlled = pl.districtsVisited[dk] > o.districtsVisited[dk];
-                    return `<div class="win-card-stat"><span>${icon} ${DISTRICT_NAMES[dk]}</span><span>${pl.districtsVisited[dk]}x${controlled ? ' 👑' : ''}</span></div>`;
-                }).join('');
-            }
-            details = `${row('💰 Coins earned', p.coinsEarned)}${row('💵 Final coins', p.coins)}${row('🏆 Minigames won', p.mgWins)}${row('🔄 Full circuits', p.fullCircuitsCompleted)}${row('📋 Contracts', p.contractsClaimed)}${row('⚔️ Duels won', p.duelsWon)}${domRow(p)}`;
-        }
-        return `<div class="win-card${isW ? ' winner-card' : ''}"><div class="win-card-name">${isW?'👑 ':''}${p.name}</div><div class="win-card-score">${s}</div>${details}</div>`;
-    }
-    document.getElementById('win-cards').innerHTML = card(p1, p1s) + card(p2, p2s);
-
-    const confettiEl = document.getElementById('win-confetti'); confettiEl.innerHTML = '';
-    const colors = ['#f59e0b','#a855f7','#3b82f6','#ef4444','#4ade80','#fbbf24','#ec4899'];
-    for (let i = 0; i < 80; i++) {
-        const el = document.createElement('div'); el.className = 'confetti-piece';
-        el.style.cssText = `left:${Math.random()*100}%;top:-10px;background:${colors[Math.floor(Math.random()*colors.length)]};width:${6+Math.random()*8}px;height:${6+Math.random()*8}px;animation-duration:${2+Math.random()*2}s;animation-delay:${Math.random()*1.5}s;`;
-        confettiEl.appendChild(el);
-    }
-    document.getElementById('win-screen').style.display = 'flex';
-    sfx('win');
-}
 
 export function playAgain() { window.location.reload(); }
 
