@@ -194,32 +194,30 @@ Criteria 7 and 8 are gated by §2 — if you followed the rules they're free.
 The roster should spread across verbs so the rotation feels fresh. Current
 shipped games and the target spread:
 
-| Category            | Verb / feel              | Shipped              | Want |
-|---------------------|--------------------------|----------------------|------|
-| Physics / sumo      | push, momentum           | ✅ Sumo Spheres      | 1–2  |
-| Aim / shooter       | aim & fire               | ✅ Tank Clash        | 1–2  |
-| Rhythm / timing     | tap to the beat          | ✅ Rhythm Forge      | 1    |
-| Drawing / deflect   | draw paths               | ✅ Orb Deflect       | 1    |
-| **Precision / snap**| tap at the right instant | 🆕 **Snap Strike**   | 1    |
-| **Reflex / first**  | be fastest, don't false-start | _gap_           | 1    |
-| **Memory / puzzle** | recall & reproduce       | _gap_                | 1–2  |
-| **Trace / dexterity**| steer without crashing  | _gap_                | 1    |
-| **Tug / mash**      | out-tap your opponent    | _gap_                | 1    |
+The roster of **10** is complete — every category is filled, no two games
+share a verb:
+
+| Category             | Verb / feel                   | Shipped              |
+|----------------------|-------------------------------|----------------------|
+| Physics / sumo       | push, momentum                | ✅ Sumo Spheres      |
+| Aim / shooter        | aim & fire                    | ✅ Tank Clash        |
+| Rhythm / timing      | tap to the beat               | ✅ Rhythm Forge      |
+| Drawing / deflect    | draw paths                    | ✅ Orb Deflect       |
+| Precision / snap     | tap at the right instant      | ✅ Snap Strike (reference) |
+| Reflex / first       | be fastest, don't false-start | ✅ Quick Draw        |
+| Memory / puzzle      | recall & reproduce            | ✅ Grid Recall       |
+| Mash / endurance     | out-tap your opponent         | ✅ Tug Tap           |
+| Visual scan          | spot the difference           | ✅ Odd One Out       |
+| Dexterity / tracking | keep on the target            | ✅ Steady Hand       |
 
 **Curation rule:** the 40 files in `src/minigames/archived/` are a **design
 backlog, not a code backlog** — their imports and shared-DOM dependencies are
 dead. Mine them for *concepts*, then rebuild to this standard. Keep the archive
 for reference (do not delete).
 
-Shortlist to rebuild toward a roster of **10** (concepts sourced from the
-archive, scored against §6 before building):
-1. **Snap Strike** — precision (built — reference).
-2. **Quick Draw** — reflex first-tap with false-start penalty (from `ReactionTap`/`CountdownStop`).
-3. **Grid Recall** — flash-and-reproduce memory (from `GridRecall`/`MemoryFlip`).
-4. **Maze Dash** — steer a dot through a shrinking maze (from `MazeDash`/`TunnelCharge`).
-5. **Tug Tap** — mash/timing tug-of-war (from `PulsePusher`/`SphereKnockout`).
-6. **Odd One Out** — spot-the-difference under time pressure (from `OddOneOut`/`ShapeTap`).
-7. (slots 7–10 chosen after the above playtest, prioritising category gaps.)
+Future additions should target a *new* verb (e.g. trace-without-crashing,
+stealth/hold-still, sorting) rather than a second take on a filled category —
+and must still score ≥ 12/16 on §6 before shipping.
 
 ---
 

@@ -13,6 +13,7 @@ export const MG_TYPES = [
     'gridrecall',
     'tugtap',
     'oddoneout',
+    'steadyhand',
 ];
 
 export const MG_INFO = {
@@ -25,6 +26,7 @@ export const MG_INFO = {
     gridrecall:  { icon: '🧠', title: 'GRID RECALL',   desc: 'A pattern of tiles flashes on your 3×3 grid, then vanishes — tap them back from memory! Every correct tile scores. The pattern grows and the flash gets shorter across 4 rounds. Highest total wins.' },
     tugtap:      { icon: '🪢', title: 'TUG TAP',       desc: 'Tug-of-war! Hammer your side of the screen to drag the knot toward your end of the rope. It slowly drifts back to centre, so keep tapping. First to haul the knot home wins — or whoever is ahead when time runs out!' },
     oddoneout:   { icon: '🔍', title: 'ODD ONE OUT',   desc: 'Every tile on your grid is the same shade except one. Tap the odd tile to score and get a fresh, harder grid — more tiles, subtler difference. A wrong tap locks you briefly. Most correct in 30 seconds wins!' },
+    steadyhand:  { icon: '🎯', title: 'STEADY HAND',   desc: 'A target drifts around your half — keep your finger on it to bank time! It speeds up as the round goes on. Whoever holds the target longest after 22 seconds wins.' },
 };
 
 // ============================================================
@@ -71,6 +73,7 @@ export const MG_ORIENTATION_MAP = {
     gridrecall:  'faceoff',
     tugtap:      'faceoff',
     oddoneout:   'faceoff',
+    steadyhand:  'faceoff',
 };
 
 export const FALLBACK_TRIVIA = [

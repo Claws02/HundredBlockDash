@@ -22,6 +22,7 @@ const MG_MODULES = {
     gridrecall:  () => import('./GridRecall.js'),
     tugtap:      () => import('./TugTap.js'),
     oddoneout:   () => import('./OddOneOut.js'),
+    steadyhand:  () => import('./SteadyHand.js'),
 };
 
 let _controller   = null;
