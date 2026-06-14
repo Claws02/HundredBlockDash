@@ -4,13 +4,14 @@ import {
     MINIGAME_EVERY_N_TURNS, ITEMS, SPACE_META, SPACE_DESCS,
     TOTAL_ROUNDS, DISTRICT_HQ_FIRST_BONUS, DISTRICT_HQ_REVISIT_BONUS,
     DISTRICT_DOMINANCE_BONUS, FULL_CIRCUIT_BONUSES, CONTRACT_COUNT,
-    DUEL_BET_OPTIONS, ALLIES, DISTRICT_SHOPS, BA_DISCOUNT, GRAND_MALL_DISCOUNT,
+    ALLIES, BA_DISCOUNT, GRAND_MALL_DISCOUNT,
     ALL_CHAR_TYPES, HQ_META, CHAR_ICONS,
     HBD_GATE_POS, HBD_SHOP_SPACES,
 } from '../config/GameConfig.js';
 import { CITY_GRAPH, JUNCTION_IDS, DISTRICT_NAMES, DISTRICT_KEYS, BRANCH_OPTIONS } from '../config/BoardGraph.js';
 import { MAP_REGISTRY } from '../config/MapRegistry.js';
 import { getShuffledPool } from '../config/ContractPool.js';
+import * as Bot from './Bot.js';
 import { sfx, haptic } from '../engine/AudioManager.js';
 import * as Renderer from '../engine/Renderer.js';
 import * as Physics from '../engine/Physics.js';
@@ -282,13 +283,16 @@ export function startPreRoll() {
         setTimeout(() => {
             if (state.gameState !== 'PRE_ROLL') return;
             // Bot ally activation (Cabbie)
-            if (_botHasCabbie(p) && Math.random() < 0.4) activateCabbie_bot(p);
-            if (p.inv.length > 0 && Math.random() < 0.3) {
-                const idx = Math.floor(Math.random() * p.inv.length);
-                const itemId = p.inv[idx]; p.inv.splice(idx, 1);
-                UIManager.toast(`${p.name} used ${ITEMS[itemId].name}!`, '#f5c842');
-                _applyItemEffect(p, itemId, true);
-                if (itemId === 'rocket' || itemId === 'custom_dice') return;
+            if (Bot.shouldUseCabbie(p)) activateCabbie_bot(p);
+            const useId = Bot.preRollItem(p);
+            if (useId !== null) {
+                const idx = p.inv.indexOf(useId);
+                if (idx >= 0) {
+                    p.inv.splice(idx, 1);
+                    UIManager.toast(`${p.name} used ${ITEMS[useId].name}!`, '#f5c842');
+                    _applyItemEffect(p, useId, true);
+                    if (useId === 'rocket' || useId === 'custom_dice') return;
+                }
             }
             if (state.gameState === 'PRE_ROLL') executeRoll(0.8 + Math.random() * 1.5);
         }, 1200);
@@ -405,7 +409,7 @@ function _checkPassThroughShop(player, nodeId, stepsLeft, continueMove) {
     const b = state.board[nodeId];
     if (stepsLeft > 0 && b?.type === 'shop') {
         if (player.isBot) {
-            if (Math.random() < 0.4) {
+            if (Bot.shopPassThrough()) {
                 state.gameState = 'SHOP';
                 setTimeout(() => {
                     if (state.gameState !== 'SHOP') return;
@@ -431,7 +435,7 @@ function _onLand(player) {
         return;
     }
     if (player.pos === opp.pos && opp.allies.length > 0 && player.isBot) {
-        if (Math.random() < 0.5) _startAllySteal(player, opp, 0, () => resolveSpace(player));
+        if (Bot.shouldAttemptAllySteal()) _startAllySteal(player, opp, Bot.allyStealIndex(opp), () => resolveSpace(player));
         else resolveSpace(player);
         return;
     }
@@ -461,10 +465,8 @@ function _offerBranchChoice(junctionId, onChosen) {
 
     const p = state.players[state.activePlayer];
     if (p.isBot) {
-        // Bot avoids locked gate path; otherwise random with slight district preference
-        const valid = displayOptions.filter(o => !(o.nodeId === 'ind_0' && !state.gateOpen));
-        const pick  = valid[Math.floor(Math.random() * valid.length)];
-        setTimeout(() => onChosen(pick.nodeId), 600);
+        const pick = Bot.branch(p, displayOptions);
+        setTimeout(() => onChosen(pick), 600);
         return;
     }
 
@@ -502,7 +504,7 @@ function _movePlayerHBD(p, steps, isForced = false) {
             Renderer.animatePlayerHop(p, curr, () => {
                 if (p.isBot) {
                     // Inline buy — must NOT call openShop/finishTurn mid-movement
-                    if (Math.random() < 0.4) _botPassThroughBuy(p);
+                    if (Bot.shopPassThrough()) _botPassThroughBuy(p);
                     setTimeout(hopNext, 300);
                 } else {
                     _passThroughResumeHop = hopNext;
@@ -659,7 +661,7 @@ export function resolveSpaceEffect(p, spaceType, space) {
             return `${hqInfo.icon} ${hqInfo.name}! +${bonus} coins${isGM ? ' · Grand Mall opens!' : ''}`;
         }
         case 'duel': {
-            if (p.isBot) { _startDuel(p, 1 + Math.floor(Math.random() * 3) * 2 + 1); return null; }
+            if (p.isBot) { _startDuel(p, Bot.duelBet(p, opp)); return null; }
             setTimeout(() => _openDuelModal(p), 400); return null;
         }
         default: return '';
@@ -1029,18 +1031,10 @@ export function openShop(district, discount) {
 }
 
 function _botShop(p) {
-    const opp        = state.players[(state.activePlayer+1)%2];
-    const distKey    = state.pendingShopDistrict || 'ring';
-    const disc       = state.pendingShopDiscount || 1.0;
-    const available  = DISTRICT_SHOPS[distKey] || Object.keys(ITEMS);
-    const affordable = available.filter(k => ITEMS[k] && p.coins >= Math.ceil(ITEMS[k].price * disc));
-    if (affordable.length > 0 && p.inv.length < MAX_INV) {
-        const ahead     = Renderer.getNodeT(p.pos) > Renderer.getNodeT(opp.pos); // works for both int and string
-        const preferred = ahead
-            ? affordable.filter(k => ['cursed_die','anchor','swap','steal'].includes(k))
-            : affordable.filter(k => ['shield','rocket','warp_drive','double_die'].includes(k));
-        const pool = preferred.length > 0 ? preferred : affordable;
-        const pick = pool[Math.floor(Math.random() * pool.length)];
+    const distKey = state.pendingShopDistrict || 'ring';
+    const disc    = state.pendingShopDiscount || 1.0;
+    const pick    = Bot.shopBuy(p, distKey, disc);
+    if (pick) {
         p.coins -= Math.ceil(ITEMS[pick].price * disc);
         p.inv.push(pick);
         UIManager.toast(`${p.name} bought ${ITEMS[pick].name}!`, '#a855f7');
@@ -1051,11 +1045,8 @@ function _botShop(p) {
 
 // Used only for HBD bot pass-through shops — does NOT call finishTurn
 function _botPassThroughBuy(p) {
-    const affordable = Object.keys(ITEMS).filter(k => p.coins >= ITEMS[k].price && p.inv.length < MAX_INV);
-    if (affordable.length === 0) return;
-    const preferred = affordable.filter(k => ['shield','warp_drive','double_die','rocket'].includes(k));
-    const pool = preferred.length > 0 ? preferred : affordable;
-    const pick = pool[Math.floor(Math.random() * pool.length)];
+    const pick = Bot.passThroughBuy(p);
+    if (!pick) return;
     p.coins -= ITEMS[pick].price;
     p.inv.push(pick);
     UIManager.toast(`${p.name} grabbed ${ITEMS[pick].name}!`, '#a855f7');
@@ -1169,7 +1160,7 @@ function _applyItemEffect(p, itemId, isBot, opp) {
     if (itemId === 'mirror')        p._mirrored = true;
     if (itemId === 'custom_dice') {
         if (isBot) {
-            const pick = 6;
+            const pick = Bot.customDice(p);
             UIManager.toast(`${p.name} picks ${pick} with Custom Dice!`, '#f5c842'); UIManager.updateUI();
             if (state.gameState === 'PRE_ROLL') setTimeout(() => _doMove(p, pick), 400);
         } else {
@@ -1246,9 +1237,7 @@ function _offerAllyEncounter(player, onDone) {
     if (!ally) { onDone(); return; }
 
     if (player.isBot) {
-        const hasFull = player.allies.length >= MAX_ALLIES;
-        const shouldFight = !hasFull || Math.random() < 0.6;
-        if (shouldFight) _startAllyMinigame(player, allyType, false, null, onDone);
+        if (Bot.allyFight(player)) _startAllyMinigame(player, allyType, false, null, onDone);
         else onDone();
         return;
     }
@@ -1263,8 +1252,7 @@ function _offerAllyEncounter(player, onDone) {
 function _offerAllySteal(stealer, target, onDone) {
     if (target.allies.length === 0) { onDone(); return; }
     if (stealer.isBot) {
-        const idx = Math.floor(Math.random() * target.allies.length);
-        _startAllySteal(stealer, target, idx, onDone);
+        _startAllySteal(stealer, target, Bot.allyStealIndex(target), onDone);
         return;
     }
     UIManager.showAllyStealModal(target, (allyIdx) => {
@@ -1368,16 +1356,11 @@ export function activateCabbie(playerIdx) {
 }
 
 function activateCabbie_bot(p) {
-    const junctions = ['bp_a','bp_b','bp_c','bp_d'];
-    const pick = junctions[Math.floor(Math.random() * junctions.length)];
+    const pick = Bot.cabbieJunction(p);
     p.cabbieUsedThisRound = true;
     const firstNode = CITY_GRAPH[pick]?.next?.[0];
     if (firstNode) { p.pos = firstNode; if (p.mesh) p.mesh.position.copy(Renderer.getPos(firstNode)); }
     UIManager.toast(`${p.name}'s Cabbie teleports them!`, '#fbbf24');
-}
-
-function _botHasCabbie(p) {
-    return p.allies.some(a => a.type === 'cabbie') && !p.cabbieUsedThisRound;
 }
 
 // Ally passive effect checks

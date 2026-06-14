@@ -6,6 +6,7 @@
 // ============================================================
 
 import { state } from '../core/GameState.js';
+import * as Bot from '../core/Bot.js';
 import { MG_TYPES, MG_INFO, MG_ORIENTATIONS, MG_ORIENTATION_MAP } from '../config/MinigameRegistry.js';
 import { MINIGAME_REWARD } from '../config/GameConfig.js';
 import { sfx, haptic } from '../engine/AudioManager.js';
@@ -18,10 +19,6 @@ const MG_MODULES = {
     orbdeflect:  () => import('./OrbDeflect.js'),
     snapstrike:  () => import('./SnapStrike.js'),
 };
-
-// Difficulty tier → botSkill (0–1). See docs/MINIGAME_STANDARD.md §5.
-// Headroom on Hard so it stays beatable by a focused human.
-const BOT_SKILL = { easy: 0.25, medium: 0.55, hard: 0.85 };
 
 let _controller   = null;
 let _onComplete   = null;
@@ -238,8 +235,7 @@ async function _launchGame() {
                 winMinigame(-1);
             }
         }, 90000);
-        const botSkill = BOT_SKILL[state.botDifficulty] ?? BOT_SKILL.medium;
-        mod.start(state.players[1].isBot, winMinigame, botSkill);
+        mod.start(state.players[1].isBot, winMinigame, Bot.skill());
     } catch (e) {
         console.error('[MinigameManager] _launchGame failed:', e);
         endMinigame(-1);
