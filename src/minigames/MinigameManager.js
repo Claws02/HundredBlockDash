@@ -21,6 +21,7 @@ const MG_MODULES = {
     quickdraw:   () => import('./QuickDraw.js'),
     gridrecall:  () => import('./GridRecall.js'),
     tugtap:      () => import('./TugTap.js'),
+    oddoneout:   () => import('./OddOneOut.js'),
 };
 
 let _controller   = null;
