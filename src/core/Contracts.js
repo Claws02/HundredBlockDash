@@ -3,14 +3,14 @@
 // rewards by completing tracked actions (land on types, visit HQs, win
 // minigames, etc.). Contracts are a no-op on Hundred Block Dash.
 //
-// Imports earnCoins from GameController (runtime-only ES-module cycle,
-// safe via live bindings — used inside functions, not at eval).
+// Imports earnCoins from Economy (runtime-only ES-module cycle with
+// Economy, safe via live bindings — used inside functions, not at eval).
 // ============================================================
 
 import { state } from './GameState.js';
 import { CONTRACT_COUNT } from '../config/GameConfig.js';
 import { getShuffledPool } from '../config/ContractPool.js';
-import { earnCoins } from './GameController.js';
+import { earnCoins } from './Economy.js';
 import * as UIManager from '../ui/UIManager.js';
 import { sfx } from '../engine/AudioManager.js';
 

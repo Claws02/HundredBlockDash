@@ -2,16 +2,13 @@
 // WIN SCREEN — final scoring, winner determination, and the
 // game-over card / confetti presentation.
 //
-// Imports earnCoins from GameController to apply City Circuit dominance
-// bonuses. This is a runtime-only ES-module cycle (the binding is used
-// inside calculateWinner, never at module evaluation), so it resolves
-// safely via live bindings.
+// Imports earnCoins from Economy to apply City Circuit dominance bonuses.
 // ============================================================
 
 import { state } from './GameState.js';
 import { DISTRICT_DOMINANCE_BONUS, HQ_META } from '../config/GameConfig.js';
 import { DISTRICT_KEYS, DISTRICT_NAMES } from '../config/BoardGraph.js';
-import { earnCoins } from './GameController.js';
+import { earnCoins } from './Economy.js';
 import * as ModalManager from '../ui/ModalManager.js';
 import { sfx } from '../engine/AudioManager.js';
 

@@ -14,6 +14,7 @@ import * as Bot from './Bot.js';
 import { initCityBoard, generateBoard } from './BoardSetup.js';
 import { calculateWinner } from './WinScreen.js';
 import { initContracts, checkContract as _checkContract } from './Contracts.js';
+import { earnCoins, loseCoins } from './Economy.js';
 import { sfx, haptic } from '../engine/AudioManager.js';
 import * as Renderer from '../engine/Renderer.js';
 import * as Physics from '../engine/Physics.js';
@@ -626,32 +627,7 @@ function _getAllNodesOrdered() {
     ];
 }
 
-// ============================================================
-// COINS
-// ============================================================
-
-export function earnCoins(p, amount) {
-    p.coins += amount; p.coinsEarned += amount; p.coinsEarnedThisRound += amount;
-    UIManager.animateCoinDisplay(p.id, p.coins);
-}
-
-export function loseCoins(p, amount) {
-    // Bodyguard ally absorbs negative effects
-    const bgIdx = p.allies.findIndex(a => a.type === 'bodyguard' && a.shieldCharges > 0);
-    if (bgIdx >= 0) {
-        p.allies[bgIdx].shieldCharges--;
-        sfx('shield'); UIManager.toast(`🦺 Bodyguard absorbs the hit! (${p.allies[bgIdx].shieldCharges} left)`, '#22c55e');
-        UIManager.updateUI();
-        if (p.allies[bgIdx].shieldCharges <= 0) expireAlly(p, bgIdx);
-        _checkContract(p, 'block_space');
-        return 0;
-    }
-    if (p._shielded) { p._shielded = false; sfx('shield'); _checkContract(p, 'block_space'); return 0; }
-    const lost = Math.min(p.coins, amount);
-    p.coins -= lost;
-    UIManager.animateCoinDisplay(p.id, p.coins);
-    return lost;
-}
+// Coin gains/losses live in Economy.js (earnCoins / loseCoins).
 
 // ============================================================
 // TURN COMPLETION
