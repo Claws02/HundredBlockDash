@@ -9,6 +9,7 @@ export const MG_TYPES = [
     'rhythmforge',
     'orbdeflect',
     'snapstrike',
+    'quickdraw',
 ];
 
 export const MG_INFO = {
@@ -17,6 +18,7 @@ export const MG_INFO = {
     rhythmforge: { icon: '🥁', title: 'RHYTHM FORGE',  desc: 'Tap the correct lane as notes reach the hit zone! 3 rounds of increasing difficulty — each player takes a turn. Perfect, Great, and Good hits score 3, 2, and 1 points. Most points overall wins!' },
     orbdeflect:  { icon: '🌀', title: 'ORB DEFLECT',   desc: 'Draw glowing barriers with your finger to deflect the orb into your opponent\'s core! P1 owns the bottom half, P2 the top. 3 HP each — first to lose all HP loses, or most HP after 30 seconds wins!' },
     snapstrike:  { icon: '💥', title: 'SNAP STRIKE',   desc: 'A needle sweeps your bar — tap to lock it on the bullseye! PERFECT, GREAT, and GOOD snaps score 3, 2, and 1 points. The bar speeds up and the target shrinks across 5 rounds. Highest total wins!' },
+    quickdraw:   { icon: '🤠', title: 'QUICK DRAW',    desc: 'Both halves say WAIT. The instant they flip to DRAW, tap as fast as you can — first finger wins the round! But tap too early and you false-start and lose it. Best of 3 wins the duel.' },
 };
 
 // ============================================================
@@ -59,6 +61,7 @@ export const MG_ORIENTATION_MAP = {
     rhythmforge: 'faceoff',
     orbdeflect:  'faceoff',
     snapstrike:  'faceoff',
+    quickdraw:   'quickdraw',
 };
 
 export const FALLBACK_TRIVIA = [

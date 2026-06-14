@@ -18,6 +18,7 @@ const MG_MODULES = {
     rhythmforge: () => import('./RhythmForge.js'),
     orbdeflect:  () => import('./OrbDeflect.js'),
     snapstrike:  () => import('./SnapStrike.js'),
+    quickdraw:   () => import('./QuickDraw.js'),
 };
 
 let _controller   = null;
