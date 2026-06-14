@@ -19,6 +19,7 @@ const MG_MODULES = {
     orbdeflect:  () => import('./OrbDeflect.js'),
     snapstrike:  () => import('./SnapStrike.js'),
     quickdraw:   () => import('./QuickDraw.js'),
+    gridrecall:  () => import('./GridRecall.js'),
 };
 
 let _controller   = null;

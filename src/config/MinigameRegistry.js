@@ -10,6 +10,7 @@ export const MG_TYPES = [
     'orbdeflect',
     'snapstrike',
     'quickdraw',
+    'gridrecall',
 ];
 
 export const MG_INFO = {
@@ -19,6 +20,7 @@ export const MG_INFO = {
     orbdeflect:  { icon: '🌀', title: 'ORB DEFLECT',   desc: 'Draw glowing barriers with your finger to deflect the orb into your opponent\'s core! P1 owns the bottom half, P2 the top. 3 HP each — first to lose all HP loses, or most HP after 30 seconds wins!' },
     snapstrike:  { icon: '💥', title: 'SNAP STRIKE',   desc: 'A needle sweeps your bar — tap to lock it on the bullseye! PERFECT, GREAT, and GOOD snaps score 3, 2, and 1 points. The bar speeds up and the target shrinks across 5 rounds. Highest total wins!' },
     quickdraw:   { icon: '🤠', title: 'QUICK DRAW',    desc: 'Both halves say WAIT. The instant they flip to DRAW, tap as fast as you can — first finger wins the round! But tap too early and you false-start and lose it. Best of 3 wins the duel.' },
+    gridrecall:  { icon: '🧠', title: 'GRID RECALL',   desc: 'A pattern of tiles flashes on your 3×3 grid, then vanishes — tap them back from memory! Every correct tile scores. The pattern grows and the flash gets shorter across 4 rounds. Highest total wins.' },
 };
 
 // ============================================================
@@ -62,6 +64,7 @@ export const MG_ORIENTATION_MAP = {
     orbdeflect:  'faceoff',
     snapstrike:  'faceoff',
     quickdraw:   'quickdraw',
+    gridrecall:  'faceoff',
 };
 
 export const FALLBACK_TRIVIA = [
