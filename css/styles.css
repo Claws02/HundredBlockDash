@@ -79,6 +79,13 @@ body, html {
 .mg-arcade-btn { background: transparent; border: 2px solid rgba(245,200,66,0.45); color: rgba(245,200,66,0.85); padding: 10px 24px; border-radius: 50px; margin-top: 10px; cursor: pointer; font-size: 17px; letter-spacing: 1px; width: 100%; max-width: 300px; transition: all .2s; }
 .mg-arcade-btn:active { background: rgba(245,200,66,0.12); border-color: var(--gold); color: var(--gold); }
 
+.diff-chips { display: flex; gap: 8px; width: 100%; }
+.diff-chip {
+    flex: 1; background: rgba(0,0,0,0.4); border: 2px solid rgba(255,255,255,0.35); color: #fff;
+    padding: 9px 4px; border-radius: 10px; font-size: 16px; letter-spacing: 1px; cursor: pointer; transition: all .2s;
+}
+.diff-chip.sel, .diff-chip:hover { border-color: var(--gold); background: rgba(245,200,66,.22); color: var(--gold); }
+
 .char-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-top: 16px; width: 100%; }
 .char-card { background: rgba(0,0,0,0.4); border: 2px solid rgba(255,255,255,0.4); border-radius: 16px; padding: 12px 8px; text-align: center; cursor: pointer; transition: transform .2s, border-color .2s; width: 100%; }
 .char-card.sel { border-color: var(--gold); background: rgba(245,200,66,.2); box-shadow: 0 0 20px rgba(245,200,66,0.4); }

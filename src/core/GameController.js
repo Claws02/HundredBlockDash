@@ -34,6 +34,10 @@ let _rollAgainActive = false;
 
 export function selectMode(m) { state.playStyle = m; }
 
+export function selectDifficulty(level) {
+    if (['easy', 'medium', 'hard'].includes(level)) state.botDifficulty = level;
+}
+
 export function goToCharSelect() {
     if (!state.playStyle) { UIManager.toast('Please select a game mode first!', '#ef4444'); return; }
     document.getElementById('splash').style.display = 'none';
