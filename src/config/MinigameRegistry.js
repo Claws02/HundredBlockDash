@@ -8,6 +8,7 @@ export const MG_TYPES = [
     'tankclash',
     'rhythmforge',
     'orbdeflect',
+    'snapstrike',
 ];
 
 export const MG_INFO = {
@@ -15,6 +16,7 @@ export const MG_INFO = {
     tankclash:   { icon: '🎯', title: 'TANK CLASH',    desc: 'Use the left joystick to move and aim your tank, tap the right side to fire! Use cover to dodge shots. First to land 3 hits wins!' },
     rhythmforge: { icon: '🥁', title: 'RHYTHM FORGE',  desc: 'Tap the correct lane as notes reach the hit zone! 3 rounds of increasing difficulty — each player takes a turn. Perfect, Great, and Good hits score 3, 2, and 1 points. Most points overall wins!' },
     orbdeflect:  { icon: '🌀', title: 'ORB DEFLECT',   desc: 'Draw glowing barriers with your finger to deflect the orb into your opponent\'s core! P1 owns the bottom half, P2 the top. 3 HP each — first to lose all HP loses, or most HP after 30 seconds wins!' },
+    snapstrike:  { icon: '💥', title: 'SNAP STRIKE',   desc: 'A needle sweeps your bar — tap to lock it on the bullseye! PERFECT, GREAT, and GOOD snaps score 3, 2, and 1 points. The bar speeds up and the target shrinks across 5 rounds. Highest total wins!' },
 };
 
 // ============================================================
@@ -56,6 +58,7 @@ export const MG_ORIENTATION_MAP = {
     tankclash:   'faceoff',
     rhythmforge: 'faceoff',
     orbdeflect:  'faceoff',
+    snapstrike:  'faceoff',
 };
 
 export const FALLBACK_TRIVIA = [
