@@ -15,6 +15,7 @@ import { initCityBoard, generateBoard } from './BoardSetup.js';
 import { calculateWinner } from './WinScreen.js';
 import { initContracts, checkContract as _checkContract } from './Contracts.js';
 import { earnCoins, loseCoins } from './Economy.js';
+import * as Storage from './Storage.js';
 import { sfx, haptic } from '../engine/AudioManager.js';
 import * as Renderer from '../engine/Renderer.js';
 import * as Physics from '../engine/Physics.js';
@@ -140,9 +141,42 @@ export function confirmMapSelect() {
     startGame();
 }
 
+// Remember this game's setup so REMATCH can skip the menus.
+function _savePrefs() {
+    Storage.save('prefs', {
+        mode:       state.playStyle,
+        difficulty: state.botDifficulty,
+        map:        state.selectedMap,
+        charP1:     state.players[0].charType,
+        charP2:     state.players[1].charType,
+    });
+}
+
+// Re-launch straight into a game with a saved setup (used by REMATCH).
+export function quickStart(prefs) {
+    if (!prefs || !prefs.mode) return false;
+    state.playStyle     = prefs.mode;
+    state.botDifficulty = prefs.difficulty || 'medium';
+    state.selectedMap   = prefs.map || 'city_circuit';
+    state.players[0].charType = prefs.charP1 || 'slime';
+    state.players[1].isBot    = (prefs.mode === '1p');
+    if (state.players[1].isBot) {
+        state.players[1].name = 'Borat the Bot';
+        const types = ALL_CHAR_TYPES.filter(t => t !== prefs.charP1);
+        state.players[1].charType = types[Math.floor(Math.random() * types.length)];
+    } else {
+        state.players[1].name = 'Player 2';
+        state.players[1].charType = prefs.charP2 || 'boxy';
+    }
+    document.getElementById('splash').style.display = 'none';
+    startGame();
+    return true;
+}
+
 export function startGame() {
     if (state.gameStarted) return;
     state.gameStarted = true;
+    _savePrefs();
     if (state.playStyle === 'tabletop') document.body.classList.add('tabletop-mode');
     document.getElementById('splash').style.display      = 'none';
     document.getElementById('char-select').style.display  = 'none';
@@ -1305,7 +1339,10 @@ export function confirmDuelBet(betAmount) {
 // WIN SCREEN  (calculateWinner lives in WinScreen.js)
 // ============================================================
 
-export function playAgain() { window.location.reload(); }
+// Win-screen actions. Rematch flags an intent the next page-load honours
+// (main.js → quickStart); both reload to guarantee a clean engine reset.
+export function rematch()  { Storage.save('intent', 'rematch'); window.location.reload(); }
+export function mainMenu() { Storage.remove('intent'); window.location.reload(); }
 
 // ============================================================
 // MAP

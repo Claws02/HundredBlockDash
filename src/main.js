@@ -2,6 +2,9 @@ import * as GameController from './core/GameController.js';
 import * as UIManager from './ui/UIManager.js';
 import * as ModalManager from './ui/ModalManager.js';
 import * as MinigameManager from './minigames/MinigameManager.js';
+import * as Settings from './core/Settings.js';
+import * as Onboarding from './ui/Onboarding.js';
+import * as Storage from './core/Storage.js';
 import { MG_INFO, MG_TYPES } from './config/MinigameRegistry.js';
 
 window.addEventListener('error', e => {
@@ -12,9 +15,31 @@ window.addEventListener('unhandledrejection', e => {
 });
 
 // Wire all managers with the controller reference
+Settings.init();          // load + apply audio/motion prefs before anything plays
 UIManager.init(GameController);
 ModalManager.init(GameController);
 MinigameManager.init(GameController);
+Onboarding.init();
+Onboarding.refreshSplashStats();
+
+// ============================================================
+// REMATCH FAST-PATH & FIRST-RUN ONBOARDING
+// ============================================================
+
+if (Storage.load('intent', null) === 'rematch') {
+    Storage.remove('intent');
+    const prefs = Storage.load('prefs', null);
+    // If the saved setup can't launch, fall through to the normal splash.
+    if (!GameController.quickStart(prefs)) Onboarding.maybeShowFirstRun();
+} else {
+    Onboarding.maybeShowFirstRun();
+}
+
+// Splash: how-to-play / settings
+document.getElementById('btn-how-to-play').addEventListener('click', () => Onboarding.openHowToPlay());
+document.getElementById('btn-settings').addEventListener('click', () => Onboarding.openSettings());
+// In-game rules reference
+document.getElementById('btn-rules').addEventListener('click', () => Onboarding.openRules());
 
 // ============================================================
 // SPLASH SCREEN
@@ -117,7 +142,8 @@ document.getElementById('gate-continue-btn').addEventListener('click', () => Gam
 // WIN SCREEN
 // ============================================================
 
-document.getElementById('btn-play-again').addEventListener('click', () => GameController.playAgain());
+document.getElementById('btn-rematch').addEventListener('click', () => GameController.rematch());
+document.getElementById('btn-main-menu').addEventListener('click', () => GameController.mainMenu());
 
 // ============================================================
 // MINIGAME ARCADE SELECTOR

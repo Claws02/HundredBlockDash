@@ -33,6 +33,11 @@
             </div>
             <button class="btn-primary bfont" id="btn-next">NEXT</button>
             <button class="mg-arcade-btn bfont" id="btn-minigames">🎮 MINIGAME ARCADE</button>
+            <div class="splash-secondary">
+                <button class="splash-link bfont" id="btn-how-to-play">❓ HOW TO PLAY</button>
+                <button class="splash-link bfont" id="btn-settings">⚙️ SETTINGS</button>
+            </div>
+            <div id="splash-stats" class="splash-stats" style="display:none;"></div>
         </div>
     </div>
 
@@ -114,6 +119,9 @@
     <div id="ui-layer">
         <!-- Round counter (centered top) -->
         <div id="round-counter" class="bfont">ROUND 0/20</div>
+
+        <!-- Rules reference (always available during play) -->
+        <button id="btn-rules" class="bfont" title="Rules & reference">❓</button>
 
         <!-- Contracts strip (below round counter) -->
         <div id="contracts-strip" style="display:none;"></div>
@@ -219,7 +227,11 @@
         <div class="win-name bfont" id="win-name">PLAYER 1</div>
         <div class="win-subtitle" id="win-subtitle">WINS THE CITY!</div>
         <div class="win-cards" id="win-cards"></div>
-        <button class="btn-primary win-btn" id="btn-play-again">PLAY AGAIN</button>
+        <div id="win-stats" class="win-stats"></div>
+        <div class="win-btn-row">
+            <button class="btn-primary win-btn" id="btn-rematch">🔄 REMATCH</button>
+            <button class="mg-arcade-btn win-menu-btn" id="btn-main-menu">🏠 MAIN MENU</button>
+        </div>
     </div>
 
     <!-- Modals -->
@@ -320,6 +332,11 @@
     </div>
 
     <div id="toast-box"></div>
+
+    <!-- Onboarding & settings overlays (content built by Onboarding.js) -->
+    <div id="howto-overlay" class="fs-overlay" style="display:none;"></div>
+    <div id="rules-overlay" class="fs-overlay" style="display:none;"></div>
+    <div id="settings-overlay" class="fs-overlay" style="display:none;"></div>
 
     <script type="module" src="src/main.js"></script>
 </body>

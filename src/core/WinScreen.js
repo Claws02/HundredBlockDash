@@ -9,6 +9,7 @@ import { state } from './GameState.js';
 import { DISTRICT_DOMINANCE_BONUS, HQ_META } from '../config/GameConfig.js';
 import { DISTRICT_KEYS, DISTRICT_NAMES } from '../config/BoardGraph.js';
 import { earnCoins } from './Economy.js';
+import * as Stats from './Stats.js';
 import * as ModalManager from '../ui/ModalManager.js';
 import { sfx } from '../engine/AudioManager.js';
 
@@ -62,6 +63,19 @@ export function calculateWinner() {
         return `<div class="win-card${isW ? ' winner-card' : ''}"><div class="win-card-name">${isW?'👑 ':''}${p.name}</div><div class="win-card-score">${s}</div>${details}</div>`;
     }
     document.getElementById('win-cards').innerHTML = card(p1, p1s) + card(p2, p2s);
+
+    // Persist 1-player record and surface a streak/record line.
+    const statsEl = document.getElementById('win-stats');
+    if (statsEl) {
+        if (state.playStyle === '1p') {
+            const playerWon = !isTie && winner.id === 0;
+            const rec = Stats.recordVsBot(playerWon, isTie);
+            const streakStr = (playerWon && rec.streak > 1) ? ` · 🔥 ${rec.streak} in a row` : '';
+            statsEl.innerHTML = `Record vs Bot: <b>${rec.wins}W</b>–<b>${rec.losses}L</b>${rec.ties ? `–${rec.ties}T` : ''}${streakStr}`;
+        } else {
+            statsEl.innerHTML = '';
+        }
+    }
 
     const confettiEl = document.getElementById('win-confetti'); confettiEl.innerHTML = '';
     const colors = ['#f59e0b','#a855f7','#3b82f6','#ef4444','#4ade80','#fbbf24','#ec4899'];
