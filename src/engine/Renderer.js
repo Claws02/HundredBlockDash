@@ -10,6 +10,8 @@ import * as Physics from './Physics.js';
 let scene, camera, renderer, clock;
 let boardGrp, diceGrp;
 let _prevActivePlayer = -1;
+let _camFollowPid     = -1;     // which player the follow-cam is currently posed behind
+let _camTransitioning = false;  // true while easing between two players
 const activeAnims   = [];
 const floatingIcons = [];
 const tileMeshes    = [];
@@ -827,6 +829,47 @@ export function onResize() {
 
 function startLoop() { requestAnimationFrame(_loop); }
 
+// Desired follow pose (camera position + look target) behind a player.
+function _followPose(p) {
+    const currPt = p.mesh.position;
+    let fwd;
+    if (state.selectedMap === 'hundred_block_dash' && boardCurve && typeof p.pos === 'number') {
+        const t = Math.max(0.001, Math.min(p.pos / 99, 0.999));
+        fwd = boardCurve.getTangent(t).clone().normalize();
+    } else {
+        const prevPt = getPos(p.prevPos || p.pos);
+        fwd = new THREE.Vector3().subVectors(currPt, prevPt).normalize();
+        if (fwd.lengthSq() < 0.001) fwd.set(0, 0, -1);
+    }
+    const pos  = currPt.clone().addScaledVector(fwd, -14).add(new THREE.Vector3(0, 22, 0));
+    const look = state.selectedMap === 'hundred_block_dash'
+        ? currPt.clone().addScaledVector(fwd, 10)
+        : currPt.clone().add(new THREE.Vector3(0, 1, 0));
+    return { pos, look };
+}
+
+// Smoothly pan the camera to a newly-active player instead of letting the
+// per-frame chase whip across the board when the turn changes.
+function _startCamTransition(p) {
+    const pose = _followPose(p);
+    if (!isFinite(pose.pos.x)) { _camFollowPid = state.activePlayer; return; }
+    const fromPos  = camera.position.clone();
+    const fromQuat = camera.quaternion.clone();
+    _camHelper.position.copy(pose.pos); _camHelper.lookAt(pose.look);
+    const toQuat = _camHelper.quaternion.clone();
+    const toPos  = pose.pos.clone();
+    _camTransitioning = true;
+    activeAnims.push({
+        obj: { t: 0 }, start: { t: 0 }, to: { t: 1 }, dur: 0.85,
+        onUpdate: (pr) => {
+            const e = pr < 0.5 ? 4 * pr * pr * pr : 1 - Math.pow(-2 * pr + 2, 3) / 2; // easeInOutCubic
+            camera.position.lerpVectors(fromPos, toPos, e);
+            camera.quaternion.copy(fromQuat).slerp(toQuat, e);
+        },
+        onComplete: () => { _camFollowPid = state.activePlayer; _camTransitioning = false; },
+    });
+}
+
 function _loop() {
     requestAnimationFrame(_loop);
     if (!clock) return;
@@ -882,31 +925,33 @@ function _loop() {
     if (cs === 'FOLLOW') {
         const p = state.players[state.activePlayer];
         if (p?.mesh?.position) {
-            const currPt = p.mesh.position;
-            let fwd;
-            if (state.selectedMap === 'hundred_block_dash' && boardCurve && typeof p.pos === 'number') {
-                const t = Math.max(0.001, Math.min(p.pos / 99, 0.999));
-                fwd = boardCurve.getTangent(t).clone().normalize();
-            } else {
-                const prevPt = getPos(p.prevPos || p.pos);
-                fwd = new THREE.Vector3().subVectors(currPt, prevPt).normalize();
-                if (fwd.lengthSq() < 0.001) fwd.set(0, 0, -1);
+            // Recover if the camera ever lands on NaN (keeps the view from freezing).
+            if (!isFinite(camera.position.x)) {
+                const pose = _followPose(p);
+                if (isFinite(pose.pos.x)) camera.position.copy(pose.pos);
             }
-            const camOffset = -14;
-            const camTgt = currPt.clone().addScaledVector(fwd, camOffset).add(new THREE.Vector3(0, 22, 0));
-            if (!isNaN(camTgt.x)) camera.position.lerp(camTgt, 0.055);
-            _camHelper.position.copy(camera.position);
-            const lookTarget = state.selectedMap === 'hundred_block_dash'
-                ? currPt.clone().addScaledVector(fwd, 10)
-                : currPt.clone().add(new THREE.Vector3(0, 1, 0));
-            _camHelper.lookAt(lookTarget);
-            camera.quaternion.slerp(_camHelper.quaternion, 0.07);
+            // On a turn change, ease to the new player rather than whipping across.
+            if (_camFollowPid !== state.activePlayer && !_camTransitioning) _startCamTransition(p);
+
+            if (!_camTransitioning) {
+                const pose = _followPose(p);
+                if (isFinite(pose.pos.x)) {
+                    // Frame-rate-independent smoothing (consistent on 60/120 Hz).
+                    const kPos = 1 - Math.pow(1 - 0.06, dt * 60);
+                    const kRot = 1 - Math.pow(1 - 0.08, dt * 60);
+                    camera.position.lerp(pose.pos, kPos);
+                    _camHelper.position.copy(camera.position);
+                    _camHelper.lookAt(pose.look);
+                    camera.quaternion.slerp(_camHelper.quaternion, kRot);
+                }
+            }
         }
     } else if (cs === 'MAP') {
-        camera.position.lerp(mapCam.targetPos, 0.1);
+        const k = 1 - Math.pow(1 - 0.1, dt * 60);
+        camera.position.lerp(mapCam.targetPos, k);
         _camHelper.position.copy(camera.position);
         _camHelper.lookAt(mapCam.targetLook);
-        camera.quaternion.slerp(_camHelper.quaternion, 0.1);
+        camera.quaternion.slerp(_camHelper.quaternion, k);
     }
 
     if (renderer && scene && camera) renderer.render(scene, camera);

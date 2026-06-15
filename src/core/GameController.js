@@ -702,18 +702,24 @@ function _resolveMinigameResult(winnerId) {
         msg = `${state.players[winnerId].name} wins — they roll first next turn!`;
         icon = '🏆';
     }
-    // Track consecutive wins for contracts
-    state.players.forEach((p, i) => {
-        if (i === winnerId) { p.consecutiveMgWins++; }
-        else { p.consecutiveMgWins = 0; }
-    });
-    if (state.selectedMap !== 'hundred_block_dash') {
-        _checkContract(state.players[winnerId], 'win_minigame');
-        _checkContract(state.players[winnerId], 'win_minigames', null, state.players[winnerId].consecutiveMgWins);
-    }
+    // Present the result and resume the camera FIRST, so any bookkeeping error
+    // below can never strand the turn on a frozen, unresolvable modal.
     ModalManager.showMessage('MINIGAME OVER', msg, icon);
     Renderer.startPostMinigameFlyover(() => { state.cameraState = 'FOLLOW'; });
     if (state.selectedMap !== 'hundred_block_dash') UIManager.updateRoundCounter(state.currentRound, TOTAL_ROUNDS);
+
+    try {
+        // Track consecutive wins for contracts
+        state.players.forEach((p, i) => {
+            if (i === winnerId) { p.consecutiveMgWins++; }
+            else { p.consecutiveMgWins = 0; }
+        });
+        if (state.selectedMap !== 'hundred_block_dash') {
+            _checkContract(state.players[winnerId], 'win_minigame');
+            _checkContract(state.players[winnerId], 'win_minigames', null, state.players[winnerId].consecutiveMgWins);
+        }
+    } catch (e) { console.error('[HundredBlockDash] minigame bookkeeping failed:', e); }
+
     if (state.players[1].isBot) {
         setTimeout(() => { if (state.gameState === 'MINIGAME_ACK') resolveMsgModal(); }, 1800);
     }
