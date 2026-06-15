@@ -3,14 +3,18 @@ import {
     GATE_THRESHOLD, GATE_NUM_DICE, MAX_INV, MAX_ALLIES, ALLY_TURNS, ALLY_SPAWN_DELAY_TURNS,
     MINIGAME_EVERY_N_TURNS, ITEMS, SPACE_META, SPACE_DESCS,
     TOTAL_ROUNDS, DISTRICT_HQ_FIRST_BONUS, DISTRICT_HQ_REVISIT_BONUS,
-    DISTRICT_DOMINANCE_BONUS, FULL_CIRCUIT_BONUSES, CONTRACT_COUNT,
-    DUEL_BET_OPTIONS, ALLIES, DISTRICT_SHOPS, BA_DISCOUNT, GRAND_MALL_DISCOUNT,
+    FULL_CIRCUIT_BONUSES,
+    ALLIES, BA_DISCOUNT, GRAND_MALL_DISCOUNT,
     ALL_CHAR_TYPES, HQ_META, CHAR_ICONS,
     HBD_GATE_POS, HBD_SHOP_SPACES,
 } from '../config/GameConfig.js';
 import { CITY_GRAPH, JUNCTION_IDS, DISTRICT_NAMES, DISTRICT_KEYS, BRANCH_OPTIONS } from '../config/BoardGraph.js';
 import { MAP_REGISTRY } from '../config/MapRegistry.js';
-import { getShuffledPool } from '../config/ContractPool.js';
+import * as Bot from './Bot.js';
+import { initCityBoard, generateBoard } from './BoardSetup.js';
+import { calculateWinner } from './WinScreen.js';
+import { initContracts, checkContract as _checkContract } from './Contracts.js';
+import { earnCoins, loseCoins } from './Economy.js';
 import { sfx, haptic } from '../engine/AudioManager.js';
 import * as Renderer from '../engine/Renderer.js';
 import * as Physics from '../engine/Physics.js';
@@ -33,6 +37,10 @@ let _rollAgainActive = false;
 // ============================================================
 
 export function selectMode(m) { state.playStyle = m; }
+
+export function selectDifficulty(level) {
+    if (['easy', 'medium', 'hard'].includes(level)) state.botDifficulty = level;
+}
 
 export function goToCharSelect() {
     if (!state.playStyle) { UIManager.toast('Please select a game mode first!', '#ef4444'); return; }
@@ -167,97 +175,7 @@ export function startGame() {
     }, 100);
 }
 
-// ============================================================
-// BOARD INITIALISATION
-// ============================================================
-
-export function initCityBoard() {
-    const pools = _buildPools();
-    state.board = {};
-
-    Object.values(CITY_GRAPH).forEach(node => {
-        if (node.isJunction) return; // junctions not in board
-        const base = node.type; // may be null (random), or fixed (shop/gate/hq/start)
-        if (base !== null) {
-            state.board[node.id] = { type: base === 'gate' && state.gateOpen ? 'gate_open' : base };
-        } else {
-            const pool = pools[node.district] || pools.ring;
-            state.board[node.id] = { type: pool.pop() || 'coin' };
-        }
-    });
-}
-
-function _buildPools() {
-    const { DISTRICT_POOLS } = { DISTRICT_POOLS: _getDistrictPools() };
-    const out = {};
-    for (const [key, arr] of Object.entries(DISTRICT_POOLS)) {
-        const pool = [...arr];
-        for (let i = pool.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [pool[i], pool[j]] = [pool[j], pool[i]];
-        }
-        out[key] = pool;
-    }
-    return out;
-}
-
-function _getDistrictPools() {
-    return {
-        ring: [
-            ...Array(5).fill('coin'), ...Array(3).fill('coin_big'),
-            ...Array(2).fill('trap'), ...Array(2).fill('lose'),
-            ...Array(2).fill('mystery'), ...Array(1).fill('boost'),
-            ...Array(1).fill('truce'), ...Array(1).fill('shortcut'),
-        ],
-        fin: [
-            ...Array(3).fill('coin_big'), ...Array(2).fill('lose_big'),
-            ...Array(1).fill('magnet'), ...Array(1).fill('duel'), ...Array(1).fill('coin'),
-        ],
-        ba: [
-            ...Array(3).fill('trap'), ...Array(2).fill('lose'),
-            ...Array(2).fill('magnet'), ...Array(2).fill('shortcut'), ...Array(1).fill('duel'),
-        ],
-        shop: [
-            ...Array(3).fill('mystery'), ...Array(2).fill('coin'),
-            ...Array(2).fill('coin_big'), ...Array(1).fill('duel'),
-        ],
-        ind: [
-            ...Array(1).fill('lose_big'), ...Array(1).fill('trap'),
-            ...Array(1).fill('cfwd'),     ...Array(1).fill('coin_big'), ...Array(1).fill('duel'),
-        ],
-    };
-}
-
-// ---- HBD board generation ----
-
-export function generateBoard() {
-    state.board = [{ type: 'start' }];
-    const earlyPool = [
-        ...Array(20).fill('coin'), ...Array(10).fill('coin_big'),
-        ...Array(8).fill('mystery'), ...Array(6).fill('boost'),
-        ...Array(5).fill('shortcut'), ...Array(4).fill('cfwd'),
-        ...Array(3).fill('truce'), ...Array(2).fill('lose'), ...Array(2).fill('trap'),
-    ];
-    while (earlyPool.length < 49) earlyPool.push('coin');
-    earlyPool.sort(() => Math.random() - 0.5);
-
-    const latePool = [
-        ...Array(12).fill('lose'), ...Array(10).fill('lose_big'),
-        ...Array(10).fill('trap'), ...Array(6).fill('magnet'),
-        ...Array(4).fill('cbwd'), ...Array(2).fill('mystery'),
-        ...Array(2).fill('truce'), ...Array(3).fill('coin'),
-        ...Array(3).fill('swap_space'),
-    ];
-    while (latePool.length < 49) latePool.push('lose');
-    latePool.sort(() => Math.random() - 0.5);
-
-    for (let i = 1; i <= 49; i++) state.board.push({ type: earlyPool[i - 1] });
-    for (let i = 50; i <= 98; i++) state.board.push({ type: latePool[i - 50] });
-    state.board.push({ type: 'start', n: 'FINISH', ic: '👑' });
-
-    state.board[HBD_GATE_POS] = { type: 'gate' };
-    HBD_SHOP_SPACES.forEach(i => { if (i !== HBD_GATE_POS) state.board[i] = { type: 'shop' }; });
-}
+// Board generation lives in BoardSetup.js (initCityBoard / generateBoard).
 
 // ============================================================
 // TURN FLOW
@@ -278,13 +196,16 @@ export function startPreRoll() {
         setTimeout(() => {
             if (state.gameState !== 'PRE_ROLL') return;
             // Bot ally activation (Cabbie)
-            if (_botHasCabbie(p) && Math.random() < 0.4) activateCabbie_bot(p);
-            if (p.inv.length > 0 && Math.random() < 0.3) {
-                const idx = Math.floor(Math.random() * p.inv.length);
-                const itemId = p.inv[idx]; p.inv.splice(idx, 1);
-                UIManager.toast(`${p.name} used ${ITEMS[itemId].name}!`, '#f5c842');
-                _applyItemEffect(p, itemId, true);
-                if (itemId === 'rocket' || itemId === 'custom_dice') return;
+            if (Bot.shouldUseCabbie(p)) activateCabbie_bot(p);
+            const useId = Bot.preRollItem(p);
+            if (useId !== null) {
+                const idx = p.inv.indexOf(useId);
+                if (idx >= 0) {
+                    p.inv.splice(idx, 1);
+                    UIManager.toast(`${p.name} used ${ITEMS[useId].name}!`, '#f5c842');
+                    _applyItemEffect(p, useId, true);
+                    if (useId === 'rocket' || useId === 'custom_dice') return;
+                }
             }
             if (state.gameState === 'PRE_ROLL') executeRoll(0.8 + Math.random() * 1.5);
         }, 1200);
@@ -401,7 +322,7 @@ function _checkPassThroughShop(player, nodeId, stepsLeft, continueMove) {
     const b = state.board[nodeId];
     if (stepsLeft > 0 && b?.type === 'shop') {
         if (player.isBot) {
-            if (Math.random() < 0.4) {
+            if (Bot.shopPassThrough()) {
                 state.gameState = 'SHOP';
                 setTimeout(() => {
                     if (state.gameState !== 'SHOP') return;
@@ -427,7 +348,7 @@ function _onLand(player) {
         return;
     }
     if (player.pos === opp.pos && opp.allies.length > 0 && player.isBot) {
-        if (Math.random() < 0.5) _startAllySteal(player, opp, 0, () => resolveSpace(player));
+        if (Bot.shouldAttemptAllySteal()) _startAllySteal(player, opp, Bot.allyStealIndex(opp), () => resolveSpace(player));
         else resolveSpace(player);
         return;
     }
@@ -457,10 +378,8 @@ function _offerBranchChoice(junctionId, onChosen) {
 
     const p = state.players[state.activePlayer];
     if (p.isBot) {
-        // Bot avoids locked gate path; otherwise random with slight district preference
-        const valid = displayOptions.filter(o => !(o.nodeId === 'ind_0' && !state.gateOpen));
-        const pick  = valid[Math.floor(Math.random() * valid.length)];
-        setTimeout(() => onChosen(pick.nodeId), 600);
+        const pick = Bot.branch(p, displayOptions);
+        setTimeout(() => onChosen(pick), 600);
         return;
     }
 
@@ -498,7 +417,7 @@ function _movePlayerHBD(p, steps, isForced = false) {
             Renderer.animatePlayerHop(p, curr, () => {
                 if (p.isBot) {
                     // Inline buy — must NOT call openShop/finishTurn mid-movement
-                    if (Math.random() < 0.4) _botPassThroughBuy(p);
+                    if (Bot.shopPassThrough()) _botPassThroughBuy(p);
                     setTimeout(hopNext, 300);
                 } else {
                     _passThroughResumeHop = hopNext;
@@ -655,7 +574,7 @@ export function resolveSpaceEffect(p, spaceType, space) {
             return `${hqInfo.icon} ${hqInfo.name}! +${bonus} coins${isGM ? ' · Grand Mall opens!' : ''}`;
         }
         case 'duel': {
-            if (p.isBot) { _startDuel(p, 1 + Math.floor(Math.random() * 3) * 2 + 1); return null; }
+            if (p.isBot) { _startDuel(p, Bot.duelBet(p, opp)); return null; }
             setTimeout(() => _openDuelModal(p), 400); return null;
         }
         default: return '';
@@ -708,32 +627,7 @@ function _getAllNodesOrdered() {
     ];
 }
 
-// ============================================================
-// COINS
-// ============================================================
-
-export function earnCoins(p, amount) {
-    p.coins += amount; p.coinsEarned += amount; p.coinsEarnedThisRound += amount;
-    UIManager.animateCoinDisplay(p.id, p.coins);
-}
-
-export function loseCoins(p, amount) {
-    // Bodyguard ally absorbs negative effects
-    const bgIdx = p.allies.findIndex(a => a.type === 'bodyguard' && a.shieldCharges > 0);
-    if (bgIdx >= 0) {
-        p.allies[bgIdx].shieldCharges--;
-        sfx('shield'); UIManager.toast(`🦺 Bodyguard absorbs the hit! (${p.allies[bgIdx].shieldCharges} left)`, '#22c55e');
-        UIManager.updateUI();
-        if (p.allies[bgIdx].shieldCharges <= 0) expireAlly(p, bgIdx);
-        _checkContract(p, 'block_space');
-        return 0;
-    }
-    if (p._shielded) { p._shielded = false; sfx('shield'); _checkContract(p, 'block_space'); return 0; }
-    const lost = Math.min(p.coins, amount);
-    p.coins -= lost;
-    UIManager.animateCoinDisplay(p.id, p.coins);
-    return lost;
-}
+// Coin gains/losses live in Economy.js (earnCoins / loseCoins).
 
 // ============================================================
 // TURN COMPLETION
@@ -1025,18 +919,10 @@ export function openShop(district, discount) {
 }
 
 function _botShop(p) {
-    const opp        = state.players[(state.activePlayer+1)%2];
-    const distKey    = state.pendingShopDistrict || 'ring';
-    const disc       = state.pendingShopDiscount || 1.0;
-    const available  = DISTRICT_SHOPS[distKey] || Object.keys(ITEMS);
-    const affordable = available.filter(k => ITEMS[k] && p.coins >= Math.ceil(ITEMS[k].price * disc));
-    if (affordable.length > 0 && p.inv.length < MAX_INV) {
-        const ahead     = Renderer.getNodeT(p.pos) > Renderer.getNodeT(opp.pos); // works for both int and string
-        const preferred = ahead
-            ? affordable.filter(k => ['cursed_die','anchor','swap','steal'].includes(k))
-            : affordable.filter(k => ['shield','rocket','warp_drive','double_die'].includes(k));
-        const pool = preferred.length > 0 ? preferred : affordable;
-        const pick = pool[Math.floor(Math.random() * pool.length)];
+    const distKey = state.pendingShopDistrict || 'ring';
+    const disc    = state.pendingShopDiscount || 1.0;
+    const pick    = Bot.shopBuy(p, distKey, disc);
+    if (pick) {
         p.coins -= Math.ceil(ITEMS[pick].price * disc);
         p.inv.push(pick);
         UIManager.toast(`${p.name} bought ${ITEMS[pick].name}!`, '#a855f7');
@@ -1047,11 +933,8 @@ function _botShop(p) {
 
 // Used only for HBD bot pass-through shops — does NOT call finishTurn
 function _botPassThroughBuy(p) {
-    const affordable = Object.keys(ITEMS).filter(k => p.coins >= ITEMS[k].price && p.inv.length < MAX_INV);
-    if (affordable.length === 0) return;
-    const preferred = affordable.filter(k => ['shield','warp_drive','double_die','rocket'].includes(k));
-    const pool = preferred.length > 0 ? preferred : affordable;
-    const pick = pool[Math.floor(Math.random() * pool.length)];
+    const pick = Bot.passThroughBuy(p);
+    if (!pick) return;
     p.coins -= ITEMS[pick].price;
     p.inv.push(pick);
     UIManager.toast(`${p.name} grabbed ${ITEMS[pick].name}!`, '#a855f7');
@@ -1165,7 +1048,7 @@ function _applyItemEffect(p, itemId, isBot, opp) {
     if (itemId === 'mirror')        p._mirrored = true;
     if (itemId === 'custom_dice') {
         if (isBot) {
-            const pick = 6;
+            const pick = Bot.customDice(p);
             UIManager.toast(`${p.name} picks ${pick} with Custom Dice!`, '#f5c842'); UIManager.updateUI();
             if (state.gameState === 'PRE_ROLL') setTimeout(() => _doMove(p, pick), 400);
         } else {
@@ -1242,9 +1125,7 @@ function _offerAllyEncounter(player, onDone) {
     if (!ally) { onDone(); return; }
 
     if (player.isBot) {
-        const hasFull = player.allies.length >= MAX_ALLIES;
-        const shouldFight = !hasFull || Math.random() < 0.6;
-        if (shouldFight) _startAllyMinigame(player, allyType, false, null, onDone);
+        if (Bot.allyFight(player)) _startAllyMinigame(player, allyType, false, null, onDone);
         else onDone();
         return;
     }
@@ -1259,8 +1140,7 @@ function _offerAllyEncounter(player, onDone) {
 function _offerAllySteal(stealer, target, onDone) {
     if (target.allies.length === 0) { onDone(); return; }
     if (stealer.isBot) {
-        const idx = Math.floor(Math.random() * target.allies.length);
-        _startAllySteal(stealer, target, idx, onDone);
+        _startAllySteal(stealer, target, Bot.allyStealIndex(target), onDone);
         return;
     }
     UIManager.showAllyStealModal(target, (allyIdx) => {
@@ -1364,16 +1244,11 @@ export function activateCabbie(playerIdx) {
 }
 
 function activateCabbie_bot(p) {
-    const junctions = ['bp_a','bp_b','bp_c','bp_d'];
-    const pick = junctions[Math.floor(Math.random() * junctions.length)];
+    const pick = Bot.cabbieJunction(p);
     p.cabbieUsedThisRound = true;
     const firstNode = CITY_GRAPH[pick]?.next?.[0];
     if (firstNode) { p.pos = firstNode; if (p.mesh) p.mesh.position.copy(Renderer.getPos(firstNode)); }
     UIManager.toast(`${p.name}'s Cabbie teleports them!`, '#fbbf24');
-}
-
-function _botHasCabbie(p) {
-    return p.allies.some(a => a.type === 'cabbie') && !p.cabbieUsedThisRound;
 }
 
 // Ally passive effect checks
@@ -1424,135 +1299,11 @@ export function confirmDuelBet(betAmount) {
     _startDuel(state.players[state.activePlayer], betAmount);
 }
 
-// ============================================================
-// CONTRACTS
-// ============================================================
-
-function initContracts() {
-    state.contractPool = getShuffledPool();
-    state.activeContracts = [];
-    for (let i = 0; i < CONTRACT_COUNT && state.contractPool.length > 0; i++) {
-        state.activeContracts.push(state.contractPool.shift());
-    }
-    UIManager.updateContracts();
-}
-
-function _checkContract(player, eventType, param, count) {
-    if (state.selectedMap === 'hundred_block_dash') return;
-    for (let i = state.activeContracts.length - 1; i >= 0; i--) {
-        const c = state.activeContracts[i];
-        let fulfilled = false;
-        if (c.type === eventType) {
-            if (param === null || param === undefined || c.param === null || c.param === undefined || c.param === param) {
-                if (c.type === 'win_minigames' || c.type === 'land_coin') {
-                    // Tracked separately via counters — skip here
-                } else {
-                    fulfilled = true;
-                }
-            }
-        }
-        if (fulfilled) _claimContract(player, i);
-    }
-}
-
-export function claimContractProgress(player, eventType, param) {
-    // For multi-step contracts (land_coin, win_minigames)
-    state.activeContracts.forEach((c, i) => {
-        if (c.type !== eventType) return;
-        if (c.param && param && c.param !== param) return;
-        c._progress = (c._progress || 0) + 1;
-        if (c._progress >= (c.param || 1)) _claimContract(player, i);
-        UIManager.updateContracts();
-    });
-}
-
-function _claimContract(player, contractIdx) {
-    const c = state.activeContracts[contractIdx];
-    if (!c) return;
-    let reward = c.reward;
-    // Investor ally: double first contract per round
-    const invIdx = player.allies.findIndex(a => a.type === 'investor');
-    if (invIdx >= 0 && !state.investorUsedThisRound[player.id]) {
-        reward *= 2;
-        state.investorUsedThisRound[player.id] = true;
-        UIManager.toast(`📈 Investor doubles contract reward!`, '#22c55e');
-    }
-    earnCoins(player, reward);
-    player.contractsClaimed++;
-    UIManager.toast(`${player.name} claims contract: +${reward} coins!`, '#fbbf24');
-    sfx('land_good');
-    state.activeContracts.splice(contractIdx, 1);
-    if (state.contractPool.length > 0) {
-        state.activeContracts.push(state.contractPool.shift());
-    }
-    UIManager.updateContracts();
-}
+// Contracts live in Contracts.js (_checkContract is imported as checkContract).
 
 // ============================================================
-// WIN SCREEN
+// WIN SCREEN  (calculateWinner lives in WinScreen.js)
 // ============================================================
-
-export function calculateWinner() {
-    const p1 = state.players[0], p2 = state.players[1];
-
-    let p1s, p2s, subtitle;
-    if (state.selectedMap === 'hundred_block_dash') {
-        const p1f = p1.pos >= 99 ? 50 : 0, p2f = p2.pos >= 99 ? 50 : 0;
-        p1s = p1.coins + p1f; p2s = p2.coins + p2f;
-        subtitle = 'WINS THE HUSTLE!';
-    } else {
-        // City Circuit: district dominance bonuses
-        DISTRICT_KEYS.forEach(dk => {
-            if (p1.districtsVisited[dk] > p2.districtsVisited[dk]) earnCoins(p1, DISTRICT_DOMINANCE_BONUS);
-            else if (p2.districtsVisited[dk] > p1.districtsVisited[dk]) earnCoins(p2, DISTRICT_DOMINANCE_BONUS);
-        });
-        p1s = p1.coins; p2s = p2.coins;
-        subtitle = 'WINS THE CITY!';
-    }
-
-    const tiebreaker = state.selectedMap === 'hundred_block_dash'
-        ? (p1.pos >= p2.pos ? p1 : p2)
-        : (p1.fullCircuitsCompleted >= p2.fullCircuitsCompleted ? p1 : p2);
-    const winner = p1s > p2s ? p1 : p2s > p1s ? p2 : tiebreaker;
-    const isTie  = p1s === p2s && (state.selectedMap === 'hundred_block_dash' ? p1.pos === p2.pos : p1.fullCircuitsCompleted === p2.fullCircuitsCompleted);
-
-    ModalManager.closeAllModals();
-    document.getElementById('ui-layer').style.display = 'none';
-    document.getElementById('win-name').textContent = isTie ? 'TIE GAME!' : winner.name.toUpperCase();
-    document.getElementById('win-subtitle').textContent = isTie ? 'Both players finish equal.' : subtitle;
-
-    function row(label, val) { return `<div class="win-card-stat"><span>${label}</span><span>${val}</span></div>`; }
-    function card(p, s) {
-        const isW = !isTie && p === winner;
-        let details;
-        if (state.selectedMap === 'hundred_block_dash') {
-            const fin = p.pos >= 99 ? 50 : 0;
-            details = `${row('💰 Coins earned', p.coinsEarned)}${row('💵 Coins left', p.coins)}${fin ? row('🏁 Finish bonus', '+' + fin) : ''}${row('🏆 Minigames won', p.mgWins)}${row('📍 Final space', p.pos >= 99 ? 'FINISHED' : p.pos)}`;
-        } else {
-            function domRow(pl) {
-                return DISTRICT_KEYS.map(dk => {
-                    const o = state.players[(pl.id+1)%2];
-                    const icon = HQ_META[dk]?.icon || '🏛️';
-                    const controlled = pl.districtsVisited[dk] > o.districtsVisited[dk];
-                    return `<div class="win-card-stat"><span>${icon} ${DISTRICT_NAMES[dk]}</span><span>${pl.districtsVisited[dk]}x${controlled ? ' 👑' : ''}</span></div>`;
-                }).join('');
-            }
-            details = `${row('💰 Coins earned', p.coinsEarned)}${row('💵 Final coins', p.coins)}${row('🏆 Minigames won', p.mgWins)}${row('🔄 Full circuits', p.fullCircuitsCompleted)}${row('📋 Contracts', p.contractsClaimed)}${row('⚔️ Duels won', p.duelsWon)}${domRow(p)}`;
-        }
-        return `<div class="win-card${isW ? ' winner-card' : ''}"><div class="win-card-name">${isW?'👑 ':''}${p.name}</div><div class="win-card-score">${s}</div>${details}</div>`;
-    }
-    document.getElementById('win-cards').innerHTML = card(p1, p1s) + card(p2, p2s);
-
-    const confettiEl = document.getElementById('win-confetti'); confettiEl.innerHTML = '';
-    const colors = ['#f59e0b','#a855f7','#3b82f6','#ef4444','#4ade80','#fbbf24','#ec4899'];
-    for (let i = 0; i < 80; i++) {
-        const el = document.createElement('div'); el.className = 'confetti-piece';
-        el.style.cssText = `left:${Math.random()*100}%;top:-10px;background:${colors[Math.floor(Math.random()*colors.length)]};width:${6+Math.random()*8}px;height:${6+Math.random()*8}px;animation-duration:${2+Math.random()*2}s;animation-delay:${Math.random()*1.5}s;`;
-        confettiEl.appendChild(el);
-    }
-    document.getElementById('win-screen').style.display = 'flex';
-    sfx('win');
-}
 
 export function playAgain() { window.location.reload(); }
 

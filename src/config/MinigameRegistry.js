@@ -8,6 +8,12 @@ export const MG_TYPES = [
     'tankclash',
     'rhythmforge',
     'orbdeflect',
+    'snapstrike',
+    'quickdraw',
+    'gridrecall',
+    'tugtap',
+    'oddoneout',
+    'steadyhand',
 ];
 
 export const MG_INFO = {
@@ -15,6 +21,12 @@ export const MG_INFO = {
     tankclash:   { icon: '🎯', title: 'TANK CLASH',    desc: 'Use the left joystick to move and aim your tank, tap the right side to fire! Use cover to dodge shots. First to land 3 hits wins!' },
     rhythmforge: { icon: '🥁', title: 'RHYTHM FORGE',  desc: 'Tap the correct lane as notes reach the hit zone! 3 rounds of increasing difficulty — each player takes a turn. Perfect, Great, and Good hits score 3, 2, and 1 points. Most points overall wins!' },
     orbdeflect:  { icon: '🌀', title: 'ORB DEFLECT',   desc: 'Draw glowing barriers with your finger to deflect the orb into your opponent\'s core! P1 owns the bottom half, P2 the top. 3 HP each — first to lose all HP loses, or most HP after 30 seconds wins!' },
+    snapstrike:  { icon: '💥', title: 'SNAP STRIKE',   desc: 'A needle sweeps your bar — tap to lock it on the bullseye! PERFECT, GREAT, and GOOD snaps score 3, 2, and 1 points. The bar speeds up and the target shrinks across 5 rounds. Highest total wins!' },
+    quickdraw:   { icon: '🤠', title: 'QUICK DRAW',    desc: 'Both halves say WAIT. The instant they flip to DRAW, tap as fast as you can — first finger wins the round! But tap too early and you false-start and lose it. Best of 3 wins the duel.' },
+    gridrecall:  { icon: '🧠', title: 'GRID RECALL',   desc: 'A pattern of tiles flashes on your 3×3 grid, then vanishes — tap them back from memory! Every correct tile scores. The pattern grows and the flash gets shorter across 4 rounds. Highest total wins.' },
+    tugtap:      { icon: '🪢', title: 'TUG TAP',       desc: 'Tug-of-war! Hammer your side of the screen to drag the knot toward your end of the rope. It slowly drifts back to centre, so keep tapping. First to haul the knot home wins — or whoever is ahead when time runs out!' },
+    oddoneout:   { icon: '🔍', title: 'ODD ONE OUT',   desc: 'Every tile on your grid is the same shade except one. Tap the odd tile to score and get a fresh, harder grid — more tiles, subtler difference. A wrong tap locks you briefly. Most correct in 30 seconds wins!' },
+    steadyhand:  { icon: '🎯', title: 'STEADY HAND',   desc: 'A target drifts around your half — keep your finger on it to bank time! It speeds up as the round goes on. Whoever holds the target longest after 22 seconds wins.' },
 };
 
 // ============================================================
@@ -56,6 +68,12 @@ export const MG_ORIENTATION_MAP = {
     tankclash:   'faceoff',
     rhythmforge: 'faceoff',
     orbdeflect:  'faceoff',
+    snapstrike:  'faceoff',
+    quickdraw:   'quickdraw',
+    gridrecall:  'faceoff',
+    tugtap:      'faceoff',
+    oddoneout:   'faceoff',
+    steadyhand:  'faceoff',
 };
 
 export const FALLBACK_TRIVIA = [

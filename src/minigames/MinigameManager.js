@@ -6,6 +6,7 @@
 // ============================================================
 
 import { state } from '../core/GameState.js';
+import * as Bot from '../core/Bot.js';
 import { MG_TYPES, MG_INFO, MG_ORIENTATIONS, MG_ORIENTATION_MAP } from '../config/MinigameRegistry.js';
 import { MINIGAME_REWARD } from '../config/GameConfig.js';
 import { sfx, haptic } from '../engine/AudioManager.js';
@@ -16,6 +17,12 @@ const MG_MODULES = {
     tankclash:   () => import('./TankClash.js'),
     rhythmforge: () => import('./RhythmForge.js'),
     orbdeflect:  () => import('./OrbDeflect.js'),
+    snapstrike:  () => import('./SnapStrike.js'),
+    quickdraw:   () => import('./QuickDraw.js'),
+    gridrecall:  () => import('./GridRecall.js'),
+    tugtap:      () => import('./TugTap.js'),
+    oddoneout:   () => import('./OddOneOut.js'),
+    steadyhand:  () => import('./SteadyHand.js'),
 };
 
 let _controller   = null;
@@ -177,29 +184,6 @@ function _startMinigameLayer() {
     state.mgReady  = [false, false];
     state.mgActive = false;
 
-    // Hide all minigame content elements
-    const hideSelectors = [
-        '.math-question', '.math-answers', '.trivia-q', '.trivia-grid',
-        '.trace-container', '.reaction-zone', '.color-word', '.color-btns',
-        '.color-round-label', '.memory-grid', '.mem-score', '.seq-display',
-        '.seq-btns', '.cd-timer', '.cd-tap-zone', '.cd-result',
-        '.shape-target-label', '.shape-grid', '.ooo-label', '.ooo-grid',
-        '.hl-secret', '.hl-feedback', '.hl-guesses-left', '.hl-input-row',
-        // New games
-        '.pulse-zone', '.pulse-score', '.grid-recall', '.grid-recall-score',
-        '.ws-scramble', '.ws-options', '.ws-score',
-        '.cr-word', '.cr-tap-zone', '.cr-score',
-        '.rhythm-zone', '.rhythm-score',
-        '.ss-grid', '.ss-score',
-        '.fs-arena', '.fs-score',
-        '.cb-history', '.cb-btns', '.cb-score',
-        '.sm-options', '.sm-score',
-        '.tt-zone', '.tt-score',
-        '.mm-source', '.mm-options', '.mm-score',
-        '.bb-canvas', '.bb-prompt', '.bb-score',
-    ].join(',');
-    document.querySelectorAll(hideSelectors).forEach(e => e.style.display = 'none');
-
     [1, 2].forEach(i => {
         const rd = document.getElementById(`mg-ready-${i}`);
         rd.style.display = 'block'; rd.classList.remove('ready'); rd.textContent = 'READY';
@@ -256,7 +240,7 @@ async function _launchGame() {
                 winMinigame(-1);
             }
         }, 90000);
-        mod.start(state.players[1].isBot, winMinigame);
+        mod.start(state.players[1].isBot, winMinigame, Bot.skill());
     } catch (e) {
         console.error('[MinigameManager] _launchGame failed:', e);
         endMinigame(-1);

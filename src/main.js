@@ -25,6 +25,17 @@ document.querySelectorAll('[data-mode]').forEach(btn => {
         document.querySelectorAll('[data-mode]').forEach(b => b.classList.remove('sel'));
         btn.classList.add('sel');
         GameController.selectMode(btn.dataset.mode);
+        // Bot difficulty only applies when playing against the bot
+        document.getElementById('difficulty-select').style.display =
+            btn.dataset.mode === '1p' ? 'block' : 'none';
+    });
+});
+
+document.querySelectorAll('[data-diff]').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('[data-diff]').forEach(b => b.classList.remove('sel'));
+        btn.classList.add('sel');
+        GameController.selectDifficulty(btn.dataset.diff);
     });
 });
 

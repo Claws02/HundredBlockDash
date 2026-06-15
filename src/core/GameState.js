@@ -5,6 +5,7 @@
 export const state = {
     // Flow
     playStyle:           null,
+    botDifficulty:       'medium', // 'easy' | 'medium' | 'hard' — used in 1P mode
     selectedMap:         'city_circuit',
     gameState:           'INIT',
     cameraState:         'INIT',
