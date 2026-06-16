@@ -25,20 +25,29 @@ export const ALLY_SPAWN_DELAY_TURNS   = 2; // turns after claim before next ally
 
 // ============================================================
 // ITEMS
+// Prices follow four clean impact tiers so the shop reads consistently:
+//   8  — Utility   (cheap, situational)
+//   12 — Tactical  (solid, repositioning / control)
+//   16 — Strong    (high-value movement & denial)
+//   20 — Power     (game-swinging)
 // ============================================================
 export const ITEMS = {
-    warp_drive:  { icon: '🚀', name: 'Warp Drive',  desc: 'Forces your next roll to be a 5',            price: 12 },
-    double_die:  { icon: '💥', name: 'Double Die',  desc: 'Roll 2 dice, move the sum',                  price: 15 },
-    cursed_die:  { icon: '💀', name: 'Cursed Die',  desc: "Force opponent's next roll to 1 or 2",       price: 18 },
-    tollbooth:   { icon: '🚧', name: 'Tollbooth',   desc: 'Place on current space — enemies pay 5c',    price: 10 },
-    shield:      { icon: '🛡️', name: 'Shield',       desc: 'Block the next negative space effect',       price: 8  },
-    rocket:      { icon: '🛸', name: 'Rocket',       desc: 'Instantly move forward 8 spaces',            price: 20 },
-    anchor:      { icon: '⚓', name: 'Anchor',       desc: 'Place trap — sends opponent back 5 spaces',  price: 14 },
-    swap:        { icon: '🔄', name: 'Swap',         desc: 'Swap board positions with your opponent',    price: 25 },
-    steal:       { icon: '🐷', name: 'Steal',        desc: 'Take 10 coins from your opponent',           price: 22 },
-    mirror:      { icon: '🪞', name: 'Mirror',       desc: 'Reflect the next item used against you',     price: 16 },
-    custom_dice: { icon: '🎯', name: 'Custom Dice',  desc: 'Pick any number 1–6 as your next roll',      price: 20 },
-    overcharge:  { icon: '⚡', name: 'Overcharge',   desc: 'Your next roll result is doubled (max 12)',  price: 18 },
+    // Utility — 8
+    shield:      { icon: '🛡️', name: 'Shield',       desc: 'Block the next negative space effect',       price: 8,  tier: 'Utility'  },
+    tollbooth:   { icon: '🚧', name: 'Tollbooth',   desc: 'Place on current space — enemies pay 5c',    price: 8,  tier: 'Utility'  },
+    // Tactical — 12
+    warp_drive:  { icon: '🚀', name: 'Warp Drive',  desc: 'Forces your next roll to be a 5',            price: 12, tier: 'Tactical' },
+    anchor:      { icon: '⚓', name: 'Anchor',       desc: 'Place trap — sends opponent back 5 spaces',  price: 12, tier: 'Tactical' },
+    mirror:      { icon: '🪞', name: 'Mirror',       desc: 'Reflect the next item used against you',     price: 12, tier: 'Tactical' },
+    // Strong — 16
+    double_die:  { icon: '💥', name: 'Double Die',  desc: 'Roll 2 dice, move the sum',                  price: 16, tier: 'Strong'   },
+    overcharge:  { icon: '⚡', name: 'Overcharge',   desc: 'Your next roll result is doubled (max 12)',  price: 16, tier: 'Strong'   },
+    custom_dice: { icon: '🎯', name: 'Custom Dice',  desc: 'Pick any number 1–6 as your next roll',      price: 16, tier: 'Strong'   },
+    cursed_die:  { icon: '💀', name: 'Cursed Die',  desc: "Force opponent's next roll to 1 or 2",       price: 16, tier: 'Strong'   },
+    // Power — 20
+    rocket:      { icon: '🛸', name: 'Rocket',       desc: 'Instantly move forward 8 spaces',            price: 20, tier: 'Power'    },
+    steal:       { icon: '🐷', name: 'Steal',        desc: 'Take 10 coins from your opponent',           price: 20, tier: 'Power'    },
+    swap:        { icon: '🔄', name: 'Swap',         desc: 'Swap board positions with your opponent',    price: 20, tier: 'Power'    },
 };
 
 // District-specific shop inventories (null = full shop at regular price)
@@ -52,6 +61,8 @@ export const DISTRICT_SHOPS = {
     shop: null,
     // Power Plant — best movement items + exclusive Overcharge
     ind:  ['rocket', 'warp_drive', 'double_die', 'overcharge'],
+    // Hundred Block Dash realm shops — full inventory, themed title only.
+    woods: null, ember: null, fae: null, void: null,
 };
 
 export const BA_DISCOUNT = 0.75;   // 25% off in Back Alley
@@ -206,18 +217,83 @@ export function getBiomeForDistrict(district) {
     return DISTRICT_BIOMES[district] || DISTRICT_BIOMES.ring;
 }
 
-// Hundred Block Dash biomes — 4 zones by position
+// ============================================================
+// HUNDRED BLOCK DASH — the run to the Crown crosses four realms.
+// Each biome keeps its colour identity but now has a name, an icon, a
+// themed shop, and flavoured copy for its key spaces (§ themed names).
+// `flavor[type]` overrides the display name/desc/icon for that realm;
+// anything not overridden falls back to the global SPACE_META/SPACE_DESCS.
+// ============================================================
 export const HBD_BIOMES = [
-    { name: 'Lush Forest', bgTop: '#0f380f', bgBot: '#1b4a1b', fog: 0x0f380f, floorEdge: 0x22c55e, pathTint: 0x4ade80 },
-    { name: 'Magma Core',  bgTop: '#3f0f0f', bgBot: '#6b1313', fog: 0x3f0f0f, floorEdge: 0xf97316, pathTint: 0xf59e0b },
-    { name: 'Magic Glade', bgTop: '#380f3f', bgBot: '#5c126b', fog: 0x380f3f, floorEdge: 0xd946ef, pathTint: 0xc084fc },
-    { name: 'The Void',    bgTop: '#0a0a1a', bgBot: '#141433', fog: 0x0a0a1a, floorEdge: 0x3b82f6, pathTint: 0x60a5fa },
+    {
+        name: 'Whispering Woods', icon: '🌲', key: 'woods', shopName: '🌲 FOREST CACHE',
+        bgTop: '#0f380f', bgBot: '#1b4a1b', fog: 0x0f380f, floorEdge: 0x22c55e, pathTint: 0x4ade80,
+        flavor: {
+            lose:     { n: 'BRAMBLE SNAG',  d: 'Tangled in thorns. −4 coins.' },
+            lose_big: { n: 'BEAR TRAP',     d: 'Snapped a bear trap! −10 coins.' },
+            trap:     { n: 'HIDDEN SNARE',  d: 'A hunter\'s snare. Lose 5 coins.' },
+            shop:     { n: 'FOREST CACHE',  d: 'A hidden cache of supplies. Browse and buy!' },
+        },
+    },
+    {
+        name: 'Ember Wastes', icon: '🌋', key: 'ember', shopName: '🌋 MAGMA FORGE',
+        bgTop: '#3f0f0f', bgBot: '#6b1313', fog: 0x3f0f0f, floorEdge: 0xf97316, pathTint: 0xf59e0b,
+        flavor: {
+            lose:     { n: 'EMBER BURN',    d: 'Singed by cinders. −4 coins.' },
+            lose_big: { n: 'LAVA PLUNGE',   d: 'Into the magma! −10 coins.' },
+            trap:     { n: 'MAGMA CRACK',   d: 'The ground splits. Lose 5 coins.' },
+            shop:     { n: 'MAGMA FORGE',   d: 'Gear forged in fire. Browse and buy!' },
+        },
+    },
+    {
+        name: 'Fae Glade', icon: '✨', key: 'fae', shopName: '✨ FAE BAZAAR',
+        bgTop: '#380f3f', bgBot: '#5c126b', fog: 0x380f3f, floorEdge: 0xd946ef, pathTint: 0xc084fc,
+        flavor: {
+            lose:     { n: 'FAE TRICK',     d: 'A sprite filches your purse. −4 coins.' },
+            lose_big: { n: 'CURSE HEX',     d: 'Hexed! −10 coins.' },
+            trap:     { n: 'PIXIE PRANK',   d: 'A prank trap. Lose 5 coins.' },
+            shop:     { n: 'FAE BAZAAR',    d: 'Enchanted wares for sale. Browse and buy!' },
+        },
+    },
+    {
+        name: 'The Void', icon: '🌌', key: 'void', shopName: '🌌 VOID EXCHANGE',
+        bgTop: '#0a0a1a', bgBot: '#141433', fog: 0x0a0a1a, floorEdge: 0x3b82f6, pathTint: 0x60a5fa,
+        flavor: {
+            lose:     { n: 'ENTROPY TAX',   d: 'Reality skims your coins. −4 coins.' },
+            lose_big: { n: 'REALITY RIFT',  d: 'Torn apart! −10 coins.' },
+            trap:     { n: 'VOID SNARE',    d: 'Caught in the dark. Lose 5 coins.' },
+            shop:     { n: 'VOID EXCHANGE', d: 'Trade at the edge of reality. Browse and buy!' },
+            gate:     { n: 'THE RIFT',      d: 'The Rift seals the Void. Roll 5 dice, score ≥15 to tear through!' },
+        },
+    },
 ];
 export function getBiomeForSpace(idx) {
     if (idx < 25) return HBD_BIOMES[0];
     if (idx < 50) return HBD_BIOMES[1];
     if (idx < 75) return HBD_BIOMES[2];
     return HBD_BIOMES[3];
+}
+
+// The realm (biome) a Hundred Block Dash space belongs to.
+export function getRealmForSpace(idx) {
+    return getBiomeForSpace(typeof idx === 'number' ? idx : 0);
+}
+
+// Themed display label for an HBD space: realm flavor first, then global defaults.
+export function hbdSpaceLabel(idx, type) {
+    const realm = getRealmForSpace(idx);
+    const f     = realm.flavor && realm.flavor[type];
+    const meta  = SPACE_META[type] || SPACE_META.coin;
+    return {
+        name: (f && f.n) || meta.n || type,
+        desc: (f && f.d) || SPACE_DESCS[type] || '',
+        icon: (f && f.ic) || meta.ic || '',
+    };
+}
+
+// Themed shop key (drives the shop title) for an HBD space position.
+export function hbdShopKey(idx) {
+    return getRealmForSpace(idx).key || 'woods';
 }
 
 // HQ display names and icons for win screen / toasts

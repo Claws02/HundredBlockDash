@@ -7,7 +7,7 @@ import {
     ALLIES, BA_DISCOUNT, GRAND_MALL_DISCOUNT,
     ALL_CHAR_TYPES, HQ_META, CHAR_ICONS,
     HBD_GATE_POS, HBD_SHOP_SPACES,
-    getCharacterAbility,
+    getCharacterAbility, hbdSpaceLabel, hbdShopKey,
 } from '../config/GameConfig.js';
 import { CITY_GRAPH, JUNCTION_IDS, DISTRICT_NAMES, DISTRICT_KEYS, BRANCH_OPTIONS } from '../config/BoardGraph.js';
 import { MAP_REGISTRY } from '../config/MapRegistry.js';
@@ -462,7 +462,7 @@ function _movePlayerHBD(p, steps, isForced = false) {
                     setTimeout(hopNext, 300);
                 } else {
                     _passThroughResumeHop = hopNext;
-                    state.pendingShopDistrict = 'ring';
+                    state.pendingShopDistrict = hbdShopKey(curr);
                     state.pendingShopDiscount = 1.0;
                     state.gameState = 'SHOP';
                     ModalManager.showModal('shop-offer-modal');
@@ -515,8 +515,13 @@ export function resolveSpace(p) {
     if (goodTypes.includes(space.type))  sfx('land_good');
     else if (badTypes.includes(space.type)) sfx('land_bad');
 
-    UIManager.showSpaceInfoCard(spc.n || space.type, SPACE_DESCS[space.type] || '');
-    ModalManager.showMessage(spc.n || space.type.toUpperCase(), msg || 'Nothing happens.', spc.ic);
+    // Hundred Block Dash spaces carry realm-themed names/copy.
+    const lbl       = state.selectedMap === 'hundred_block_dash' ? hbdSpaceLabel(p.pos, space.type) : null;
+    const titleName = lbl ? lbl.name : (spc.n || space.type.toUpperCase());
+    const descText  = lbl ? lbl.desc : (SPACE_DESCS[space.type] || '');
+    const iconChar  = lbl ? lbl.icon : spc.ic;
+    UIManager.showSpaceInfoCard(titleName, descText);
+    ModalManager.showMessage(titleName, msg || 'Nothing happens.', iconChar);
     if (state.selectedMap === 'hundred_block_dash') Renderer.updateBiomeVisuals(typeof p.pos === 'number' ? p.pos : 0);
     else Renderer.updateBiomeVisuals(CITY_GRAPH[p.pos]?.district || 'ring');
 
@@ -602,7 +607,7 @@ export function resolveSpaceEffect(p, spaceType, space) {
         case 'gate': case 'gate_open': return '';
         case 'shop': {
             if (state.selectedMap === 'hundred_block_dash') {
-                setTimeout(() => openShop('ring', 1.0), 400); return null;
+                setTimeout(() => openShop(hbdShopKey(p.pos), 1.0), 400); return null;
             }
             const gNode   = CITY_GRAPH[p.pos];
             const distKey = gNode?.shopDistrict || 'ring';
@@ -839,8 +844,11 @@ export function triggerGateChallenge(p) {
     state.gameState = 'GATE'; state.gateRolling = false;
     Physics.clearDice(Renderer.getDiceGroup());
     document.getElementById('ui-layer').style.display = 'none';
-    const gateMsg = state.selectedMap === 'hundred_block_dash'
-        ? `Roll ${GATE_NUM_DICE} dice. Score ${GATE_THRESHOLD}+ to break through The Gate!`
+    const isHBD = state.selectedMap === 'hundred_block_dash';
+    const gateTitleEl = document.getElementById('gate-title');
+    if (gateTitleEl) gateTitleEl.textContent = isHBD ? 'THE RIFT' : 'THE GATE';
+    const gateMsg = isHBD
+        ? `Roll ${GATE_NUM_DICE} dice. Score ${GATE_THRESHOLD}+ to tear through The Rift into the Void!`
         : `Roll ${GATE_NUM_DICE} dice. Score ${GATE_THRESHOLD}+ to break through the Industrial Zone!`;
     document.getElementById('gate-sub').textContent = gateMsg;
     document.getElementById('gate-result').textContent = '';
