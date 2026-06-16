@@ -35,6 +35,7 @@ let _countdownActive = false;
 let _countdownIv  = null;
 let _botReadyTimeout = null;
 let _minigameTimeout = null;
+let _resolving = false;   // true once a minigame's result is being finalised
 const _minigameCleanups = [];
 
 export function init(controller) {
@@ -170,6 +171,7 @@ function _startMinigameLayer() {
     clearInterval(_countdownIv); _countdownIv = null;
     clearTimeout(_botReadyTimeout); _botReadyTimeout = null;
     _countdownActive = false;
+    _resolving = false;
     state.gameState = 'MINIGAME';
 
     // Sweep any orphaned game overlay left by a force-ended minigame.
@@ -254,7 +256,11 @@ async function _launchGame() {
 const MINIGAME_TIE_REWARD = Math.floor(MINIGAME_REWARD / 2); // 5 coins each on tie
 
 export function winMinigame(winnerId) {
-    if (!state.mgActive) return;
+    // Guard against double-resolution. Don't key this off state.mgActive:
+    // most minigames clear mgActive in their own _finish() before calling
+    // onWin, which previously made this early-return and strand the result.
+    if (_resolving) return;
+    _resolving = true;
     state.mgActive = false;
     if (winnerId < 0) {
         // TIE — both players get coins, coin flip decides who goes first
