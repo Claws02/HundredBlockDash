@@ -8,7 +8,7 @@
 // ============================================================
 
 import { state } from './GameState.js';
-import { CONTRACT_COUNT } from '../config/GameConfig.js';
+import { CONTRACT_COUNT, getCharacterAbility } from '../config/GameConfig.js';
 import { getShuffledPool } from '../config/ContractPool.js';
 import { earnCoins } from './Economy.js';
 import * as UIManager from '../ui/UIManager.js';
@@ -56,6 +56,12 @@ function _claimContract(player, contractIdx) {
     const c = state.activeContracts[contractIdx];
     if (!c) return;
     let reward = c.reward;
+    // Investor character (Trader): first contract each round pays a flat bonus
+    const charBonus = getCharacterAbility(player.charType).contractBonus;
+    if (charBonus && !state.charInvestorUsedThisRound[player.id]) {
+        reward += charBonus;
+        state.charInvestorUsedThisRound[player.id] = true;
+    }
     // Investor ally: double first contract per round
     const invIdx = player.allies.findIndex(a => a.type === 'investor');
     if (invIdx >= 0 && !state.investorUsedThisRound[player.id]) {

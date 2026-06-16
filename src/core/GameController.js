@@ -7,6 +7,7 @@ import {
     ALLIES, BA_DISCOUNT, GRAND_MALL_DISCOUNT,
     ALL_CHAR_TYPES, HQ_META, CHAR_ICONS,
     HBD_GATE_POS, HBD_SHOP_SPACES,
+    getCharacterAbility,
 } from '../config/GameConfig.js';
 import { CITY_GRAPH, JUNCTION_IDS, DISTRICT_NAMES, DISTRICT_KEYS, BRANCH_OPTIONS } from '../config/BoardGraph.js';
 import { MAP_REGISTRY } from '../config/MapRegistry.js';
@@ -57,6 +58,11 @@ export function goToCharSelect() {
 export function selectChar(type) {
     if (state.charSelectStep === 1) state.p1CharSelection = type;
     else state.p2CharSelection = type;
+}
+
+// Lets main.js sync the highlighted card + ability panel to the current step.
+export function getCharSelectState() {
+    return { step: state.charSelectStep, p1: state.p1CharSelection, p2: state.p2CharSelection };
 }
 
 export function confirmCharSelect() {
@@ -192,6 +198,7 @@ export function startGame() {
         } else {
             initCityBoard();
         }
+        _applyCharacterStart(); // grant start-of-game character passives (coins/position/shields)
         Renderer.init(document.getElementById('game-container'));
         UIManager.initCoinDisplays();
         UIManager.updateUI();
@@ -523,16 +530,16 @@ export function resolveSpaceEffect(p, spaceType, space) {
     switch (spaceType) {
         case 'start':      return state.selectedMap === 'hundred_block_dash' ? 'Back at the start!' : 'Back at the city start!';
         case 'coin': {
-            const bonus = _allyPassive(p, 'coin_bonus');
+            const bonus = _allyPassive(p, 'coin_bonus') + (getCharacterAbility(p.charType).coinSpaceBonus || 0);
             earnCoins(p, 3 + bonus);
             _checkContract(p, 'land_coin'); _checkContract(p, 'land_type', 'coin');
-            return `+${3+bonus} coins!${bonus ? ' (Vendor +'+bonus+')' : ''}`;
+            return `+${3+bonus} coins!${bonus ? ' (+'+bonus+' bonus)' : ''}`;
         }
         case 'coin_big': {
-            const bonus = _allyPassive(p, 'coin_bonus');
+            const bonus = _allyPassive(p, 'coin_bonus') + (getCharacterAbility(p.charType).coinSpaceBonus || 0);
             earnCoins(p, 8 + bonus);
             _checkContract(p, 'land_coin_big'); _checkContract(p, 'land_type', 'coin_big');
-            return `+${8+bonus} coins!${bonus ? ' (Vendor +'+bonus+')' : ''}`;
+            return `+${8+bonus} coins!${bonus ? ' (+'+bonus+' bonus)' : ''}`;
         }
         case 'lose':     { const l = loseCoins(p, 4);  return l === 0 ? '🛡️ Shielded!' : `-${l} coins!`; }
         case 'lose_big': { const l = loseCoins(p, 10); return l === 0 ? '🛡️ Shielded!' : `-${l} coins!`; }
@@ -553,7 +560,10 @@ export function resolveSpaceEffect(p, spaceType, space) {
             _skipForward(p, skip); return null;
         }
         case 'cfwd': { _skipForward(p, 10); return null; }
-        case 'cbwd': { _skipBackward(p, 10); return null; }
+        case 'cbwd': {
+            if (getCharacterAbility(p.charType).noKnockback) return '🧊 Too sturdy to be pushed back!';
+            _skipBackward(p, 10); return null;
+        }
         case 'swap_space': {
             const tmp = p.pos; p.pos = opp.pos; opp.pos = tmp;
             if (p.mesh) p.mesh.position.copy(Renderer.getPos(p.pos));
@@ -563,7 +573,10 @@ export function resolveSpaceEffect(p, spaceType, space) {
         }
         case 'anchor_trap': {
             const owner = space?.owner !== undefined ? state.players[space.owner] : null;
-            if (owner && owner.id !== p.id) { _skipBackward(p, 5); return null; }
+            if (owner && owner.id !== p.id) {
+                if (getCharacterAbility(p.charType).noKnockback) return '🧊 Sturdy — the Anchor can\'t budge you!';
+                _skipBackward(p, 5); return null;
+            }
             return 'Your own Anchor.';
         }
         case 'magnet': {
@@ -753,6 +766,7 @@ function _resolveMinigameResult(winnerId) {
     }
     // Reset per-round state
     state.investorUsedThisRound = [false, false];
+    state.charInvestorUsedThisRound = [false, false];
     state.players.forEach(p => { p.coinsEarnedThisRound = 0; p.shopsVisitedThisLap = 0; p.cabbieUsedThisRound = false; });
 }
 
@@ -763,6 +777,12 @@ function _onRoundEnd() {
         if (bankerIdx >= 0) {
             const interest = Math.floor(p.coins / 10);
             if (interest > 0) { earnCoins(p, interest); UIManager.toast(`💼 Banker: +${interest} coins interest!`, '#fbbf24'); }
+        }
+        // Banker character (Saver): weaker interest, per 20 held
+        const per = getCharacterAbility(p.charType).interestPer;
+        if (per) {
+            const interest = Math.floor(p.coins / per);
+            if (interest > 0) { earnCoins(p, interest); UIManager.toast(`💼 ${p.name}'s savings: +${interest} coins!`, '#fbbf24'); }
         }
     });
     // Maybe spawn ally
@@ -1096,6 +1116,41 @@ export function confirmCustomDice(num) {
     UIManager.toast(`🎯 Custom Dice: moving ${num} spaces!`, '#f5c842');
     sfx('buy'); haptic([30,50,30]);
     setTimeout(() => _doMove(state.players[state.activePlayer], num), 300);
+}
+
+// ============================================================
+// CHARACTER PASSIVES
+// ============================================================
+
+// Apply start-of-game passives. Runs after board build, before meshes
+// are created, so position offsets land the token in the right place.
+function _applyCharacterStart() {
+    state.players.forEach(p => {
+        const ab = getCharacterAbility(p.charType);
+        if (ab.startCoins)         { p.coins += ab.startCoins; p.coinsEarned += ab.startCoins; }
+        if (ab.startShieldCharges)   p._charShield = ab.startShieldCharges;
+        if (ab.negateCharges)        p._negateCharges = ab.negateCharges;
+        if (ab.startAhead)           _advanceStartPos(p, ab.startAhead);
+    });
+}
+
+// Move a player N spaces forward at game start, no landing effects.
+function _advanceStartPos(p, n) {
+    if (state.selectedMap === 'hundred_block_dash') {
+        const base = typeof p.pos === 'number' ? p.pos : 0;
+        p.pos = Math.max(0, Math.min(98, base + n));
+        p.prevPos = p.pos;
+        return;
+    }
+    let cur = p.pos, left = n;
+    while (left > 0) {
+        const gn = CITY_GRAPH[cur];
+        if (!gn) break;
+        let nx = gn.next[0];
+        if (JUNCTION_IDS.has(nx)) nx = CITY_GRAPH[nx].next[0];
+        cur = nx; left--;
+    }
+    p.pos = cur; p.prevPos = cur;
 }
 
 // ============================================================

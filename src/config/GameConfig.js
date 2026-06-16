@@ -102,6 +102,44 @@ export const CHAR_ICONS = {
     cabbie:    '🚕', vendor:    '🌮', banker:    '💼', bodyguard: '🦺', investor:  '📈',
 };
 
+export const CHAR_NAMES = {
+    slime: 'Slime', ghost: 'Ghost', boxy: 'Boxy', bunny: 'Bunny',
+    cabbie: 'The Cabbie', vendor: 'Street Vendor', banker: 'The Banker',
+    bodyguard: 'The Bodyguard', investor: 'The Investor',
+};
+
+// ============================================================
+// CHARACTER ABILITIES — each character carries one light, always-on
+// passive. The five ally-named characters start with a *weaker* take on
+// their namesake Ally's power (and stack with the real Ally if recruited).
+// Tunable here; wired in Economy / GameController / Contracts.
+//
+//   fineReduction      — coin losses cost N fewer coins
+//   negateCharges      — fully ignore the first N negative spaces (per game)
+//   noKnockback        — immune to being sent backward (cbwd / Anchor)
+//   startCoins         — begin each game with +N coins
+//   startAhead         — begin each game N spaces further along
+//   coinSpaceBonus     — +N coins on every coin / big-coin space
+//   interestPer        — +1 coin per N coins held, at each round end (City)
+//   startShieldCharges — begin shielded from the first N negative spaces
+//   contractBonus      — first contract claimed each round pays +N (City)
+// ============================================================
+export const CHARACTER_ABILITIES = {
+    slime:     { name: 'Cushioned', desc: 'Fines & traps cost 2 fewer coins.',                         fineReduction: 2 },
+    ghost:     { name: 'Phantom',   desc: 'Once per game, phase through a negative space.',             negateCharges: 1 },
+    boxy:      { name: 'Sturdy',    desc: 'Immune to being knocked backward.',                          noKnockback: true },
+    bunny:     { name: 'Hop Start', desc: 'Begin each game with +5 bonus coins.',                       startCoins: 5 },
+    vendor:    { name: 'Hawker',    desc: '+1 coin on coin spaces. (A Street Vendor ally gives +2.)',   coinSpaceBonus: 1 },
+    banker:    { name: 'Saver',     desc: '+1 coin per 20 held at round end. (Banker ally: per 10.)',   interestPer: 20 },
+    bodyguard: { name: 'Escort',    desc: 'Start shielded from the first 2 negatives. (Ally: 3.)',      startShieldCharges: 2 },
+    investor:  { name: 'Trader',    desc: 'Your first contract each round pays +4. (Investor doubles.)',contractBonus: 4 },
+    cabbie:    { name: 'Joyride',   desc: 'Begin each game 3 spaces further ahead.',                    startAhead: 3 },
+};
+
+export function getCharacterAbility(charType) {
+    return CHARACTER_ABILITIES[charType] || {};
+}
+
 // ============================================================
 // SPACE METADATA
 // ============================================================

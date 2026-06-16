@@ -6,6 +6,7 @@ import * as Settings from './core/Settings.js';
 import * as Onboarding from './ui/Onboarding.js';
 import * as Storage from './core/Storage.js';
 import { MG_INFO, MG_TYPES } from './config/MinigameRegistry.js';
+import { CHARACTER_ABILITIES, CHAR_NAMES, CHAR_ICONS } from './config/GameConfig.js';
 
 window.addEventListener('error', e => {
     console.error('[HundredBlockDash] Uncaught error:', e.message, e.filename, e.lineno);
@@ -64,21 +65,47 @@ document.querySelectorAll('[data-diff]').forEach(btn => {
     });
 });
 
-document.getElementById('btn-next').addEventListener('click', () => GameController.goToCharSelect());
+function syncCharSelectUI(type) {
+    document.querySelectorAll('[data-char]').forEach(c => c.classList.toggle('sel', c.dataset.char === type));
+    renderCharAbility(type);
+}
+
+document.getElementById('btn-next').addEventListener('click', () => {
+    GameController.goToCharSelect();
+    syncCharSelectUI(GameController.getCharSelectState().p1);
+});
 
 // ============================================================
 // CHARACTER SELECT
 // ============================================================
+
+function renderCharAbility(type) {
+    const el = document.getElementById('char-ability');
+    if (!el) return;
+    const ab = CHARACTER_ABILITIES[type];
+    if (!ab) { el.innerHTML = ''; return; }
+    el.innerHTML =
+        `<div class="ca-name">${CHAR_ICONS[type] || ''} ${CHAR_NAMES[type] || type} — ${ab.name}</div>` +
+        `<div class="ca-desc">${ab.desc}</div>`;
+}
 
 document.querySelectorAll('[data-char]').forEach(card => {
     card.addEventListener('click', () => {
         document.querySelectorAll('[data-char]').forEach(c => c.classList.remove('sel'));
         card.classList.add('sel');
         GameController.selectChar(card.dataset.char);
+        renderCharAbility(card.dataset.char);
     });
 });
 
-document.getElementById('btn-char-confirm').addEventListener('click', () => GameController.confirmCharSelect());
+document.getElementById('btn-char-confirm').addEventListener('click', () => {
+    GameController.confirmCharSelect();
+    // If we advanced to Player 2's pick, sync the highlight + ability to its default.
+    if (document.getElementById('char-select').style.display !== 'none') {
+        const cs = GameController.getCharSelectState();
+        if (cs.step === 2) syncCharSelectUI(cs.p2);
+    }
+});
 
 // ============================================================
 // MAP SELECT

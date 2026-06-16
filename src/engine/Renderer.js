@@ -597,13 +597,14 @@ function buildPlayerMeshes() {
     state.players.forEach(p => {
         p.mesh = createCharacterMesh(p.charType, p.color);
         if (isHBD) {
-            const pos = getPos(0).clone();
-            const tangent = boardCurve.getTangent(0);
+            const idx = typeof p.pos === 'number' ? p.pos : 0;
+            const pos = getPos(idx).clone();
+            const tangent = boardCurve.getTangent(Math.max(0, Math.min(1, idx / 99)));
             const right   = new THREE.Vector3(0, 1, 0).cross(tangent).normalize();
             pos.addScaledVector(right, p.id === 0 ? -0.7 : 0.7);
             p.mesh.position.set(pos.x, 0, pos.z);
         } else {
-            const pos = getPos('r1').clone();
+            const pos = getPos(p.pos || 'r1').clone();
             pos.x += p.id === 0 ? -1.2 : 1.2;
             p.mesh.position.set(pos.x, 0, pos.z);
         }
