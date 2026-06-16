@@ -8,7 +8,7 @@
 // ITEMS, ALLIES) so it can never drift out of sync with the game.
 // ============================================================
 
-import { SPACE_META, SPACE_DESCS, ITEMS, ALLIES, CHARACTER_ABILITIES, CHAR_NAMES, CHAR_ICONS } from '../config/GameConfig.js';
+import { SPACE_META, SPACE_DESCS, ITEMS, ALLIES } from '../config/GameConfig.js';
 import * as Settings from '../core/Settings.js';
 import * as Storage from '../core/Storage.js';
 import * as Stats from '../core/Stats.js';
@@ -106,10 +106,6 @@ function _buildRules() {
     const spaceRows = spaceKeys.map(k => _row(SPACE_META[k].ic, SPACE_META[k].n, SPACE_DESCS[k])).join('');
     const itemRows  = Object.values(ITEMS).map(it => _row(it.icon, it.name, it.desc)).join('');
     const allyRows  = Object.values(ALLIES).map(a => _row(a.icon, a.name, a.desc)).join('');
-    const charRows  = Object.keys(CHARACTER_ABILITIES).map(k => {
-        const ab = CHARACTER_ABILITIES[k];
-        return _row(CHAR_ICONS[k] || '🙂', `${CHAR_NAMES[k] || k} — ${ab.name}`, ab.desc);
-    }).join('');
 
     document.getElementById('rules-overlay').innerHTML = `
         <div class="ob-panel ob-panel-wide">
@@ -118,7 +114,6 @@ function _buildRules() {
                 <button class="ob-x" id="rules-close">✕</button>
             </div>
             <div class="ob-scroll">
-                <div class="ob-section bfont">🦸 CHARACTERS</div>${charRows}
                 <div class="ob-section bfont">🟦 SPACES</div>${spaceRows}
                 <div class="ob-section bfont">🎒 ITEMS</div>${itemRows}
                 <div class="ob-section bfont">🤝 ALLIES</div>${allyRows}

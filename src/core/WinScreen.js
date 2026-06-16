@@ -6,7 +6,7 @@
 // ============================================================
 
 import { state } from './GameState.js';
-import { DISTRICT_DOMINANCE_BONUS, HQ_META, CHARACTER_ABILITIES, CHAR_ICONS } from '../config/GameConfig.js';
+import { DISTRICT_DOMINANCE_BONUS, HQ_META } from '../config/GameConfig.js';
 import { DISTRICT_KEYS, DISTRICT_NAMES } from '../config/BoardGraph.js';
 import { earnCoins } from './Economy.js';
 import * as Stats from './Stats.js';
@@ -45,12 +45,10 @@ export function calculateWinner() {
     function row(label, val) { return `<div class="win-card-stat"><span>${label}</span><span>${val}</span></div>`; }
     function card(p, s) {
         const isW = !isTie && p === winner;
-        const ab = CHARACTER_ABILITIES[p.charType];
-        const charRow = row(`${CHAR_ICONS[p.charType] || '🙂'} Character`, ab ? ab.name : '—');
         let details;
         if (state.selectedMap === 'hundred_block_dash') {
             const fin = p.pos >= 99 ? 50 : 0;
-            details = `${charRow}${row('💰 Coins earned', p.coinsEarned)}${row('💵 Coins left', p.coins)}${fin ? row('🏁 Finish bonus', '+' + fin) : ''}${row('🏆 Minigames won', p.mgWins)}${row('📍 Final space', p.pos >= 99 ? 'FINISHED' : p.pos)}`;
+            details = `${row('💰 Coins earned', p.coinsEarned)}${row('💵 Coins left', p.coins)}${fin ? row('🏁 Finish bonus', '+' + fin) : ''}${row('🏆 Minigames won', p.mgWins)}${row('📍 Final space', p.pos >= 99 ? 'FINISHED' : p.pos)}`;
         } else {
             function domRow(pl) {
                 return DISTRICT_KEYS.map(dk => {
@@ -60,7 +58,7 @@ export function calculateWinner() {
                     return `<div class="win-card-stat"><span>${icon} ${DISTRICT_NAMES[dk]}</span><span>${pl.districtsVisited[dk]}x${controlled ? ' 👑' : ''}</span></div>`;
                 }).join('');
             }
-            details = `${charRow}${row('💰 Coins earned', p.coinsEarned)}${row('💵 Final coins', p.coins)}${row('🏆 Minigames won', p.mgWins)}${row('🔄 Full circuits', p.fullCircuitsCompleted)}${row('📋 Contracts', p.contractsClaimed)}${row('⚔️ Duels won', p.duelsWon)}${domRow(p)}`;
+            details = `${row('💰 Coins earned', p.coinsEarned)}${row('💵 Final coins', p.coins)}${row('🏆 Minigames won', p.mgWins)}${row('🔄 Full circuits', p.fullCircuitsCompleted)}${row('📋 Contracts', p.contractsClaimed)}${row('⚔️ Duels won', p.duelsWon)}${domRow(p)}`;
         }
         return `<div class="win-card${isW ? ' winner-card' : ''}"><div class="win-card-name">${isW?'👑 ':''}${p.name}</div><div class="win-card-score">${s}</div>${details}</div>`;
     }
