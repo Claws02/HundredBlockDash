@@ -23,6 +23,8 @@ const MG_MODULES = {
     tugtap:      () => import('./TugTap.js'),
     oddoneout:   () => import('./OddOneOut.js'),
     steadyhand:  () => import('./SteadyHand.js'),
+    sortrush:    () => import('./SortRush.js'),
+    meteordodge: () => import('./MeteorDodge.js'),
 };
 
 let _controller   = null;
