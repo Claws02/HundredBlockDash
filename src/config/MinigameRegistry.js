@@ -14,6 +14,8 @@ export const MG_TYPES = [
     'tugtap',
     'oddoneout',
     'steadyhand',
+    'sortrush',
+    'meteordodge',
 ];
 
 export const MG_INFO = {
@@ -27,6 +29,8 @@ export const MG_INFO = {
     tugtap:      { icon: '🪢', title: 'TUG TAP',       desc: 'Tug-of-war! Hammer your side of the screen to drag the knot toward your end of the rope. It slowly drifts back to centre, so keep tapping. First to haul the knot home wins — or whoever is ahead when time runs out!' },
     oddoneout:   { icon: '🔍', title: 'ODD ONE OUT',   desc: 'Every tile on your grid is the same shade except one. Tap the odd tile to score and get a fresh, harder grid — more tiles, subtler difference. A wrong tap locks you briefly. Most correct in 30 seconds wins!' },
     steadyhand:  { icon: '🎯', title: 'STEADY HAND',   desc: 'A target drifts around your half — keep your finger on it to bank time! It speeds up as the round goes on. Whoever holds the target longest after 22 seconds wins.' },
+    sortrush:    { icon: '📦', title: 'SORT RUSH',     desc: 'A shape pops up in your half — fling it into the matching bin by tapping your LEFT (▲) or RIGHT (●) side. Each correct sort speeds the next one up; a wrong bin locks you out for a moment. Most sorted in 30 seconds wins!' },
+    meteordodge: { icon: '☄️', title: 'METEOR DODGE',  desc: 'Drag your pod along the base of your half to dodge falling meteors. Three lives each — lose them all and you\'re out. The storm gets faster and thicker over time. Survive with the most lives after 30 seconds to win!' },
 };
 
 // ============================================================
@@ -74,6 +78,8 @@ export const MG_ORIENTATION_MAP = {
     tugtap:      'faceoff',
     oddoneout:   'faceoff',
     steadyhand:  'faceoff',
+    sortrush:    'faceoff',
+    meteordodge: 'faceoff',
 };
 
 export const FALLBACK_TRIVIA = [

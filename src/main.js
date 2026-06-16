@@ -2,7 +2,11 @@ import * as GameController from './core/GameController.js';
 import * as UIManager from './ui/UIManager.js';
 import * as ModalManager from './ui/ModalManager.js';
 import * as MinigameManager from './minigames/MinigameManager.js';
+import * as Settings from './core/Settings.js';
+import * as Onboarding from './ui/Onboarding.js';
+import * as Storage from './core/Storage.js';
 import { MG_INFO, MG_TYPES } from './config/MinigameRegistry.js';
+import { CHARACTER_ABILITIES, CHAR_NAMES, CHAR_ICONS } from './config/GameConfig.js';
 
 window.addEventListener('error', e => {
     console.error('[HundredBlockDash] Uncaught error:', e.message, e.filename, e.lineno);
@@ -12,9 +16,31 @@ window.addEventListener('unhandledrejection', e => {
 });
 
 // Wire all managers with the controller reference
+Settings.init();          // load + apply audio/motion prefs before anything plays
 UIManager.init(GameController);
 ModalManager.init(GameController);
 MinigameManager.init(GameController);
+Onboarding.init();
+Onboarding.refreshSplashStats();
+
+// ============================================================
+// REMATCH FAST-PATH & FIRST-RUN ONBOARDING
+// ============================================================
+
+if (Storage.load('intent', null) === 'rematch') {
+    Storage.remove('intent');
+    const prefs = Storage.load('prefs', null);
+    // If the saved setup can't launch, fall through to the normal splash.
+    if (!GameController.quickStart(prefs)) Onboarding.maybeShowFirstRun();
+} else {
+    Onboarding.maybeShowFirstRun();
+}
+
+// Splash: how-to-play / settings
+document.getElementById('btn-how-to-play').addEventListener('click', () => Onboarding.openHowToPlay());
+document.getElementById('btn-settings').addEventListener('click', () => Onboarding.openSettings());
+// In-game rules reference
+document.getElementById('btn-rules').addEventListener('click', () => Onboarding.openRules());
 
 // ============================================================
 // SPLASH SCREEN
@@ -39,21 +65,47 @@ document.querySelectorAll('[data-diff]').forEach(btn => {
     });
 });
 
-document.getElementById('btn-next').addEventListener('click', () => GameController.goToCharSelect());
+function syncCharSelectUI(type) {
+    document.querySelectorAll('[data-char]').forEach(c => c.classList.toggle('sel', c.dataset.char === type));
+    renderCharAbility(type);
+}
+
+document.getElementById('btn-next').addEventListener('click', () => {
+    GameController.goToCharSelect();
+    syncCharSelectUI(GameController.getCharSelectState().p1);
+});
 
 // ============================================================
 // CHARACTER SELECT
 // ============================================================
+
+function renderCharAbility(type) {
+    const el = document.getElementById('char-ability');
+    if (!el) return;
+    const ab = CHARACTER_ABILITIES[type];
+    if (!ab) { el.innerHTML = ''; return; }
+    el.innerHTML =
+        `<div class="ca-name">${CHAR_ICONS[type] || ''} ${CHAR_NAMES[type] || type} — ${ab.name}</div>` +
+        `<div class="ca-desc">${ab.desc}</div>`;
+}
 
 document.querySelectorAll('[data-char]').forEach(card => {
     card.addEventListener('click', () => {
         document.querySelectorAll('[data-char]').forEach(c => c.classList.remove('sel'));
         card.classList.add('sel');
         GameController.selectChar(card.dataset.char);
+        renderCharAbility(card.dataset.char);
     });
 });
 
-document.getElementById('btn-char-confirm').addEventListener('click', () => GameController.confirmCharSelect());
+document.getElementById('btn-char-confirm').addEventListener('click', () => {
+    GameController.confirmCharSelect();
+    // If we advanced to Player 2's pick, sync the highlight + ability to its default.
+    if (document.getElementById('char-select').style.display !== 'none') {
+        const cs = GameController.getCharSelectState();
+        if (cs.step === 2) syncCharSelectUI(cs.p2);
+    }
+});
 
 // ============================================================
 // MAP SELECT
@@ -117,7 +169,8 @@ document.getElementById('gate-continue-btn').addEventListener('click', () => Gam
 // WIN SCREEN
 // ============================================================
 
-document.getElementById('btn-play-again').addEventListener('click', () => GameController.playAgain());
+document.getElementById('btn-rematch').addEventListener('click', () => GameController.rematch());
+document.getElementById('btn-main-menu').addEventListener('click', () => GameController.mainMenu());
 
 // ============================================================
 // MINIGAME ARCADE SELECTOR

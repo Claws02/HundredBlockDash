@@ -5,15 +5,37 @@
 
 let _ctx = null;
 
+// ---- User-controllable audio/haptics state (driven by Settings.js) ----
+let _master  = null;   // master gain node — single volume/mute choke point
+let _muted   = false;
+let _volume  = 0.8;
+let _haptics = true;
+
+function _applyGain() {
+    if (_master) _master.gain.value = _muted ? 0 : _volume;
+}
+
+export function setMuted(m)          { _muted   = !!m; _applyGain(); }
+export function setVolume(v)         { _volume  = Math.max(0, Math.min(1, +v || 0)); _applyGain(); }
+export function setHapticsEnabled(h) { _haptics = !!h; }
+export function isMuted()            { return _muted; }
+
 function getCtx() {
-    if (!_ctx) _ctx = new (window.AudioContext || window.webkitAudioContext)();
+    if (!_ctx) {
+        _ctx = new (window.AudioContext || window.webkitAudioContext)();
+        _master = _ctx.createGain();
+        _master.connect(_ctx.destination);
+        _applyGain();
+    }
     if (_ctx.state === 'suspended') _ctx.resume();
     return _ctx;
 }
 
+function _out() { return _master || _ctx.destination; }
+
 function _beep(freq, type, vol, start, dur, ctx) {
     const o = ctx.createOscillator(), g = ctx.createGain();
-    o.connect(g); g.connect(ctx.destination);
+    o.connect(g); g.connect(_out());
     o.type = type; o.frequency.setValueAtTime(freq, start);
     g.gain.setValueAtTime(vol, start);
     g.gain.exponentialRampToValueAtTime(0.001, start + dur);
@@ -26,13 +48,14 @@ function _noise(vol, start, dur, ctx) {
     for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1);
     const src = ctx.createBufferSource(), g = ctx.createGain(), f = ctx.createBiquadFilter();
     f.type = 'bandpass'; f.frequency.value = 800;
-    src.buffer = buf; src.connect(f); f.connect(g); g.connect(ctx.destination);
+    src.buffer = buf; src.connect(f); f.connect(g); g.connect(_out());
     g.gain.setValueAtTime(vol, start);
     g.gain.exponentialRampToValueAtTime(0.001, start + dur);
     src.start(start); src.stop(start + dur + 0.05);
 }
 
 export function haptic(pattern) {
+    if (!_haptics) return;
     try {
         if (navigator.vibrate && typeof navigator.vibrate === 'function') navigator.vibrate(pattern);
     } catch (e) {}

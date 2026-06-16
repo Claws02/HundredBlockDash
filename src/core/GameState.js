@@ -58,6 +58,7 @@ export const state = {
     activeContracts:     [],    // up to CONTRACT_COUNT active contracts
     contractPool:        [],    // remaining shuffled contracts
     investorUsedThisRound: [false, false], // per player, resets each round
+    charInvestorUsedThisRound: [false, false], // Trader (Investor character) bonus, per round
 
     // Players
     players: [
@@ -69,6 +70,7 @@ export const state = {
             inv: [], mesh: null,
             _warpNextRoll: false, _doubleNextRoll: false, _shielded: false, _mirrored: false,
             _overchargeNextRoll: false,
+            _charShield: 0, _negateCharges: 0,  // character-passive defensive charges
             // City Circuit tracking
             allies: [],          // up to MAX_ALLIES: { type, turnsRemaining, shieldCharges?, mesh }
             districtsVisited: { fin: 0, ba: 0, shop: 0, ind: 0 },
@@ -90,6 +92,7 @@ export const state = {
             inv: [], mesh: null,
             _warpNextRoll: false, _doubleNextRoll: false, _shielded: false, _mirrored: false,
             _overchargeNextRoll: false,
+            _charShield: 0, _negateCharges: 0,  // character-passive defensive charges
             allies: [],
             districtsVisited: { fin: 0, ba: 0, shop: 0, ind: 0 },
             districtHQsThisLoop: new Set(),
@@ -117,6 +120,7 @@ export function resetPlayers() {
         p._warpNextRoll = false; p._doubleNextRoll = false;
         p._shielded = false; p._mirrored = false;
         p._overchargeNextRoll = false;
+        p._charShield = 0; p._negateCharges = 0;
         p.allies = [];
         p.districtsVisited = { fin: 0, ba: 0, shop: 0, ind: 0 };
         p.districtHQsThisLoop = new Set();
@@ -143,6 +147,7 @@ export function resetPlayers() {
     state.activeContracts    = [];
     state.contractPool       = [];
     state.investorUsedThisRound = [false, false];
+    state.charInvestorUsedThisRound = [false, false];
     state.mgContext          = null;
     state.pendingDuelBet     = 0;
     state.pendingShopDistrict = null;

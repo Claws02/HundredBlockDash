@@ -67,31 +67,56 @@ function _getDistrictPools() {
 }
 
 // ---- HBD board generation ----
+//
+// One pool per realm, each sized to exactly fill its random slots. Good
+// and bad spaces are kept roughly even (no more "free coins early, brutal
+// late") while difficulty escalates gently toward the Void.
+//   counts → good / bad  (mystery is a wildcard, counted as neither)
+//   Woods 14/9 · Ember 12/12 · Fae 13/11 · Void 10/12
+const REALM_POOLS = {
+    woods: [   // 1–24 minus shop@20 → 23 slots
+        ...Array(5).fill('coin'), ...Array(2).fill('coin_big'), ...Array(2).fill('boost'),
+        ...Array(2).fill('shortcut'), ...Array(1).fill('truce'), ...Array(2).fill('mystery'),
+        ...Array(4).fill('lose'), ...Array(4).fill('trap'), ...Array(1).fill('magnet'),
+    ],
+    ember: [   // 25–49 minus shop@40 → 24 slots
+        ...Array(5).fill('coin'), ...Array(3).fill('coin_big'), ...Array(1).fill('boost'),
+        ...Array(1).fill('cfwd'), ...Array(2).fill('mystery'),
+        ...Array(4).fill('lose'), ...Array(2).fill('lose_big'), ...Array(5).fill('trap'), ...Array(1).fill('magnet'),
+    ],
+    fae: [     // 50–74 minus shop@60 → 24 slots
+        ...Array(4).fill('coin'), ...Array(3).fill('coin_big'), ...Array(3).fill('mystery'),
+        ...Array(2).fill('shortcut'), ...Array(1).fill('boost'),
+        ...Array(4).fill('lose'), ...Array(3).fill('trap'), ...Array(3).fill('magnet'), ...Array(1).fill('cbwd'),
+    ],
+    void: [    // 76–98 minus shop@80 → 22 slots
+        ...Array(3).fill('coin'), ...Array(4).fill('coin_big'), ...Array(2).fill('mystery'), ...Array(1).fill('cfwd'),
+        ...Array(3).fill('lose'), ...Array(3).fill('lose_big'), ...Array(2).fill('trap'),
+        ...Array(1).fill('magnet'), ...Array(1).fill('cbwd'), ...Array(2).fill('swap_space'),
+    ],
+};
+
+function _shuffle(a) {
+    for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+}
 
 export function generateBoard() {
-    state.board = [{ type: 'start' }];
-    const earlyPool = [
-        ...Array(20).fill('coin'), ...Array(10).fill('coin_big'),
-        ...Array(8).fill('mystery'), ...Array(6).fill('boost'),
-        ...Array(5).fill('shortcut'), ...Array(4).fill('cfwd'),
-        ...Array(3).fill('truce'), ...Array(2).fill('lose'), ...Array(2).fill('trap'),
-    ];
-    while (earlyPool.length < 49) earlyPool.push('coin');
-    earlyPool.sort(() => Math.random() - 0.5);
+    state.board = new Array(100);
+    state.board[0]  = { type: 'start' };
+    state.board[99] = { type: 'start', n: 'FINISH', ic: '👑' };
 
-    const latePool = [
-        ...Array(12).fill('lose'), ...Array(10).fill('lose_big'),
-        ...Array(10).fill('trap'), ...Array(6).fill('magnet'),
-        ...Array(4).fill('cbwd'), ...Array(2).fill('mystery'),
-        ...Array(2).fill('truce'), ...Array(3).fill('coin'),
-        ...Array(3).fill('swap_space'),
-    ];
-    while (latePool.length < 49) latePool.push('lose');
-    latePool.sort(() => Math.random() - 0.5);
-
-    for (let i = 1; i <= 49; i++) state.board.push({ type: earlyPool[i - 1] });
-    for (let i = 50; i <= 98; i++) state.board.push({ type: latePool[i - 50] });
-    state.board.push({ type: 'start', n: 'FINISH', ic: '👑' });
+    const zones = [[1, 24, 'woods'], [25, 49, 'ember'], [50, 74, 'fae'], [76, 98, 'void']];
+    for (const [from, to, key] of zones) {
+        const pool = _shuffle([...REALM_POOLS[key]]);
+        for (let i = from; i <= to; i++) {
+            if (i === HBD_GATE_POS || HBD_SHOP_SPACES.has(i)) continue;
+            state.board[i] = { type: pool.pop() || 'coin' };
+        }
+    }
 
     state.board[HBD_GATE_POS] = { type: 'gate' };
     HBD_SHOP_SPACES.forEach(i => { if (i !== HBD_GATE_POS) state.board[i] = { type: 'shop' }; });

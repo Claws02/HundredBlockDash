@@ -33,6 +33,11 @@
             </div>
             <button class="btn-primary bfont" id="btn-next">NEXT</button>
             <button class="mg-arcade-btn bfont" id="btn-minigames">🎮 MINIGAME ARCADE</button>
+            <div class="splash-secondary">
+                <button class="splash-link bfont" id="btn-how-to-play">❓ HOW TO PLAY</button>
+                <button class="splash-link bfont" id="btn-settings">⚙️ SETTINGS</button>
+            </div>
+            <div id="splash-stats" class="splash-stats" style="display:none;"></div>
         </div>
     </div>
 
@@ -64,6 +69,7 @@
                 <div class="char-card" data-char="bodyguard"><span class="char-icon">🦺</span><span class="char-name">Bodyguard</span></div>
                 <div class="char-card" data-char="investor"><span class="char-icon">📈</span><span class="char-name">Investor</span></div>
             </div>
+            <div id="char-ability" class="char-ability"></div>
             <button class="btn-primary bfont" id="btn-char-confirm">CONFIRM</button>
         </div>
     </div>
@@ -115,6 +121,9 @@
         <!-- Round counter (centered top) -->
         <div id="round-counter" class="bfont">ROUND 0/20</div>
 
+        <!-- Rules reference (always available during play) -->
+        <button id="btn-rules" class="bfont" title="Rules & reference">❓</button>
+
         <!-- Contracts strip (below round counter) -->
         <div id="contracts-strip" style="display:none;"></div>
 
@@ -165,7 +174,7 @@
     <!-- Gate Overlay -->
     <div id="gate-overlay">
         <div style="font-size:52px;">🚪</div>
-        <div class="gate-title bfont">THE GATE</div>
+        <div class="gate-title bfont" id="gate-title">THE GATE</div>
         <div class="gate-sub" id="gate-sub">Roll 5 dice. Score higher than 15 to break through!</div>
         <div class="gate-open-banner bfont" id="gate-open-banner">🔓 GATE OPEN — ALL PLAYERS MAY PASS!</div>
         <div class="gate-result bfont" id="gate-result"></div>
@@ -219,7 +228,11 @@
         <div class="win-name bfont" id="win-name">PLAYER 1</div>
         <div class="win-subtitle" id="win-subtitle">WINS THE CITY!</div>
         <div class="win-cards" id="win-cards"></div>
-        <button class="btn-primary win-btn" id="btn-play-again">PLAY AGAIN</button>
+        <div id="win-stats" class="win-stats"></div>
+        <div class="win-btn-row">
+            <button class="btn-primary win-btn" id="btn-rematch">🔄 REMATCH</button>
+            <button class="mg-arcade-btn win-menu-btn" id="btn-main-menu">🏠 MAIN MENU</button>
+        </div>
     </div>
 
     <!-- Modals -->
@@ -320,6 +333,11 @@
     </div>
 
     <div id="toast-box"></div>
+
+    <!-- Onboarding & settings overlays (content built by Onboarding.js) -->
+    <div id="howto-overlay" class="fs-overlay" style="display:none;"></div>
+    <div id="rules-overlay" class="fs-overlay" style="display:none;"></div>
+    <div id="settings-overlay" class="fs-overlay" style="display:none;"></div>
 
     <script type="module" src="src/main.js"></script>
 </body>

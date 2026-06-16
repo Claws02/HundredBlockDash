@@ -982,3 +982,107 @@ body { overscroll-behavior: none; -webkit-overflow-scrolling: auto; }
 /* --- Hud name glow fix --- */
 .p1c { text-shadow: 0 0 14px rgba(255,59,59,0.7), 0 0 30px rgba(255,59,59,0.25) !important; }
 .p2c { text-shadow: 0 0 14px rgba(59,142,255,0.7), 0 0 30px rgba(59,142,255,0.25) !important; }
+
+/* ============================================================
+   ONBOARDING, RULES, SETTINGS  (Phase 1)
+   ============================================================ */
+
+/* Splash secondary links + stats */
+.splash-secondary { display: flex; gap: 10px; width: 100%; max-width: 300px; margin-top: 10px; }
+.splash-link {
+    flex: 1; background: transparent; border: 1px solid rgba(255,255,255,0.28); color: rgba(255,255,255,0.8);
+    padding: 9px 6px; border-radius: 50px; font-size: 14px; letter-spacing: 1px; cursor: pointer; transition: all .2s;
+}
+.splash-link:active, .splash-link:hover { border-color: var(--gold); color: var(--gold); background: rgba(245,200,66,0.1); }
+.splash-stats {
+    margin-top: 12px; color: rgba(255,255,255,0.7); font-size: 13px; font-weight: 700;
+    background: rgba(0,0,0,0.3); padding: 6px 16px; border-radius: 50px; border: 1px solid rgba(255,255,255,0.15);
+}
+.splash-stats b { color: var(--gold); }
+
+/* In-game rules button */
+#btn-rules {
+    position: absolute; top: calc(var(--hud-h) + 10px); right: 12px; z-index: 12;
+    width: 38px; height: 38px; border-radius: 50%; pointer-events: auto; cursor: pointer;
+    background: rgba(18,14,38,0.92); border: 1px solid var(--border); color: rgba(255,255,255,0.85);
+    font-size: 18px; box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+}
+#btn-rules:active { background: rgba(245,200,66,0.2); border-color: var(--gold); }
+.tabletop-p2-turn #btn-rules { transform: rotate(180deg); top: auto; bottom: calc(var(--hud-h) + 10px); }
+
+/* Full-screen overlays (shared) */
+.fs-overlay {
+    position: fixed; inset: 0; z-index: 1500;
+    background: rgba(8, 4, 20, 0.92); backdrop-filter: blur(4px);
+    display: flex; align-items: center; justify-content: center; padding: 18px;
+}
+.ob-panel {
+    width: 100%; max-width: 380px; max-height: 86vh; display: flex; flex-direction: column;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 22px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.7); overflow: hidden;
+}
+.ob-panel-wide { max-width: 440px; }
+
+/* How-to-play slides */
+.ob-slide { padding: 30px 26px 14px; text-align: center; min-height: 240px; display: flex; flex-direction: column; justify-content: center; }
+.ob-icon { font-size: 64px; margin-bottom: 12px; }
+.ob-title { font-size: 32px; letter-spacing: 2px; color: var(--gold); margin-bottom: 12px; }
+.ob-body { font-size: 16px; line-height: 1.55; color: rgba(255,255,255,0.88); }
+.ob-body b { color: var(--gold); }
+.ob-dots { display: flex; justify-content: center; gap: 8px; padding: 6px 0 14px; }
+.ob-dot { width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,0.25); transition: all .2s; }
+.ob-dot.on { background: var(--gold); transform: scale(1.3); }
+.ob-nav { display: flex; gap: 8px; padding: 14px 18px 18px; border-top: 1px solid rgba(255,255,255,0.1); }
+.ob-btn {
+    flex: 1; padding: 12px 8px; border-radius: 50px; font-family: 'Bebas Neue', sans-serif; font-size: 18px;
+    letter-spacing: 1px; cursor: pointer; border: 1px solid rgba(255,255,255,0.3); background: rgba(0,0,0,0.3); color: #fff; transition: transform .1s;
+}
+.ob-btn:active { transform: scale(0.95); }
+.ob-btn-primary { background: linear-gradient(135deg, #f59e0b, #fbbf24); color: #000; border: none; }
+.ob-btn-ghost { background: transparent; color: rgba(255,255,255,0.65); }
+
+/* Rules + settings header & scroll */
+.ob-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px 12px; border-bottom: 1px solid rgba(255,255,255,0.1); }
+.ob-head-title { font-size: 24px; letter-spacing: 1px; color: var(--gold); }
+.ob-x { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--border); background: rgba(0,0,0,0.3); color: #fff; font-size: 16px; cursor: pointer; }
+.ob-x:active { background: rgba(255,255,255,0.15); }
+.ob-scroll { overflow-y: auto; padding: 8px 16px 18px; -webkit-overflow-scrolling: touch; }
+.ob-section { font-size: 19px; letter-spacing: 1px; color: #fff; margin: 16px 0 8px; padding-bottom: 5px; border-bottom: 1px solid rgba(255,255,255,0.12); }
+.ob-section:first-child { margin-top: 4px; }
+.ob-ref-row { display: flex; gap: 12px; align-items: flex-start; padding: 8px 4px; }
+.ob-ref-icon { font-size: 22px; width: 30px; text-align: center; flex-shrink: 0; }
+.ob-ref-text { display: flex; flex-direction: column; }
+.ob-ref-text b { color: #fff; font-size: 14px; }
+.ob-ref-text small { color: rgba(255,255,255,0.6); font-size: 13px; line-height: 1.4; }
+
+/* Settings rows */
+.set-row { display: flex; align-items: center; justify-content: space-between; padding: 13px 4px; border-bottom: 1px solid rgba(255,255,255,0.08); color: #fff; font-size: 15px; font-weight: 700; cursor: pointer; }
+.set-toggle { width: 26px; height: 26px; accent-color: #fbbf24; cursor: pointer; }
+.set-range { width: 150px; accent-color: #fbbf24; cursor: pointer; }
+.set-wide { width: 100%; margin-top: 14px; }
+
+/* Win screen rematch row */
+.win-stats { color: rgba(255,255,255,0.8); font-size: 14px; font-weight: 700; margin: 4px 0 14px; min-height: 18px; }
+.win-stats b { color: var(--gold); }
+.win-btn-row { display: flex; flex-direction: column; align-items: center; gap: 8px; width: 100%; max-width: 300px; }
+.win-menu-btn { margin-top: 0; }
+
+/* ============================================================
+   REDUCE MOTION  — kill CSS animation/transition for vestibular safety
+   ============================================================ */
+body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+}
+body.reduce-motion .confetti-piece,
+body.reduce-motion .coin-particle { display: none !important; }
+
+/* Character ability panel (char-select) */
+.char-ability {
+    width: 100%; max-width: 340px; margin: 16px auto 0; min-height: 56px;
+    background: rgba(0,0,0,0.34); border: 1px solid rgba(245,200,66,0.35); border-radius: 14px;
+    padding: 11px 14px; text-align: center; color: rgba(255,255,255,0.85);
+}
+.char-ability .ca-name { font-family: 'Bebas Neue', sans-serif; font-size: 20px; letter-spacing: 1px; color: var(--gold); }
+.char-ability .ca-desc { font-size: 13px; line-height: 1.4; margin-top: 2px; color: rgba(255,255,255,0.78); }

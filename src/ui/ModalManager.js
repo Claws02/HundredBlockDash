@@ -54,6 +54,11 @@ export function openShop(district, discount) {
         ba:   '🏚️ UNDERGROUND MARKET',
         shop: isGrandMall ? '🛍️ GRAND MALL' : '🏪 SHOPPING PROMENADE',
         ind:  '⚙️ POWER PLANT SUPPLY',
+        // Hundred Block Dash realm shops
+        woods: '🌲 FOREST CACHE',
+        ember: '🌋 MAGMA FORGE',
+        fae:   '✨ FAE BAZAAR',
+        void:  '🌌 VOID EXCHANGE',
     };
     const titleEl = document.getElementById('shop-modal-title');
     if (titleEl) titleEl.textContent = distTitles[distKey] || '🏪 ITEM SHOP';

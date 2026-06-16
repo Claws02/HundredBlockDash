@@ -7,6 +7,7 @@ import {
     ALLIES, BA_DISCOUNT, GRAND_MALL_DISCOUNT,
     ALL_CHAR_TYPES, HQ_META, CHAR_ICONS,
     HBD_GATE_POS, HBD_SHOP_SPACES,
+    getCharacterAbility, hbdSpaceLabel, hbdShopKey,
 } from '../config/GameConfig.js';
 import { CITY_GRAPH, JUNCTION_IDS, DISTRICT_NAMES, DISTRICT_KEYS, BRANCH_OPTIONS } from '../config/BoardGraph.js';
 import { MAP_REGISTRY } from '../config/MapRegistry.js';
@@ -15,6 +16,7 @@ import { initCityBoard, generateBoard } from './BoardSetup.js';
 import { calculateWinner } from './WinScreen.js';
 import { initContracts, checkContract as _checkContract } from './Contracts.js';
 import { earnCoins, loseCoins } from './Economy.js';
+import * as Storage from './Storage.js';
 import { sfx, haptic } from '../engine/AudioManager.js';
 import * as Renderer from '../engine/Renderer.js';
 import * as Physics from '../engine/Physics.js';
@@ -56,6 +58,11 @@ export function goToCharSelect() {
 export function selectChar(type) {
     if (state.charSelectStep === 1) state.p1CharSelection = type;
     else state.p2CharSelection = type;
+}
+
+// Lets main.js sync the highlighted card + ability panel to the current step.
+export function getCharSelectState() {
+    return { step: state.charSelectStep, p1: state.p1CharSelection, p2: state.p2CharSelection };
 }
 
 export function confirmCharSelect() {
@@ -140,9 +147,42 @@ export function confirmMapSelect() {
     startGame();
 }
 
+// Remember this game's setup so REMATCH can skip the menus.
+function _savePrefs() {
+    Storage.save('prefs', {
+        mode:       state.playStyle,
+        difficulty: state.botDifficulty,
+        map:        state.selectedMap,
+        charP1:     state.players[0].charType,
+        charP2:     state.players[1].charType,
+    });
+}
+
+// Re-launch straight into a game with a saved setup (used by REMATCH).
+export function quickStart(prefs) {
+    if (!prefs || !prefs.mode) return false;
+    state.playStyle     = prefs.mode;
+    state.botDifficulty = prefs.difficulty || 'medium';
+    state.selectedMap   = prefs.map || 'city_circuit';
+    state.players[0].charType = prefs.charP1 || 'slime';
+    state.players[1].isBot    = (prefs.mode === '1p');
+    if (state.players[1].isBot) {
+        state.players[1].name = 'Borat the Bot';
+        const types = ALL_CHAR_TYPES.filter(t => t !== prefs.charP1);
+        state.players[1].charType = types[Math.floor(Math.random() * types.length)];
+    } else {
+        state.players[1].name = 'Player 2';
+        state.players[1].charType = prefs.charP2 || 'boxy';
+    }
+    document.getElementById('splash').style.display = 'none';
+    startGame();
+    return true;
+}
+
 export function startGame() {
     if (state.gameStarted) return;
     state.gameStarted = true;
+    _savePrefs();
     if (state.playStyle === 'tabletop') document.body.classList.add('tabletop-mode');
     document.getElementById('splash').style.display      = 'none';
     document.getElementById('char-select').style.display  = 'none';
@@ -158,6 +198,7 @@ export function startGame() {
         } else {
             initCityBoard();
         }
+        _applyCharacterStart(); // grant start-of-game character passives (coins/position/shields)
         Renderer.init(document.getElementById('game-container'));
         UIManager.initCoinDisplays();
         UIManager.updateUI();
@@ -421,7 +462,7 @@ function _movePlayerHBD(p, steps, isForced = false) {
                     setTimeout(hopNext, 300);
                 } else {
                     _passThroughResumeHop = hopNext;
-                    state.pendingShopDistrict = 'ring';
+                    state.pendingShopDistrict = hbdShopKey(curr);
                     state.pendingShopDiscount = 1.0;
                     state.gameState = 'SHOP';
                     ModalManager.showModal('shop-offer-modal');
@@ -474,8 +515,13 @@ export function resolveSpace(p) {
     if (goodTypes.includes(space.type))  sfx('land_good');
     else if (badTypes.includes(space.type)) sfx('land_bad');
 
-    UIManager.showSpaceInfoCard(spc.n || space.type, SPACE_DESCS[space.type] || '');
-    ModalManager.showMessage(spc.n || space.type.toUpperCase(), msg || 'Nothing happens.', spc.ic);
+    // Hundred Block Dash spaces carry realm-themed names/copy.
+    const lbl       = state.selectedMap === 'hundred_block_dash' ? hbdSpaceLabel(p.pos, space.type) : null;
+    const titleName = lbl ? lbl.name : (spc.n || space.type.toUpperCase());
+    const descText  = lbl ? lbl.desc : (SPACE_DESCS[space.type] || '');
+    const iconChar  = lbl ? lbl.icon : spc.ic;
+    UIManager.showSpaceInfoCard(titleName, descText);
+    ModalManager.showMessage(titleName, msg || 'Nothing happens.', iconChar);
     if (state.selectedMap === 'hundred_block_dash') Renderer.updateBiomeVisuals(typeof p.pos === 'number' ? p.pos : 0);
     else Renderer.updateBiomeVisuals(CITY_GRAPH[p.pos]?.district || 'ring');
 
@@ -489,16 +535,16 @@ export function resolveSpaceEffect(p, spaceType, space) {
     switch (spaceType) {
         case 'start':      return state.selectedMap === 'hundred_block_dash' ? 'Back at the start!' : 'Back at the city start!';
         case 'coin': {
-            const bonus = _allyPassive(p, 'coin_bonus');
+            const bonus = _allyPassive(p, 'coin_bonus') + (getCharacterAbility(p.charType).coinSpaceBonus || 0);
             earnCoins(p, 3 + bonus);
             _checkContract(p, 'land_coin'); _checkContract(p, 'land_type', 'coin');
-            return `+${3+bonus} coins!${bonus ? ' (Vendor +'+bonus+')' : ''}`;
+            return `+${3+bonus} coins!${bonus ? ' (+'+bonus+' bonus)' : ''}`;
         }
         case 'coin_big': {
-            const bonus = _allyPassive(p, 'coin_bonus');
+            const bonus = _allyPassive(p, 'coin_bonus') + (getCharacterAbility(p.charType).coinSpaceBonus || 0);
             earnCoins(p, 8 + bonus);
             _checkContract(p, 'land_coin_big'); _checkContract(p, 'land_type', 'coin_big');
-            return `+${8+bonus} coins!${bonus ? ' (Vendor +'+bonus+')' : ''}`;
+            return `+${8+bonus} coins!${bonus ? ' (+'+bonus+' bonus)' : ''}`;
         }
         case 'lose':     { const l = loseCoins(p, 4);  return l === 0 ? '🛡️ Shielded!' : `-${l} coins!`; }
         case 'lose_big': { const l = loseCoins(p, 10); return l === 0 ? '🛡️ Shielded!' : `-${l} coins!`; }
@@ -519,7 +565,10 @@ export function resolveSpaceEffect(p, spaceType, space) {
             _skipForward(p, skip); return null;
         }
         case 'cfwd': { _skipForward(p, 10); return null; }
-        case 'cbwd': { _skipBackward(p, 10); return null; }
+        case 'cbwd': {
+            if (getCharacterAbility(p.charType).noKnockback) return '🧊 Too sturdy to be pushed back!';
+            _skipBackward(p, 10); return null;
+        }
         case 'swap_space': {
             const tmp = p.pos; p.pos = opp.pos; opp.pos = tmp;
             if (p.mesh) p.mesh.position.copy(Renderer.getPos(p.pos));
@@ -529,7 +578,10 @@ export function resolveSpaceEffect(p, spaceType, space) {
         }
         case 'anchor_trap': {
             const owner = space?.owner !== undefined ? state.players[space.owner] : null;
-            if (owner && owner.id !== p.id) { _skipBackward(p, 5); return null; }
+            if (owner && owner.id !== p.id) {
+                if (getCharacterAbility(p.charType).noKnockback) return '🧊 Sturdy — the Anchor can\'t budge you!';
+                _skipBackward(p, 5); return null;
+            }
             return 'Your own Anchor.';
         }
         case 'magnet': {
@@ -555,7 +607,7 @@ export function resolveSpaceEffect(p, spaceType, space) {
         case 'gate': case 'gate_open': return '';
         case 'shop': {
             if (state.selectedMap === 'hundred_block_dash') {
-                setTimeout(() => openShop('ring', 1.0), 400); return null;
+                setTimeout(() => openShop(hbdShopKey(p.pos), 1.0), 400); return null;
             }
             const gNode   = CITY_GRAPH[p.pos];
             const distKey = gNode?.shopDistrict || 'ring';
@@ -719,6 +771,7 @@ function _resolveMinigameResult(winnerId) {
     }
     // Reset per-round state
     state.investorUsedThisRound = [false, false];
+    state.charInvestorUsedThisRound = [false, false];
     state.players.forEach(p => { p.coinsEarnedThisRound = 0; p.shopsVisitedThisLap = 0; p.cabbieUsedThisRound = false; });
 }
 
@@ -729,6 +782,12 @@ function _onRoundEnd() {
         if (bankerIdx >= 0) {
             const interest = Math.floor(p.coins / 10);
             if (interest > 0) { earnCoins(p, interest); UIManager.toast(`💼 Banker: +${interest} coins interest!`, '#fbbf24'); }
+        }
+        // Banker character (Saver): weaker interest, per 20 held
+        const per = getCharacterAbility(p.charType).interestPer;
+        if (per) {
+            const interest = Math.floor(p.coins / per);
+            if (interest > 0) { earnCoins(p, interest); UIManager.toast(`💼 ${p.name}'s savings: +${interest} coins!`, '#fbbf24'); }
         }
     });
     // Maybe spawn ally
@@ -785,8 +844,11 @@ export function triggerGateChallenge(p) {
     state.gameState = 'GATE'; state.gateRolling = false;
     Physics.clearDice(Renderer.getDiceGroup());
     document.getElementById('ui-layer').style.display = 'none';
-    const gateMsg = state.selectedMap === 'hundred_block_dash'
-        ? `Roll ${GATE_NUM_DICE} dice. Score ${GATE_THRESHOLD}+ to break through The Gate!`
+    const isHBD = state.selectedMap === 'hundred_block_dash';
+    const gateTitleEl = document.getElementById('gate-title');
+    if (gateTitleEl) gateTitleEl.textContent = isHBD ? 'THE RIFT' : 'THE GATE';
+    const gateMsg = isHBD
+        ? `Roll ${GATE_NUM_DICE} dice. Score ${GATE_THRESHOLD}+ to tear through The Rift into the Void!`
         : `Roll ${GATE_NUM_DICE} dice. Score ${GATE_THRESHOLD}+ to break through the Industrial Zone!`;
     document.getElementById('gate-sub').textContent = gateMsg;
     document.getElementById('gate-result').textContent = '';
@@ -1065,6 +1127,41 @@ export function confirmCustomDice(num) {
 }
 
 // ============================================================
+// CHARACTER PASSIVES
+// ============================================================
+
+// Apply start-of-game passives. Runs after board build, before meshes
+// are created, so position offsets land the token in the right place.
+function _applyCharacterStart() {
+    state.players.forEach(p => {
+        const ab = getCharacterAbility(p.charType);
+        if (ab.startCoins)         { p.coins += ab.startCoins; p.coinsEarned += ab.startCoins; }
+        if (ab.startShieldCharges)   p._charShield = ab.startShieldCharges;
+        if (ab.negateCharges)        p._negateCharges = ab.negateCharges;
+        if (ab.startAhead)           _advanceStartPos(p, ab.startAhead);
+    });
+}
+
+// Move a player N spaces forward at game start, no landing effects.
+function _advanceStartPos(p, n) {
+    if (state.selectedMap === 'hundred_block_dash') {
+        const base = typeof p.pos === 'number' ? p.pos : 0;
+        p.pos = Math.max(0, Math.min(98, base + n));
+        p.prevPos = p.pos;
+        return;
+    }
+    let cur = p.pos, left = n;
+    while (left > 0) {
+        const gn = CITY_GRAPH[cur];
+        if (!gn) break;
+        let nx = gn.next[0];
+        if (JUNCTION_IDS.has(nx)) nx = CITY_GRAPH[nx].next[0];
+        cur = nx; left--;
+    }
+    p.pos = cur; p.prevPos = cur;
+}
+
+// ============================================================
 // DISTRICT TRACKING & SCORING
 // ============================================================
 
@@ -1305,7 +1402,10 @@ export function confirmDuelBet(betAmount) {
 // WIN SCREEN  (calculateWinner lives in WinScreen.js)
 // ============================================================
 
-export function playAgain() { window.location.reload(); }
+// Win-screen actions. Rematch flags an intent the next page-load honours
+// (main.js → quickStart); both reload to guarantee a clean engine reset.
+export function rematch()  { Storage.save('intent', 'rematch'); window.location.reload(); }
+export function mainMenu() { Storage.remove('intent'); window.location.reload(); }
 
 // ============================================================
 // MAP

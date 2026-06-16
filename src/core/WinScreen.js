@@ -6,9 +6,10 @@
 // ============================================================
 
 import { state } from './GameState.js';
-import { DISTRICT_DOMINANCE_BONUS, HQ_META } from '../config/GameConfig.js';
+import { DISTRICT_DOMINANCE_BONUS, HQ_META, CHARACTER_ABILITIES, CHAR_ICONS } from '../config/GameConfig.js';
 import { DISTRICT_KEYS, DISTRICT_NAMES } from '../config/BoardGraph.js';
 import { earnCoins } from './Economy.js';
+import * as Stats from './Stats.js';
 import * as ModalManager from '../ui/ModalManager.js';
 import { sfx } from '../engine/AudioManager.js';
 
@@ -44,10 +45,12 @@ export function calculateWinner() {
     function row(label, val) { return `<div class="win-card-stat"><span>${label}</span><span>${val}</span></div>`; }
     function card(p, s) {
         const isW = !isTie && p === winner;
+        const ab = CHARACTER_ABILITIES[p.charType];
+        const charRow = row(`${CHAR_ICONS[p.charType] || '🙂'} Character`, ab ? ab.name : '—');
         let details;
         if (state.selectedMap === 'hundred_block_dash') {
             const fin = p.pos >= 99 ? 50 : 0;
-            details = `${row('💰 Coins earned', p.coinsEarned)}${row('💵 Coins left', p.coins)}${fin ? row('🏁 Finish bonus', '+' + fin) : ''}${row('🏆 Minigames won', p.mgWins)}${row('📍 Final space', p.pos >= 99 ? 'FINISHED' : p.pos)}`;
+            details = `${charRow}${row('💰 Coins earned', p.coinsEarned)}${row('💵 Coins left', p.coins)}${fin ? row('🏁 Finish bonus', '+' + fin) : ''}${row('🏆 Minigames won', p.mgWins)}${row('📍 Final space', p.pos >= 99 ? 'FINISHED' : p.pos)}`;
         } else {
             function domRow(pl) {
                 return DISTRICT_KEYS.map(dk => {
@@ -57,11 +60,24 @@ export function calculateWinner() {
                     return `<div class="win-card-stat"><span>${icon} ${DISTRICT_NAMES[dk]}</span><span>${pl.districtsVisited[dk]}x${controlled ? ' 👑' : ''}</span></div>`;
                 }).join('');
             }
-            details = `${row('💰 Coins earned', p.coinsEarned)}${row('💵 Final coins', p.coins)}${row('🏆 Minigames won', p.mgWins)}${row('🔄 Full circuits', p.fullCircuitsCompleted)}${row('📋 Contracts', p.contractsClaimed)}${row('⚔️ Duels won', p.duelsWon)}${domRow(p)}`;
+            details = `${charRow}${row('💰 Coins earned', p.coinsEarned)}${row('💵 Final coins', p.coins)}${row('🏆 Minigames won', p.mgWins)}${row('🔄 Full circuits', p.fullCircuitsCompleted)}${row('📋 Contracts', p.contractsClaimed)}${row('⚔️ Duels won', p.duelsWon)}${domRow(p)}`;
         }
         return `<div class="win-card${isW ? ' winner-card' : ''}"><div class="win-card-name">${isW?'👑 ':''}${p.name}</div><div class="win-card-score">${s}</div>${details}</div>`;
     }
     document.getElementById('win-cards').innerHTML = card(p1, p1s) + card(p2, p2s);
+
+    // Persist 1-player record and surface a streak/record line.
+    const statsEl = document.getElementById('win-stats');
+    if (statsEl) {
+        if (state.playStyle === '1p') {
+            const playerWon = !isTie && winner.id === 0;
+            const rec = Stats.recordVsBot(playerWon, isTie);
+            const streakStr = (playerWon && rec.streak > 1) ? ` · 🔥 ${rec.streak} in a row` : '';
+            statsEl.innerHTML = `Record vs Bot: <b>${rec.wins}W</b>–<b>${rec.losses}L</b>${rec.ties ? `–${rec.ties}T` : ''}${streakStr}`;
+        } else {
+            statsEl.innerHTML = '';
+        }
+    }
 
     const confettiEl = document.getElementById('win-confetti'); confettiEl.innerHTML = '';
     const colors = ['#f59e0b','#a855f7','#3b82f6','#ef4444','#4ade80','#fbbf24','#ec4899'];

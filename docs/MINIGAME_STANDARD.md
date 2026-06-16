@@ -194,8 +194,8 @@ Criteria 7 and 8 are gated by §2 — if you followed the rules they're free.
 The roster should spread across verbs so the rotation feels fresh. Current
 shipped games and the target spread:
 
-The roster of **10** is complete — every category is filled, no two games
-share a verb:
+The roster of **12** spreads across twelve distinct verbs — no two games
+share one:
 
 | Category             | Verb / feel                   | Shipped              |
 |----------------------|-------------------------------|----------------------|
@@ -209,6 +209,8 @@ share a verb:
 | Mash / endurance     | out-tap your opponent         | ✅ Tug Tap           |
 | Visual scan          | spot the difference           | ✅ Odd One Out       |
 | Dexterity / tracking | keep on the target            | ✅ Steady Hand       |
+| Sorting / categorise | bin it left vs right          | ✅ Sort Rush         |
+| Evade / survive      | dodge the falling storm       | ✅ Meteor Dodge      |
 
 **Curation rule:** the 40 files in `src/minigames/archived/` are a **design
 backlog, not a code backlog** — their imports and shared-DOM dependencies are
@@ -216,8 +218,8 @@ dead. Mine them for *concepts*, then rebuild to this standard. Keep the archive
 for reference (do not delete).
 
 Future additions should target a *new* verb (e.g. trace-without-crashing,
-stealth/hold-still, sorting) rather than a second take on a filled category —
-and must still score ≥ 12/16 on §6 before shipping.
+stealth/hold-still) rather than a second take on a filled category — and must
+still score ≥ 12/16 on §6 before shipping.
 
 ---
 
