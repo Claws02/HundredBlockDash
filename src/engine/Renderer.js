@@ -9,6 +9,7 @@ import * as Physics from './Physics.js';
 
 let scene, camera, renderer, clock;
 let boardGrp, diceGrp;
+let _ambientLight = null;
 let _prevActivePlayer = -1;
 const activeAnims   = [];
 const floatingIcons = [];
@@ -167,12 +168,15 @@ export function init(container) {
     container.appendChild(renderer.domElement);
 
     // 3-light rig
-    scene.add(new THREE.AmbientLight(isHBD ? 0x9977bb : 0xfff0d0, isHBD ? 0.52 : 1.2));
+    _ambientLight = new THREE.AmbientLight(isHBD ? 0x8fb38a : 0xfff0d0, isHBD ? 0.62 : 1.2);
+    scene.add(_ambientLight);
     const sun = new THREE.DirectionalLight(isHBD ? 0xfff4d0 : 0xfff8e8, isHBD ? 1.05 : 2.0);
     sun.position.set(isHBD ? 20 : 60, 60, isHBD ? 30 : -30); sun.castShadow = true;
     sun.shadow.camera.left = sun.shadow.camera.bottom = isHBD ? -30 : -100;
     sun.shadow.camera.right = sun.shadow.camera.top = isHBD ? 30 : 100;
-    sun.shadow.mapSize.width = sun.shadow.mapSize.height = 2048;
+    // Responsive shadow resolution — 1024 on phones halves the shadow pass cost.
+    const _shadowRes = Math.min(window.innerWidth || 0, window.innerHeight || 0) < 800 ? 1024 : 2048;
+    sun.shadow.mapSize.width = sun.shadow.mapSize.height = _shadowRes;
     scene.add(sun);
     const rimLight = new THREE.DirectionalLight(isHBD ? 0x4466ee : 0x88bbff, isHBD ? 0.36 : 0.5);
     rimLight.position.set(-25, 15, -35);
@@ -184,6 +188,7 @@ export function init(container) {
 
     if (isHBD) {
         _buildHBDPath();
+        _buildHBDScene();
     } else {
         buildCamCurve();
         _buildPathTubes();
@@ -688,6 +693,7 @@ export function updateBiomeVisuals(districtOrIdx) {
     if (typeof districtOrIdx === 'number') {
         b = getBiomeForSpace(districtOrIdx);
         if (scene && scene.fog) scene.fog.color.set(b.fog);
+        if (_ambientLight && b.ambient !== undefined) _ambientLight.color.set(b.ambient);
     } else {
         b = getBiomeForDistrict(districtOrIdx || 'ring');
         if (scene && scene.fog) scene.fog.color.set(b.fog);
@@ -841,6 +847,10 @@ function _loop() {
         if (!grp) f.mesh.position.y = f.baseY + Math.sin(time * f.speed + (f.phase || 0)) * 0.35;
         f.mesh.rotation.y += 1.4 * dt * f.speed;
     });
+
+    // HBD crown: slow bob + spin (kept off floatingIcons, which drawTiles wipes)
+    const _crown = _hbdEnvGroup && _hbdEnvGroup.userData.crown;
+    if (_crown) { _crown.position.y = 4 + Math.sin(time * 0.6) * 0.35; _crown.rotation.y += 0.6 * dt; }
 
     Physics.step(dt);
 
@@ -1389,7 +1399,173 @@ function _buildCityScene() {
     _buildStreetLamps();
 }
 
+// ============================================================
+// HUNDRED BLOCK DASH SCENE — themed terrain & props per realm.
+// One shared geometry/material set; props share them and cast no shadow,
+// so the whole environment adds only a modest number of draw calls.
+// ============================================================
+let _hbdEnvGroup = null, _hbdMats = null, _hbdGeo = null;
+
+function _initHBDAssets() {
+    _hbdGeo = {
+        trunk:   new THREE.CylinderGeometry(0.28, 0.42, 2.4, 6),
+        cone:    new THREE.ConeGeometry(1.7, 2.6, 7),
+        coneSm:  new THREE.ConeGeometry(1.15, 2.0, 7),
+        spire:   new THREE.ConeGeometry(1.5, 4.6, 5),
+        rock:    new THREE.IcosahedronGeometry(1.5, 0),
+        crystal: new THREE.OctahedronGeometry(1.3, 0),
+        stem:    new THREE.CylinderGeometry(0.34, 0.46, 1.6, 6),
+        cap:     new THREE.SphereGeometry(1.1, 10, 8, 0, Math.PI * 2, 0, Math.PI / 2),
+        lava:    new THREE.CircleGeometry(2.2, 16),
+        spike:   new THREE.ConeGeometry(0.4, 1.4, 4),
+    };
+    _hbdMats = {
+        bark:      new THREE.MeshStandardMaterial({ color: 0x4a3220, roughness: 0.95 }),
+        leaf:      new THREE.MeshStandardMaterial({ color: 0x2f7d3a, roughness: 0.9 }),
+        emberRock: new THREE.MeshStandardMaterial({ color: 0x2a1410, roughness: 1.0 }),
+        lava:      new THREE.MeshBasicMaterial({ color: 0xff5a1e }),
+        crystal:   new THREE.MeshStandardMaterial({ color: 0xc77dff, emissive: 0x7b2fbf, emissiveIntensity: 0.9, roughness: 0.3, metalness: 0.2 }),
+        mushStem:  new THREE.MeshStandardMaterial({ color: 0xe8e0d0, roughness: 0.8 }),
+        mushCap:   new THREE.MeshStandardMaterial({ color: 0xff5d8f, emissive: 0x5a1030, emissiveIntensity: 0.45, roughness: 0.6 }),
+        voidRock:  new THREE.MeshStandardMaterial({ color: 0x1a1f3a, roughness: 0.8, metalness: 0.3, emissive: 0x12224e, emissiveIntensity: 0.45 }),
+        crownGold: new THREE.MeshStandardMaterial({ color: 0xffd24a, emissive: 0xf59e0b, emissiveIntensity: 0.85, metalness: 0.9, roughness: 0.2 }),
+    };
+}
+
+function _mkProp(realmKey) {
+    const g = new THREE.Group();
+    if (realmKey === 'woods') {
+        const tr = new THREE.Mesh(_hbdGeo.trunk, _hbdMats.bark);  tr.position.y = 1.2; g.add(tr);
+        const c1 = new THREE.Mesh(_hbdGeo.cone,  _hbdMats.leaf);  c1.position.y = 3.0; g.add(c1);
+        const c2 = new THREE.Mesh(_hbdGeo.coneSm,_hbdMats.leaf);  c2.position.y = 4.3; g.add(c2);
+        g.scale.setScalar(0.8 + Math.random() * 0.7);
+    } else if (realmKey === 'ember') {
+        if (Math.random() < 0.5) { const s = new THREE.Mesh(_hbdGeo.spire, _hbdMats.emberRock); s.position.y = 2.3; g.add(s); }
+        else { const r = new THREE.Mesh(_hbdGeo.rock, _hbdMats.emberRock); r.position.y = 1.0; r.scale.setScalar(1.2); g.add(r); }
+        const lv = new THREE.Mesh(_hbdGeo.lava, _hbdMats.lava); lv.rotation.x = -Math.PI / 2; lv.position.y = -1.25; g.add(lv);
+    } else if (realmKey === 'fae') {
+        if (Math.random() < 0.55) {
+            const c = new THREE.Mesh(_hbdGeo.crystal, _hbdMats.crystal);
+            c.position.y = 1.4; c.scale.setScalar(0.8 + Math.random() * 0.9); g.add(c);
+        } else {
+            const st = new THREE.Mesh(_hbdGeo.stem, _hbdMats.mushStem); st.position.y = 0.8; g.add(st);
+            const cp = new THREE.Mesh(_hbdGeo.cap,  _hbdMats.mushCap);  cp.position.y = 1.6; g.add(cp);
+        }
+    } else { // void — drifting shards
+        const r = new THREE.Mesh(_hbdGeo.rock, _hbdMats.voidRock);
+        r.position.y = 1.4 + Math.random() * 2.0;
+        r.rotation.set(Math.random(), Math.random(), Math.random());
+        r.scale.setScalar(0.6 + Math.random() * 0.7); g.add(r);
+    }
+    return g;
+}
+
+function _buildHBDGround() {
+    const ud = _hbdEnvGroup.userData;
+    // Dark base plane under everything
+    const baseGeo = new THREE.PlaneGeometry(460, 780);
+    const baseMat = new THREE.MeshStandardMaterial({ color: 0x070710, roughness: 1.0 });
+    const base = new THREE.Mesh(baseGeo, baseMat);
+    base.rotation.x = -Math.PI / 2; base.position.set(0, -2.3, -200); base.receiveShadow = true;
+    _hbdEnvGroup.add(base); ud.baseGeo = baseGeo; ud.baseMat = baseMat;
+
+    // Realm-tinted ribbon of terrain following the path — a single mesh.
+    const N = 200, HW = 9;
+    const positions = [], colors = [], indices = [];
+    const col = new THREE.Color();
+    for (let i = 0; i <= N; i++) {
+        const t = i / N;
+        const p = boardCurve.getPoint(t);
+        const tan = boardCurve.getTangent(t);
+        const left = new THREE.Vector3(-tan.z, 0, tan.x).normalize();
+        col.set(getBiomeForSpace(Math.round(t * 99)).floorEdge).multiplyScalar(0.30);
+        const a = p.clone().addScaledVector(left, HW), b = p.clone().addScaledVector(left, -HW);
+        positions.push(a.x, -1.5, a.z, b.x, -1.5, b.z);
+        colors.push(col.r, col.g, col.b, col.r, col.g, col.b);
+    }
+    for (let i = 0; i < N; i++) { const o = i * 2; indices.push(o, o + 1, o + 2, o + 1, o + 3, o + 2); }
+    const rg = new THREE.BufferGeometry();
+    rg.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    rg.setAttribute('color',    new THREE.Float32BufferAttribute(colors, 3));
+    rg.setIndex(indices); rg.computeVertexNormals();
+    const rm = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1.0 });
+    const ribbon = new THREE.Mesh(rg, rm); ribbon.receiveShadow = true;
+    _hbdEnvGroup.add(ribbon); ud.ribbonGeo = rg; ud.ribbonMat = rm;
+}
+
+function _buildHBDStarfield() {
+    const ud = _hbdEnvGroup.userData;
+    const N = 380, pos = new Float32Array(N * 3);
+    for (let i = 0; i < N; i++) {
+        pos[i * 3]     = (Math.random() - 0.5) * 440;
+        pos[i * 3 + 1] = 12 + Math.random() * 130;
+        pos[i * 3 + 2] = 40 - Math.random() * 480;
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    const mat = new THREE.PointsMaterial({ color: 0xbfd4ff, size: 0.9, transparent: true, opacity: 0.8, depthWrite: false });
+    const pts = new THREE.Points(geo, mat); pts.renderOrder = -1;
+    _hbdEnvGroup.add(pts); ud.starGeo = geo; ud.starMat = mat;
+}
+
+function _buildHBDCrown() {
+    const ud = _hbdEnvGroup.userData;
+    const pos = getPos(99).clone();
+    const g = new THREE.Group(); g.position.copy(pos); g.position.y = 4;
+    const band = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.6, 1.0, 12, 1, true), _hbdMats.crownGold);
+    g.add(band); ud.crownBandGeo = band.geometry;
+    for (let i = 0; i < 6; i++) {
+        const sp = new THREE.Mesh(_hbdGeo.spike, _hbdMats.crownGold);
+        const a = (i / 6) * Math.PI * 2;
+        sp.position.set(Math.cos(a) * 1.5, 0.9, Math.sin(a) * 1.5); g.add(sp);
+    }
+    _hbdEnvGroup.add(g);
+    ud.crown = g;   // animated directly in _loop (floatingIcons is wiped by drawTiles)
+    // Light beam marking the finish
+    const beamGeo = new THREE.CylinderGeometry(2.6, 2.6, 44, 16, 1, true);
+    const beamMat = new THREE.MeshBasicMaterial({ color: 0xffd24a, transparent: true, opacity: 0.09, side: THREE.DoubleSide, depthWrite: false });
+    const beam = new THREE.Mesh(beamGeo, beamMat);
+    beam.position.copy(pos); beam.position.y = 20;
+    _hbdEnvGroup.add(beam); ud.beamGeo = beamGeo; ud.beamMat = beamMat;
+}
+
+function _buildHBDScene() {
+    if (_hbdEnvGroup) { scene.remove(_hbdEnvGroup); _hbdEnvGroup = null; }
+    _initHBDAssets();
+    _hbdEnvGroup = new THREE.Group();
+    _hbdEnvGroup.userData = {};
+    scene.add(_hbdEnvGroup);
+
+    _buildHBDGround();
+    _buildHBDStarfield();
+
+    // Scatter realm props alongside the path, alternating sides.
+    let side = 1;
+    for (let i = 3; i < 98; i += 4) {
+        const realm = getBiomeForSpace(i);
+        const p = getPos(i);
+        const t = Math.max(0.001, Math.min(i / 99, 0.999));
+        const tan = boardCurve.getTangent(t);
+        const left = new THREE.Vector3(-tan.z, 0, tan.x).normalize();
+        side *= -1;
+        const off = 11 + Math.random() * 9;
+        const prop = _mkProp(realm.key);
+        prop.position.copy(p).addScaledVector(left, side * off);
+        prop.position.y = -1.4;
+        prop.traverse(o => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = false; } });
+        _hbdEnvGroup.add(prop);
+    }
+
+    _buildHBDCrown();
+}
+
 export function cleanup() {
+    if (_hbdEnvGroup) {
+        _hbdEnvGroup.traverse(o => { if (o.isMesh || o.isPoints) { try { o.geometry?.dispose(); o.material?.dispose(); } catch (e) {} } });
+        scene?.remove(_hbdEnvGroup); _hbdEnvGroup = null;
+    }
+    if (_hbdGeo)  { Object.values(_hbdGeo).forEach(g => { try { g.dispose(); } catch (e) {} }); _hbdGeo = null; }
+    if (_hbdMats) { Object.values(_hbdMats).forEach(m => { try { m.dispose(); } catch (e) {} }); _hbdMats = null; }
     if (_cityEnvGroup) { scene?.remove(_cityEnvGroup); _cityEnvGroup = null; }
     if (_CM) { Object.values(_CM).forEach(m => { try { m.dispose?.(); } catch(e){} }); _CM = null; }
     Object.values(textureCache).forEach(t => t.dispose());

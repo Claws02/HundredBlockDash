@@ -167,9 +167,12 @@ function _buildDOM() {
     _p2ScoreEl.style.cssText += 'top:28px;right:28px;transform:rotate(180deg);';
     _p2ScoreEl.textContent = '0';
 
-    _gameBoard.appendChild(_p1ScoreEl);
-    _gameBoard.appendChild(_p2ScoreEl);
     _overlay.appendChild(_gameBoard);
+    // Scores live on the (non-rotating) overlay, NOT on _gameBoard which spins
+    // 180° on P2's turn. Pinned this way, each player always sees their own
+    // score in their own half, upright — P1 bottom-left, P2 top-right (flipped).
+    _overlay.appendChild(_p1ScoreEl);
+    _overlay.appendChild(_p2ScoreEl);
 
     _indicator = document.createElement('div');
     _indicator.className = 'rf-indicator';

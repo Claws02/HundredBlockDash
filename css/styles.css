@@ -1077,3 +1077,18 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
 }
 body.reduce-motion .confetti-piece,
 body.reduce-motion .coin-particle { display: none !important; }
+
+/* Hundred Block Dash story intro */
+#hbd-story { z-index: 1400; background: rgba(4,8,4,0.78); }
+.hbd-story-card {
+    max-width: 380px; text-align: center; padding: 30px 26px;
+    background: linear-gradient(160deg, rgba(15,40,15,0.95), rgba(8,20,30,0.95));
+    border: 1px solid rgba(245,200,66,0.4); border-radius: 22px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.7); animation: hbdStoryIn .6s ease;
+}
+.hbd-story-kicker { font-size: 30px; letter-spacing: 2px; color: var(--gold); margin-bottom: 14px; text-shadow: 0 0 24px rgba(245,200,66,0.6); }
+.hbd-story-body { font-size: 16px; line-height: 1.55; color: rgba(255,255,255,0.9); }
+.hbd-story-body b { color: var(--gold); }
+.hbd-story-hint { margin-top: 20px; font-size: 13px; letter-spacing: 2px; text-transform: uppercase; color: rgba(255,255,255,0.5); animation: hbdHintPulse 1.4s ease-in-out infinite; }
+@keyframes hbdStoryIn { from { opacity: 0; transform: translateY(16px) scale(0.96); } to { opacity: 1; transform: none; } }
+@keyframes hbdHintPulse { 0%,100% { opacity: 0.4; } 50% { opacity: 0.9; } }

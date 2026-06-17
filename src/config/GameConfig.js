@@ -1,7 +1,7 @@
 // ============================================================
 // TUNABLE CONSTANTS
 // ============================================================
-export const GATE_THRESHOLD      = 15;
+export const GATE_THRESHOLD      = 20;
 export const GATE_NUM_DICE       = 5;
 
 // Hundred Block Dash — classic 100-space linear map
@@ -191,7 +191,7 @@ export function getBiomeForDistrict(district) {
 export const HBD_BIOMES = [
     {
         name: 'Whispering Woods', icon: '🌲', key: 'woods', shopName: '🌲 FOREST CACHE',
-        bgTop: '#0f380f', bgBot: '#1b4a1b', fog: 0x0f380f, floorEdge: 0x22c55e, pathTint: 0x4ade80,
+        bgTop: '#0f380f', bgBot: '#1b4a1b', fog: 0x0f380f, floorEdge: 0x22c55e, pathTint: 0x4ade80, ambient: 0x8fb38a,
         flavor: {
             lose:     { n: 'BRAMBLE SNAG',  d: 'Tangled in thorns. −4 coins.' },
             lose_big: { n: 'BEAR TRAP',     d: 'Snapped a bear trap! −10 coins.' },
@@ -201,7 +201,7 @@ export const HBD_BIOMES = [
     },
     {
         name: 'Ember Wastes', icon: '🌋', key: 'ember', shopName: '🌋 MAGMA FORGE',
-        bgTop: '#3f0f0f', bgBot: '#6b1313', fog: 0x3f0f0f, floorEdge: 0xf97316, pathTint: 0xf59e0b,
+        bgTop: '#3f0f0f', bgBot: '#6b1313', fog: 0x3f0f0f, floorEdge: 0xf97316, pathTint: 0xf59e0b, ambient: 0xc88a5a,
         flavor: {
             lose:     { n: 'EMBER BURN',    d: 'Singed by cinders. −4 coins.' },
             lose_big: { n: 'LAVA PLUNGE',   d: 'Into the magma! −10 coins.' },
@@ -211,7 +211,7 @@ export const HBD_BIOMES = [
     },
     {
         name: 'Fae Glade', icon: '✨', key: 'fae', shopName: '✨ FAE BAZAAR',
-        bgTop: '#380f3f', bgBot: '#5c126b', fog: 0x380f3f, floorEdge: 0xd946ef, pathTint: 0xc084fc,
+        bgTop: '#380f3f', bgBot: '#5c126b', fog: 0x380f3f, floorEdge: 0xd946ef, pathTint: 0xc084fc, ambient: 0xb088d0,
         flavor: {
             lose:     { n: 'FAE TRICK',     d: 'A sprite filches your purse. −4 coins.' },
             lose_big: { n: 'CURSE HEX',     d: 'Hexed! −10 coins.' },
@@ -221,7 +221,7 @@ export const HBD_BIOMES = [
     },
     {
         name: 'The Void', icon: '🌌', key: 'void', shopName: '🌌 VOID EXCHANGE',
-        bgTop: '#0a0a1a', bgBot: '#141433', fog: 0x0a0a1a, floorEdge: 0x3b82f6, pathTint: 0x60a5fa,
+        bgTop: '#0a0a1a', bgBot: '#141433', fog: 0x0a0a1a, floorEdge: 0x3b82f6, pathTint: 0x60a5fa, ambient: 0x6f7fc8,
         flavor: {
             lose:     { n: 'ENTROPY TAX',   d: 'Reality skims your coins. −4 coins.' },
             lose_big: { n: 'REALITY RIFT',  d: 'Torn apart! −10 coins.' },

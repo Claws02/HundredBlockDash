@@ -436,6 +436,22 @@ function _wireSwipeEvents() {
     });
 }
 
+// ---- Hundred Block Dash story intro (shown once per game over the flyover) ----
+
+export function showHBDStory() {
+    const el = document.getElementById('hbd-story');
+    if (!el) return;
+    el.style.display = 'flex';
+    let t = null;
+    const hide = () => {
+        el.style.display = 'none';
+        el.removeEventListener('pointerdown', hide);
+        if (t) clearTimeout(t);
+    };
+    t = setTimeout(hide, 6500);
+    el.addEventListener('pointerdown', hide);
+}
+
 export function showSwipeZone()  { document.getElementById('swipe-zone').classList.add('act'); }
 export function hideSwipeZone()  { document.getElementById('swipe-zone').classList.remove('act'); }
 export function hideActionRows() {

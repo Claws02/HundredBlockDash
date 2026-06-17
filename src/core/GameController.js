@@ -196,6 +196,7 @@ export function startGame() {
         Renderer.init(document.getElementById('game-container'));
         UIManager.initCoinDisplays();
         UIManager.updateUI();
+        if (state.selectedMap === 'hundred_block_dash') UIManager.showHBDStory();
         Renderer.startFlyover(() => {
             document.getElementById('ui-layer').style.display = 'block';
             state.cameraState = 'FOLLOW';
