@@ -11,6 +11,20 @@ let scene, camera, renderer, clock;
 let boardGrp, diceGrp;
 let _ambientLight = null;
 let _prevActivePlayer = -1;
+
+// ---- Render-on-demand state ----
+// The board is static most of a turn, so we only render when something moves.
+// A coarse heartbeat guarantees any missed requestRender() self-heals quickly,
+// so a stale/black frame is impossible even if a change site is uninstrumented.
+let _needsRender = true;
+let _lastRenderMs = 0;
+let _wasCovered = false;
+const _prevCamPos = new THREE.Vector3();
+const IDLE_HEARTBEAT_MS = 333;   // ~3 fps safety refresh while idle
+
+// Force a render on the next frame — call after any one-shot scene change
+// (tile rebuild, mesh teleport, ally attach, biome swap, …).
+export function requestRender() { _needsRender = true; }
 const activeAnims   = [];
 const floatingIcons = [];
 const tileMeshes    = [];
@@ -307,6 +321,7 @@ function _getCachedTileTexture(spc, bInfo, overrideLabel, b) {
 // ---- Draw tiles ----
 
 export function drawTiles() {
+    _needsRender = true;
     tileMeshes.forEach(m => boardGrp.remove(m));
     tileMeshes.length = 0;
 
@@ -598,6 +613,7 @@ export function createCharacterMesh(type, colorCode) {
 }
 
 function buildPlayerMeshes() {
+    _needsRender = true;
     const isHBD = state.selectedMap === 'hundred_block_dash';
     state.players.forEach(p => {
         p.mesh = createCharacterMesh(p.charType, p.color);
@@ -620,6 +636,7 @@ function buildPlayerMeshes() {
 // ---- Ally markers on map ----
 
 export function placeAllyMarker(nodeId, allyType) {
+    _needsRender = true;
     removeAllyMarker();
     const ally = ALLIES[allyType];
     if (!ally || !nodeId) return;
@@ -633,6 +650,7 @@ export function placeAllyMarker(nodeId, allyType) {
 }
 
 export function removeAllyMarker() {
+    _needsRender = true;
     const m = allyMarkers.get('current');
     if (m) { scene.remove(m); allyMarkers.delete('current'); }
     const idx = floatingIcons.findIndex(f => f.mesh === allyMarkers.get('current'));
@@ -642,6 +660,7 @@ export function removeAllyMarker() {
 // ---- Ally follower meshes ----
 
 export function attachAllyMesh(player, allySlotIdx, allyType) {
+    _needsRender = true;
     const ally = ALLIES[allyType];
     if (!ally) return null;
     const allyColor = 0xffd700;
@@ -655,6 +674,7 @@ export function attachAllyMesh(player, allySlotIdx, allyType) {
 }
 
 export function detachAllyMesh(mesh, onDone) {
+    _needsRender = true;
     if (!mesh) { if (onDone) onDone(); return; }
     const start = mesh.position.clone();
     activeAnims.push({
@@ -689,6 +709,7 @@ export function updateAllyPositions(player) {
 // ---- Biome visuals ----
 
 export function updateBiomeVisuals(districtOrIdx) {
+    _needsRender = true;
     let b;
     if (typeof districtOrIdx === 'number') {
         b = getBiomeForSpace(districtOrIdx);
@@ -704,6 +725,7 @@ export function updateBiomeVisuals(districtOrIdx) {
 // ---- Player hop animation ----
 
 export function animatePlayerHop(player, targetNodeId, onComplete) {
+    _needsRender = true;
     const dest = getPos(targetNodeId).clone();
     dest.y = 0;
     if (typeof targetNodeId === 'number') {
@@ -828,6 +850,7 @@ export function onResize() {
     const H = Math.max(window.innerHeight || 500, 500);
     camera.aspect = W / H; camera.updateProjectionMatrix();
     renderer.setSize(W, H);
+    _needsRender = true;
 }
 
 // ---- Main render loop ----
@@ -840,20 +863,19 @@ function _loop() {
     const dt   = Math.min(clock.getDelta(), 0.1);
     const time = clock.getElapsedTime();
 
-    floatingIcons.forEach(f => {
-        const grp = f.group || null;
-        const ref = grp ? grp.position : f.mesh.position;
-        f.mesh.position.y = (grp ? f.baseY : f.mesh.position.y = f.baseY) + Math.sin(time * f.speed + (f.phase || 0)) * 0.35;
-        if (!grp) f.mesh.position.y = f.baseY + Math.sin(time * f.speed + (f.phase || 0)) * 0.35;
-        f.mesh.rotation.y += 1.4 * dt * f.speed;
-    });
+    // While an opaque overlay fully hides the board (minigame, win screen),
+    // do no 3D work at all — the minigame runs its own loop.
+    if (_boardCovered()) {
+        _wasCovered = true;
+        _lastRenderMs = performance.now();   // suppress the heartbeat while hidden
+        return;
+    }
+    if (_wasCovered) { _wasCovered = false; _needsRender = true; _prevActivePlayer = -2; }
 
-    // HBD crown: slow bob + spin (kept off floatingIcons, which drawTiles wipes)
-    const _crown = _hbdEnvGroup && _hbdEnvGroup.userData.crown;
-    if (_crown) { _crown.position.y = 4 + Math.sin(time * 0.6) * 0.35; _crown.rotation.y += 0.6 * dt; }
+    const diceActive = Physics.diceMoving();
+    if (Physics.getActiveDice().length > 0) Physics.step(dt);
 
-    Physics.step(dt);
-
+    let animActive = activeAnims.length > 0;
     for (let i = activeAnims.length - 1; i >= 0; i--) {
         const a = activeAnims[i];
         a.t = (a.t || 0) + dt;
@@ -877,6 +899,7 @@ function _loop() {
     // Active player emissive glow — traverse only on turn change
     if (state.activePlayer !== _prevActivePlayer) {
         _prevActivePlayer = state.activePlayer;
+        _needsRender = true;
         state.players.forEach((p, i) => {
             if (!p.mesh) return;
             const isActive = i === state.activePlayer;
@@ -920,7 +943,40 @@ function _loop() {
         camera.quaternion.slerp(_camHelper.quaternion, 0.1);
     }
 
-    if (renderer && scene && camera) renderer.render(scene, camera);
+    // Did the camera actually move this frame?
+    const camMoved = camera.position.distanceToSquared(_prevCamPos) > 1e-5;
+    _prevCamPos.copy(camera.position);
+
+    // Ambient cosmetic motion runs only while the scene is otherwise active, so
+    // a fully idle board can drop to the heartbeat and stop spinning the GPU.
+    const sceneActive = animActive || diceActive || camMoved;
+    if (sceneActive) {
+        floatingIcons.forEach(f => {
+            f.mesh.position.y = f.baseY + Math.sin(time * f.speed + (f.phase || 0)) * 0.35;
+            f.mesh.rotation.y += 1.4 * dt * f.speed;
+        });
+        const crown = _hbdEnvGroup && _hbdEnvGroup.userData.crown;
+        if (crown) { crown.position.y = 4 + Math.sin(time * 0.6) * 0.35; crown.rotation.y += 0.6 * dt; }
+    }
+
+    // Render-on-demand: only when something changed, or on the safety heartbeat.
+    const now = performance.now();
+    if (renderer && scene && camera &&
+        (_needsRender || sceneActive || (now - _lastRenderMs) >= IDLE_HEARTBEAT_MS)) {
+        renderer.render(scene, camera);
+        _lastRenderMs = now;
+        _needsRender = false;
+    }
+}
+
+// True when an opaque overlay fully hides the 3D board (skip all rendering).
+function _boardCovered() {
+    const gs = state.gameState;
+    if (gs === 'MINIGAME' || gs === 'MINIGAME_INTRO') return true;
+    if (state.mgActive) return true;
+    const ws = document.getElementById('win-screen');
+    if (ws && ws.style.display === 'flex') return true;
+    return false;
 }
 
 // ============================================================

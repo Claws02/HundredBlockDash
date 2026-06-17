@@ -564,7 +564,9 @@ export function resolveSpaceEffect(p, spaceType, space) {
         case 'swap_space': {
             const tmp = p.pos; p.pos = opp.pos; opp.pos = tmp;
             if (p.mesh) p.mesh.position.copy(Renderer.getPos(p.pos));
+            Renderer.requestRender();
             if (opp.mesh) opp.mesh.position.copy(Renderer.getPos(opp.pos));
+            Renderer.requestRender();
             sfx('swap'); haptic([50,30,50]);
             return `Positions swapped with ${opp.name}!`;
         }
@@ -641,6 +643,7 @@ function _skipForward(p, steps) {
     }
     p.pos = cur;
     if (p.mesh) p.mesh.position.copy(Renderer.getPos(cur));
+    Renderer.requestRender();
     resolveSpace(p);
 }
 
@@ -652,6 +655,7 @@ function _skipBackward(p, steps) {
     idx = ((idx - steps) % ALL_NODES_ORDERED.length + ALL_NODES_ORDERED.length) % ALL_NODES_ORDERED.length;
     p.pos = ALL_NODES_ORDERED[idx];
     if (p.mesh) p.mesh.position.copy(Renderer.getPos(p.pos));
+    Renderer.requestRender();
     resolveSpace(p);
 }
 
@@ -936,6 +940,7 @@ export function closeGate() {
             // City Circuit: push player back out of Industrial
             p.pos = 'bp_d';
             if (p.mesh) p.mesh.position.copy(Renderer.getPos('bp_d'));
+            Renderer.requestRender();
         }
     }
     if (p.isBot) setTimeout(() => { if (state.gameState === 'ACKNOWLEDGE') resolveMsgModal(); }, 1500);
@@ -1085,7 +1090,9 @@ function _applyItemEffect(p, itemId, isBot, opp) {
     if (itemId === 'swap')        {
         const tmp = p.pos; p.pos = opp.pos; opp.pos = tmp;
         if (p.mesh) p.mesh.position.copy(Renderer.getPos(p.pos));
+        Renderer.requestRender();
         if (opp.mesh) opp.mesh.position.copy(Renderer.getPos(opp.pos));
+        Renderer.requestRender();
         sfx('swap'); haptic([50,30,50]);
     }
     if (itemId === 'steal')       { const s = Math.min(10, opp.coins); loseCoins(opp, s); earnCoins(p, s); }
@@ -1281,6 +1288,7 @@ export function activateCabbie(playerIdx) {
             Renderer.animatePlayerHop(p, firstNode, () => { p.pos = firstNode; UIManager.updateUI(); });
         } else {
             if (p.mesh) p.mesh.position.copy(Renderer.getPos(junctionId));
+            Renderer.requestRender();
         }
         UIManager.toast(`🚕 Cabbie: teleported to ${junctionId.replace('bp_','Junction ').toUpperCase()}!`, '#fbbf24');
         UIManager.updateUI();
@@ -1292,6 +1300,7 @@ function activateCabbie_bot(p) {
     p.cabbieUsedThisRound = true;
     const firstNode = CITY_GRAPH[pick]?.next?.[0];
     if (firstNode) { p.pos = firstNode; if (p.mesh) p.mesh.position.copy(Renderer.getPos(firstNode)); }
+    Renderer.requestRender();
     UIManager.toast(`${p.name}'s Cabbie teleports them!`, '#fbbf24');
 }
 

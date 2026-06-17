@@ -119,6 +119,16 @@ export function onSettle(mode, callback) {
 
 export function getActiveDice() { return activeDice; }
 
+// True while any die is still tumbling (used by the render-on-demand loop).
+export function diceMoving() {
+    for (const d of activeDice) {
+        const v = d.body.velocity, av = d.body.angularVelocity;
+        if (v.x * v.x + v.y * v.y + v.z * v.z > 0.01 ||
+            av.x * av.x + av.y * av.y + av.z * av.z > 0.01) return true;
+    }
+    return false;
+}
+
 // Called every frame by Renderer.step()
 export function step(dt) {
     if (!world) return;
