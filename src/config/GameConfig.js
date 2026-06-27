@@ -4,9 +4,25 @@
 export const GATE_THRESHOLD      = 15;
 export const GATE_NUM_DICE       = 5;
 
-// Hundred Block Dash — classic 100-space linear map
-export const HBD_GATE_POS    = 75;
-export const HBD_SHOP_SPACES = new Set([20, 40, 60, 80]);
+// Hundred Block Dash — selectable linear-map lengths.
+// Realms are always 25 blocks: 50→2 realms, 75→3, 100→4.
+export const HBD_LENGTHS        = [50, 75, 100];
+export const HBD_DEFAULT_LENGTH = 100;
+export const HBD_FINISH_BONUS   = 50;  // bonus coins for reaching the Crown first
+
+// Build the runtime layout for a given length. The Gate (The Rift) guards the
+// entrance to the final realm; shops sit on every 20th block (never on the Gate).
+export function buildHbdConfig(length) {
+    const len        = HBD_LENGTHS.includes(length) ? length : HBD_DEFAULT_LENGTH;
+    const realmCount = Math.round(len / 25);
+    const gatePos    = (realmCount - 1) * 25;
+    const shopSpaces = new Set();
+    for (let s = 20; s < len; s += 20) if (s !== gatePos) shopSpaces.add(s);
+    return { length: len, finish: len - 1, gatePos, shopSpaces, realmCount };
+}
+
+// Back-compat default config (full 100-block run). Live games read state.hbd.
+export const HBD_DEFAULT_CONFIG = buildHbdConfig(HBD_DEFAULT_LENGTH);
 export const MAX_INV             = 3;
 export const MINIGAME_REWARD     = 10;
 export const MINIGAME_EVERY_N_TURNS = 4;
@@ -191,6 +207,8 @@ export function getBiomeForDistrict(district) {
 export const HBD_BIOMES = [
     {
         name: 'Whispering Woods', icon: '🌲', key: 'woods', shopName: '🌲 FOREST CACHE',
+        tagline: 'Where the dash begins.',
+        lore: 'The old forest hums with secrets. Pocket what coins you can — the road only gets stranger from here.',
         bgTop: '#0f380f', bgBot: '#1b4a1b', fog: 0x0f380f, floorEdge: 0x22c55e, pathTint: 0x4ade80,
         flavor: {
             lose:     { n: 'BRAMBLE SNAG',  d: 'Tangled in thorns. −4 coins.' },
@@ -201,6 +219,8 @@ export const HBD_BIOMES = [
     },
     {
         name: 'Ember Wastes', icon: '🌋', key: 'ember', shopName: '🌋 MAGMA FORGE',
+        tagline: 'The ground runs red.',
+        lore: 'Cracked earth and rivers of fire. Tread carefully — a single misstep here costs dearly.',
         bgTop: '#3f0f0f', bgBot: '#6b1313', fog: 0x3f0f0f, floorEdge: 0xf97316, pathTint: 0xf59e0b,
         flavor: {
             lose:     { n: 'EMBER BURN',    d: 'Singed by cinders. −4 coins.' },
@@ -211,6 +231,8 @@ export const HBD_BIOMES = [
     },
     {
         name: 'Fae Glade', icon: '✨', key: 'fae', shopName: '✨ FAE BAZAAR',
+        tagline: 'Nothing here plays fair.',
+        lore: 'Glittering and treacherous, the Glade is ruled by tricksters who love nothing more than swapping your fortune for theirs.',
         bgTop: '#380f3f', bgBot: '#5c126b', fog: 0x380f3f, floorEdge: 0xd946ef, pathTint: 0xc084fc,
         flavor: {
             lose:     { n: 'FAE TRICK',     d: 'A sprite filches your purse. −4 coins.' },
@@ -221,6 +243,8 @@ export const HBD_BIOMES = [
     },
     {
         name: 'The Void', icon: '🌌', key: 'void', shopName: '🌌 VOID EXCHANGE',
+        tagline: 'The Crown lies beyond.',
+        lore: 'Reality frays at the edge of the Void. Push through the dark — the Crown of the Hundred Blocks waits at its heart.',
         bgTop: '#0a0a1a', bgBot: '#141433', fog: 0x0a0a1a, floorEdge: 0x3b82f6, pathTint: 0x60a5fa,
         flavor: {
             lose:     { n: 'ENTROPY TAX',   d: 'Reality skims your coins. −4 coins.' },
@@ -231,16 +255,38 @@ export const HBD_BIOMES = [
         },
     },
 ];
+// Active realm count for the running game (50→2, 75→3, 100→4). The final realm
+// is ALWAYS the Void (the Crown's realm); shorter maps drop the middle realms,
+// so the story — race through the realms to the Crown beyond the Rift — holds at
+// every length. Set at game start via setHbdRealmCount().
+let _activeRealmCount = HBD_DEFAULT_CONFIG.realmCount;
+export function setHbdRealmCount(n) {
+    _activeRealmCount = Math.max(2, Math.min(HBD_BIOMES.length, n || HBD_BIOMES.length));
+}
+
+// Map a realm slot (0-based) to its biome index, keeping the Void last.
+function _realmBiomeIndex(r, realmCount) {
+    const last = HBD_BIOMES.length - 1;            // Void
+    if (r >= realmCount - 1) return last;
+    return Math.min(r, last - 1);                  // Woods / Ember / Fae
+}
+
 export function getBiomeForSpace(idx) {
-    if (idx < 25) return HBD_BIOMES[0];
-    if (idx < 50) return HBD_BIOMES[1];
-    if (idx < 75) return HBD_BIOMES[2];
-    return HBD_BIOMES[3];
+    const i = typeof idx === 'number' ? idx : 0;
+    const r = Math.floor(i / 25);
+    return HBD_BIOMES[_realmBiomeIndex(r, _activeRealmCount)];
 }
 
 // The realm (biome) a Hundred Block Dash space belongs to.
 export function getRealmForSpace(idx) {
     return getBiomeForSpace(typeof idx === 'number' ? idx : 0);
+}
+
+// Ordered list of realms in the active run (for the story intro).
+export function getActiveRealms() {
+    const out = [];
+    for (let r = 0; r < _activeRealmCount; r++) out.push(HBD_BIOMES[_realmBiomeIndex(r, _activeRealmCount)]);
+    return out;
 }
 
 // Themed display label for an HBD space: realm flavor first, then global defaults.

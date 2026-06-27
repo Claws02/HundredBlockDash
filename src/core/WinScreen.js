@@ -6,7 +6,7 @@
 // ============================================================
 
 import { state } from './GameState.js';
-import { DISTRICT_DOMINANCE_BONUS, HQ_META } from '../config/GameConfig.js';
+import { DISTRICT_DOMINANCE_BONUS, HQ_META, HBD_FINISH_BONUS } from '../config/GameConfig.js';
 import { DISTRICT_KEYS, DISTRICT_NAMES } from '../config/BoardGraph.js';
 import { earnCoins } from './Economy.js';
 import * as Stats from './Stats.js';
@@ -16,9 +16,10 @@ import { sfx } from '../engine/AudioManager.js';
 export function calculateWinner() {
     const p1 = state.players[0], p2 = state.players[1];
 
+    const HBD_FIN = state.hbd ? state.hbd.finish : 99;
     let p1s, p2s, subtitle;
     if (state.selectedMap === 'hundred_block_dash') {
-        const p1f = p1.pos >= 99 ? 50 : 0, p2f = p2.pos >= 99 ? 50 : 0;
+        const p1f = p1.pos >= HBD_FIN ? HBD_FINISH_BONUS : 0, p2f = p2.pos >= HBD_FIN ? HBD_FINISH_BONUS : 0;
         p1s = p1.coins + p1f; p2s = p2.coins + p2f;
         subtitle = 'WINS THE HUSTLE!';
     } else {
@@ -47,8 +48,8 @@ export function calculateWinner() {
         const isW = !isTie && p === winner;
         let details;
         if (state.selectedMap === 'hundred_block_dash') {
-            const fin = p.pos >= 99 ? 50 : 0;
-            details = `${row('💰 Coins earned', p.coinsEarned)}${row('💵 Coins left', p.coins)}${fin ? row('🏁 Finish bonus', '+' + fin) : ''}${row('🏆 Minigames won', p.mgWins)}${row('📍 Final space', p.pos >= 99 ? 'FINISHED' : p.pos)}`;
+            const fin = p.pos >= HBD_FIN ? HBD_FINISH_BONUS : 0;
+            details = `${row('💰 Coins earned', p.coinsEarned)}${row('💵 Coins left', p.coins)}${fin ? row('🏁 Finish bonus', '+' + fin) : ''}${row('🏆 Minigames won', p.mgWins)}${row('📍 Final space', p.pos >= HBD_FIN ? 'FINISHED' : p.pos)}`;
         } else {
             function domRow(pl) {
                 return DISTRICT_KEYS.map(dk => {

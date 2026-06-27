@@ -6,8 +6,8 @@ import {
     FULL_CIRCUIT_BONUSES,
     ALLIES, BA_DISCOUNT, GRAND_MALL_DISCOUNT,
     ALL_CHAR_TYPES, HQ_META, CHAR_ICONS,
-    HBD_GATE_POS, HBD_SHOP_SPACES,
-    hbdSpaceLabel, hbdShopKey,
+    buildHbdConfig, setHbdRealmCount, HBD_DEFAULT_CONFIG, HBD_FINISH_BONUS,
+    hbdSpaceLabel, hbdShopKey, getRealmForSpace,
 } from '../config/GameConfig.js';
 import { CITY_GRAPH, JUNCTION_IDS, DISTRICT_NAMES, DISTRICT_KEYS, BRANCH_OPTIONS } from '../config/BoardGraph.js';
 import { MAP_REGISTRY } from '../config/MapRegistry.js';
@@ -33,6 +33,7 @@ let _allyMgCallback       = null;
 let _duelMgCallback       = null;
 let _pendingStepsAfterGate = 0;
 let _rollAgainActive = false;
+let _skipStory = false;   // rematch fast-path skips the HBD story intro
 
 // ============================================================
 // FLOW ENTRY POINTS
@@ -134,6 +135,14 @@ export function selectMap(mapId) {
 
     const confirmBtn = document.getElementById('btn-map-confirm');
     if (confirmBtn) confirmBtn.disabled = false;
+
+    // Run-length picker is only relevant to Hundred Block Dash.
+    const lenSel = document.getElementById('hbd-length-select');
+    if (lenSel) lenSel.style.display = mapId === 'hundred_block_dash' ? 'block' : 'none';
+}
+
+export function selectHbdLength(len) {
+    if ([50, 75, 100].includes(len)) state.hbdLength = len;
 }
 
 export function confirmMapSelect() {
@@ -148,6 +157,7 @@ function _savePrefs() {
         mode:       state.playStyle,
         difficulty: state.botDifficulty,
         map:        state.selectedMap,
+        hbdLength:  state.hbdLength,
         charP1:     state.players[0].charType,
         charP2:     state.players[1].charType,
     });
@@ -159,6 +169,7 @@ export function quickStart(prefs) {
     state.playStyle     = prefs.mode;
     state.botDifficulty = prefs.difficulty || 'medium';
     state.selectedMap   = prefs.map || 'city_circuit';
+    state.hbdLength     = prefs.hbdLength || 100;
     state.players[0].charType = prefs.charP1 || 'slime';
     state.players[1].isBot    = (prefs.mode === '1p');
     if (state.players[1].isBot) {
@@ -170,6 +181,7 @@ export function quickStart(prefs) {
         state.players[1].charType = prefs.charP2 || 'boxy';
     }
     document.getElementById('splash').style.display = 'none';
+    _skipStory = true;   // rematch jumps straight back into the action
     startGame();
     return true;
 }
@@ -189,6 +201,8 @@ export function startGame() {
         state.activePlayer = Math.floor(Math.random() * 2);
         resetPlayers();
         if (state.selectedMap === 'hundred_block_dash') {
+            state.hbd = buildHbdConfig(state.hbdLength);
+            setHbdRealmCount(state.hbd.realmCount);
             generateBoard();
         } else {
             initCityBoard();
@@ -199,13 +213,22 @@ export function startGame() {
         Renderer.startFlyover(() => {
             document.getElementById('ui-layer').style.display = 'block';
             state.cameraState = 'FOLLOW';
-            UIManager.toast(`${state.players[state.activePlayer].name} goes first!`,
-                state.activePlayer === 0 ? '#ff3b3b' : '#3b8eff');
+            const begin = () => {
+                UIManager.toast(`${state.players[state.activePlayer].name} goes first!`,
+                    state.activePlayer === 0 ? '#ff3b3b' : '#3b8eff');
+                proceedTurn();
+            };
             if (state.selectedMap !== 'hundred_block_dash') {
                 _scheduleAllySpawn(1);
                 initContracts();
+                begin();
+            } else if (_skipStory) {
+                _skipStory = false;
+                begin();
+            } else {
+                // Story intro sets the scene before the first roll.
+                UIManager.showHbdStory(begin);
             }
-            proceedTurn();
         });
     }, 100);
 }
@@ -438,22 +461,24 @@ export function onBranchChosen(nodeId) {
 
 function _movePlayerHBD(p, steps, isForced = false) {
     state.gameState = 'MOVING';
+    const cfg      = state.hbd || HBD_DEFAULT_CONFIG;
     const startPos = p.pos;
     const stepDir  = Math.sign(steps);
     let curr   = p.pos;
-    let target = Math.max(0, Math.min(99, curr + steps));
+    let target = Math.max(0, Math.min(cfg.finish, curr + steps));
+    const realmBefore = getRealmForSpace(startPos).key;
 
     if (stepDir === 0) { _resolveHBDSpace(p); return; }
-    // Gate blocks forward movement past position 75
-    if (!state.gateOpen && stepDir > 0 && startPos < HBD_GATE_POS && target >= HBD_GATE_POS) {
-        target = HBD_GATE_POS;
+    // Gate blocks forward movement past the Rift until it's open.
+    if (!state.gateOpen && stepDir > 0 && startPos < cfg.gatePos && target >= cfg.gatePos) {
+        target = cfg.gatePos;
     }
 
     function hopNext() {
-        if (curr === target) { p.pos = target; _resolveHBDSpace(p); return; }
+        if (curr === target) { p.pos = target; _announceRealmChange(p, realmBefore); _resolveHBDSpace(p); return; }
         curr += stepDir;
         // Offer shop pass-through on intermediate shop spaces
-        if (curr !== target && HBD_SHOP_SPACES.has(curr) && stepDir > 0) {
+        if (curr !== target && cfg.shopSpaces.has(curr) && stepDir > 0) {
             Renderer.animatePlayerHop(p, curr, () => {
                 if (p.isBot) {
                     // Inline buy — must NOT call openShop/finishTurn mid-movement
@@ -475,17 +500,26 @@ function _movePlayerHBD(p, steps, isForced = false) {
 }
 
 function _resolveHBDSpace(p) {
-    // Win condition: reach the end
-    if (p.pos >= 99) {
+    const cfg = state.hbd || HBD_DEFAULT_CONFIG;
+    // Win condition: reach the Crown
+    if (p.pos >= cfg.finish) {
         sfx('win'); haptic([100, 50, 100, 50, 200]);
         state.gameState = 'GAME_OVER';
-        ModalManager.showMessage(`👑 ${p.name} REACHED THE CROWN!`, 'Winner!', '👑');
+        ModalManager.showMessage(`👑 ${p.name} REACHED THE CROWN!`, `+${HBD_FINISH_BONUS} finish bonus — but the most coins still wins!`, '👑');
         setTimeout(calculateWinner, 2800);
         return;
     }
     // Gate check
-    if (!state.gateOpen && p.pos === HBD_GATE_POS) { triggerGateChallenge(p); return; }
+    if (!state.gateOpen && p.pos === cfg.gatePos) { triggerGateChallenge(p); return; }
     resolveSpace(p);
+}
+
+// Cinematic banner when a player crosses into a new realm (HBD only).
+function _announceRealmChange(p, prevKey) {
+    if (state.selectedMap !== 'hundred_block_dash') return;
+    const realm = getRealmForSpace(p.pos);
+    if (!realm || realm.key === prevKey) return;
+    UIManager.showRealmBanner(realm);
 }
 
 // Dispatcher: call the right movement function based on selected map
@@ -792,7 +826,7 @@ export function proceedTurn() {
     if (state.selectedMap === 'hundred_block_dash') {
         Renderer.updateBiomeVisuals(typeof p.pos === 'number' ? p.pos : 0);
         // Gate check at the start of turn (player parked on gate)
-        if (!state.gateOpen && p.pos === HBD_GATE_POS) {
+        if (!state.gateOpen && p.pos === (state.hbd || HBD_DEFAULT_CONFIG).gatePos) {
             triggerGateChallenge(p); return;
         }
         if (state.playStyle === 'pass' && state.totalTurns > 0 && !state.rollAgainSamePlayer) {

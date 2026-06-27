@@ -6,7 +6,7 @@
 // ============================================================
 
 import { state } from './GameState.js';
-import { HBD_GATE_POS, HBD_SHOP_SPACES } from '../config/GameConfig.js';
+import { HBD_DEFAULT_CONFIG, getBiomeForSpace } from '../config/GameConfig.js';
 import { CITY_GRAPH } from '../config/BoardGraph.js';
 
 export function initCityBoard() {
@@ -68,32 +68,27 @@ function _getDistrictPools() {
 
 // ---- HBD board generation ----
 //
-// One pool per realm, each sized to exactly fill its random slots. Good
-// and bad spaces are kept roughly even (no more "free coins early, brutal
-// late") while difficulty escalates gently toward the Void.
-//   counts → good / bad  (mystery is a wildcard, counted as neither)
-//   Woods 14/9 · Ember 12/12 · Fae 13/11 · Void 10/12
-const REALM_POOLS = {
-    woods: [   // 1–24 minus shop@20 → 23 slots
-        ...Array(5).fill('coin'), ...Array(2).fill('coin_big'), ...Array(2).fill('boost'),
-        ...Array(2).fill('shortcut'), ...Array(1).fill('truce'), ...Array(2).fill('mystery'),
-        ...Array(4).fill('lose'), ...Array(4).fill('trap'), ...Array(1).fill('magnet'),
-    ],
-    ember: [   // 25–49 minus shop@40 → 24 slots
-        ...Array(5).fill('coin'), ...Array(3).fill('coin_big'), ...Array(1).fill('boost'),
-        ...Array(1).fill('cfwd'), ...Array(2).fill('mystery'),
-        ...Array(4).fill('lose'), ...Array(2).fill('lose_big'), ...Array(5).fill('trap'), ...Array(1).fill('magnet'),
-    ],
-    fae: [     // 50–74 minus shop@60 → 24 slots
-        ...Array(4).fill('coin'), ...Array(3).fill('coin_big'), ...Array(3).fill('mystery'),
-        ...Array(2).fill('shortcut'), ...Array(1).fill('boost'),
-        ...Array(4).fill('lose'), ...Array(3).fill('trap'), ...Array(3).fill('magnet'), ...Array(1).fill('cbwd'),
-    ],
-    void: [    // 76–98 minus shop@80 → 22 slots
-        ...Array(3).fill('coin'), ...Array(4).fill('coin_big'), ...Array(2).fill('mystery'), ...Array(1).fill('cfwd'),
-        ...Array(3).fill('lose'), ...Array(3).fill('lose_big'), ...Array(2).fill('trap'),
-        ...Array(1).fill('magnet'), ...Array(1).fill('cbwd'), ...Array(2).fill('swap_space'),
-    ],
+// Goal: GOOD spaces always outnumber bad ones, and bad spaces are spread out
+// (never clustered) so no stretch of the board feels like a gauntlet. Danger
+// escalates gently toward the Void, but bad spaces never exceed ~40% of a realm.
+//
+// Per realm we (1) decide a bad-space count strictly below half the slots,
+// (2) place those bad spaces at evenly-spaced positions with a minimum gap of
+// two so they can't sit adjacent, then (3) fill everything else with good
+// spaces drawn from a realm-themed weighted bag.
+
+// Weighted "bags" — higher weight = more common. Good clearly dominates.
+const GOOD_WEIGHTS = {
+    woods: { coin: 5, coin_big: 2, boost: 2, shortcut: 2, mystery: 2, truce: 1, magnet: 1 },
+    ember: { coin: 5, coin_big: 3, boost: 1, cfwd: 1, mystery: 2, magnet: 1 },
+    fae:   { coin: 4, coin_big: 3, mystery: 3, shortcut: 2, boost: 1, magnet: 2 },
+    void:  { coin: 3, coin_big: 4, mystery: 2, cfwd: 1, magnet: 1, swap_space: 2 },
+};
+const BAD_WEIGHTS = {
+    woods: { lose: 3, trap: 3 },
+    ember: { lose: 3, lose_big: 1, trap: 3 },
+    fae:   { lose: 3, trap: 2, cbwd: 1 },
+    void:  { lose: 2, lose_big: 3, trap: 2, cbwd: 1 },
 };
 
 function _shuffle(a) {
@@ -104,20 +99,80 @@ function _shuffle(a) {
     return a;
 }
 
-export function generateBoard() {
-    state.board = new Array(100);
-    state.board[0]  = { type: 'start' };
-    state.board[99] = { type: 'start', n: 'FINISH', ic: '👑' };
+// Draw `count` items from a weight table (with replacement).
+function _drawBag(weights, count) {
+    const pool = [];
+    for (const [k, w] of Object.entries(weights)) for (let i = 0; i < w; i++) pool.push(k);
+    const out = [];
+    for (let i = 0; i < count; i++) out.push(pool[Math.floor(Math.random() * pool.length)] || 'coin');
+    return out;
+}
 
-    const zones = [[1, 24, 'woods'], [25, 49, 'ember'], [50, 74, 'fae'], [76, 98, 'void']];
-    for (const [from, to, key] of zones) {
-        const pool = _shuffle([...REALM_POOLS[key]]);
+// Choose evenly-spaced bad-space slot positions (0..n-1) with a min gap of 2.
+function _spacedBadPositions(n, badCount) {
+    if (badCount <= 0) return new Set();
+    const stride = n / badCount;
+    const raw = [];
+    for (let k = 0; k < badCount; k++) {
+        const jitter = (Math.random() - 0.5) * stride * 0.4;
+        raw.push(Math.round(k * stride + stride / 2 + jitter));
+    }
+    raw.sort((a, b) => a - b);
+    // Enforce ascending order with a minimum gap of 2.
+    for (let k = 1; k < raw.length; k++) if (raw[k] <= raw[k - 1] + 1) raw[k] = raw[k - 1] + 2;
+    // If we ran past the end, slide everything back to fit.
+    const overflow = raw[raw.length - 1] - (n - 1);
+    if (overflow > 0) for (let k = 0; k < raw.length; k++) raw[k] -= overflow;
+    const out = new Set();
+    let last = -2;
+    for (let pos of raw) {
+        if (pos <= last + 1) pos = last + 2;
+        if (pos < 0) pos = 0;
+        if (pos > n - 1) pos = n - 1;
+        out.add(pos);
+        last = pos;
+    }
+    return out;
+}
+
+// Build the type assignment for one realm's slot list.
+function _fillRealm(slots, key, realmIdx, realmCount) {
+    const n = slots.length;
+    const t = realmCount > 1 ? realmIdx / (realmCount - 1) : 0;
+    const badRatio = 0.30 + 0.10 * t;                       // 0.30 (start) → 0.40 (final realm)
+    let badCount = Math.round(n * badRatio);
+    badCount = Math.min(badCount, Math.floor((n - 1) / 2)); // guarantee good > bad, leaves room for gaps
+    const badPos  = _spacedBadPositions(n, badCount);
+    const badBag  = _shuffle(_drawBag(BAD_WEIGHTS[key]  || BAD_WEIGHTS.woods, badPos.size));
+    const goodBag = _shuffle(_drawBag(GOOD_WEIGHTS[key] || GOOD_WEIGHTS.woods, n - badPos.size));
+    const out = {};
+    let bi = 0, gi = 0;
+    for (let s = 0; s < n; s++) out[slots[s]] = badPos.has(s) ? badBag[bi++] : goodBag[gi++];
+    return out;
+}
+
+export function generateBoard() {
+    const cfg = state.hbd || HBD_DEFAULT_CONFIG;
+    const { length, finish, gatePos, shopSpaces, realmCount } = cfg;
+
+    state.board = new Array(length);
+    state.board[0]      = { type: 'start' };
+    state.board[finish] = { type: 'start', n: 'FINISH', ic: '👑' };
+
+    for (let r = 0; r < realmCount; r++) {
+        const from = r === 0 ? 1 : r * 25;
+        const to   = Math.min((r + 1) * 25 - 1, finish - 1);
+        const slots = [];
         for (let i = from; i <= to; i++) {
-            if (i === HBD_GATE_POS || HBD_SHOP_SPACES.has(i)) continue;
-            state.board[i] = { type: pool.pop() || 'coin' };
+            if (i === gatePos || shopSpaces.has(i)) continue;
+            slots.push(i);
         }
+        if (slots.length === 0) continue;
+        const key    = getBiomeForSpace(from).key;
+        const assign = _fillRealm(slots, key, r, realmCount);
+        for (const idx of slots) state.board[idx] = { type: assign[idx] };
     }
 
-    state.board[HBD_GATE_POS] = { type: 'gate' };
-    HBD_SHOP_SPACES.forEach(i => { if (i !== HBD_GATE_POS) state.board[i] = { type: 'shop' }; });
+    state.board[gatePos] = { type: 'gate' };
+    shopSpaces.forEach(i => { state.board[i] = { type: 'shop' }; });
 }

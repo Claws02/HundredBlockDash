@@ -3,7 +3,7 @@
 // ============================================================
 
 import { state } from '../core/GameState.js';
-import { SPACE_META, DISTRICT_BIOMES, getBiomeForDistrict, HBD_BIOMES, getBiomeForSpace, ALLIES, CHAR_ICONS, HBD_GATE_POS } from '../config/GameConfig.js';
+import { SPACE_META, DISTRICT_BIOMES, getBiomeForDistrict, HBD_BIOMES, getBiomeForSpace, ALLIES, CHAR_ICONS, HBD_DEFAULT_CONFIG } from '../config/GameConfig.js';
 import { CITY_GRAPH, ALL_NODES_ORDERED, JUNCTION_IDS } from '../config/BoardGraph.js';
 import * as Physics from './Physics.js';
 
@@ -18,8 +18,9 @@ const _camHelper    = new THREE.PerspectiveCamera();
 
 // Node position map: nodeId → THREE.Vector3 (City Circuit)
 const nodePositions = new Map();
-// HBD linear path positions: index 0-99 → THREE.Vector3
+// HBD linear path positions: index 0..(length-1) → THREE.Vector3
 const hbdPositions  = [];
+let _hbdMax = 99;             // highest valid HBD index (length - 1); set in buildHBDPositions
 export let boardCurve = null; // HBD CatmullRom curve, null for City Circuit
 // Ally mesh markers on map: nodeId → mesh
 const allyMarkers   = new Map();
@@ -89,7 +90,7 @@ function buildNodePositions() {
 }
 
 export function getPos(nodeId) {
-    if (typeof nodeId === 'number') return hbdPositions[Math.max(0, Math.min(nodeId, 99))] || new THREE.Vector3();
+    if (typeof nodeId === 'number') return hbdPositions[Math.max(0, Math.min(nodeId, _hbdMax))] || new THREE.Vector3();
     return nodePositions.get(nodeId) || new THREE.Vector3(0, 0, 0);
 }
 
@@ -105,7 +106,7 @@ function buildCamCurve() {
 }
 
 export function getNodeT(nodeId) {
-    if (typeof nodeId === 'number') return nodeId / 99;
+    if (typeof nodeId === 'number') return nodeId / _hbdMax;
     const idx = ALL_NODES_ORDERED.indexOf(nodeId);
     if (idx < 0) return 0;
     return idx / _camCurveLen;
@@ -123,7 +124,9 @@ function buildHBDPositions() {
         new THREE.Vector3(0, 0, -360),  new THREE.Vector3(-40, 0, -400),
     ];
     boardCurve = new THREE.CatmullRomCurve3(waypoints);
-    const pts = boardCurve.getSpacedPoints(99);
+    const len = (state.hbd || HBD_DEFAULT_CONFIG).length;
+    _hbdMax = len - 1;
+    const pts = boardCurve.getSpacedPoints(_hbdMax);
     hbdPositions.length = 0;
     pts.forEach(p => hbdPositions.push(p.clone()));
 }
@@ -308,8 +311,9 @@ export function drawTiles() {
     if (Array.isArray(state.board)) {
         // ---- HBD: integer-indexed array ----
         floatingIcons.length = 0;
+        const _gatePos = (state.hbd || HBD_DEFAULT_CONFIG).gatePos;
         state.board.forEach((b, i) => {
-            const isGate = (i === HBD_GATE_POS);
+            const isGate = (i === _gatePos);
             const spc    = SPACE_META[b.type] || SPACE_META.coin;
             const bInfo  = getBiomeForSpace(i);
             const label  = b.type === 'player_trap' ? 'TOLL' : (isGate && state.gateOpen ? 'OPEN' : null);
@@ -327,7 +331,7 @@ export function drawTiles() {
             baseMesh.receiveShadow = true; baseMesh.castShadow = true;
             const pos = getPos(i).clone();
             baseMesh.position.copy(pos);
-            if (i < 99) baseMesh.lookAt(getPos(i + 1).clone().setY(0));
+            if (i < _hbdMax) baseMesh.lookAt(getPos(i + 1).clone().setY(0));
             baseMesh.userData = { idx: i };
             tileMeshes.push(baseMesh);
             boardGrp.add(baseMesh);
@@ -393,7 +397,7 @@ function _buildHBDGateMesh(idx, pos) {
     const gateMat   = new THREE.MeshPhysicalMaterial({ color: gateColor, emissive: gateEmit, emissiveIntensity: 1.2, metalness: 0.95, roughness: 0.05 });
     const gateGrp   = new THREE.Group();
     gateGrp.position.copy(pos);
-    const t = Math.max(0.001, Math.min(idx / 99, 0.999));
+    const t = Math.max(0.001, Math.min(idx / _hbdMax, 0.999));
     const tangent = boardCurve.getTangent(t).normalize();
     gateGrp.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), tangent);
     const pillarGeo = new THREE.BoxGeometry(0.55, 7, 0.55);
@@ -416,7 +420,7 @@ function _buildHBDGateMesh(idx, pos) {
 
 function _buildHBDShopMesh(idx, pos) {
     const shopGrp = new THREE.Group();
-    const t = Math.max(0.001, Math.min(idx / 99, 0.999));
+    const t = Math.max(0.001, Math.min(idx / _hbdMax, 0.999));
     const tangent = boardCurve.getTangent(t).normalize();
     const right   = new THREE.Vector3(0, 1, 0).cross(tangent).normalize();
     shopGrp.position.copy(pos).addScaledVector(right, 3.2); shopGrp.position.y = 0;
@@ -599,7 +603,7 @@ function buildPlayerMeshes() {
         if (isHBD) {
             const idx = typeof p.pos === 'number' ? p.pos : 0;
             const pos = getPos(idx).clone();
-            const tangent = boardCurve.getTangent(Math.max(0, Math.min(1, idx / 99)));
+            const tangent = boardCurve.getTangent(Math.max(0, Math.min(1, idx / _hbdMax)));
             const right   = new THREE.Vector3(0, 1, 0).cross(tangent).normalize();
             pos.addScaledVector(right, p.id === 0 ? -0.7 : 0.7);
             p.mesh.position.set(pos.x, 0, pos.z);
@@ -703,7 +707,7 @@ export function animatePlayerHop(player, targetNodeId, onComplete) {
     if (typeof targetNodeId === 'number') {
         // HBD: use curve tangent for orientation
         if (boardCurve) {
-            const t = Math.max(0.001, Math.min(targetNodeId / 99, 0.999));
+            const t = Math.max(0.001, Math.min(targetNodeId / _hbdMax, 0.999));
             const tangent = boardCurve.getTangent(t).normalize();
             const right   = new THREE.Vector3(0, 1, 0).cross(tangent).normalize();
             dest.addScaledVector(right, player.id === 0 ? -0.7 : 0.7);
@@ -775,7 +779,7 @@ export function startPostMinigameFlyover(onComplete) {
     const rearPos = Math.min(...state.players
         .filter(p => typeof p.pos === 'number')
         .map(p => p.pos));
-    const rearT = Math.max(0.001, Math.min(rearPos / 99, 0.999));
+    const rearT = Math.max(0.001, Math.min(rearPos / _hbdMax, 0.999));
     const flyObj = { p: 0.985 };
     activeAnims.push({
         obj: flyObj, start: { p: 0.985 }, to: { p: rearT }, dur: 3.5,
@@ -886,7 +890,7 @@ function _loop() {
             const currPt = p.mesh.position;
             let fwd;
             if (state.selectedMap === 'hundred_block_dash' && boardCurve && typeof p.pos === 'number') {
-                const t = Math.max(0.001, Math.min(p.pos / 99, 0.999));
+                const t = Math.max(0.001, Math.min(p.pos / _hbdMax, 0.999));
                 fwd = boardCurve.getTangent(t).clone().normalize();
             } else {
                 const prevPt = getPos(p.prevPos || p.pos);

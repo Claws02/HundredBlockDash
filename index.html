@@ -86,6 +86,14 @@
                 <div id="map-select-grid" class="map-select-grid"></div>
                 <div id="map-preview-panel" class="map-preview-panel"></div>
             </div>
+            <div id="hbd-length-select" style="display:none;width:100%;max-width:360px;margin:4px auto 0;">
+                <div style="color:rgba(255,255,255,.7);font-size:13px;font-family:'Nunito';font-weight:bold;margin-bottom:8px;letter-spacing:1px;text-align:center;">RUN LENGTH</div>
+                <div class="diff-chips">
+                    <button class="diff-chip bfont" data-hbd-len="50">50 · SPRINT<br><span style="font-size:11px;font-family:'Nunito'">2 realms</span></button>
+                    <button class="diff-chip bfont" data-hbd-len="75">75 · DASH<br><span style="font-size:11px;font-family:'Nunito'">3 realms</span></button>
+                    <button class="diff-chip bfont sel" data-hbd-len="100">100 · ODYSSEY<br><span style="font-size:11px;font-family:'Nunito'">4 realms</span></button>
+                </div>
+            </div>
             <button class="btn-primary bfont" id="btn-map-confirm" disabled>LET'S GO →</button>
         </div>
     </div>
@@ -337,6 +345,11 @@
     </div>
 
     <div id="toast-box"></div>
+
+    <!-- Hundred Block Dash story intro (content built by UIManager) -->
+    <div id="hbd-story-overlay"></div>
+    <!-- Realm-entry cinematic banner (content built by UIManager) -->
+    <div id="realm-banner"></div>
 
     <!-- Onboarding & settings overlays (content built by Onboarding.js) -->
     <div id="howto-overlay" class="fs-overlay" style="display:none;"></div>

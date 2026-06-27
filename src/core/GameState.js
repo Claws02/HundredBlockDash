@@ -7,6 +7,8 @@ export const state = {
     playStyle:           null,
     botDifficulty:       'medium', // 'easy' | 'medium' | 'hard' — used in 1P mode
     selectedMap:         'city_circuit',
+    hbdLength:           100,  // 50 | 75 | 100 — chosen on the HBD map-select screen
+    hbd:                 null, // runtime layout (buildHbdConfig): { length, finish, gatePos, shopSpaces, realmCount }
     gameState:           'INIT',
     cameraState:         'INIT',
     activePlayer:        0,
