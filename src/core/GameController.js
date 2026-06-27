@@ -237,9 +237,14 @@ export function startPreRoll() {
                 const idx = p.inv.indexOf(useId);
                 if (idx >= 0) {
                     p.inv.splice(idx, 1);
-                    UIManager.toast(`${p.name} used ${ITEMS[useId].name}!`, '#f5c842');
-                    _applyItemEffect(p, useId, true);
-                    if (useId === 'rocket' || useId === 'custom_dice') return;
+                    // Respect the opponent's Mirror just like the human use-path does,
+                    // otherwise a player's Mirror is useless against the bot.
+                    if (_reflectIfMirrored(p, useId)) { UIManager.updateUI(); }
+                    else {
+                        UIManager.toast(`${p.name} used ${ITEMS[useId].name}!`, '#f5c842');
+                        _applyItemEffect(p, useId, true);
+                        if (useId === 'rocket' || useId === 'custom_dice') return;
+                    }
                 }
             }
             if (state.gameState === 'PRE_ROLL') executeRoll(0.8 + Math.random() * 1.5);
@@ -1059,16 +1064,29 @@ export function executeUseItem(pid, itemIdx) {
     if (pid !== state.activePlayer) return;
     const p = state.players[pid], opp = state.players[(pid+1)%2];
     const itemId = p.inv[itemIdx]; p.inv.splice(itemIdx, 1);
-    if (opp._mirrored && ['cursed_die','anchor','swap','steal'].includes(itemId)) {
-        opp._mirrored = false;
-        UIManager.toast(`🪞 Mirror reflected ${ITEMS[itemId].name} back!`, '#60a5fa');
-        sfx('shield'); UIManager.updateUI(); ModalManager.closeAllModals(); return;
+    if (_reflectIfMirrored(p, itemId)) {
+        UIManager.updateUI(); ModalManager.closeAllModals(); return;
     }
     UIManager.toast(`Used ${ITEMS[itemId].name}!`, '#f5c842'); sfx('buy');
     _checkContract(p, 'use_item', itemId);
     _applyItemEffect(p, itemId, false, opp);
     if (itemId === 'rocket' || itemId === 'custom_dice') return;
     UIManager.updateUI(); ModalManager.closeAllModals();
+}
+
+// Targeted items can be bounced by the opponent's Mirror. Returns true if the
+// item was reflected (and thus should NOT be applied). Used by both the human
+// use-path and the bot pre-roll path so Mirror works consistently in all modes.
+const MIRRORABLE = ['cursed_die', 'anchor', 'swap', 'steal'];
+function _reflectIfMirrored(p, itemId) {
+    const opp = state.players[(p.id + 1) % 2];
+    if (opp._mirrored && MIRRORABLE.includes(itemId)) {
+        opp._mirrored = false;
+        UIManager.toast(`🪞 ${opp.name}'s Mirror reflected ${ITEMS[itemId].name}!`, '#60a5fa');
+        sfx('shield');
+        return true;
+    }
+    return false;
 }
 
 function _applyItemEffect(p, itemId, isBot, opp) {

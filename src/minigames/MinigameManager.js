@@ -233,7 +233,7 @@ export function setReady(pid) {
 
 async function _launchGame() {
     try {
-        const loader = MG_MODULES[state.mgType] || MG_MODULES.math;
+        const loader = MG_MODULES[state.mgType] || MG_MODULES[MG_TYPES[0]];
         const mod    = await loader();
         // RhythmForge legitimately takes ~57 s (3 rounds × 2 players + transitions).
         // 90 s gives every game a comfortable safety margin.

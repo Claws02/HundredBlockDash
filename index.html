@@ -4,8 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Hundred Block Dash</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/cannon.js/0.6.2/cannon.min.js"></script>
+    <!-- Engine libraries are self-hosted so the game works offline / behind
+         restrictive networks. (Previously loaded from a CDN, which left the
+         game with a blank screen whenever cdnjs was unreachable.) -->
+    <script src="vendor/three.min.js"></script>
+    <script src="vendor/cannon.min.js"></script>
+    <!-- Fonts are a progressive enhancement; CSS declares system-font
+         fallbacks so a blocked Google Fonts request never breaks the look. -->
     <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="css/styles.css">
 </head>
@@ -338,6 +343,23 @@
     <div id="rules-overlay" class="fs-overlay" style="display:none;"></div>
     <div id="settings-overlay" class="fs-overlay" style="display:none;"></div>
 
-    <script type="module" src="src/main.js"></script>
+    <!-- Boot guard: if the engine libraries failed to load (offline / blocked),
+         show a friendly message instead of a silently dead screen. -->
+    <div id="boot-error" style="display:none;position:fixed;inset:0;z-index:99999;background:#0b0b1a;color:#fff;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:32px;font-family:'Nunito',system-ui,sans-serif;">
+        <div style="font-size:56px;margin-bottom:12px;">📡</div>
+        <div style="font-size:24px;font-weight:900;margin-bottom:10px;">Couldn't load the game engine</div>
+        <div style="font-size:15px;opacity:.8;max-width:340px;line-height:1.5;">Hundred Block Dash needs its 3D engine files. Check your connection and reload — if you installed this as an app, try reopening it.</div>
+        <button onclick="location.reload()" style="margin-top:22px;padding:12px 28px;border:none;border-radius:12px;background:#f59e0b;color:#1a1a2e;font-weight:900;font-size:16px;cursor:pointer;">🔄 RELOAD</button>
+    </div>
+    <script>
+        if (typeof window.THREE === 'undefined' || typeof window.CANNON === 'undefined') {
+            document.getElementById('boot-error').style.display = 'flex';
+            console.error('[HundredBlockDash] Engine libraries missing — THREE:', typeof window.THREE, 'CANNON:', typeof window.CANNON);
+        } else {
+            const m = document.createElement('script');
+            m.type = 'module'; m.src = 'src/main.js';
+            document.body.appendChild(m);
+        }
+    </script>
 </body>
 </html>
