@@ -12,7 +12,7 @@
 body, html {
     width: 100%; height: 100%; overflow: hidden;
     background: #1a0b2e;
-    font-family: 'Nunito', sans-serif;
+    font-family: 'Nunito', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
     touch-action: none; user-select: none; -webkit-user-select: none;
     -webkit-touch-callout: none;
     overscroll-behavior: none;
@@ -58,7 +58,7 @@ body, html {
     z-index: 300; display: flex; flex-direction: column; align-items: center; gap: 7px; pointer-events: none;
 }
 
-.bfont { font-family: 'Bebas Neue', sans-serif; }
+.bfont { font-family: 'Bebas Neue', 'Arial Narrow', 'Oswald', Impact, system-ui, sans-serif; }
 .stitle { font-size: 60px; line-height: 1; color: #fff; text-align: center; margin-bottom: 12px; text-shadow: 0 0 30px rgba(245,200,66,.8); }
 .stitle span { color: var(--gold); }
 
@@ -1077,3 +1077,49 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
 }
 body.reduce-motion .confetti-piece,
 body.reduce-motion .coin-particle { display: none !important; }
+
+/* ============================================================
+   HUNDRED BLOCK DASH — story intro + realm-entry banner
+   ============================================================ */
+#hbd-story-overlay {
+    position: fixed; inset: 0; z-index: 4000; display: none;
+    flex-direction: column; align-items: center; justify-content: center;
+    padding: 28px 20px; text-align: center;
+    background: radial-gradient(circle at 50% 30%, #241246 0%, #0b0b1a 70%);
+    overflow-y: auto;
+}
+.hbd-story-crown { font-size: 64px; filter: drop-shadow(0 0 18px rgba(245,200,66,.7)); animation: floatY 3s ease-in-out infinite; }
+.hbd-story-title { font-size: 40px; color: var(--gold); letter-spacing: 2px; line-height: .95; margin: 6px 0 4px; text-shadow: 0 0 26px rgba(245,200,66,.6); }
+.hbd-story-sub   { font-family: 'Nunito', sans-serif; font-size: 15px; color: rgba(255,255,255,.82); max-width: 360px; line-height: 1.5; margin: 8px auto 6px; }
+.hbd-story-bonus {
+    font-family: 'Nunito', sans-serif; font-weight: 800; font-size: 14px; color: #ffe08a;
+    background: rgba(245,200,66,.12); border: 1px solid rgba(245,200,66,.45);
+    border-radius: 12px; padding: 10px 16px; max-width: 360px; margin: 10px auto 16px; line-height: 1.45;
+}
+.hbd-story-realms { display: flex; flex-direction: column; gap: 8px; width: 100%; max-width: 360px; margin-bottom: 18px; }
+.hbd-story-realm {
+    display: flex; align-items: center; gap: 12px; text-align: left;
+    background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.12);
+    border-left-width: 4px; border-radius: 12px; padding: 10px 14px;
+    animation: fadeSlideUp .5s backwards ease;
+}
+.hbd-story-realm .r-ic { font-size: 28px; }
+.hbd-story-realm .r-name { font-family: 'Bebas Neue', sans-serif; font-size: 18px; letter-spacing: 1px; color: #fff; }
+.hbd-story-realm .r-tag  { font-family: 'Nunito', sans-serif; font-size: 12px; color: rgba(255,255,255,.6); }
+#btn-hbd-story-begin {
+    background: linear-gradient(135deg, #f59e0b, #f5c842); color: #1a1a2e; border: none;
+    font-size: 20px; letter-spacing: 1px; padding: 14px 40px; border-radius: 14px;
+    cursor: pointer; box-shadow: 0 8px 22px rgba(245,158,11,.4);
+}
+
+#realm-banner {
+    position: fixed; top: 38%; left: 0; right: 0; z-index: 1500;
+    display: none; flex-direction: column; align-items: center; pointer-events: none;
+    animation: realmBannerIn .5s ease;
+}
+#realm-banner .rb-ic   { font-size: 60px; filter: drop-shadow(0 0 16px rgba(0,0,0,.6)); }
+#realm-banner .rb-name { font-family: 'Bebas Neue', sans-serif; font-size: 44px; letter-spacing: 3px; color: #fff; text-shadow: 0 2px 14px rgba(0,0,0,.8); }
+#realm-banner .rb-tag  { font-family: 'Nunito', sans-serif; font-size: 15px; color: rgba(255,255,255,.85); text-shadow: 0 2px 8px rgba(0,0,0,.8); }
+@keyframes realmBannerIn { from { opacity: 0; transform: translateY(20px) scale(.92); } to { opacity: 1; transform: none; } }
+@keyframes floatY { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+body.reduce-motion .hbd-story-crown, body.reduce-motion #realm-banner { animation: none !important; }

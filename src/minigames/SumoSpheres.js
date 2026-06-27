@@ -26,6 +26,7 @@ let _done = false, _onWin = null, _isBot = false;
 let _overlay = null, _renderer = null, _scene = null, _camera = null;
 let _p1 = null, _p2 = null, _arenaMesh = null, _ringMesh = null;
 let _af = null, _startTime = 0, _currentArenaRadius = ARENA_RADIUS;
+let _lastTick = 0;
 let _vel1, _vel2, _input1, _input2, _mom1 = 0, _mom2 = 0;
 let _falling = { p1: false, p2: false };
 let _activeTouches = {};
@@ -49,6 +50,7 @@ export function start(isBot, onWin) {
     _falling = { p1: false, p2: false };
     _activeTouches = {};
     _currentArenaRadius = ARENA_RADIUS;
+    _lastTick = 0;
     _build();
     requestAnimationFrame(() => requestAnimationFrame(() => {
         _initThree();
@@ -289,7 +291,15 @@ function _tick() {
     if (!state.mgActive || _done) return;
     _af = requestAnimationFrame(_tick);
 
-    const elapsed = (performance.now() - _startTime) / 1000;
+    const now = performance.now();
+    // Frame-rate normalisation: f = 1.0 at 60 Hz, ~0.5 at 120 Hz, ~2 at 30 Hz.
+    // Every per-frame physics step below is scaled by f (and friction is raised
+    // to the f power) so the feel is identical regardless of refresh rate.
+    const dtSec = _lastTick === 0 ? 1 / 60 : Math.min((now - _lastTick) / 1000, 0.1);
+    _lastTick = now;
+    const f = dtSec * 60;
+
+    const elapsed = (now - _startTime) / 1000;
 
     // Arena shrink (30s → 45s)
     if (elapsed > 30 && _currentArenaRadius > MIN_ARENA_R) {
@@ -308,25 +318,25 @@ function _tick() {
     }
 
     // Momentum build / decay
-    if (_input1.lengthSq() > 0 && !_falling.p1) _mom1 = Math.min(_mom1 + MOMENTUM_GAIN, MAX_MOMENTUM);
-    else _mom1 = Math.max(_mom1 - 0.05, 0);
-    if (_input2.lengthSq() > 0 && !_falling.p2) _mom2 = Math.min(_mom2 + MOMENTUM_GAIN, MAX_MOMENTUM);
-    else _mom2 = Math.max(_mom2 - 0.05, 0);
+    if (_input1.lengthSq() > 0 && !_falling.p1) _mom1 = Math.min(_mom1 + MOMENTUM_GAIN * f, MAX_MOMENTUM);
+    else _mom1 = Math.max(_mom1 - 0.05 * f, 0);
+    if (_input2.lengthSq() > 0 && !_falling.p2) _mom2 = Math.min(_mom2 + MOMENTUM_GAIN * f, MAX_MOMENTUM);
+    else _mom2 = Math.max(_mom2 - 0.05 * f, 0);
 
     // Apply input acceleration
-    if (!_falling.p1) { _vel1.x += _input1.x * BASE_ACCEL * _mom1; _vel1.z += _input1.y * BASE_ACCEL * _mom1; }
-    if (!_falling.p2) { _vel2.x += _input2.x * BASE_ACCEL * _mom2; _vel2.z += _input2.y * BASE_ACCEL * _mom2; }
+    if (!_falling.p1) { _vel1.x += _input1.x * BASE_ACCEL * _mom1 * f; _vel1.z += _input1.y * BASE_ACCEL * _mom1 * f; }
+    if (!_falling.p2) { _vel2.x += _input2.x * BASE_ACCEL * _mom2 * f; _vel2.z += _input2.y * BASE_ACCEL * _mom2 * f; }
 
-    // Friction
-    _vel1.multiplyScalar(FRICTION);
-    _vel2.multiplyScalar(FRICTION);
+    // Friction (raised to the f power so decay-per-second is frame-rate independent)
+    _vel1.multiplyScalar(Math.pow(FRICTION, f));
+    _vel2.multiplyScalar(Math.pow(FRICTION, f));
 
     // Gravity while falling
-    if (_falling.p1) _vel1.y -= 0.04;
-    if (_falling.p2) _vel2.y -= 0.04;
+    if (_falling.p1) _vel1.y -= 0.04 * f;
+    if (_falling.p2) _vel2.y -= 0.04 * f;
 
-    _p1.position.add(_vel1);
-    _p2.position.add(_vel2);
+    _p1.position.addScaledVector(_vel1, f);
+    _p2.position.addScaledVector(_vel2, f);
 
     // Collision
     if (!_falling.p1 && !_falling.p2) {
@@ -346,9 +356,9 @@ function _tick() {
         }
     }
 
-    // Rolling animation
-    if (!_falling.p1) { _p1.rotation.x += _vel1.z * 0.2; _p1.rotation.z -= _vel1.x * 0.2; }
-    if (!_falling.p2) { _p2.rotation.x += _vel2.z * 0.2; _p2.rotation.z -= _vel2.x * 0.2; }
+    // Rolling animation (scaled by f to match the frame-rate-independent motion)
+    if (!_falling.p1) { _p1.rotation.x += _vel1.z * 0.2 * f; _p1.rotation.z -= _vel1.x * 0.2 * f; }
+    if (!_falling.p2) { _p2.rotation.x += _vel2.z * 0.2 * f; _p2.rotation.z -= _vel2.x * 0.2 * f; }
 
     // Fall check
     const d1 = Math.sqrt(_p1.position.x**2 + _p1.position.z**2);

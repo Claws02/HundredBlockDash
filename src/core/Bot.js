@@ -67,8 +67,9 @@ function _itemValue(itemId, p, opp, behind) {
 // Where the bot would land moving `steps` forward (for custom-dice planning).
 function _landingType(p, steps) {
     if (state.selectedMap === 'hundred_block_dash') {
-        const target = Math.max(0, Math.min(99, p.pos + steps));
-        return { type: state.board[target]?.type, finish: target >= 99 };
+        const fin    = state.hbd ? state.hbd.finish : 99;
+        const target = Math.max(0, Math.min(fin, p.pos + steps));
+        return { type: state.board[target]?.type, finish: target >= fin };
     }
     let cur = p.pos, left = steps;
     while (left > 0) {

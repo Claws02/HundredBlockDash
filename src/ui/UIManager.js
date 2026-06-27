@@ -4,7 +4,8 @@
 // ============================================================
 
 import { state } from '../core/GameState.js';
-import { ITEMS, ALLIES, SPACE_META, SPACE_DESCS, DISTRICT_BIOMES, HQ_META } from '../config/GameConfig.js';
+import { ITEMS, ALLIES, SPACE_META, SPACE_DESCS, DISTRICT_BIOMES, HQ_META,
+         getActiveRealms, HBD_FINISH_BONUS } from '../config/GameConfig.js';
 import { CITY_GRAPH, ALL_NODES_ORDERED, BRANCH_OPTIONS, JUNCTION_IDS, DISTRICT_NAMES } from '../config/BoardGraph.js';
 import { getPos, getTileMeshes, setMapCameraTarget, mapCamera, onResize, getCamera } from '../engine/Renderer.js';
 
@@ -78,7 +79,9 @@ export function updateUI() {
         updateRoundCounter(state.currentRound, 20);
     } else {
         const el = document.getElementById('round-counter');
-        if (el) el.textContent = state.totalTurns > 0 ? `TURN ${state.totalTurns}` : '';
+        // Keep the +finish-bonus goal visible at all times so players know the
+        // race to the Crown is worth a big coin boost (even though coins win).
+        if (el) el.textContent = (state.totalTurns > 0 ? `TURN ${state.totalTurns}` : 'TURN 1') + `  ·  🏁 Crown +${HBD_FINISH_BONUS}`;
     }
 
     if (state.playStyle === 'tabletop') {
@@ -279,6 +282,44 @@ function _wireAllyModalEvents() {
         document.getElementById('ally-steal-modal').style.display = 'none';
         if (_allyStealCb) { const cb = _allyStealCb; _allyStealCb = null; cb(-1); }
     });
+}
+
+// ---- Hundred Block Dash: story intro + realm-entry banner ----
+
+let _storyWired = false;
+export function showHbdStory(onBegin) {
+    const ov = document.getElementById('hbd-story-overlay');
+    if (!ov) { onBegin(); return; }
+    const realms  = getActiveRealms();
+    const realmsHtml = realms.map((r, i) => {
+        const edge = '#' + (r.floorEdge ?? 0xffffff).toString(16).padStart(6, '0');
+        return `<div class="hbd-story-realm" style="border-left-color:${edge};animation-delay:${0.1 + i * 0.08}s">
+            <span class="r-ic">${r.icon}</span>
+            <span><span class="r-name">${r.name}</span><br><span class="r-tag">${r.tagline || ''}</span></span>
+        </div>`;
+    }).join('');
+    ov.innerHTML = `
+        <div class="hbd-story-crown">👑</div>
+        <div class="hbd-story-title bfont">THE CROWN<br>OF A HUNDRED BLOCKS</div>
+        <div class="hbd-story-sub">The Crown waits at the end of the road. Dash through ${realms.length} living realms, scooping up every coin you can, and tear through the Rift to reach it.</div>
+        <div class="hbd-story-bonus">🏁 First to seize the Crown earns <b>+${HBD_FINISH_BONUS} coins</b> — a huge boost. But the player holding the <b>most coins</b> wins the hustle, so grab loot the whole way down!</div>
+        <div class="hbd-story-realms">${realmsHtml}</div>
+        <button class="bfont" id="btn-hbd-story-begin">BEGIN THE DASH →</button>`;
+    ov.style.display = 'flex';
+    const begin = () => { ov.style.display = 'none'; onBegin(); };
+    // Re-query the button each show (innerHTML was rebuilt) and wire once.
+    document.getElementById('btn-hbd-story-begin').addEventListener('click', begin, { once: true });
+    _storyWired = true;
+}
+
+export function showRealmBanner(realm) {
+    const el = document.getElementById('realm-banner');
+    if (!el || !realm) return;
+    el.innerHTML = `<div class="rb-ic">${realm.icon}</div><div class="rb-name">${realm.name}</div><div class="rb-tag">${realm.tagline || ''}</div>`;
+    el.style.display = 'flex';
+    el.style.animation = 'none'; void el.offsetWidth; el.style.animation = '';
+    clearTimeout(el._hideTimer);
+    el._hideTimer = setTimeout(() => { el.style.display = 'none'; }, 2400);
 }
 
 // ---- Toasts ----

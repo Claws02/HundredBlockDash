@@ -93,6 +93,15 @@ document.getElementById('map-select-grid').addEventListener('click', e => {
 
 document.getElementById('btn-map-confirm').addEventListener('click', () => GameController.confirmMapSelect());
 
+// HBD run-length chips (50 / 75 / 100)
+document.querySelectorAll('[data-hbd-len]').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('[data-hbd-len]').forEach(b => b.classList.remove('sel'));
+        btn.classList.add('sel');
+        GameController.selectHbdLength(parseInt(btn.dataset.hbdLen));
+    });
+});
+
 // ============================================================
 // HUD ACTION BUTTONS
 // ============================================================
