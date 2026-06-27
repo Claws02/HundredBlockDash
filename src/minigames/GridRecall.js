@@ -30,7 +30,9 @@ let _round = 0, _K = 3;
 let _lit = new Set();
 let _chosen = [new Set(), new Set()];
 let _locked = [false, false];
-let _scores = [0, 0];
+let _failed = [false, false];   // tapped a wrong tile → out for this round
+let _roundWins = [0, 0];        // rounds won (race: first to recall the whole pattern)
+let _roundResolved = false;
 let _inputTimer = null;
 
 const _cleanups = [];
@@ -45,7 +47,7 @@ function _after(fn, ms) {
 export function start(isBot, onWin, botSkill = 0.55) {
     if (!state.mgActive) return;
     _done = false; _onWin = onWin; _isBot = isBot; _botSkill = botSkill;
-    _last = 0; _round = 0; _scores = [0, 0];
+    _last = 0; _round = 0; _roundWins = [0, 0];
     registerMinigameCleanup(_destroy);
     _build();
     requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -129,14 +131,16 @@ function _cellAt(lx, ly, w, hh) {
 // ── Rounds ────────────────────────────────────────────────────────────────────
 function _startRound() {
     _phase = 'show';
+    _roundResolved = false;
     _K = PATTERN[_round];
     _lit = new Set();
     while (_lit.size < _K) _lit.add(Math.floor(Math.random() * CELLS));
     _chosen = [new Set(), new Set()];
     _locked = [false, false];
+    _failed = [false, false];
 
     document.getElementById('mg-neutral').textContent =
-        `ROUND ${_round + 1}/${ROUNDS} — MEMORISE!  (P1 ${_scores[0]} · ${_scores[1]} P2)`;
+        `ROUND ${_round + 1}/${ROUNDS} — MEMORISE!  (P1 ${_roundWins[0]} · ${_roundWins[1]} P2)`;
     sfx('seq_lit');
 
     _after(_toInput, SHOW_TIME[_round] * 1000);
@@ -145,47 +149,71 @@ function _startRound() {
 function _toInput() {
     if (_done) return;
     _phase = 'input';
-    document.getElementById('mg-neutral').textContent = `TAP THE ${_K} TILES!`;
+    document.getElementById('mg-neutral').textContent = `GO! TAP ALL ${_K} — FIRST TO FINISH WINS!`;
 
     if (_isBot) _planBot();
-    _inputTimer = _after(() => { if (_phase === 'input') _reveal(); }, INPUT_TIME * 1000);
+    // If nobody completes in time, the most-correct taps takes the round.
+    _inputTimer = _after(() => {
+        if (_phase !== 'input') return;
+        const c0 = _correctCount(0), c1 = _correctCount(1);
+        _resolveRound(c0 > c1 ? 0 : c1 > c0 ? 1 : -1);
+    }, INPUT_TIME * 1000);
 }
 
-// Bot remembers each lit tile with probability botSkill; fills the rest with
-// plausible wrong guesses, then taps them out over ~1.8 s. (§5)
+// Bot races too: with skill it recalls the whole pattern and taps fast;
+// otherwise it slips and taps a wrong tile, knocking itself out. (§5)
 function _planBot() {
-    const remembered = [..._lit].filter(() => Math.random() < _botSkill);
-    const picks = remembered.slice(0, _K);
-    const wrongPool = [];
-    for (let i = 0; i < CELLS; i++) if (!_lit.has(i) && !picks.includes(i)) wrongPool.push(i);
-    while (picks.length < _K && wrongPool.length) {
-        picks.push(wrongPool.splice(Math.floor(Math.random() * wrongPool.length), 1)[0]);
+    const perfect = Math.random() < (0.35 + _botSkill * 0.6);   // 0.35 → 0.95
+    const perTap  = 780 - _botSkill * 430;                       // ~350–780 ms between taps
+    const lit     = [..._lit].sort(() => Math.random() - 0.5);
+    if (perfect) {
+        lit.forEach((idx, i) => _after(() => { if (_phase === 'input') _tapCell(1, idx); }, 420 + i * perTap));
+    } else {
+        const mistakeAt = Math.floor(Math.random() * _K);
+        const wrongPool = [];
+        for (let i = 0; i < CELLS; i++) if (!_lit.has(i)) wrongPool.push(i);
+        const wrong = wrongPool[Math.floor(Math.random() * wrongPool.length)];
+        for (let i = 0; i <= mistakeAt; i++) {
+            const idx = i === mistakeAt ? wrong : lit[i];
+            _after(() => { if (_phase === 'input') _tapCell(1, idx); }, 420 + i * perTap);
+        }
     }
-    picks.sort(() => Math.random() - 0.5);
-    picks.forEach((idx, i) => {
-        _after(() => { if (_phase === 'input') _tapCell(1, idx); }, 350 + i * (300 + Math.random() * 250));
-    });
+}
+
+function _correctCount(pid) {
+    let n = 0;
+    _chosen[pid].forEach(i => { if (_lit.has(i)) n++; });
+    return n;
 }
 
 function _tapCell(pid, idx) {
-    if (_phase !== 'input' || _locked[pid] || _chosen[pid].has(idx)) return;
+    if (_phase !== 'input' || _locked[pid] || _failed[pid] || _chosen[pid].has(idx)) return;
     _chosen[pid].add(idx);
-    sfx('seq_lit'); haptic([15]);
-    if (_chosen[pid].size >= _K) _locked[pid] = true;
-    if (_locked[0] && _locked[1]) { clearTimeout(_inputTimer); _reveal(); }
+    if (_lit.has(idx)) {
+        sfx('seq_lit'); haptic([15]);
+        if (_correctCount(pid) >= _K) { _locked[pid] = true; _resolveRound(pid); }   // first to finish wins!
+    } else {
+        // Wrong tile — knocked out of this round.
+        _failed[pid] = true; _locked[pid] = true;
+        sfx('land_bad'); haptic([40]);
+        if (_failed[0] && _failed[1]) _resolveRound(-1);   // both out → no winner
+    }
 }
 
-function _reveal() {
-    if (_done || _phase === 'reveal') return;
+function _resolveRound(winnerPid) {
+    if (_done || _roundResolved) return;
+    _roundResolved = true;
     _phase = 'reveal';
     clearTimeout(_inputTimer);
-    [0, 1].forEach(pid => {
-        let correct = 0;
-        _chosen[pid].forEach(i => { if (_lit.has(i)) correct++; });
-        _scores[pid] += correct;
-    });
-    document.getElementById('mg-neutral').textContent = `P1 ${_scores[0]} · ${_scores[1]} P2`;
-    sfx('coin_gain');
+    const neutral = document.getElementById('mg-neutral');
+    if (winnerPid >= 0) {
+        _roundWins[winnerPid]++;
+        sfx('mg_win');
+        if (neutral) neutral.textContent = `P${winnerPid + 1} RECALLS IT FIRST!  (P1 ${_roundWins[0]} · ${_roundWins[1]} P2)`;
+    } else {
+        sfx('land_bad');
+        if (neutral) neutral.textContent = `NO WINNER THIS ROUND  (P1 ${_roundWins[0]} · ${_roundWins[1]} P2)`;
+    }
 
     _after(() => {
         if (_done) return;
@@ -248,8 +276,13 @@ function _drawHalf(pid, w, hh) {
     _ctx.textAlign = 'center'; _ctx.textBaseline = 'alphabetic';
     _ctx.fillText(`P${pid + 1}`, w / 2, hh * 0.12);
     _ctx.fillStyle = 'rgba(255,255,255,0.85)';
-    _ctx.font = '900 26px "Bebas Neue", sans-serif';
-    _ctx.fillText(`${_scores[pid]}`, w / 2, hh * 0.20);
+    _ctx.font = '900 22px "Bebas Neue", sans-serif';
+    _ctx.fillText(`${_roundWins[pid]} WIN${_roundWins[pid] === 1 ? '' : 'S'}`, w / 2, hh * 0.20);
+    if (_phase === 'input' && _failed[pid]) {
+        _ctx.fillStyle = '#ef4444';
+        _ctx.font = '700 15px Nunito, sans-serif';
+        _ctx.fillText('OUT!', w / 2, hh * 0.27);
+    }
 }
 
 function _roundRect(x, y, w, h, r) {
@@ -267,9 +300,9 @@ function _finish() {
     if (_done) return;
     _done = true;
     state.mgActive = false;
-    const winner = _scores[0] > _scores[1] ? 0 : _scores[1] > _scores[0] ? 1 : -1;
+    const winner = _roundWins[0] > _roundWins[1] ? 0 : _roundWins[1] > _roundWins[0] ? 1 : -1;
     const neutral = document.getElementById('mg-neutral');
-    if (neutral) neutral.textContent = winner < 0 ? `DRAW! ${_scores[0]}-${_scores[1]}` : `P${winner + 1} WINS! ${_scores[0]}-${_scores[1]}`;
+    if (neutral) neutral.textContent = winner < 0 ? `DRAW! ${_roundWins[0]}-${_roundWins[1]}` : `P${winner + 1} WINS! ${_roundWins[0]}-${_roundWins[1]}`;
     sfx(winner < 0 ? 'land_bad' : 'mg_win');
     _after(() => { _destroy(); _onWin(winner); }, 1500);
 }
