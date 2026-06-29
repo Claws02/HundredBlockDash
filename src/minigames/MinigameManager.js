@@ -26,6 +26,7 @@ const MG_MODULES = {
     sortrush:    () => import('./SortRush.js'),
     meteordodge: () => import('./MeteorDodge.js'),
     lootcatch:   () => import('./LootCatch.js'),
+    freeze:      () => import('./Freeze.js'),
 };
 
 let _controller   = null;
