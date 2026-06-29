@@ -27,6 +27,7 @@ const MG_MODULES = {
     meteordodge: () => import('./MeteorDodge.js'),
     lootcatch:   () => import('./LootCatch.js'),
     freeze:      () => import('./Freeze.js'),
+    clearout:    () => import('./ClearOut.js'),
 };
 
 let _controller   = null;
