@@ -25,6 +25,7 @@ const MG_MODULES = {
     steadyhand:  () => import('./SteadyHand.js'),
     sortrush:    () => import('./SortRush.js'),
     meteordodge: () => import('./MeteorDodge.js'),
+    lootcatch:   () => import('./LootCatch.js'),
 };
 
 let _controller   = null;
