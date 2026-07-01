@@ -14,10 +14,10 @@ import { registerMinigameCleanup } from './MinigameManager.js';
 
 // ── Tunables ─────────────────────────────────────────────────────────────────
 const ROUNDS     = 4;
-const PATTERN    = [3, 4, 4, 5];          // tiles to remember per round
-const SHOW_TIME  = [1.6, 1.4, 1.2, 1.0];  // s the pattern stays lit per round
-const INPUT_TIME = 5.0;                   // s to finish tapping before auto-lock
-const GRID_N     = 3;                     // 3×3
+const PATTERN    = [4, 5, 6, 7];          // tiles to remember per round (bigger 5×5 grid)
+const SHOW_TIME  = [2.0, 1.8, 1.6, 1.4];  // s the pattern stays lit per round
+const INPUT_TIME = 6.0;                   // s to finish tapping before auto-lock
+const GRID_N     = 5;                     // 5×5
 const CELLS      = GRID_N * GRID_N;
 
 // ── Module state ──────────────────────────────────────────────────────────────

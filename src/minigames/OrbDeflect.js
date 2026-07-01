@@ -1,6 +1,7 @@
 // Orb Deflect — Draw barriers with your finger to deflect the orb into the opponent's core!
 // P1 controls the bottom half (cyan), P2 controls the top half (magenta).
-// Cores sit at each edge. 3 HP each — first to lose all HP loses. 30-second timer.
+// Cores sit at each edge. 3 HP each — first to lose all HP loses. 45-second timer.
+// After a goal, the next orb inherits the previous orb's velocity (momentum carries).
 //
 // ⚠️  SPEED / FRAME-RATE RULE (apply to every minigame):
 //   All movement values must be expressed as units-per-SECOND, not units-per-frame.
@@ -142,13 +143,14 @@ function _sizeCanvas() {
 
 function _resetState() {
     _gs = {
-        timeLeft: 30,
+        timeLeft: 45,
         hp: [3, 3],
         orbs: [],
         barriers: [],
         particles: [],
         activeTouches: {},
         spawnTimer: 1.0,
+        nextVel: null,   // velocity carried over from the orb that last scored
     };
     _spawnOrb();
 }
@@ -196,14 +198,17 @@ function _distToSegment(x1, y1, x2, y2, px, py) {
 }
 
 function _spawnOrb() {
-    const speed = _ch * 0.4;
-    const angle = Math.random() * Math.PI * 2;
-    _gs.orbs.push({
-        x: _cw / 2, y: _ch / 2,
-        vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed,
-        r: Math.max(10, _cw * 0.022),
-    });
+    let vx, vy;
+    if (_gs.nextVel) {
+        // Momentum carry-over: the new orb keeps the last-scoring orb's velocity.
+        vx = _gs.nextVel.vx; vy = _gs.nextVel.vy;
+        _gs.nextVel = null;
+    } else {
+        const speed = _ch * 0.4;
+        const angle = Math.random() * Math.PI * 2;
+        vx = Math.cos(angle) * speed; vy = Math.sin(angle) * speed;
+    }
+    _gs.orbs.push({ x: _cw / 2, y: _ch / 2, vx, vy, r: Math.max(10, _cw * 0.022) });
 }
 
 function _burst(x, y, color, n) {
@@ -276,6 +281,7 @@ function _update(dt) {
         // Core hit — P1 bottom core at (_cw/2, _ch)
         if (Math.hypot(orb.x - _cw/2, orb.y - _ch) < coreR + orb.r) {
             _gs.hp[0]--;
+            _gs.nextVel = { vx: orb.vx, vy: orb.vy };   // next orb inherits this velocity
             _burst(orb.x, orb.y, C_P1, 20);
             _gs.orbs.splice(i, 1);
             _gs.spawnTimer = 1.5; // respawn after short delay
@@ -286,6 +292,7 @@ function _update(dt) {
         // P2 top core at (_cw/2, 0)
         if (Math.hypot(orb.x - _cw/2, orb.y) < coreR + orb.r) {
             _gs.hp[1]--;
+            _gs.nextVel = { vx: orb.vx, vy: orb.vy };   // next orb inherits this velocity
             _burst(orb.x, orb.y, C_P2, 20);
             _gs.orbs.splice(i, 1);
             _gs.spawnTimer = 1.5; // respawn after short delay
