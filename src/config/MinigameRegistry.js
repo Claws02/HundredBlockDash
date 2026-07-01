@@ -16,6 +16,9 @@ export const MG_TYPES = [
     'steadyhand',
     'sortrush',
     'meteordodge',
+    'lootcatch',
+    'freeze',
+    'clearout',
 ];
 
 export const MG_INFO = {
@@ -31,6 +34,9 @@ export const MG_INFO = {
     steadyhand:  { icon: '🎯', title: 'STEADY HAND',   desc: 'A target drifts around your half — keep your finger on it to bank time! It speeds up as the round goes on. Whoever holds the target longest after 22 seconds wins.' },
     sortrush:    { icon: '📦', title: 'SORT RUSH',     desc: 'A shape pops up in your half — fling it into the matching bin by tapping your LEFT (▲) or RIGHT (●) side. Each correct sort speeds the next one up; a wrong bin locks you out for a moment. Most sorted in 30 seconds wins!' },
     meteordodge: { icon: '☄️', title: 'METEOR DODGE',  desc: 'Drag your pod along the base of your half to dodge falling meteors. Three lives each — lose them all and you\'re out. The storm gets faster and thicker over time. Survive with the most lives after 30 seconds to win!' },
+    lootcatch:   { icon: '🧺', title: 'LOOT CATCH',    desc: 'Coins and bombs rain down your half — slide your basket to scoop every 🪙 and dodge every 💣. Coins add up, bombs cost you. The exact same loot falls on both sides, so it\'s pure collecting skill. Most coins after 30 seconds wins!' },
+    freeze:      { icon: '👁️', title: 'FREEZE',        desc: 'Sneak to the Crown! HOLD your half to creep forward while the signal says GO — but the instant it flips to STOP, let go! Get caught moving while watched and you\'re sent back. Same signal for both players, so it\'s pure nerve and reaction. First to reach the Crown wins!' },
+    clearout:    { icon: '🥏', title: 'CLEAR OUT',     desc: 'A wall splits the arena with one small gap. You start with 4 discs on your side — drag back and release to slingshot them through the gap onto your rival\'s side. Discs collide and ricochet! First to empty their own side wins (or fewest discs on your side when the clock runs out).' },
 };
 
 // ============================================================
@@ -80,6 +86,9 @@ export const MG_ORIENTATION_MAP = {
     steadyhand:  'faceoff',
     sortrush:    'faceoff',
     meteordodge: 'faceoff',
+    lootcatch:   'faceoff',
+    freeze:      'faceoff',
+    clearout:    'faceoff',
 };
 
 export const FALLBACK_TRIVIA = [

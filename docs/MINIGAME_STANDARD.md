@@ -194,7 +194,7 @@ Criteria 7 and 8 are gated by §2 — if you followed the rules they're free.
 The roster should spread across verbs so the rotation feels fresh. Current
 shipped games and the target spread:
 
-The roster of **12** spreads across twelve distinct verbs — no two games
+The roster of **15** spreads across fifteen distinct verbs — no two games
 share one:
 
 | Category             | Verb / feel                   | Shipped              |
@@ -205,12 +205,15 @@ share one:
 | Drawing / deflect    | draw paths                    | ✅ Orb Deflect       |
 | Precision / snap     | tap at the right instant      | ✅ Snap Strike (reference) |
 | Reflex / first       | be fastest, don't false-start | ✅ Quick Draw        |
-| Memory / puzzle      | recall & reproduce            | ✅ Grid Recall       |
+| Memory / puzzle      | recall & reproduce (race)     | ✅ Grid Recall       |
 | Mash / endurance     | out-tap your opponent         | ✅ Tug Tap           |
 | Visual scan          | spot the difference           | ✅ Odd One Out       |
 | Dexterity / tracking | keep on the target            | ✅ Steady Hand       |
 | Sorting / categorise | bin it left vs right          | ✅ Sort Rush         |
 | Evade / survive      | dodge the falling storm       | ✅ Meteor Dodge      |
+| Collect / select     | catch the good, reject the bad| ✅ Loot Catch        |
+| Restraint / stealth  | move only when unwatched      | ✅ Freeze            |
+| Flick / clear        | slingshot discs off your side | ✅ Clear Out         |
 
 **Curation rule:** the 40 files in `src/minigames/archived/` are a **design
 backlog, not a code backlog** — their imports and shared-DOM dependencies are
