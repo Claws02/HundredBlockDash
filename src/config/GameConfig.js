@@ -1,7 +1,7 @@
 // ============================================================
 // TUNABLE CONSTANTS
 // ============================================================
-export const GATE_THRESHOLD      = 15;
+export const GATE_THRESHOLD      = 20;
 export const GATE_NUM_DICE       = 5;
 
 // Hundred Block Dash — selectable linear-map lengths.
@@ -174,7 +174,7 @@ export const SPACE_DESCS = {
     player_trap: 'A placed Tollbooth! Pay the owner 5 coins.',
     anchor_trap: 'An Anchor trap! Sent back 5 spaces.',
     swap_space:  'Swap board positions with your opponent!',
-    gate:        'The Gate blocks the Industrial Zone. Roll 5 dice and score ≥15 to break through!',
+    gate:        'The Gate blocks the Industrial Zone. Roll 5 dice and score ≥20 to break through!',
     gate_open:   'Gate is open — pass freely.',
     shop:        'Browse and buy items with your coins!',
     hq:          'District HQ! First visit: +15 coins. Revisit: +5 coins.',
@@ -251,7 +251,7 @@ export const HBD_BIOMES = [
             lose_big: { n: 'REALITY RIFT',  d: 'Torn apart! −10 coins.' },
             trap:     { n: 'VOID SNARE',    d: 'Caught in the dark. Lose 5 coins.' },
             shop:     { n: 'VOID EXCHANGE', d: 'Trade at the edge of reality. Browse and buy!' },
-            gate:     { n: 'THE RIFT',      d: 'The Rift seals the Void. Roll 5 dice, score ≥15 to tear through!' },
+            gate:     { n: 'THE RIFT',      d: 'The Rift seals the Void. Roll 5 dice, score ≥20 to tear through!' },
         },
     },
 ];
