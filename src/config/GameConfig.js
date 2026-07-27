@@ -27,8 +27,19 @@ export const MAX_INV             = 3;
 export const MINIGAME_REWARD     = 10;
 export const MINIGAME_EVERY_N_TURNS = 4;
 
-// City Circuit scoring
-export const TOTAL_ROUNDS            = 20;
+// City Circuit scoring.
+// A "round" is MINIGAME_EVERY_N_TURNS board turns plus one head-to-head
+// minigame, so round count is the dominant term in total session length.
+// Measured on the QA harness at roughly 2.5–3 min per round, which put the
+// original fixed 20 rounds near an hour — far past a mobile party-game sitting.
+// The length is now player-chosen, mirroring the Hundred Block Dash picker.
+export const CITY_LENGTHS        = [6, 12, 20];
+export const CITY_DEFAULT_ROUNDS = 12;
+export const CITY_LENGTH_LABELS  = {
+    6:  { name: 'SPRINT',   blurb: '~15 min' },
+    12: { name: 'STANDARD', blurb: '~30 min' },
+    20: { name: 'MARATHON', blurb: '~50 min' },
+};
 export const DISTRICT_HQ_FIRST_BONUS  = 15;
 export const DISTRICT_HQ_REVISIT_BONUS = 5;
 export const DISTRICT_DOMINANCE_BONUS  = 15;

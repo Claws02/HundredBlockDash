@@ -5,8 +5,9 @@
 
 import { state } from '../core/GameState.js';
 import { ITEMS, ALLIES, SPACE_META, SPACE_DESCS, DISTRICT_BIOMES, HQ_META,
-         getActiveRealms, HBD_FINISH_BONUS } from '../config/GameConfig.js';
+         getActiveRealms, HBD_FINISH_BONUS, CITY_DEFAULT_ROUNDS } from '../config/GameConfig.js';
 import { CITY_GRAPH, ALL_NODES_ORDERED, BRANCH_OPTIONS, JUNCTION_IDS, DISTRICT_NAMES } from '../config/BoardGraph.js';
+import { COUNTED_TYPES } from '../config/ContractPool.js';
 import { getPos, getTileMeshes, setMapCameraTarget, mapCamera, onResize, getCamera } from '../engine/Renderer.js';
 
 let _controller = null;
@@ -50,8 +51,11 @@ export function updateUI() {
         // Position badge
         let districtLabel;
         if (state.selectedMap === 'hundred_block_dash') {
+            // Read the finish from the live layout — a 50- or 75-block run never
+            // reaches space 99, so a hardcoded 99 never showed "FINISHED!".
+            const finish = state.hbd ? state.hbd.finish : 99;
             districtLabel = typeof p.pos === 'number'
-                ? (p.pos >= 99 ? 'FINISHED!' : `Space ${p.pos}`)
+                ? (p.pos >= finish ? 'FINISHED!' : `Space ${p.pos} / ${finish}`)
                 : 'Space 0';
         } else {
             const node = CITY_GRAPH[p.pos];
@@ -63,6 +67,11 @@ export function updateUI() {
 
         // Ally HUD slots
         _updateAllySlots(i, p);
+
+        // Hundred Block Dash is a straight line — there is no map view to open,
+        // so hide the button rather than leaving a control that only ever toasts.
+        const mapBtn = document.querySelector(`[data-map="${i}"]`);
+        if (mapBtn) mapBtn.style.display = state.selectedMap === 'hundred_block_dash' ? 'none' : '';
 
         // Show Cabbie button if player has Cabbie ally and hasn't used it this round
         const cabbieBtn = document.querySelector(`[data-cabbie="${i}"]`);
@@ -76,7 +85,7 @@ export function updateUI() {
         updateContracts();
     }
     if (state.selectedMap !== 'hundred_block_dash') {
-        updateRoundCounter(state.currentRound, 20);
+        updateRoundCounter(state.currentRound, state.cityRounds || CITY_DEFAULT_ROUNDS);
     } else {
         const el = document.getElementById('round-counter');
         // Keep the +finish-bonus goal visible at all times so players know the
@@ -130,10 +139,13 @@ export function updateContracts() {
         return;
     }
     strip.style.display = 'flex';
+    // Counted contracts track progress per player; show the active player's.
+    const pid = state.activePlayer;
     strip.innerHTML = state.activeContracts.map(c => {
-        const progress = c._progress || 0;
-        const needed   = (c.type === 'land_coin' || c.type === 'land_coin_big' || c.type === 'win_minigames' || c.type === 'visit_shops') ? (c.param || 1) : 1;
-        const progStr  = needed > 1 ? ` (${progress}/${needed})` : '';
+        const counted  = COUNTED_TYPES.has(c.type);
+        const needed   = counted ? Math.max(1, c.param || 1) : 1;
+        const progress = counted ? ((c._prog && c._prog[pid]) || 0) : 0;
+        const progStr  = needed > 1 ? ` (${Math.min(progress, needed)}/${needed})` : '';
         return `<div class="contract-pill" title="${c.desc}">
             <span class="contract-icon">${c.icon}</span>
             <span class="contract-text">${c.desc}${progStr}</span>

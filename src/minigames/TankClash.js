@@ -11,6 +11,7 @@
 //   This keeps speed identical on 60 Hz phones, 120 Hz tablets, and desktop browsers.
 import { state } from '../core/GameState.js';
 import { sfx, haptic } from '../engine/AudioManager.js';
+import { registerMinigameCleanup } from './MinigameManager.js';
 
 const ARENA_W      = 28;
 const ARENA_H      = 40;
@@ -70,7 +71,7 @@ const MAPS = [
 
 let _obstacles = MAPS[0]; // set per-round in start()
 
-let _done = false, _onWin = null, _isBot = false;
+let _done = false, _onWin = null, _isBot = false, _botSkill = 0.55;
 let _overlay = null, _renderer = null, _scene = null, _camera = null;
 let _tanks = [], _bullets = [], _hp = [3, 3], _lastFire = [0, 0];
 let _input = [], _activeTouches = {};
@@ -87,9 +88,10 @@ function _after(fn, ms) {
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
 
-export function start(isBot, onWin) {
+export function start(isBot, onWin, botSkill = 0.55) {
     if (!state.mgActive) return;
-    _done = false; _onWin = onWin; _isBot = isBot;
+    _done = false; _onWin = onWin; _isBot = isBot; _botSkill = botSkill;
+    registerMinigameCleanup(_destroy);
     _hp = [3, 3]; _lastFire = [0, 0];
     _tanks = []; _bullets = []; _activeTouches = {};
     _obstacles = MAPS[Math.floor(Math.random() * MAPS.length)];
@@ -388,10 +390,17 @@ function _mkTank(color) {
 function _fire(pid) {
     const now = performance.now();
     if (now - _lastFire[pid] < FIRE_CD || _hp[pid] <= 0) return;
+
+    // _build() attaches the fire-button listeners synchronously, but the tanks
+    // are not created until _initThree() runs two animation frames later — and
+    // a resolved game tears them down while the result banner is still up. A tap
+    // in either window used to throw an uncaught TypeError on tank.rotation.
+    const tank = _tanks[pid];
+    if (!tank || _done || !state.mgActive) return;
+
     _lastFire[pid] = now;
     sfx('go'); haptic('light');
 
-    const tank = _tanks[pid];
     const dir    = new THREE.Vector3(0, 0, 1).applyEuler(tank.rotation).normalize();
     const bColor = pid === 0 ? 0xff4422 : 0x22aaff;
 
@@ -544,10 +553,14 @@ function _botTick() {
     const len0 = Math.sqrt(dx0*dx0 + dz0*dz0) || 1;
 
     if (los) {
-        // Aim + occasional strafe
+        // §5 botSkill: aim error and trigger discipline both scale with skill.
+        // Easy sprays wide and hesitates; hard tracks tightly and fires on cooldown.
+        const aimErr = (1 - _botSkill) * 0.9 * (Math.random() + Math.random() - 1);
         const strafe = Math.random() < 0.3 ? (Math.random()-.5)*0.5 : 0;
-        _input[1].set(dx0/len0 + strafe, dz0/len0).normalize();
-        if (performance.now() - _lastFire[1] > FIRE_CD + 200) _fire(1);
+        _input[1].set(dx0/len0 + strafe + aimErr, dz0/len0 + aimErr*0.5).normalize();
+        const fireGate  = FIRE_CD + 900 - _botSkill * 800;          // +900 ms easy → +100 ms hard
+        const willFire  = Math.random() < (0.35 + _botSkill * 0.6); // sometimes just doesn't shoot
+        if (willFire && performance.now() - _lastFire[1] > fireGate) _fire(1);
     } else {
         // Navigate toward a wander point biased toward P1
         if (Math.random() < 0.2 || bot.distanceTo(_botWanderTarget) < 3)

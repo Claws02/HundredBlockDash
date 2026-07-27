@@ -8,6 +8,7 @@ export const state = {
     botDifficulty:       'medium', // 'easy' | 'medium' | 'hard' — used in 1P mode
     selectedMap:         'city_circuit',
     hbdLength:           100,  // 50 | 75 | 100 — chosen on the HBD map-select screen
+    cityRounds:          12,   // 6 | 12 | 20 — chosen on the City Circuit map-select screen
     hbd:                 null, // runtime layout (buildHbdConfig): { length, finish, gatePos, shopSpaces, realmCount }
     gameState:           'INIT',
     cameraState:         'INIT',
@@ -83,6 +84,7 @@ export const state = {
             coinsEarnedThisRound: 0,
             consecutiveMgWins: 0,
             cabbieUsedThisRound: false,
+            _lastDistrictEntered: null,
         },
         {
             id: 1, name: 'Player 2', color: 0x3b8eff, charType: 'boxy', isBot: false,
@@ -103,6 +105,7 @@ export const state = {
             coinsEarnedThisRound: 0,
             consecutiveMgWins: 0,
             cabbieUsedThisRound: false,
+            _lastDistrictEntered: null,
         },
     ],
 
@@ -130,6 +133,7 @@ export function resetPlayers() {
         p.coinsEarnedThisRound = 0;
         p.consecutiveMgWins = 0;
         p.cabbieUsedThisRound = false;
+        p._lastDistrictEntered = null;
     });
     state.gateOpen           = false;
     state.gateRolling        = false;

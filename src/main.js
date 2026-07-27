@@ -102,6 +102,15 @@ document.querySelectorAll('[data-hbd-len]').forEach(btn => {
     });
 });
 
+// City Circuit match-length chips (6 / 12 / 20 rounds)
+document.querySelectorAll('[data-city-rounds]').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('[data-city-rounds]').forEach(b => b.classList.remove('sel'));
+        btn.classList.add('sel');
+        GameController.selectCityRounds(parseInt(btn.dataset.cityRounds));
+    });
+});
+
 // ============================================================
 // HUD ACTION BUTTONS
 // ============================================================

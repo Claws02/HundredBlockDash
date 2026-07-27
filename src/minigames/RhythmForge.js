@@ -14,6 +14,7 @@
 // so they are inherently frame-rate independent. No Three.js used — static CSS bg.
 import { state } from '../core/GameState.js';
 import { sfx, haptic } from '../engine/AudioManager.js';
+import { registerMinigameCleanup } from './MinigameManager.js';
 
 const TRAVEL_MS = 1200; // ms a note takes to fall from spawn to hit zone
 
@@ -43,7 +44,7 @@ const SEQUENCES = [
 
 // ── Module state ──────────────────────────────────────────────────────────────
 
-let _done = false, _onWin = null, _isBot = false;
+let _done = false, _onWin = null, _isBot = false, _botSkill = 0.55;
 let _overlay = null;
 let _gameBoard = null, _lanes = [], _laneTargets = [], _indicator = null;
 let _p1ScoreEl = null, _p2ScoreEl = null;
@@ -66,9 +67,10 @@ function _after(fn, ms) {
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
 
-export function start(isBot, onWin) {
+export function start(isBot, onWin, botSkill = 0.55) {
     if (!state.mgActive) return;
-    _done = false; _onWin = onWin; _isBot = isBot;
+    _done = false; _onWin = onWin; _isBot = isBot; _botSkill = botSkill;
+    registerMinigameCleanup(_destroy);
     _scores = [0, 0]; _activePlayer = 0; _currentRound = 0;
     _beats = []; _turnStart = 0; _lastTick = 0; _transitioning = false;
     _lanes = []; _laneTargets = [];
@@ -262,11 +264,18 @@ function _tick(now) {
         // Bot scheduling
         if (_isBot && _activePlayer === 1 && !b.botScheduled && t >= b.time - 120) {
             b.botScheduled = true;
-            if (Math.random() < 0.85) {
-                const jitter = Math.random() * 80;
+            // §5 botSkill: hit rate and timing tightness both scale. Easy misses
+            // ~30% of notes and lands mostly on GOOD; hard rarely misses and
+            // lands PERFECT often. Also sometimes taps the wrong lane at low skill.
+            const hitChance = 0.62 + _botSkill * 0.35;         // 0.71 easy → 0.92 hard
+            if (Math.random() < hitChance) {
+                const spread = 40 + (1 - _botSkill) * 150;      // tighter window at high skill
+                const jitter = Math.random() * spread;
+                const wrongLane = Math.random() < (1 - _botSkill) * 0.14;
+                const lane = wrongLane ? (b.l + 1 + Math.floor(Math.random() * 2)) % 3 : b.l;
                 _after(() => {
                     if (_done || b.hit || b.missed) return;
-                    _handleTap(b.l);
+                    _handleTap(lane);
                 }, jitter);
             }
         }
@@ -318,17 +327,17 @@ function _handleTap(lane) {
         _scores[_activePlayer] += 3;
         _flashTarget(lane, 'perfect');
         _floatScore(lane, '+3', '#66fcf1');
-        sfx('jump'); haptic('heavy');
+        sfx('boost'); haptic('heavy');
     } else if (bestDiff <= 120) {
         _scores[_activePlayer] += 2;
         _flashTarget(lane, 'good');
         _floatScore(lane, '+2', '#4CAF50');
-        sfx('coin'); haptic('light');
+        sfx('coin_gain'); haptic('light');
     } else if (bestDiff <= 180) {
         _scores[_activePlayer] += 1;
         _flashTarget(lane, 'good');
         _floatScore(lane, '+1', '#FFEB3B');
-        sfx('coin');
+        sfx('coin_gain');
     } else {
         best.missed = true;
         _flashTarget(lane, 'miss'); sfx('land_bad');

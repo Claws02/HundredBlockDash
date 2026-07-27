@@ -12,12 +12,13 @@
 //   This keeps speed identical on 60 Hz phones, 120 Hz tablets, and desktop browsers.
 import { state } from '../core/GameState.js';
 import { sfx, haptic } from '../engine/AudioManager.js';
+import { registerMinigameCleanup } from './MinigameManager.js';
 
 const C_P1  = '#00ffff';
 const C_P2  = '#ff00ff';
 const C_ORB = '#ffffff';
 
-let _done = false, _onWin = null, _isBot = false;
+let _done = false, _onWin = null, _isBot = false, _botSkill = 0.55;
 let _overlay = null, _canvas = null, _ctx = null;
 let _cw = 0, _ch = 0;
 let _animId = null, _lastTick = 0;
@@ -38,9 +39,10 @@ function _after(fn, ms) {
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
 
-export function start(isBot, onWin) {
+export function start(isBot, onWin, botSkill = 0.55) {
     if (!state.mgActive) return;
-    _done = false; _onWin = onWin; _isBot = isBot;
+    _done = false; _onWin = onWin; _isBot = isBot; _botSkill = botSkill;
+    registerMinigameCleanup(_destroy);
     _lastTick = 0;
 
     _build();
@@ -108,7 +110,7 @@ function _build() {
         e.preventDefault();
         if (t.length > _cw * 0.05 && t.points.length > 1) {
             _gs.barriers.push({ points: t.points, life: 1.0, color: t.color });
-            sfx('jump');
+            sfx('boost');
         }
         delete _gs.activeTouches[e.pointerId];
     };
@@ -167,8 +169,12 @@ function _botTick() {
         }
     }
 
-    if (threat && minTime < 1.5 && Math.random() > 0.25) {
-        const lx = threat.x + threat.vx * 0.3;
+    // §5 botSkill: how often it bothers to block, and how accurately it predicts
+    // the orb's path. Easy whiffs ~45% of blocks and mis-places them badly.
+    const blockChance = 0.35 + _botSkill * 0.6;               // 0.50 easy → 0.86 hard
+    const aimErrPx    = (1 - _botSkill) * _cw * 0.22 * (Math.random() + Math.random() - 1);
+    if (threat && minTime < 1.5 && Math.random() < blockChance) {
+        const lx = threat.x + threat.vx * 0.3 + aimErrPx;
         const ly = Math.max(_ch * 0.05, Math.min(_ch * 0.44, threat.y + threat.vy * 0.3));
         const w  = _cw * 0.14;
         _gs.barriers.push({
@@ -179,7 +185,7 @@ function _botTick() {
             life: 1.0,
             color: C_P2,
         });
-        sfx('jump');
+        sfx('boost');
     }
 
     _after(_botTick, 350 + Math.random() * 350);
@@ -317,7 +323,7 @@ function _update(dt) {
                     orb.x += nx * (orb.r - hit.d + 2);
                     orb.y += ny * (orb.r - hit.d + 2);
                     _burst(hit.nx, hit.ny, b.color, 8);
-                    sfx('coin'); haptic('medium');
+                    sfx('coin_gain'); haptic('medium');
                     _gs.barriers.splice(j, 1);
                     break outer;
                 }

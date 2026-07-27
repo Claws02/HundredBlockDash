@@ -10,6 +10,7 @@ const activeDice = [];
 let _onSettle  = null;
 let _rollMode  = 'normal';
 let _settled   = false;
+let _settleDeadline = 0;
 
 export function init() {
     world = new CANNON.World();
@@ -86,6 +87,7 @@ export function clearDice(diceGroup) {
     activeDice.length = 0;
     _onSettle = null;
     _settled  = false;
+    _settleDeadline = 0;
 }
 
 export function readTopFace(d) {
@@ -110,11 +112,17 @@ export function readResult(mode) {
     return readTopFace(activeDice[0]);
 }
 
-// Register callback fired once all dice settle
+// Register callback fired once all dice settle.
+// A watchdog deadline guarantees the callback always fires: a die that jitters
+// against a wall or lands on a corner can otherwise stay above the sleep
+// threshold indefinitely, which strands the turn in the ROLLING state with no
+// way out. On expiry we freeze the dice and read whatever faces are up.
+const SETTLE_TIMEOUT_MS = 6000;
 export function onSettle(mode, callback) {
-    _rollMode = mode;
-    _onSettle = callback;
-    _settled  = false;
+    _rollMode  = mode;
+    _onSettle  = callback;
+    _settled   = false;
+    _settleDeadline = performance.now() + SETTLE_TIMEOUT_MS;
 }
 
 export function getActiveDice() { return activeDice; }
@@ -138,11 +146,18 @@ export function step(dt) {
                 allSleeping = false;
             }
         });
-        if (allSleeping) {
+        const timedOut = _settleDeadline > 0 && performance.now() > _settleDeadline;
+        if (allSleeping || timedOut) {
             _settled = true;
-            activeDice.forEach(d => d.body.angularVelocity.set(0, 0, 0));
+            if (timedOut) {
+                console.warn('[Physics] dice did not settle in time — forcing a result');
+                activeDice.forEach(d => { d.body.velocity.set(0, 0, 0); d.body.angularVelocity.set(0, 0, 0); });
+            } else {
+                activeDice.forEach(d => d.body.angularVelocity.set(0, 0, 0));
+            }
             const cb = _onSettle;
             _onSettle = null;
+            _settleDeadline = 0;
             // Double RAF ensures quaternion is fully flushed before reading faces
             requestAnimationFrame(() => requestAnimationFrame(() => cb(readResult(_rollMode))));
         }

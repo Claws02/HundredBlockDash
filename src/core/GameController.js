@@ -2,14 +2,15 @@ import { state, resetPlayers } from './GameState.js';
 import {
     GATE_THRESHOLD, GATE_NUM_DICE, MAX_INV, MAX_ALLIES, ALLY_TURNS, ALLY_SPAWN_DELAY_TURNS,
     MINIGAME_EVERY_N_TURNS, ITEMS, SPACE_META, SPACE_DESCS,
-    TOTAL_ROUNDS, DISTRICT_HQ_FIRST_BONUS, DISTRICT_HQ_REVISIT_BONUS,
+    DISTRICT_HQ_FIRST_BONUS, DISTRICT_HQ_REVISIT_BONUS,
     FULL_CIRCUIT_BONUSES,
     ALLIES, BA_DISCOUNT, GRAND_MALL_DISCOUNT,
     ALL_CHAR_TYPES, HQ_META, CHAR_ICONS,
+    CITY_LENGTHS, CITY_DEFAULT_ROUNDS, HBD_LENGTHS,
     buildHbdConfig, setHbdRealmCount, HBD_DEFAULT_CONFIG, HBD_FINISH_BONUS,
     hbdSpaceLabel, hbdShopKey, getRealmForSpace,
 } from '../config/GameConfig.js';
-import { CITY_GRAPH, JUNCTION_IDS, DISTRICT_NAMES, DISTRICT_KEYS, BRANCH_OPTIONS } from '../config/BoardGraph.js';
+import { CITY_GRAPH, JUNCTION_IDS, DISTRICT_NAMES, DISTRICT_KEYS, BRANCH_OPTIONS, ALL_NODES_ORDERED } from '../config/BoardGraph.js';
 import { MAP_REGISTRY } from '../config/MapRegistry.js';
 import * as Bot from './Bot.js';
 import { initCityBoard, generateBoard } from './BoardSetup.js';
@@ -136,13 +137,24 @@ export function selectMap(mapId) {
     const confirmBtn = document.getElementById('btn-map-confirm');
     if (confirmBtn) confirmBtn.disabled = false;
 
-    // Run-length picker is only relevant to Hundred Block Dash.
+    // Each map has its own length picker; show only the relevant one.
     const lenSel = document.getElementById('hbd-length-select');
     if (lenSel) lenSel.style.display = mapId === 'hundred_block_dash' ? 'block' : 'none';
+    const citySel = document.getElementById('city-length-select');
+    if (citySel) citySel.style.display = mapId === 'city_circuit' ? 'block' : 'none';
 }
 
 export function selectHbdLength(len) {
-    if ([50, 75, 100].includes(len)) state.hbdLength = len;
+    if (HBD_LENGTHS.includes(len)) state.hbdLength = len;
+}
+
+export function selectCityRounds(rounds) {
+    if (CITY_LENGTHS.includes(rounds)) state.cityRounds = rounds;
+}
+
+// Total rounds for the running City Circuit game.
+function _cityRounds() {
+    return CITY_LENGTHS.includes(state.cityRounds) ? state.cityRounds : CITY_DEFAULT_ROUNDS;
 }
 
 export function confirmMapSelect() {
@@ -158,6 +170,7 @@ function _savePrefs() {
         difficulty: state.botDifficulty,
         map:        state.selectedMap,
         hbdLength:  state.hbdLength,
+        cityRounds: state.cityRounds,
         charP1:     state.players[0].charType,
         charP2:     state.players[1].charType,
     });
@@ -170,6 +183,7 @@ export function quickStart(prefs) {
     state.botDifficulty = prefs.difficulty || 'medium';
     state.selectedMap   = prefs.map || 'city_circuit';
     state.hbdLength     = prefs.hbdLength || 100;
+    state.cityRounds    = prefs.cityRounds || CITY_DEFAULT_ROUNDS;
     state.players[0].charType = prefs.charP1 || 'slime';
     state.players[1].isBot    = (prefs.mode === '1p');
     if (state.players[1].isBot) {
@@ -351,6 +365,7 @@ export function moveThroughGraph(player, stepsTotal) {
         // About to step into a junction?
         if (JUNCTION_IDS.has(nextId)) {
             _offerBranchChoice(nextId, (chosenId) => {
+                _noteDistrictEntry(player, chosenId);
                 // If entering Industrial and gate is closed
                 if (CITY_GRAPH[nextId]?.next?.includes(chosenId) && CITY_GRAPH[chosenId]?.district === 'ind' && chosenId === 'ind_0' && !state.gateOpen) {
                     _pendingStepsAfterGate = stepsLeft - 1;
@@ -381,12 +396,27 @@ export function moveThroughGraph(player, stepsTotal) {
     advance();
 }
 
+// Fires the `enter_district` contract event the first time a player steps off
+// the Ring Road into a named district on this trip. Without this, contracts
+// c09–c12 ("Enter the ... District") could never be claimed.
+function _noteDistrictEntry(player, nodeId) {
+    const dist = CITY_GRAPH[nodeId]?.district;
+    if (!dist) return;
+    // Back on the Ring Road: clear the latch so the next entry counts again
+    // (a contract for this district may not have been dealt yet).
+    if (dist === 'ring') { player._lastDistrictEntered = null; return; }
+    if (player._lastDistrictEntered === dist) return;
+    player._lastDistrictEntered = dist;
+    _checkContract(player, 'enter_district', dist);
+}
+
 function _checkPassThroughShop(player, nodeId, stepsLeft, continueMove) {
     const b = state.board[nodeId];
     if (stepsLeft > 0 && b?.type === 'shop') {
         if (player.isBot) {
             if (Bot.shopPassThrough()) {
                 state.gameState = 'SHOP';
+                _noteShopVisit(player);
                 setTimeout(() => {
                     if (state.gameState !== 'SHOP') return;
                     _botShop(player);
@@ -469,8 +499,12 @@ function _movePlayerHBD(p, steps, isForced = false) {
     const realmBefore = getRealmForSpace(startPos).key;
 
     if (stepDir === 0) { _resolveHBDSpace(p); return; }
-    // Gate blocks forward movement past the Rift until it's open.
+    // Gate blocks forward movement past the Rift until it's open. Bank the steps
+    // it eats so a successful Rift roll spends them (City Circuit already did
+    // this; HBD used to silently swallow the rest of the roll).
+    _pendingStepsAfterGate = 0;
     if (!state.gateOpen && stepDir > 0 && startPos < cfg.gatePos && target >= cfg.gatePos) {
+        _pendingStepsAfterGate = target - cfg.gatePos;
         target = cfg.gatePos;
     }
 
@@ -594,6 +628,7 @@ export function resolveSpaceEffect(p, spaceType, space) {
             return `⚡ BOOST! ${p.name} rolls again!`;
         }
         case 'shortcut': {
+            _checkContract(p, 'land_type', 'shortcut');
             const skip = 3 + Math.floor(Math.random() * 6);
             _skipForward(p, skip); return null;
         }
@@ -631,8 +666,14 @@ export function resolveSpaceEffect(p, spaceType, space) {
             }
             return 'Your own Tollbooth.';
         }
-        case 'gate': case 'gate_open': return '';
+        // Landing on an already-broken gate is a non-event, but it still needs
+        // real copy — returning '' fell through to the generic "Nothing happens."
+        case 'gate': case 'gate_open':
+            return state.selectedMap === 'hundred_block_dash'
+                ? 'The Rift hangs open — you pass straight through.'
+                : 'The Gate stands open — you pass straight through.';
         case 'shop': {
+            _noteShopVisit(p);
             if (state.selectedMap === 'hundred_block_dash') {
                 setTimeout(() => openShop(hbdShopKey(p.pos), 1.0), 400); return null;
             }
@@ -646,7 +687,7 @@ export function resolveSpaceEffect(p, spaceType, space) {
             const dist   = gNode?.district;
             const isGM   = gNode?.isGrandMall;
             _onDistrictHQReached(p, dist);
-            if (isGM) setTimeout(() => openShop('shop', GRAND_MALL_DISCOUNT), 600);
+            if (isGM) { _noteShopVisit(p); setTimeout(() => openShop('shop', GRAND_MALL_DISCOUNT), 600); }
             const hqInfo = HQ_META[dist] || { name: 'HQ', icon: '🏛️' };
             const visits = p.districtsVisited[dist] || 1;
             const bonus  = visits <= 1 ? DISTRICT_HQ_FIRST_BONUS : DISTRICT_HQ_REVISIT_BONUS;
@@ -684,7 +725,6 @@ function _skipForward(p, steps) {
 
 function _skipBackward(p, steps) {
     if (state.selectedMap === 'hundred_block_dash') { _movePlayerHBD(p, -steps, true); return; }
-    const { ALL_NODES_ORDERED } = { ALL_NODES_ORDERED: _getAllNodesOrdered() };
     let idx = ALL_NODES_ORDERED.indexOf(p.pos);
     if (idx < 0) idx = 0;
     idx = ((idx - steps) % ALL_NODES_ORDERED.length + ALL_NODES_ORDERED.length) % ALL_NODES_ORDERED.length;
@@ -693,18 +733,6 @@ function _skipBackward(p, steps) {
     resolveSpace(p);
 }
 
-function _getAllNodesOrdered() {
-    return [
-        'r1','r2','r3','r4','r5',
-        'fin_0','fin_1','fin_2','fin_3','fin_4','fin_5','fin_6','fin_7','fin_8','fin_9',
-        'r6','r7','r8','r9','r10',
-        'ba_0','ba_1','ba_2','ba_3','ba_4','ba_5','ba_6','ba_7','ba_8','ba_9','ba_10','ba_11',
-        'r11','r12','r13','r14','r15',
-        'shop_0','shop_1','shop_2','shop_3','shop_4','shop_5','shop_6','shop_7','shop_8','shop_9',
-        'r16','r17','r18','r19','r20',
-        'ind_0','ind_1','ind_2','ind_3','ind_4','ind_5','ind_6','ind_7',
-    ];
-}
 
 // Coin gains/losses live in Economy.js (earnCoins / loseCoins).
 
@@ -756,7 +784,7 @@ export function maybeTriggerMinigame() {
         if (state.selectedMap !== 'hundred_block_dash') {
             state.currentRound++;
             _onRoundEnd();
-            if (state.currentRound >= TOTAL_ROUNDS) {
+            if (state.currentRound >= _cityRounds()) {
                 MinigameManager.trigger((winnerId) => {
                     _resolveMinigameResult(winnerId);
                     setTimeout(calculateWinner, 2200);
@@ -792,7 +820,7 @@ function _resolveMinigameResult(winnerId) {
     }
     ModalManager.showMessage('MINIGAME OVER', msg, icon);
     Renderer.startPostMinigameFlyover(() => { state.cameraState = 'FOLLOW'; });
-    if (state.selectedMap !== 'hundred_block_dash') UIManager.updateRoundCounter(state.currentRound, TOTAL_ROUNDS);
+    if (state.selectedMap !== 'hundred_block_dash') UIManager.updateRoundCounter(state.currentRound, _cityRounds());
     if (state.players[1].isBot) {
         setTimeout(() => { if (state.gameState === 'MINIGAME_ACK') resolveMsgModal(); }, 1800);
     }
@@ -802,6 +830,9 @@ function _resolveMinigameResult(winnerId) {
 }
 
 function _onRoundEnd() {
+    // Round-total contract (c25) — checked before _resolveMinigameResult clears
+    // the per-round tally.
+    state.players.forEach(p => _checkContract(p, 'earn_coins_round', null, p.coinsEarnedThisRound));
     // Banker ally: interest on coins
     state.players.forEach(p => {
         const bankerIdx = p.allies.findIndex(a => a.type === 'banker');
@@ -963,12 +994,14 @@ export function closeGate() {
             ? 'The Gate is open! Both players may now pass through.'
             : 'The Industrial Zone is accessible! Both players may now enter.';
         ModalManager.showMessage('🔓 GATE OPEN!', openMsg, '🔓');
-        if (state.selectedMap !== 'hundred_block_dash' && _pendingStepsAfterGate > 0) {
+        if (_pendingStepsAfterGate > 0) {
             const steps = _pendingStepsAfterGate; _pendingStepsAfterGate = 0;
-            setTimeout(() => { ModalManager.closeAllModals(); moveThroughGraph(p, steps); }, 2000);
+            setTimeout(() => { ModalManager.closeAllModals(); _doMove(p, steps); }, 2000);
             return;
         }
     } else {
+        // Failed the roll — the banked steps are forfeit either way.
+        _pendingStepsAfterGate = 0;
         ModalManager.showMessage('🔒 GATE HOLDS', `${p.name} couldn't break through. Try again next turn!`, '🔒');
         if (state.selectedMap !== 'hundred_block_dash') {
             // City Circuit: push player back out of Industrial
@@ -998,6 +1031,18 @@ export function openShop(district, discount) {
     state.pendingShopDiscount = discount || 1.0;
     if (p.isBot) { _botShop(p); return; }
     ModalManager.openShop(district, discount);
+}
+
+// Counts one shop *entry* and fires the `visit_shops` contract event (c23).
+// `shopsVisitedThisLap` was previously reset each round but never incremented,
+// so that contract was unclaimable.
+//
+// Must be called only from a genuine entry point — openShop() is re-invoked to
+// re-render the modal after every purchase and after the inventory-full drop
+// flow, so counting there would let a single shop satisfy a two-shop contract.
+function _noteShopVisit(p) {
+    p.shopsVisitedThisLap = (p.shopsVisitedThisLap || 0) + 1;
+    _checkContract(p, 'visit_shops', null, p.shopsVisitedThisLap);
 }
 
 function _botShop(p) {
@@ -1047,6 +1092,7 @@ export function closeShopModal() {
 
 export function shopOfferEnter() {
     ModalManager.closeAllModals();
+    _noteShopVisit(state.players[state.activePlayer]);
     state.pendingReturnState = 'pass_through_done';
     openShop(state.pendingShopDistrict, state.pendingShopDiscount);
 }
@@ -1197,7 +1243,7 @@ export function spawnAlly() {
     if (state.allyOnMap) return;
     const allyTypes  = Object.keys(ALLIES);
     const allyType   = allyTypes[Math.floor(Math.random() * allyTypes.length)];
-    const realNodes  = _getAllNodesOrdered();
+    const realNodes  = ALL_NODES_ORDERED;
     // Prefer nodes not occupied by players
     const occupied = new Set(state.players.map(p => p.pos));
     const candidates = realNodes.filter(id => !occupied.has(id) && state.board[id]?.type !== 'gate');
@@ -1257,9 +1303,13 @@ function _startAllyMinigame(player, allyType, isSteal, stealCtx, onDone) {
         const won = winnerId === player.id;
         if (won) {
             if (isSteal && stealCtx) {
-                // Steal: inherit clock from target
+                // Steal: inherit clock from target.
+                // The victim's 3D marker must always be released — the old check
+                // looked at whatever ally shifted into the spliced index, so
+                // stealing a player's *last* ally left an orphan model on the board.
                 const stolen = stealCtx.target.allies.splice(stealCtx.allyIdx, 1)[0];
-                if (stealCtx.target.allies[stealCtx.allyIdx]?.mesh) {
+                if (!stolen) { UIManager.updateUI(); if (onDone) setTimeout(onDone, 400); return; }
+                if (stolen.mesh) {
                     Renderer.detachAllyMesh(stolen.mesh);
                     stolen.mesh = null;
                 }

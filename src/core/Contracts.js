@@ -3,13 +3,23 @@
 // rewards by completing tracked actions (land on types, visit HQs, win
 // minigames, etc.). Contracts are a no-op on Hundred Block Dash.
 //
+// Two kinds of contract live in the same pool:
+//   • MATCH   — one qualifying event completes it. `param` (when set) is the
+//               value the event must carry, e.g. visit_hq/'fin'.
+//   • COUNTED — `param` is a target *count*, e.g. land_coin/3. Progress is
+//               tracked per player in `c._prog[pid]`, so one player's coin
+//               spaces never advance their opponent's contract.
+// Emitters pass an absolute running total as `count` when they already own
+// one (minigame streaks, coins this round, shops this lap); otherwise each
+// event counts as a single step.
+//
 // Imports earnCoins from Economy (runtime-only ES-module cycle with
 // Economy, safe via live bindings — used inside functions, not at eval).
 // ============================================================
 
 import { state } from './GameState.js';
 import { CONTRACT_COUNT } from '../config/GameConfig.js';
-import { getShuffledPool } from '../config/ContractPool.js';
+import { getShuffledPool, COUNTED_TYPES } from '../config/ContractPool.js';
 import { earnCoins } from './Economy.js';
 import * as UIManager from '../ui/UIManager.js';
 import { sfx } from '../engine/AudioManager.js';
@@ -18,38 +28,44 @@ export function initContracts() {
     state.contractPool = getShuffledPool();
     state.activeContracts = [];
     for (let i = 0; i < CONTRACT_COUNT && state.contractPool.length > 0; i++) {
-        state.activeContracts.push(state.contractPool.shift());
+        state.activeContracts.push(_fresh(state.contractPool.shift()));
     }
     UIManager.updateContracts();
 }
 
-export function checkContract(player, eventType, param, count) {
-    if (state.selectedMap === 'hundred_block_dash') return;
-    for (let i = state.activeContracts.length - 1; i >= 0; i--) {
-        const c = state.activeContracts[i];
-        let fulfilled = false;
-        if (c.type === eventType) {
-            if (param === null || param === undefined || c.param === null || c.param === undefined || c.param === param) {
-                if (c.type === 'win_minigames' || c.type === 'land_coin') {
-                    // Tracked separately via counters — skip here
-                } else {
-                    fulfilled = true;
-                }
-            }
-        }
-        if (fulfilled) _claimContract(player, i);
-    }
+// Contracts come out of a shared pool object; give each active card its own
+// per-player progress so a re-drawn card never inherits stale counters.
+function _fresh(c) {
+    return { ...c, _prog: [0, 0] };
 }
 
-export function claimContractProgress(player, eventType, param) {
-    // For multi-step contracts (land_coin, win_minigames)
-    state.activeContracts.forEach((c, i) => {
-        if (c.type !== eventType) return;
-        if (c.param && param && c.param !== param) return;
-        c._progress = (c._progress || 0) + 1;
-        if (c._progress >= (c.param || 1)) _claimContract(player, i);
-        UIManager.updateContracts();
-    });
+export function checkContract(player, eventType, param, count) {
+    if (state.selectedMap === 'hundred_block_dash') return;
+    if (!state.activeContracts || state.activeContracts.length === 0) return;
+    let claimed = false;
+    // Walk backwards: _claimContract splices the completed card out.
+    for (let i = state.activeContracts.length - 1; i >= 0; i--) {
+        const c = state.activeContracts[i];
+        if (!c || c.type !== eventType) continue;
+
+        if (COUNTED_TYPES.has(c.type)) {
+            const target = Math.max(1, c.param || 1);
+            if (!c._prog) c._prog = [0, 0];
+            // An absolute total from the caller wins; otherwise tick by one.
+            c._prog[player.id] = typeof count === 'number'
+                ? Math.max(c._prog[player.id], count)
+                : c._prog[player.id] + 1;
+            if (c._prog[player.id] >= target) { _claimContract(player, i); claimed = true; }
+            continue;
+        }
+
+        // MATCH contract: honour the contract's own param when it has one.
+        if (c.param === null || c.param === undefined || c.param === param) {
+            _claimContract(player, i);
+            claimed = true;
+        }
+    }
+    if (!claimed) UIManager.updateContracts();
 }
 
 function _claimContract(player, contractIdx) {
@@ -69,7 +85,7 @@ function _claimContract(player, contractIdx) {
     sfx('land_good');
     state.activeContracts.splice(contractIdx, 1);
     if (state.contractPool.length > 0) {
-        state.activeContracts.push(state.contractPool.shift());
+        state.activeContracts.push(_fresh(state.contractPool.shift()));
     }
     UIManager.updateContracts();
 }

@@ -45,6 +45,59 @@ GEOS.crystal.applyMatrix4(new THREE.Matrix4().makeScale(1, 2, 1));
 const _hexGeo = new THREE.CylinderGeometry(1.6, 1.6, 0.4, 6);
 _hexGeo.rotateY(Math.PI / 6);
 
+// Geometries and textures owned by the module and reused across every redraw.
+// A tile teardown must never dispose these — only the per-tile materials it
+// created. (textureCache entries are shared the same way and are only released
+// by cleanup().)
+const _SHARED_GEOS = new Set([...Object.values(GEOS), _hexGeo]);
+
+// Floating icons created *by drawTiles* — bobbing gems, shop signs, HQ stars and
+// space icons. Tracked separately from the permanent scenery icons built during
+// init() so a redraw can tear down exactly its own meshes. Before this existed,
+// drawTiles() cleared the `floatingIcons` tracking array without removing the
+// meshes from the scene, so every updateSingleTile() left a full set of frozen
+// duplicate icons behind and stopped the ambient scenery animating.
+const _tileIcons = [];
+
+// Register a drawTiles-owned floating icon.
+function _pushTileIcon(entry) {
+    _tileIcons.push(entry);
+    floatingIcons.push(entry);
+    return entry;
+}
+
+// Remove and release everything drawTiles() added last time round.
+function _clearTileObjects() {
+    tileMeshes.forEach(m => {
+        boardGrp.remove(m);
+        _disposeTree(m);
+    });
+    tileMeshes.length = 0;
+
+    _tileIcons.forEach(entry => {
+        const idx = floatingIcons.indexOf(entry);
+        if (idx >= 0) floatingIcons.splice(idx, 1);
+        // Group-owned icons are children of a tileMesh group already disposed above.
+        if (!entry.group && entry.mesh) {
+            boardGrp.remove(entry.mesh);
+            _disposeTree(entry.mesh);
+        }
+    });
+    _tileIcons.length = 0;
+}
+
+// Dispose an object's own GPU resources, skipping anything shared module-wide.
+function _disposeTree(root) {
+    if (!root || !root.traverse) return;
+    root.traverse(n => {
+        if (n.geometry && !_SHARED_GEOS.has(n.geometry)) {
+            try { n.geometry.dispose(); } catch (e) {}
+        }
+        const mats = Array.isArray(n.material) ? n.material : (n.material ? [n.material] : []);
+        mats.forEach(m => { try { m.dispose(); } catch (e) {} });   // .map is cached; left alone
+    });
+}
+
 // ---- Position computation ----
 // Arc points on a circle: count points exclusive of start/end
 function _arcPts(startDeg, endDeg, count, radius) {
@@ -754,12 +807,10 @@ function _getCachedTileTexture(spc, bInfo, overrideLabel, b) {
 // ---- Draw tiles ----
 
 export function drawTiles() {
-    tileMeshes.forEach(m => boardGrp.remove(m));
-    tileMeshes.length = 0;
+    _clearTileObjects();
 
     if (Array.isArray(state.board)) {
         // ---- HBD: integer-indexed array ----
-        floatingIcons.length = 0;
         const _gatePos = (state.hbd || HBD_DEFAULT_CONFIG).gatePos;
         state.board.forEach((b, i) => {
             const isGate = (i === _gatePos);
@@ -792,8 +843,6 @@ export function drawTiles() {
     }
 
     // ---- City Circuit: string-keyed object ----
-    floatingIcons.splice(4); // keep the 4 junction spheres at the front
-
     Object.entries(state.board).forEach(([nodeId, b]) => {
         if (JUNCTION_IDS.has(nodeId)) return;
         const graphNode = CITY_GRAPH[nodeId];
@@ -862,7 +911,7 @@ function _buildHBDGateMesh(idx, pos) {
         const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.45), gemMat);
         gem.position.set(x, 7.6, 0);
         gateGrp.add(gem);
-        floatingIcons.push({ mesh: gem, baseY: 7.6, speed: 1.1, phase: x > 0 ? Math.PI : 0, group: gateGrp });
+        _pushTileIcon({ mesh: gem, baseY: 7.6, speed: 1.1, phase: x > 0 ? Math.PI : 0, group: gateGrp });
     });
     boardGrp.add(gateGrp); tileMeshes.push(gateGrp);
 }
@@ -913,7 +962,7 @@ function _buildGateMesh(nodeId, pos) {
         const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.45), gemMat);
         gem.position.set(x, 7.6, 0);
         gateGrp.add(gem);
-        floatingIcons.push({ mesh: gem, baseY: 7.6, speed: 1.1, phase: x > 0 ? Math.PI : 0, group: gateGrp });
+        _pushTileIcon({ mesh: gem, baseY: 7.6, speed: 1.1, phase: x > 0 ? Math.PI : 0, group: gateGrp });
     });
     gateGrp.userData = { nodeId, type: '_gate' };
     boardGrp.add(gateGrp); tileMeshes.push(gateGrp);
@@ -941,7 +990,7 @@ function _buildShopMesh(nodeId, pos, district) {
     const awning = new THREE.Mesh(new THREE.BoxGeometry(3.6, 0.12, 1.8), awningMat); awning.position.set(0, 2.55, -0.2); awning.rotation.x = -0.18; shopGrp.add(awning);
     const signMat = new THREE.MeshPhysicalMaterial({ color: 0xfbbf24, emissive: 0xf59e0b, emissiveIntensity: 1.8, metalness: 0.9, roughness: 0.05 });
     const sign = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.1, 12), signMat); sign.position.set(0, 3.6, 0); sign.rotation.x = Math.PI / 2; shopGrp.add(sign);
-    floatingIcons.push({ mesh: sign, baseY: 3.6, speed: 1.6, phase: Math.random() * Math.PI * 2, group: shopGrp });
+    _pushTileIcon({ mesh: sign, baseY: 3.6, speed: 1.6, phase: Math.random() * Math.PI * 2, group: shopGrp });
     shopGrp.userData = { nodeId, type: '_shop' };
     boardGrp.add(shopGrp); tileMeshes.push(shopGrp);
 }
@@ -960,7 +1009,7 @@ function _buildHQMesh(nodeId, pos, district) {
     const star = new THREE.Mesh(new THREE.OctahedronGeometry(0.6), new THREE.MeshPhysicalMaterial({ color: 0xfbbf24, emissive: 0xfbbf24, emissiveIntensity: 3.0 }));
     star.position.set(0, 5.8, 0);
     hqGrp.add(star);
-    floatingIcons.push({ mesh: star, baseY: 5.8, speed: 1.2, phase: Math.random() * Math.PI * 2, group: hqGrp });
+    _pushTileIcon({ mesh: star, baseY: 5.8, speed: 1.2, phase: Math.random() * Math.PI * 2, group: hqGrp });
     hqGrp.userData = { nodeId, type: '_hq' };
     boardGrp.add(hqGrp); tileMeshes.push(hqGrp);
 }
@@ -973,7 +1022,7 @@ function _buildFloatingIcon(pos, spc, b) {
     iconMesh.position.copy(pos); iconMesh.position.y += 2.0;
     iconMesh.castShadow = true;
     boardGrp.add(iconMesh);
-    floatingIcons.push({ mesh: iconMesh, baseY: 2.0, speed: 1.4 + Math.random() * 0.6, phase: Math.random() * Math.PI * 2 });
+    _pushTileIcon({ mesh: iconMesh, baseY: 2.0, speed: 1.4 + Math.random() * 0.6, phase: Math.random() * Math.PI * 2 });
 }
 
 // ---- Character meshes ----
@@ -1847,8 +1896,10 @@ export function cleanup() {
     if (_CM) { Object.values(_CM).forEach(m => { try { m.dispose?.(); } catch(e){} }); _CM = null; }
     Object.values(textureCache).forEach(t => t.dispose());
     Object.keys(textureCache).forEach(k => delete textureCache[k]);
-    tileMeshes.forEach(m => { try { m.geometry?.dispose(); m.material?.map?.dispose(); m.material?.dispose(); } catch(e){} });
+    tileMeshes.forEach(m => _disposeTree(m));
     tileMeshes.length = 0;
+    _tileIcons.forEach(e => { if (!e.group) _disposeTree(e.mesh); });
+    _tileIcons.length = 0;
     floatingIcons.length = 0;
     activeAnims.length = 0;
     if (renderer) { renderer.dispose(); renderer = null; }

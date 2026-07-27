@@ -11,6 +11,7 @@
 //   This keeps speed identical on 60 Hz phones, 120 Hz tablets, and desktop browsers.
 import { state } from '../core/GameState.js';
 import { sfx, haptic } from '../engine/AudioManager.js';
+import { registerMinigameCleanup } from './MinigameManager.js';
 
 const ARENA_RADIUS   = 15;
 const SPHERE_RADIUS  = 1.5;
@@ -22,7 +23,7 @@ const BOUNCE_BASE    = 0.10;
 const BOUNCE_MULT    = 0.04;
 const MIN_ARENA_R    = 4.0;
 
-let _done = false, _onWin = null, _isBot = false;
+let _done = false, _onWin = null, _isBot = false, _botSkill = 0.55;
 let _overlay = null, _renderer = null, _scene = null, _camera = null;
 let _p1 = null, _p2 = null, _arenaMesh = null, _ringMesh = null;
 let _af = null, _startTime = 0, _currentArenaRadius = ARENA_RADIUS;
@@ -41,9 +42,10 @@ function _after(fn, ms) {
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
 
-export function start(isBot, onWin) {
+export function start(isBot, onWin, botSkill = 0.55) {
     if (!state.mgActive) return;
-    _done = false; _onWin = onWin; _isBot = isBot;
+    _done = false; _onWin = onWin; _isBot = isBot; _botSkill = botSkill;
+    registerMinigameCleanup(_destroy);
     _vel1 = new THREE.Vector3(); _vel2 = new THREE.Vector3();
     _input1 = new THREE.Vector2(); _input2 = new THREE.Vector2();
     _mom1 = 0; _mom2 = 0;
@@ -271,16 +273,21 @@ function _initThree() {
 
 function _botTick() {
     if (_done || !state.mgActive) return;
+    // §5 botSkill: a low-skill bot re-aims slowly, steers sloppily, and hugs the
+    // centre instead of committing to a ram; a high-skill bot chases hard.
+    const noise      = (1 - _botSkill) * 0.8;                 // 0.60 easy → 0.12 hard
+    const safeMargin = 0.45 + _botSkill * 0.25;               // hard rides closer to the rim
     if (!_falling.p2 && !_falling.p1) {
         const distToCenter = Math.sqrt(_p2.position.x**2 + _p2.position.z**2);
         let tx, tz;
-        if (distToCenter > _currentArenaRadius * 0.6) { tx = 0; tz = 0; }
+        if (distToCenter > _currentArenaRadius * safeMargin) { tx = 0; tz = 0; }
+        else if (Math.random() > _botSkill * 0.5 + 0.5) { tx = 0; tz = 0; }   // hesitates
         else { tx = _p1.position.x; tz = _p1.position.z; }
         const dx = tx - _p2.position.x, dz = tz - _p2.position.z;
         const d = Math.sqrt(dx*dx + dz*dz);
-        if (d > 0) _input2.set(dx/d + (Math.random()-.5)*.3, dz/d + (Math.random()-.5)*.3).normalize();
+        if (d > 0) _input2.set(dx/d + (Math.random()-.5)*noise, dz/d + (Math.random()-.5)*noise).normalize();
     }
-    _after(_botTick, 100);
+    _after(_botTick, 220 - _botSkill * 140);                  // 185 ms easy → 100 ms hard
 }
 
 // ── Game Loop ─────────────────────────────────────────────────────────────────
@@ -307,7 +314,7 @@ function _tick() {
             _shrinkWarned = true;
             const lbl = document.getElementById('sumo-shrink-label');
             if (lbl) { lbl.style.opacity = '1'; _after(() => { if (lbl) lbl.style.opacity = '0'; }, 2500); }
-            sfx('warning');
+            sfx('land_bad');
         }
         const progress = Math.min((elapsed - 30) / 15, 1.0);
         _currentArenaRadius = ARENA_RADIUS - (ARENA_RADIUS - MIN_ARENA_R) * progress;
@@ -344,7 +351,7 @@ function _tick() {
         const dist = delta.length();
         if (dist < SPHERE_RADIUS * 2) {
             haptic('heavy');
-            sfx('jump');
+            sfx('boost');
             const overlap = SPHERE_RADIUS * 2 - dist;
             const normal = delta.normalize();
             _p1.position.addScaledVector(normal,  overlap / 2);
