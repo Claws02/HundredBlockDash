@@ -34,7 +34,13 @@ const PER_GAME = parseInt(process.argv[2] || '45', 10);
     await page.goto(BASE, { waitUntil: 'domcontentloaded' });
     await page.addScriptTag({ content: AGENT });
     await page.waitForFunction(() => !!window.CITY_GRAPH_REF, null, { timeout: 20000 });
-    const types = await page.evaluate(() => window.__QA.bind());
+    let types = await page.evaluate(() => window.__QA.bind());
+    // QA_ONLY=a,b,c limits the sweep to named games — useful for re-running a
+    // long-clock game without paying for the whole roster.
+    if (process.env.QA_ONLY) {
+        const want = process.env.QA_ONLY.split(',').map(x => x.trim());
+        types = types.filter(t => want.includes(t));
+    }
 
     const results = [];
     for (const type of types) {

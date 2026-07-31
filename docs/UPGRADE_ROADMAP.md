@@ -30,6 +30,13 @@ Listed so the baseline is unambiguous. Detail in `QA_REPORT.md`.
 - TankClash uncaught TypeError on frame-0 fire input (QA-016)
 - **City Circuit match length: 6 / 12 / 20 rounds**, default Standard (DF-01)
 
+**Arcade expansion (second pass):**
+- Sumo Spheres and Tank Clash retuned for speed — see `MINIGAME_BACKLOG.md`
+- Duration floor and ceiling now enforced in code, closing DF-04 and DF-05
+- **Five new games, five new verbs: Tower Stack, Parry Duel, Circuit Trace,
+  Hot Streak, Keep Up.** Roster is now 20. Brainstorm and ranked backlog in
+  `docs/MINIGAME_BACKLOG.md`
+
 ---
 
 ## Tier 1 — The "why would I play again?" tier
@@ -146,19 +153,17 @@ modifiers on dice. Ship them as a toggleable "Character Powers" match option so
 the balanced mode stays available. Do **not** re-add anything that changes roll
 distributions.
 
-### 3.3 · Minigame duration guards
+### 3.3 · Minigame duration guards — ✅ partly done
 **Effort: S · Impact: Medium** *(DF-04, DF-05)*
 
-Two specific fixes:
-- **Floor.** TankClash can end in 4 seconds against a stationary opponent. Add a
-  respawn-grace or minimum-duration guard so nobody loses before they look up.
-- **Ceiling.** Six games rely on the 90-second tie watchdog when one side
-  disengages. Give each a real time limit inside the standard's 15–40 s window
-  that resolves on current score, so the watchdog is a bug indicator rather than
-  a routine code path.
+Done: Tank Clash has a 42 s cap that settles on HP plus a 900 ms post-hit mercy
+window (it could previously end in 4 s); Sumo Spheres now starts closing its
+arena at 22 s instead of 30 s; all five new games run on explicit clocks. The
+rule is written into `MINIGAME_STANDARD.md` §3 as an enforced floor and ceiling.
 
-Then add the shape of both to `MINIGAME_STANDARD.md` §3 — it already says "never
-design near that limit," it just isn't enforced.
+**Still open:** Rhythm Forge, Orb Deflect, Quick Draw, Freeze and Clear Out have
+no hard ceiling of their own and can still reach the manager's 90 s watchdog when
+one side disengages. Same fix — a clock that settles on the current score.
 
 ### 3.4 · A third map
 **Effort: L · Impact: Medium**

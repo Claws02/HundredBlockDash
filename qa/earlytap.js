@@ -3,7 +3,7 @@
 //
 // Every minigame attaches its input listeners synchronously in _build(), then
 // initialises game state inside a double requestAnimationFrame. A player who
-// taps the instant "GO!" appears lands in that gap. This launches all 15 games
+// taps the instant "GO!" appears lands in that gap. This launches every game
 // and hammers both halves from frame 0, then reports any uncaught error.
 //
 // This is how QA-016 (TankClash TypeError on tank.rotation) was found.
@@ -39,7 +39,11 @@ const BASE = process.env.QA_BASE || 'http://127.0.0.1:8129/index.html';
     await page.goto(BASE, { waitUntil: 'domcontentloaded' });
     await page.addScriptTag({ content: AGENT });
     await page.waitForFunction(() => !!window.CITY_GRAPH_REF, null, { timeout: 20000 });
-    const types = await page.evaluate(() => window.__QA.bind());
+    let types = await page.evaluate(() => window.__QA.bind());
+    if (process.env.QA_ONLY) {
+        const want = process.env.QA_ONLY.split(',').map(x => x.trim());
+        types = types.filter(t => want.includes(t));
+    }
 
     // Spam every corner of both halves for the first N frames after GO.
     const burst = async () => page.evaluate(() => new Promise(res => {
@@ -104,7 +108,7 @@ const BASE = process.env.QA_BASE || 'http://127.0.0.1:8129/index.html';
     const bad = rows.filter(r => r.errors.length);
     console.log('\n--- SUMMARY ---');
     console.log(bad.length ? 'games throwing on early input: ' + bad.map(r => r.type).join(', ')
-                           : 'all 15 games survive early input');
+                           : `all ${rows.length} games survive early input`);
     await browser.close();
     process.exit(bad.length ? 1 : 0);
 })();

@@ -118,8 +118,16 @@ coins, flashes the zones, and continues the turn.
 - **Comeback potential.** Avoid runaway leads. Prefer best-of-N rounds or
   most-points-in-T-seconds over first-to-X, so a slow start isn't fatal. Escalate
   difficulty across rounds rather than snowballing score.
-- **Length.** Target **15–40 seconds**. The manager force-ends at 90 s as a
-  safety net (a tie) — never design near that limit.
+- **Length.** Target **15–40 seconds**, and enforce both ends in code:
+  - **Ceiling.** Every game must resolve on its own. Either run on a fixed clock
+    that settles on the current score, or close the space down (Sumo Spheres
+    shrinks its arena; Tank Clash caps the match at 42 s and awards it on HP).
+    The manager force-ends at 90 s as a *safety net* — reaching it is a bug
+    signal, not a game rule, and it is the path where a force-ended game leaks
+    if it forgot `registerMinigameCleanup`.
+  - **Floor.** A game that can end in a few seconds robs a player who glanced
+    away. Where a single mistake is fatal, add a mercy window: Tank Clash grants
+    900 ms of invulnerability after each hit.
 
 ---
 
@@ -194,7 +202,7 @@ Criteria 7 and 8 are gated by §2 — if you followed the rules they're free.
 The roster should spread across verbs so the rotation feels fresh. Current
 shipped games and the target spread:
 
-The roster of **15** spreads across fifteen distinct verbs — no two games
+The roster of **20** spreads across twenty distinct verbs — no two games
 share one:
 
 | Category             | Verb / feel                   | Shipped              |
@@ -214,15 +222,23 @@ share one:
 | Collect / select     | catch the good, reject the bad| ✅ Loot Catch        |
 | Restraint / stealth  | move only when unwatched      | ✅ Freeze            |
 | Flick / clear        | slingshot discs off your side | ✅ Clear Out         |
+| Stack / align        | drop slabs, keep them square  | ✅ Tower Stack       |
+| Read / counter       | outguess the person, not the screen | ✅ Parry Duel  |
+| Trace / route        | follow a path without crashing| ✅ Circuit Trace     |
+| Risk / greed         | how far will you push?        | ✅ Hot Streak        |
+| Sustain / juggle     | keep it airborne, compounding | ✅ Keep Up           |
 
 **Curation rule:** the 40 files in `src/minigames/archived/` are a **design
 backlog, not a code backlog** — their imports and shared-DOM dependencies are
 dead. Mine them for *concepts*, then rebuild to this standard. Keep the archive
 for reference (do not delete).
 
-Future additions should target a *new* verb (e.g. trace-without-crashing,
-stealth/hold-still) rather than a second take on a filled category — and must
-still score ≥ 12/16 on §6 before shipping.
+Future additions should target a *new* verb rather than a second take on a
+filled category — and must still score ≥ 12/16 on §6 before shipping. Verbs the
+roster still has no entry for: **deduction** (narrow down a hidden answer from
+feedback), **territory** (claim and hold area), **routing** (connect endpoints
+under a constraint), **bluff/bid** (commit resources in secret), and
+**construction** (assemble to a spec against the clock).
 
 ---
 

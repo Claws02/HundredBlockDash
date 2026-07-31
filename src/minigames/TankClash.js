@@ -1,5 +1,6 @@
-// Tank Clash — Joystick to move/aim, tap right side to fire. First to 3 hits wins!
-// P1 holds the bottom, P2 holds the top (face-off). Obstacles for cover.
+// Tank Clash — Joystick to move/aim, tap right side to fire. First to 3 hits wins,
+// or most HP left when the 42 s clock runs out. A short mercy window after each
+// hit stops point-blank melts. P1 holds the bottom, P2 the top (face-off).
 //
 // ⚠️  SPEED / FRAME-RATE RULE (apply to every minigame):
 //   All movement values must be expressed as units-per-SECOND, not units-per-frame.
@@ -16,10 +17,23 @@ import { registerMinigameCleanup } from './MinigameManager.js';
 const ARENA_W      = 28;
 const ARENA_H      = 40;
 const TANK_RADIUS  = 1.2;
-const TANK_SPEED   = 3.0;    // world-units per second
+// ── Feel tuning ───────────────────────────────────────────────────────────────
+// At the original 3.0 u/s a tank needed 13 s to drive the 40-unit length of the
+// arena, which read as crawling and made cover useless — you could not reach it
+// before being shot. 8.0 u/s crosses the arena in 5 s and makes flanking a real
+// option. Bullets keep a >4× speed advantage so they still read as projectiles.
+const TANK_SPEED   = 8.0;    // world-units per second (was 3.0)
 const BULLET_R     = 0.55;
-const BULLET_SPEED = 27;     // world-units per second  (≈ 0.45 per frame at 60 fps)
-const FIRE_CD      = 700; // ms
+const BULLET_SPEED = 34;     // world-units per second (was 27)
+const FIRE_CD      = 600; // ms (was 700)
+// Post-hit mercy window. Without it, two point-blank shots could end the game in
+// ~4 s — below the 15 s floor in docs/MINIGAME_STANDARD.md §3 — and a player who
+// looked away lost before they looked back. (QA design finding DF-05.)
+const HIT_IFRAME   = 900; // ms of invulnerability after taking a hit
+// Hard ceiling. Without one, two cautious players could ride the manager's 90 s
+// tie watchdog — a bug indicator, not a game rule (docs/MINIGAME_STANDARD.md §3).
+// At the cap the player with more HP wins outright.
+const MATCH_TIME   = 42;  // seconds
 const JOY_R        = 50;  // joystick base radius px
 
 // Each map is an array of axis-aligned box obstacles { minX, maxX, minZ, maxZ }.
@@ -74,9 +88,10 @@ let _obstacles = MAPS[0]; // set per-round in start()
 let _done = false, _onWin = null, _isBot = false, _botSkill = 0.55;
 let _overlay = null, _renderer = null, _scene = null, _camera = null;
 let _tanks = [], _bullets = [], _hp = [3, 3], _lastFire = [0, 0];
+let _invulnUntil = [0, 0];   // performance.now() timestamps — post-hit mercy window
 let _input = [], _activeTouches = {};
 let _botWanderTarget = null;
-let _af = null, _lastTick = 0;
+let _af = null, _lastTick = 0, _elapsed = 0;
 const _cleanups = [];
 const _timers   = [];
 
@@ -92,12 +107,12 @@ export function start(isBot, onWin, botSkill = 0.55) {
     if (!state.mgActive) return;
     _done = false; _onWin = onWin; _isBot = isBot; _botSkill = botSkill;
     registerMinigameCleanup(_destroy);
-    _hp = [3, 3]; _lastFire = [0, 0];
+    _hp = [3, 3]; _lastFire = [0, 0]; _invulnUntil = [0, 0];
     _tanks = []; _bullets = []; _activeTouches = {};
     _obstacles = MAPS[Math.floor(Math.random() * MAPS.length)];
     _input = [new THREE.Vector2(), new THREE.Vector2()];
     _botWanderTarget = new THREE.Vector3();
-    _lastTick = 0;
+    _lastTick = 0; _elapsed = 0;
     _build();
     requestAnimationFrame(() => requestAnimationFrame(() => {
         _initThree();
@@ -435,6 +450,16 @@ function _tick(now) {
     // Delta-time capped at 100 ms so a tab-switch doesn't cause a huge jump
     const dt = _lastTick === 0 ? 1/60 : Math.min((now - _lastTick) / 1000, 0.1);
     _lastTick = now;
+    _elapsed += dt;
+
+    // Clock: surface it, and settle on HP when it expires.
+    const remain = Math.max(0, MATCH_TIME - _elapsed);
+    const neutral = document.getElementById('mg-neutral');
+    if (neutral) neutral.textContent = `${Math.ceil(remain)}s   P1 ${'|'.repeat(Math.max(0,_hp[0]))} · ${'|'.repeat(Math.max(0,_hp[1]))} P2`;
+    if (remain <= 0) {
+        _resolve(_hp[0] > _hp[1] ? 0 : _hp[1] > _hp[0] ? 1 : -1);
+        return;
+    }
 
     // Move tanks
     for (let i = 0; i < 2; i++) {
@@ -465,6 +490,14 @@ function _tick(now) {
         }
     }
 
+    // Blink whoever is inside their mercy window (visibility, not colour, is the cue)
+    for (let i = 0; i < 2; i++) {
+        if (!_tanks[i]) continue;
+        _tanks[i].visible = (_hp[i] > 0 && now < _invulnUntil[i])
+            ? Math.floor(now / 90) % 2 === 0
+            : true;
+    }
+
     // Move bullets
     for (let i = _bullets.length - 1; i >= 0; i--) {
         const b = _bullets[i];
@@ -490,10 +523,14 @@ function _tick(now) {
                 const dz = b.mesh.position.z - _tanks[t].position.z;
                 if (Math.sqrt(dx*dx + dz*dz) < TANK_RADIUS + BULLET_R) {
                     destroy = true;
+                    // Mercy window: the shot still stops, but it does no damage.
+                    if (now < _invulnUntil[t]) { sfx('shield'); break; }
+                    _invulnUntil[t] = now + HIT_IFRAME;
                     _hp[t]--;
                     _refreshHP();
                     sfx('land_bad'); haptic('heavy');
-                    // Flash white
+                    // Flash white, then blink for the rest of the mercy window so
+                    // the invulnerable state is legible without relying on colour.
                     _tanks[t].traverse(c => { if (c.material) c.material.emissive?.setHex(0xffffff); });
                     _after(() => {
                         if (_tanks[t]) _tanks[t].traverse(c => { if (c.material) c.material.emissive?.setHex(0x000000); });
@@ -553,25 +590,32 @@ function _botTick() {
     const len0 = Math.sqrt(dx0*dx0 + dz0*dz0) || 1;
 
     if (los) {
-        // §5 botSkill: aim error and trigger discipline both scale with skill.
-        // Easy sprays wide and hesitates; hard tracks tightly and fires on cooldown.
-        const aimErr = (1 - _botSkill) * 0.9 * (Math.random() + Math.random() - 1);
+        // §5 botSkill: aim error and trigger discipline scale with skill.
+        //
+        // NOTE the coupling: a hull faces the direction it is driving, so for this
+        // bot "aim" and "move" are the same vector — it can only point at you by
+        // driving at you. That makes the error scale very sensitive. The offset is
+        // added to a UNIT direction, so 0.30 is an angular error of ~12.7° at easy
+        // and ~2.6° at hard. At 0.9 (the old value) even the hard bot was ~7.7°
+        // off, which is wider than a tank at across-the-arena range — it could not
+        // land a hit on a stationary target in a whole match.
+        const aimErr = (1 - _botSkill) * 0.30 * (Math.random() + Math.random() - 1);
         const strafe = Math.random() < 0.3 ? (Math.random()-.5)*0.5 : 0;
         _input[1].set(dx0/len0 + strafe + aimErr, dz0/len0 + aimErr*0.5).normalize();
-        const fireGate  = FIRE_CD + 900 - _botSkill * 800;          // +900 ms easy → +100 ms hard
-        const willFire  = Math.random() < (0.35 + _botSkill * 0.6); // sometimes just doesn't shoot
+        const fireGate  = FIRE_CD + 500 - _botSkill * 430;           // ~992 ms easy → ~735 ms hard
+        const willFire  = Math.random() < (0.55 + _botSkill * 0.42); // sometimes just doesn't shoot
         if (willFire && performance.now() - _lastFire[1] > fireGate) _fire(1);
     } else {
-        // Navigate toward a wander point biased toward P1
+        // No firing line — go and get one. Bias hard toward P1 rather than drifting.
         if (Math.random() < 0.2 || bot.distanceTo(_botWanderTarget) < 3)
             _botWanderTarget.set((Math.random()-.5)*15, 0, (Math.random()-.5)*20);
-        const mx = p1.x*0.7 + _botWanderTarget.x*0.3 - bot.x;
-        const mz = p1.z*0.7 + _botWanderTarget.z*0.3 - bot.z;
+        const mx = p1.x*0.85 + _botWanderTarget.x*0.15 - bot.x;
+        const mz = p1.z*0.85 + _botWanderTarget.z*0.15 - bot.z;
         const ml = Math.sqrt(mx*mx + mz*mz) || 1;
         _input[1].set(mx/ml, mz/ml);
     }
 
-    _after(_botTick, 200 + Math.random()*200);
+    _after(_botTick, 110 + Math.random()*130);
 }
 
 // ── Win / Cleanup ─────────────────────────────────────────────────────────────
@@ -579,9 +623,12 @@ function _botTick() {
 function _resolve(winnerId) {
     if (_done) return;
     _done = true;
-    sfx('mg_win');
+    // winnerId may be -1 when the match clock expires on equal HP.
+    sfx(winnerId < 0 ? 'land_bad' : 'mg_win');
     const neutralEl = document.getElementById('mg-neutral');
-    if (neutralEl) neutralEl.textContent = winnerId === 0 ? 'P1 WINS!' : 'P2 WINS!';
+    if (neutralEl) neutralEl.textContent = winnerId < 0
+        ? `DRAW — ${_hp[0]} HP EACH`
+        : `P${winnerId + 1} WINS!`;
     _after(() => { _destroy(); _onWin(winnerId); }, 1200);
 }
 

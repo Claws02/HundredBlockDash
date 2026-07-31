@@ -1,5 +1,6 @@
 // Sumo Spheres — Drag your half to move. Knock the opponent off the arena!
-// P1 holds the bottom, P2 holds the top (face-off). Arena shrinks after 30s.
+// P1 holds the bottom, P2 holds the top (face-off). The arena starts closing in
+// at 22 s and is fully shrunk by 34 s, so a stand-off always gets resolved.
 //
 // ⚠️  SPEED / FRAME-RATE RULE (apply to every minigame):
 //   All movement values must be expressed as units-per-SECOND, not units-per-frame.
@@ -15,13 +16,24 @@ import { registerMinigameCleanup } from './MinigameManager.js';
 
 const ARENA_RADIUS   = 15;
 const SPHERE_RADIUS  = 1.5;
-const BASE_ACCEL     = 0.001;
-const MOMENTUM_GAIN  = 0.015;
+
+// ── Feel tuning ───────────────────────────────────────────────────────────────
+// Terminal speed ≈ BASE_ACCEL × MAX_MOMENTUM / (1 − FRICTION), in units/frame.
+// The original 0.001 accel topped out around 5 units/s, so crossing the 30-unit
+// arena took ~6 s and the spheres read as barely moving. It also took 5.5 s of
+// held input just to reach full momentum. Now: ~12 units/s top speed (≈2.5 s to
+// cross) and full momentum in ~1.5 s, while FRICTION stays at 0.94 to keep the
+// heavy, slidey sumo weight that makes the knockbacks land.
+const BASE_ACCEL     = 0.0024;   // was 0.001  — 2.4× top speed
+const MOMENTUM_GAIN  = 0.050;    // was 0.015  — full charge in ~1.5 s, not ~5.5 s
+const MOMENTUM_DECAY = 0.070;    // was 0.05   — lets go a touch more crisply
 const MAX_MOMENTUM   = 5.0;
 const FRICTION       = 0.94;
-const BOUNCE_BASE    = 0.10;
-const BOUNCE_MULT    = 0.04;
+const BOUNCE_BASE    = 0.13;     // was 0.10   — even a light nudge registers
+const BOUNCE_MULT    = 0.038;    // was 0.04   — trimmed so faster play isn't pinball
 const MIN_ARENA_R    = 4.0;
+const SHRINK_START   = 22;   // s before the arena starts closing (was 30)
+const SHRINK_DUR     = 12;   // s to fully close (was 15)
 
 let _done = false, _onWin = null, _isBot = false, _botSkill = 0.55;
 let _overlay = null, _renderer = null, _scene = null, _camera = null;
@@ -308,15 +320,17 @@ function _tick() {
 
     const elapsed = (now - _startTime) / 1000;
 
-    // Arena shrink (30s → 45s)
-    if (elapsed > 30 && _currentArenaRadius > MIN_ARENA_R) {
+    // Arena shrink. Starts at 22 s and completes by 34 s, so a stalemate is
+    // squeezed out inside the 15–40 s design window (docs/MINIGAME_STANDARD.md
+    // §3) instead of drifting toward the manager's 90 s tie watchdog.
+    if (elapsed > SHRINK_START && _currentArenaRadius > MIN_ARENA_R) {
         if (!_shrinkWarned) {
             _shrinkWarned = true;
             const lbl = document.getElementById('sumo-shrink-label');
             if (lbl) { lbl.style.opacity = '1'; _after(() => { if (lbl) lbl.style.opacity = '0'; }, 2500); }
             sfx('land_bad');
         }
-        const progress = Math.min((elapsed - 30) / 15, 1.0);
+        const progress = Math.min((elapsed - SHRINK_START) / SHRINK_DUR, 1.0);
         _currentArenaRadius = ARENA_RADIUS - (ARENA_RADIUS - MIN_ARENA_R) * progress;
         const s = _currentArenaRadius / ARENA_RADIUS;
         _arenaMesh.scale.set(s, 1, s);
@@ -326,9 +340,9 @@ function _tick() {
 
     // Momentum build / decay
     if (_input1.lengthSq() > 0 && !_falling.p1) _mom1 = Math.min(_mom1 + MOMENTUM_GAIN * f, MAX_MOMENTUM);
-    else _mom1 = Math.max(_mom1 - 0.05 * f, 0);
+    else _mom1 = Math.max(_mom1 - MOMENTUM_DECAY * f, 0);
     if (_input2.lengthSq() > 0 && !_falling.p2) _mom2 = Math.min(_mom2 + MOMENTUM_GAIN * f, MAX_MOMENTUM);
-    else _mom2 = Math.max(_mom2 - 0.05 * f, 0);
+    else _mom2 = Math.max(_mom2 - MOMENTUM_DECAY * f, 0);
 
     // Apply input acceleration
     if (!_falling.p1) { _vel1.x += _input1.x * BASE_ACCEL * _mom1 * f; _vel1.z += _input1.y * BASE_ACCEL * _mom1 * f; }
