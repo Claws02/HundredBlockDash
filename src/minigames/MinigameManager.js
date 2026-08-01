@@ -28,11 +28,6 @@ const MG_MODULES = {
     lootcatch:   () => import('./LootCatch.js'),
     freeze:      () => import('./Freeze.js'),
     clearout:    () => import('./ClearOut.js'),
-    towerstack:  () => import('./TowerStack.js'),
-    parryduel:   () => import('./ParryDuel.js'),
-    circuittrace:() => import('./CircuitTrace.js'),
-    hotstreak:   () => import('./HotStreak.js'),
-    keepup:      () => import('./KeepUp.js'),
 };
 
 let _controller   = null;
