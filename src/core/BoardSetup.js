@@ -7,7 +7,7 @@
 
 import { state } from './GameState.js';
 import { HBD_DEFAULT_CONFIG, getBiomeForSpace } from '../config/GameConfig.js';
-import { CITY_GRAPH } from '../config/BoardGraph.js';
+import { CITY_GRAPH, DISTRICT_POOLS } from '../config/BoardGraph.js';
 
 export function initCityBoard() {
     const pools = _buildPools();
@@ -25,8 +25,10 @@ export function initCityBoard() {
     });
 }
 
+// Shuffles the canonical per-district pools from BoardGraph. (These used to be
+// re-declared here as a private copy, so editing the board layout in one place
+// silently diverged from the other.)
 function _buildPools() {
-    const { DISTRICT_POOLS } = { DISTRICT_POOLS: _getDistrictPools() };
     const out = {};
     for (const [key, arr] of Object.entries(DISTRICT_POOLS)) {
         const pool = [...arr];
@@ -39,32 +41,6 @@ function _buildPools() {
     return out;
 }
 
-function _getDistrictPools() {
-    return {
-        ring: [
-            ...Array(5).fill('coin'), ...Array(3).fill('coin_big'),
-            ...Array(2).fill('trap'), ...Array(2).fill('lose'),
-            ...Array(2).fill('mystery'), ...Array(1).fill('boost'),
-            ...Array(1).fill('truce'), ...Array(1).fill('shortcut'),
-        ],
-        fin: [
-            ...Array(3).fill('coin_big'), ...Array(2).fill('lose_big'),
-            ...Array(1).fill('magnet'), ...Array(1).fill('duel'), ...Array(1).fill('coin'),
-        ],
-        ba: [
-            ...Array(3).fill('trap'), ...Array(2).fill('lose'),
-            ...Array(2).fill('magnet'), ...Array(2).fill('shortcut'), ...Array(1).fill('duel'),
-        ],
-        shop: [
-            ...Array(3).fill('mystery'), ...Array(2).fill('coin'),
-            ...Array(2).fill('coin_big'), ...Array(1).fill('duel'),
-        ],
-        ind: [
-            ...Array(1).fill('lose_big'), ...Array(1).fill('trap'),
-            ...Array(1).fill('cfwd'),     ...Array(1).fill('coin_big'), ...Array(1).fill('duel'),
-        ],
-    };
-}
 
 // ---- HBD board generation ----
 //

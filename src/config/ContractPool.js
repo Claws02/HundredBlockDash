@@ -3,7 +3,20 @@
 // Each contract: { id, icon, desc, reward, type, param }
 // type: 'visit_hq' | 'land_coin' | 'win_minigame' | 'enter_district'
 //       | 'use_item' | 'complete_circuit' | 'duel_win' | 'claim_ally'
+//
+// Every `type` below MUST have a matching checkContract() emitter in the game
+// code, or the contract is undealable-but-drawable and permanently clogs a
+// slot. Emitters live in GameController (movement/spaces/shops/HQs/gate/items),
+// Economy (block_space) and MinigameManager's result handler.
 // ============================================================
+
+// Contract types whose `param` is a target COUNT rather than a value to match.
+// Progress for these is tracked per player in `contract._prog[playerId]`.
+// Lives here (not in Contracts.js) so the UI can read it without creating a
+// UIManager ⇄ Contracts import cycle.
+export const COUNTED_TYPES = new Set([
+    'land_coin', 'land_coin_big', 'visit_shops', 'earn_coins_round', 'win_minigames',
+]);
 
 export const CONTRACT_POOL = [
     { id: 'c01', icon: '💹', desc: 'Visit the Financial HQ',        reward: 20, type: 'visit_hq',       param: 'fin'  },
@@ -28,7 +41,7 @@ export const CONTRACT_POOL = [
     { id: 'c20', icon: '🌀',  desc: 'Land on a Shortcut space',     reward: 11, type: 'land_type',      param: 'shortcut'   },
     { id: 'c21', icon: '🕊️',  desc: 'Land on a Truce space',        reward: 12, type: 'land_type',      param: 'truce'      },
     { id: 'c22', icon: '💥',  desc: 'Use a Double Die item',        reward: 12, type: 'use_item',       param: 'double_die' },
-    { id: 'c23', icon: '🏪',  desc: 'Visit 2 shops in one lap',     reward: 16, type: 'visit_shops',    param: 2     },
+    { id: 'c23', icon: '🏪',  desc: 'Visit 2 shops in one round',   reward: 16, type: 'visit_shops',    param: 2     },
     { id: 'c24', icon: '🔒',  desc: 'Break through the Gate',       reward: 18, type: 'open_gate',      param: null  },
     { id: 'c25', icon: '💸',  desc: 'Earn 20 coins in one round',   reward: 15, type: 'earn_coins_round', param: 20  },
 ];
