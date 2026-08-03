@@ -34,6 +34,11 @@ let _controller   = null;
 let _onComplete   = null;
 let _botTraceInt  = null;
 let _standaloneMode = false;
+// Practice runs the real game with the real bot, but nothing it produces counts:
+// no coins, no turn order, no board consequence. Set for both the arcade's
+// PRACTICE button and the "TRY IT FIRST" option on the in-match intro card.
+let _practiceMode   = false;
+let _practiceReturn = null;   // called when a practice round finishes
 let _countdownActive = false;
 let _countdownIv  = null;
 let _botReadyTimeout = null;
@@ -63,9 +68,32 @@ export function init(controller) {
     });
 }
 
+export function isPractice() { return _practiceMode; }
+
+// ---- Practice ----------------------------------------------------------------
+// Runs `mgType` with no stakes. `onDone` is called once the round is over so the
+// caller can put the player back where they were — the arcade grid, or the
+// pre-match intro card so they can then play it for real.
+export function triggerPractice(mgType, isBotOpponent, onDone) {
+    _practiceMode   = true;
+    _practiceReturn = onDone || null;
+    _standaloneMode = true;         // reuse the standalone teardown path
+    _onComplete     = () => {};
+
+    state.gameState   = 'MINIGAME_INTRO';
+    state.cameraState = 'MINIGAME';
+    state.mgType      = mgType;
+    state.players[1].isBot = !!isBotOpponent;
+
+    document.getElementById('mg-select-overlay').style.display = 'none';
+    document.getElementById('ui-layer').style.display = 'none';
+    _showIntroCard(mgType, true);
+}
+
 // ---- Standalone entry point (called from minigame selector on main screen) ----
 
-export function triggerStandalone(mgType) {
+export function triggerStandalone(mgType, isBotOpponent = false) {
+    _practiceMode = false;
     _standaloneMode = true;
     _onComplete = () => {
         document.getElementById('mg-select-overlay').style.display = 'flex';
@@ -74,9 +102,14 @@ export function triggerStandalone(mgType) {
     state.gameState   = 'MINIGAME_INTRO';
     state.cameraState = 'MINIGAME';
     state.mgType      = mgType;
-    state.players[1].isBot = false;
+    state.players[1].isBot = !!isBotOpponent;
 
     document.getElementById('mg-select-overlay').style.display = 'none';
+    _showIntroCard(mgType, false);
+}
+
+// Builds the intro card. `practice` adds the no-stakes banner.
+function _showIntroCard(mgType, practice) {
     document.getElementById('mg-intro-overlay').style.display  = 'flex';
     document.getElementById('mg-countdown').style.display      = 'none';
     document.getElementById('mg-page-info').style.display      = 'block';
@@ -85,15 +118,76 @@ export function triggerStandalone(mgType) {
 
     const info = MG_INFO[mgType];
     document.getElementById('mg-intro-icon').textContent  = info.icon;
-    document.getElementById('mg-intro-title').textContent = info.title;
+    document.getElementById('mg-intro-title').textContent = practice ? `${info.title} — PRACTICE` : info.title;
     document.getElementById('mg-intro-desc').textContent  = info.desc;
+    _setPracticeBanner(practice);
+    _setPracticeButton(false);
     document.getElementById('mg-step-0').classList.add('done');
     sfx('mg_start');
+}
+
+// "no stakes" strip on the intro card.
+function _setPracticeBanner(on) {
+    let el = document.getElementById('mg-practice-banner');
+    if (!on) { if (el) el.style.display = 'none'; return; }
+    if (!el) {
+        el = document.createElement('div');
+        el.id = 'mg-practice-banner';
+        el.className = 'mg-practice-banner';
+        const page = document.getElementById('mg-page-info');
+        page.insertBefore(el, page.firstChild);
+    }
+    el.textContent = '🎯 PRACTICE — nothing is at stake, play it as many times as you like';
+    el.style.display = 'block';
+}
+
+// "TRY IT FIRST" button on the in-match intro card.
+function _setPracticeButton(on) {
+    let btn = document.getElementById('btn-mg-practice');
+    if (!on) { if (btn) btn.style.display = 'none'; return; }
+    if (!btn) {
+        btn = document.createElement('button');
+        btn.id = 'btn-mg-practice';
+        btn.className = 'btn-close mg-practice-btn';
+        btn.addEventListener('pointerdown', e => {
+            e.preventDefault();
+            _startInMatchPractice();
+        });
+        const next = document.getElementById('btn-mg-intro-next');
+        next.parentNode.insertBefore(btn, next.nextSibling);
+    }
+    btn.textContent = '🎯 TRY IT FIRST (no stakes)';
+    btn.style.display = 'block';
+}
+
+// From the pre-match intro: play a no-stakes round, then come back to the card
+// so the real match can start when the player is ready.
+function _startInMatchPractice() {
+    const type = state.mgType;
+    const wasBot = state.players[1].isBot;
+    const resume = _onComplete;              // the real match's continuation
+    const wasStandalone = _standaloneMode;
+    triggerPractice(type, wasBot, () => {
+        // Restore the real match's hand-off and show the card again.
+        _practiceMode   = false;
+        _practiceReturn = null;
+        _standaloneMode = wasStandalone;
+        _onComplete     = resume;
+        state.gameState = 'MINIGAME_INTRO';
+        state.cameraState = 'MINIGAME';
+        state.mgType    = type;
+        state.players[1].isBot = wasBot;
+        _showIntroCard(type, false);
+        _setPracticeButton(true);
+        document.getElementById('mg-intro-overlay').style.display = 'flex';
+    });
 }
 
 // ---- Entry point called by GameController ----
 
 export function trigger(onComplete) {
+    _practiceMode = false;
+    _standaloneMode = false;
     _onComplete = onComplete;
     state.gameState  = 'MINIGAME_INTRO';
     state.cameraState = 'MINIGAME';
@@ -121,15 +215,16 @@ export function trigger(onComplete) {
             titleEl.textContent = info.title;
             document.getElementById('mg-intro-desc').textContent   = info.desc;
             document.getElementById('mg-step-0').classList.add('done');
+            _setPracticeBanner(false);
+            // Once the game is known, offer a no-stakes run of it first.
+            _setPracticeButton(true);
             sfx('mg_start');
         }
     }, 100);
 
-    if (state.players[1].isBot) {
-        setTimeout(() => {
-            if (state.gameState === 'MINIGAME_INTRO') { mgIntroNext(); setTimeout(launchMinigameUI, 800); }
-        }, 3000);
-    }
+    // The intro used to auto-advance after 3 s against the bot, which would blow
+    // straight past the practice offer. It now waits for the player to choose
+    // GOT IT or TRY IT FIRST — the countdown still runs itself after that.
 }
 
 // ---- Step 2: orientation screen ----
@@ -259,6 +354,7 @@ async function _launchGame() {
 const MINIGAME_TIE_REWARD = Math.floor(MINIGAME_REWARD / 2); // 5 coins each on tie
 
 export function winMinigame(winnerId) {
+    if (_practiceMode) return _finishPractice(winnerId);
     // Guard against double-resolution. Don't key this off state.mgActive:
     // most minigames clear mgActive in their own _finish() before calling
     // onWin, which previously made this early-return and strand the result.
@@ -315,6 +411,24 @@ export function winMinigame(winnerId) {
     }, 800);
 }
 
+// Practice teardown: show the result, award nothing, hand control back.
+function _finishPractice(winnerId) {
+    if (_resolving) return;
+    _resolving = true;
+    state.mgActive = false;
+    const neutral = document.getElementById('mg-neutral');
+    if (neutral) neutral.textContent = winnerId < 0
+        ? 'PRACTICE — DRAW (nothing at stake)'
+        : `PRACTICE — ${state.players[winnerId].name.toUpperCase()} WINS (nothing at stake)`;
+    sfx(winnerId < 0 ? 'land_bad' : 'mg_win');
+    const z = [document.getElementById('mg-p1'), document.getElementById('mg-p2')];
+    if (winnerId >= 0) z[winnerId]?.classList.add('mg-victory');
+    setTimeout(() => {
+        z.forEach(e => e?.classList.remove('mg-victory', 'mg-defeat'));
+        endMinigame(winnerId);
+    }, 1100);
+}
+
 export function endMinigame(winnerId) {
     clearTimeout(_minigameTimeout);
     _minigameTimeout = null;
@@ -323,6 +437,17 @@ export function endMinigame(winnerId) {
     _runMinigameCleanups();
     state.mgActive = false;
     document.getElementById('minigame-layer').style.display = 'none';
+
+    if (_practiceMode) {
+        // Practice never touches coins, turn order or the board.
+        const back = _practiceReturn;
+        _practiceMode = false; _practiceReturn = null; _standaloneMode = false;
+        state.gameState   = 'INIT';
+        state.cameraState = 'INIT';
+        if (back) back(winnerId);
+        else document.getElementById('mg-select-overlay').style.display = 'flex';
+        return;
+    }
 
     if (_standaloneMode) {
         _standaloneMode = false;

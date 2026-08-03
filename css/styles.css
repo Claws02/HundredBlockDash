@@ -1123,3 +1123,34 @@ body.reduce-motion .coin-particle { display: none !important; }
 @keyframes realmBannerIn { from { opacity: 0; transform: translateY(20px) scale(.92); } to { opacity: 1; transform: none; } }
 @keyframes floatY { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
 body.reduce-motion .hbd-story-crown, body.reduce-motion #realm-banner { animation: none !important; }
+
+/* ── Practice mode ───────────────────────────────────────────────────────────
+   Practice is deliberately styled as a *lower-stakes* sibling of PLAY: same
+   footprint, muted fill, so it reads as an option rather than the main action. */
+.mg-sel-footer { display: flex; gap: 10px; }
+.mg-sel-practice {
+    flex: 1 1 0; padding: 14px 10px; border: 2px solid rgba(96,165,250,.55);
+    border-radius: 14px; background: rgba(96,165,250,.12); color: #bfdbfe;
+    font-size: 19px; letter-spacing: 1px; cursor: pointer;
+    transition: transform .08s ease, background .15s ease;
+}
+.mg-sel-practice:active:not(:disabled) { transform: scale(.97); background: rgba(96,165,250,.24); }
+.mg-sel-practice:disabled { opacity: .35; cursor: default; }
+.mg-sel-footer .mg-sel-play { flex: 1 1 0; }
+.mg-sel-hint {
+    font-family: 'Nunito', system-ui, sans-serif; font-size: 12px;
+    color: rgba(255,255,255,.45); text-align: center; padding: 8px 18px 14px;
+}
+.mg-practice-banner {
+    font-family: 'Nunito', system-ui, sans-serif; font-size: 13px; font-weight: 700;
+    color: #93c5fd; background: rgba(96,165,250,.14);
+    border: 1px solid rgba(96,165,250,.4); border-radius: 10px;
+    padding: 8px 12px; margin: 0 auto 14px; max-width: 340px;
+}
+.mg-practice-btn {
+    margin-top: 10px; background: rgba(96,165,250,.14) !important;
+    border: 2px solid rgba(96,165,250,.5) !important; color: #bfdbfe !important;
+}
+
+/* Minigame-incoming banner reuses the realm-banner element. */
+#realm-banner .rb-tag { opacity: .8; }

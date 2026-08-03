@@ -5,9 +5,11 @@
 
 import { state } from '../core/GameState.js';
 import { ITEMS, ALLIES, SPACE_META, SPACE_DESCS, DISTRICT_BIOMES, HQ_META,
-         getActiveRealms, HBD_FINISH_BONUS, CITY_DEFAULT_ROUNDS } from '../config/GameConfig.js';
+         getActiveRealms, HBD_FINISH_BONUS, CITY_DEFAULT_ROUNDS,
+         hbdSpaceLabel, getRealmForSpace } from '../config/GameConfig.js';
 import { CITY_GRAPH, ALL_NODES_ORDERED, BRANCH_OPTIONS, JUNCTION_IDS, DISTRICT_NAMES } from '../config/BoardGraph.js';
 import { COUNTED_TYPES } from '../config/ContractPool.js';
+import { SCENE } from '../config/SceneTiming.js';
 import { getPos, getTileMeshes, setMapCameraTarget, mapCamera, onResize, getCamera } from '../engine/Renderer.js';
 
 let _controller = null;
@@ -68,10 +70,10 @@ export function updateUI() {
         // Ally HUD slots
         _updateAllySlots(i, p);
 
-        // Hundred Block Dash is a straight line — there is no map view to open,
-        // so hide the button rather than leaving a control that only ever toasts.
+        // The map view works on both boards, so the button is always available
+        // on your own turn. (It used to be a dead control on HBD.)
         const mapBtn = document.querySelector(`[data-map="${i}"]`);
-        if (mapBtn) mapBtn.style.display = state.selectedMap === 'hundred_block_dash' ? 'none' : '';
+        if (mapBtn) mapBtn.style.display = '';
 
         // Show Cabbie button if player has Cabbie ally and hasn't used it this round
         const cabbieBtn = document.querySelector(`[data-cabbie="${i}"]`);
@@ -324,6 +326,19 @@ export function showHbdStory(onBegin) {
     _storyWired = true;
 }
 
+// Fills the PRE_MINIGAME beat: says what is about to happen so the gap between
+// the turn's payoff and the minigame reads as a scene change, not a stall.
+export function announceMinigameIncoming() {
+    const el = document.getElementById('realm-banner');
+    if (!el) return;
+    el.innerHTML = '<div class="rb-ic">⚔️</div><div class="rb-name">MINIGAME NEXT</div>' +
+                   '<div class="rb-tag">Winner takes the coins — and rolls first</div>';
+    el.style.display = 'flex';
+    el.style.animation = 'none'; void el.offsetWidth; el.style.animation = '';
+    clearTimeout(el._hideTimer);
+    el._hideTimer = setTimeout(() => { el.style.display = 'none'; }, SCENE.PRE_MINIGAME);
+}
+
 export function showRealmBanner(realm) {
     const el = document.getElementById('realm-banner');
     if (!el || !realm) return;
@@ -331,7 +346,7 @@ export function showRealmBanner(realm) {
     el.style.display = 'flex';
     el.style.animation = 'none'; void el.offsetWidth; el.style.animation = '';
     clearTimeout(el._hideTimer);
-    el._hideTimer = setTimeout(() => { el.style.display = 'none'; }, 2400);
+    el._hideTimer = setTimeout(() => { el.style.display = 'none'; }, SCENE.REALM_BANNER);
 }
 
 // ---- Toasts ----
@@ -345,7 +360,7 @@ export function toast(msg, color) {
     el.style.color = color || '#fff';
     el.style.borderColor = color || 'rgba(255,255,255,0.4)';
     box.appendChild(el);
-    setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, 2600);
+    setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, SCENE.TOAST);
 }
 
 // ---- Space info card ----
@@ -356,30 +371,62 @@ export function showSpaceInfoCard(typeName, desc) {
     document.getElementById('sic-desc').textContent  = desc;
     card.style.display = 'flex';
     clearTimeout(card._hideTimer);
-    card._hideTimer = setTimeout(() => { card.style.display = 'none'; }, 3500);
+    card._hideTimer = setTimeout(() => { card.style.display = 'none'; }, SCENE.SPACE_CARD);
 }
 
 export function hideSpaceInfoCard() { document.getElementById('space-info-card').style.display = 'none'; }
 
 // ---- Map ----
 
+// True when the running board is the linear Hundred Block Dash track.
+function _isHBD() { return state.selectedMap === 'hundred_block_dash'; }
+
+// Highest slider index for the running board.
+function _mapMaxIndex() {
+    return _isHBD() ? ((state.hbd ? state.hbd.finish : 99)) : (ALL_NODES_ORDERED.length - 1);
+}
+
+// Slider index → the address the renderer and board use (number on HBD,
+// node-id string on City Circuit).
+function _mapAddress(idx) {
+    return _isHBD() ? idx : ALL_NODES_ORDERED[idx];
+}
+
+// Where the active player currently sits, as a slider index.
+function _playerMapIndex() {
+    const pos = state.players[state.activePlayer].pos;
+    if (_isHBD()) return typeof pos === 'number' ? pos : 0;
+    const i = ALL_NODES_ORDERED.indexOf(pos);
+    return i >= 0 ? i : 0;
+}
+
 export function openMap() {
-    if (state.selectedMap === 'hundred_block_dash') {
-        toast('No map view in Hundred Block Dash — just keep rolling!', '#60a5fa');
-        return;
-    }
     state.gameState  = 'MAP';
     state.cameraState = 'MAP';
     document.getElementById('ui-layer').style.display = 'none';
     document.getElementById('map-ui').style.display   = 'flex';
 
-    const playerPos = state.players[state.activePlayer].pos;
-    const posIdx    = ALL_NODES_ORDERED.indexOf(playerPos);
-    const slider    = document.getElementById('map-slider');
-    slider.max      = ALL_NODES_ORDERED.length - 1;
-    slider.value    = posIdx >= 0 ? posIdx : 0;
+    const posIdx = _playerMapIndex();
+    const slider = document.getElementById('map-slider');
+    slider.max   = _mapMaxIndex();
+    slider.value = posIdx;
+
+    // Track ends are labelled for the board you're actually on.
+    const labels = document.querySelector('.map-labels');
+    if (labels) {
+        labels.innerHTML = _isHBD()
+            ? '<span>START</span><span>REALMS</span><span>👑 CROWN</span>'
+            : '<span>START</span><span>DISTRICTS</span><span>LOOP</span>';
+    }
+    const title = document.querySelector('.map-title');
+    if (title) title.textContent = _isHBD() ? '🗺️ THE ROAD' : '🗺️ CITY MAP';
+    const hint = document.getElementById('map-drag-hint');
+    if (hint) hint.textContent = _isHBD()
+        ? '👆 Drag to scout the road ahead · Tap a block for details'
+        : '👆 Drag the 3D board to explore · Tap a tile for details';
+
     document.getElementById('map-tooltip').style.display = 'none';
-    setMapCameraTarget(posIdx >= 0 ? posIdx : 0, 50, 20);
+    setMapCameraTarget(_mapAddress(posIdx), _isHBD() ? 34 : 50, _isHBD() ? 26 : 20);
     updateMapSlider();
 }
 
@@ -394,12 +441,24 @@ export function closeMap() {
 }
 
 export function updateMapSlider() {
-    const val    = parseInt(document.getElementById('map-slider').value);
-    setMapCameraTarget(val, 40, 25);
+    const val = parseInt(document.getElementById('map-slider').value);
+    setMapCameraTarget(_mapAddress(val), _isHBD() ? 30 : 40, _isHBD() ? 22 : 25);
     document.getElementById('map-tooltip').style.display = 'none';
-    const nodeId = ALL_NODES_ORDERED[val];
-    const node   = nodeId ? CITY_GRAPH[nodeId] : null;
-    const label  = node ? (DISTRICT_BIOMES[node.district]?.name || DISTRICT_NAMES[node.district] || node.district) : '—';
+
+    let label;
+    if (_isHBD()) {
+        const realm  = getRealmForSpace(val);
+        const finish = state.hbd ? state.hbd.finish : 99;
+        const you    = _playerMapIndex();
+        const ahead  = val - you;
+        const rel    = ahead === 0 ? 'you are here'
+                     : ahead > 0   ? `${ahead} ahead`
+                                   : `${-ahead} behind`;
+        label = `${realm.icon} ${realm.name} · Block ${val}/${finish} · ${rel}`;
+    } else {
+        const node = CITY_GRAPH[ALL_NODES_ORDERED[val]];
+        label = node ? (DISTRICT_BIOMES[node.district]?.name || DISTRICT_NAMES[node.district] || node.district) : '—';
+    }
     document.getElementById('map-counter').textContent = label;
 }
 
@@ -441,16 +500,28 @@ function _wireMapEvents() {
         const hits = raycaster.intersectObjects(getTileMeshes());
         const tt   = document.getElementById('map-tooltip');
         if (hits.length > 0) {
-            const td     = hits[0].object.userData;
-            const nodeId = td.nodeId;
-            if (!nodeId) { tt.style.display = 'none'; return; }
-            const node   = CITY_GRAPH[nodeId];
-            const tile   = state.board[nodeId];
-            const type   = tile?.type || node?.type || 'coin';
-            const meta   = SPACE_META[type] || { ic: '❓', n: type, c: 0xffffff };
-            const cStr   = meta.c.toString(16).padStart(6, '0');
-            const dist   = node ? (DISTRICT_BIOMES[node.district]?.name || DISTRICT_NAMES[node.district] || '') : '';
-            tt.innerHTML = `<span style="color:#${cStr}">${meta.ic} ${meta.n}</span><br><span class="map-dist">${dist}</span>`;
+            const td = hits[0].object.userData;
+            // HBD tiles carry a numeric `idx`; City tiles carry a `nodeId`.
+            const addr = td.nodeId !== undefined ? td.nodeId : td.idx;
+            if (addr === undefined) { tt.style.display = 'none'; return; }
+            const tile = state.board[addr];
+            const node = typeof addr === 'string' ? CITY_GRAPH[addr] : null;
+            const type = tile?.type || node?.type || 'coin';
+            const meta = SPACE_META[type] || { ic: '❓', n: type, c: 0xffffff };
+            const cStr = meta.c.toString(16).padStart(6, '0');
+            let title, sub;
+            if (typeof addr === 'number') {
+                // Realm-flavoured name and the block number, so scouting ahead
+                // tells you something the board itself doesn't.
+                const lbl = hbdSpaceLabel(addr, type);
+                const realm = getRealmForSpace(addr);
+                title = `${lbl.icon} ${lbl.name}`;
+                sub   = `${realm.icon} ${realm.name} · Block ${addr}`;
+            } else {
+                title = `${meta.ic} ${meta.n}`;
+                sub   = node ? (DISTRICT_BIOMES[node.district]?.name || DISTRICT_NAMES[node.district] || '') : '';
+            }
+            tt.innerHTML = `<span style="color:#${cStr}">${title}</span><br><span class="map-dist">${sub}</span>`;
             tt.style.left = Math.min(Math.max(e.clientX, 120), W - 120) + 'px';
             tt.style.top  = Math.min(e.clientY, H - 80) + 'px';
             tt.style.display = 'block';

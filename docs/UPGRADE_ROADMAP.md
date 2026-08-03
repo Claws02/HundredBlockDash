@@ -38,6 +38,28 @@ Listed so the baseline is unambiguous. Detail in `QA_REPORT.md`.
   back to 15. Post-mortem and the revised selection test are in
   `docs/MINIGAME_BACKLOG.md`
 
+**Scene pacing & flow (third pass)** — full write-up in `docs/SCENE_PACING.md`:
+- **`SceneTiming.js` + `Director.js`**: every beat of a turn is named and has a
+  minimum dwell. A beat owns the screen until its floor elapses; the next one
+  cannot start early. Replaces ~30 anonymous `setTimeout` literals that let two
+  scenes render at once.
+- **The payoff beat now holds for 3 s** — measured; it previously had *no*
+  guaranteed screen time at all and the minigame hand-off overwrote it 300 ms
+  after CONTINUE.
+- **Dice settle fixed.** `angularDamping` 0.4 → 0.85: at 0.4 the spin decay
+  needed ~13 s to reach the sleep threshold, so the dice never settled and every
+  roll ran out the safety timeout. Measured median for the rolling beat was
+  **7.4 s**. Also raised physics `maxSubSteps` 3 → 6 so a slow device doesn't
+  run the simulation in slow motion.
+- **Crash fixed:** `readResult()` dereferenced `activeDice[0].mesh` with no
+  empty-array guard; caught live by the scene probe.
+- **The MAP button works on both boards.** `setMapCameraTarget` did a City-only
+  lookup for numeric indices, which is why it was disabled on Hundred Block
+  Dash. The map now shows realm, block number and distance to the player.
+- **Practice mode**: every minigame can be played with no stakes, from the
+  arcade (🎯 PRACTICE) or from the pre-match intro card (TRY IT FIRST). Verified
+  to leave coins, position, turn order and win counts untouched.
+
 ---
 
 ## Tier 1 — The "why would I play again?" tier

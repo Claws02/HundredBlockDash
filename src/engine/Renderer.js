@@ -1308,7 +1308,11 @@ const mapCam = {
 export const mapCamera = mapCam;
 
 export function setMapCameraTarget(nodeId, offsetY = 50, offsetZ = 30) {
-    const pt = typeof nodeId === 'string' ? getPos(nodeId) : (nodePositions.get(ALL_NODES_ORDERED[nodeId]) || new THREE.Vector3());
+    // getPos() already resolves both address spaces: a string is a City node id,
+    // a number is a Hundred Block Dash board index. The old numeric branch went
+    // through ALL_NODES_ORDERED (City-only), so on HBD it aimed the map camera at
+    // an unrelated city node — which is why the map view was disabled there.
+    const pt = getPos(nodeId);
     mapCam.targetPos.copy(pt).add(new THREE.Vector3(0, offsetY, offsetZ));
     mapCam.targetLook.copy(pt);
     mapCam.dragCamStart.copy(mapCam.targetPos);

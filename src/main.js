@@ -186,6 +186,7 @@ function _populateMgGrid() {
             card.classList.add('sel');
             _selectedMgType = type;
             document.getElementById('btn-mg-select-play').disabled = false;
+            document.getElementById('btn-mg-select-practice').disabled = false;
         });
         grid.appendChild(card);
     });
@@ -194,6 +195,7 @@ function _populateMgGrid() {
 document.getElementById('btn-minigames').addEventListener('click', () => {
     _selectedMgType = null;
     document.getElementById('btn-mg-select-play').disabled = true;
+    document.getElementById('btn-mg-select-practice').disabled = true;
     _populateMgGrid();
     document.getElementById('splash').style.display = 'none';
     document.getElementById('mg-select-overlay').style.display = 'flex';
@@ -207,4 +209,13 @@ document.getElementById('btn-mg-select-back').addEventListener('click', () => {
 document.getElementById('btn-mg-select-play').addEventListener('click', () => {
     if (!_selectedMgType) return;
     MinigameManager.triggerStandalone(_selectedMgType);
+});
+
+// Practice: the same game against the bot, but nothing is at stake. Returns to
+// the arcade grid so the player can go again immediately.
+document.getElementById('btn-mg-select-practice').addEventListener('click', () => {
+    if (!_selectedMgType) return;
+    MinigameManager.triggerPractice(_selectedMgType, true, () => {
+        document.getElementById('mg-select-overlay').style.display = 'flex';
+    });
 });

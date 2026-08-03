@@ -56,6 +56,11 @@ window.__QA = (function () {
         REG = await import('/src/config/MinigameRegistry.js');
         return REG.MG_TYPES.slice();
     }
+    // When false, the agent stops tapping through the *bot's* result cards, so a
+    // timing probe can measure the dwell the game actually guarantees.
+    let autoAck = true;
+    function setAutoAckResults(v) { autoAck = !!v; }
+
     // Board-loop mode: after `ms` of genuine play, force the minigame to resolve so
     // full board games finish inside a test budget. Minigames get their own runs.
     let mgFastMs = 0, mgStartedAt = 0, mgLast = '';
@@ -70,7 +75,8 @@ window.__QA = (function () {
             round: S.currentRound, map: S.selectedMap, mgType: S.mgType, mgActive: S.mgActive,
             gateOpen: S.gateOpen, allyOnMap: S.allyOnMap && S.allyOnMap.allyType,
             contracts: (S.activeContracts || []).map(c => c.id + ':' + (c._progress || 0)),
-            p: p.map(x => ({ pos: x.pos, coins: x.coins, inv: x.inv.slice(),
+            activeIsBot: !!p[S.activePlayer].isBot,
+            p: p.map(x => ({ pos: x.pos, coins: x.coins, inv: x.inv.slice(), isBot: !!x.isBot,
                              allies: x.allies.map(a => a.type + '/' + a.turnsRemaining),
                              mgWins: x.mgWins })),
         };
@@ -201,7 +207,13 @@ window.__QA = (function () {
             return tap(byId('btn-close-shop'), 'leave shop') && 'SHOP_LEAVE';
         }
         if (visId('pass-modal')) return tap(byId('btn-resolve-pass'), 'pass ready') && 'PASS';
-        if (visId('msg-modal')) return tap(byId('btn-msg-continue'), 'msg continue') && 'MSG';
+        if (visId('msg-modal')) {
+            // With autoAck off, leave the bot's result card alone so its full
+            // dwell can be measured. A human doesn't have to tap it either — it
+            // times out on its own.
+            if (!autoAck && S.players[S.activePlayer] && S.players[S.activePlayer].isBot) return 'MSG_WAIT';
+            return tap(byId('btn-msg-continue'), 'msg continue') && 'MSG';
+        }
 
         // 6. Map view open -> close
         if (visId('map-ui')) return tap(byId('btn-close-map'), 'close map') && 'MAP_CLOSE';
@@ -272,7 +284,7 @@ window.__QA = (function () {
     }
 
     return {
-        bind, step, snapshot, startRun, setMinigameFastResolve, launchArcade,
+        bind, step, snapshot, startRun, setMinigameFastResolve, launchArcade, setAutoAckResults,
         // Scene-graph / GPU-object census — used to prove or disprove leak claims.
         sceneCensus: async () => {
             const R = await import('/src/engine/Renderer.js');
