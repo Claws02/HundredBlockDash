@@ -210,3 +210,42 @@ table, and two of them (the dice, the crash) were invisible in code review.
 consistent gaps. The probe drives the game at machine pace with an agent that
 taps the instant it can — it measures what the game *permits*, not what a person
 experiences. That part needs a human with the phone.
+
+## Reading a message from both sides of the table
+
+Tabletop mode lays the phone flat between two people facing each other, so
+exactly one of them can read any given card. `src/ui/DualRead.js` splits every
+message by *whose information it is*, because the two kinds want opposite
+treatments.
+
+| Tier | What it covers | Tabletop | Pass-and-play / 1P |
+|---|---|---|---|
+| **SHARED** | minigame rules, minigame outcome, gate result, the crown, realm banners, "minigame next" | drawn twice, top copy rotated 180° | one full-size card |
+| **OWNER** | space results, item pickups, shop, inventory, duel bets | full card for the turn-taker + a mirrored headline strip on the opponent's edge | one full-size card |
+
+Two rules follow from the split:
+
+- **A mirrored card carries no ⟳ button.** Both players can already read it; a
+  control that visibly does nothing is worse than no control. Everything else
+  gets one — including every card in pass-and-play and 1P, where the phone is
+  handed around.
+- **Shared *rules* need both confirmations.** The minigame explanation is the
+  one card where one player tapping through hurts the other, so in tabletop each
+  side has its own GOT IT and the intro only advances when both have pressed.
+  Every other card is a single confirm.
+
+Call sites opt in with `ModalManager.showMessage(title, desc, icon, { tier })`.
+The default is `'owner'`, which is what the great majority of them are.
+
+### Implementation notes
+
+- The mirrored copy is a static `innerHTML` snapshot. Its ids are demoted to
+  `data-mirror-id` on every snapshot — a duplicated id would make every
+  `getElementById` in the game resolve to the copy, since the mirror sits
+  *before* the original in document order.
+- Presses on the copy are forwarded to the real element: a `pointerdown` first,
+  then a `click` only if nothing consumed it. Handlers in this codebase are
+  split between the two styles and this way neither fires twice.
+- Card rotation goes through the `--card-rot` custom property so the
+  whose-turn-is-it flip and the manual ⟳ flip compose instead of overwriting
+  each other.

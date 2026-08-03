@@ -10,6 +10,7 @@ import * as Bot from '../core/Bot.js';
 import { MG_TYPES, MG_INFO, MG_ORIENTATIONS, MG_ORIENTATION_MAP } from '../config/MinigameRegistry.js';
 import { MINIGAME_REWARD } from '../config/GameConfig.js';
 import { sfx, haptic } from '../engine/AudioManager.js';
+import * as DualRead from '../ui/DualRead.js';
 
 // Lazy-loaded minigame modules
 const MG_MODULES = {
@@ -45,12 +46,19 @@ let _botReadyTimeout = null;
 let _minigameTimeout = null;
 let _resolving = false;   // true once a minigame's result is being finalised
 const _minigameCleanups = [];
+// Dual confirm on the rules card: in tabletop mode BOTH players have to press
+// GOT IT before the intro advances. Without this the active player could tap
+// straight through the explanation of a game the other one has never seen.
+let _introReady = [false, false];
 
 export function init(controller) {
     _controller = controller;
     document.getElementById('mg-ready-1').addEventListener('pointerdown', e => { e.preventDefault(); setReady(0); });
     document.getElementById('mg-ready-2').addEventListener('pointerdown', e => { e.preventDefault(); setReady(1); });
-    document.getElementById('btn-mg-intro-next').addEventListener('pointerdown', e => { e.preventDefault(); mgIntroNext(); });
+    document.getElementById('btn-mg-intro-next').addEventListener('pointerdown', e => {
+        e.preventDefault();
+        _confirmIntro(DualRead.pressedSide());
+    });
     document.getElementById('btn-mg-launch').addEventListener('pointerdown', e => { e.preventDefault(); launchMinigameUI(); });
 
     const blockBrowserGestures = e => {
@@ -108,6 +116,67 @@ export function triggerStandalone(mgType, isBotOpponent = false) {
     _showIntroCard(mgType, false);
 }
 
+// ---- Dual read: the rules card is a SHARED beat ---------------------------
+//
+// Both players are about to play this game, so in tabletop mode the card is
+// drawn twice (top copy rotated) and BOTH have to press GOT IT before the intro
+// advances. Anywhere else it is one card with one button, exactly as before.
+
+function _presentIntroCard() {
+    const card = document.getElementById('mg-page-info');
+    if (!card) return;
+    const dual = DualRead.isMirrorMode();
+    _paintIntroConfirm(card, 0, dual, false);
+    DualRead.present(card, {
+        tier: 'shared',
+        // The two copies show different text: each side tracks its own player.
+        decorate: m => _paintIntroConfirm(m, 1, dual, true),
+    });
+}
+
+// `side` 0 is the real card at Player 1's edge, 1 is the mirrored copy at
+// Player 2's. `isMirror` says which DOM we are painting — the mirror's ids have
+// been demoted to data-mirror-id so they cannot shadow the real elements.
+function _paintIntroConfirm(root, side, dual, isMirror) {
+    const q = id => isMirror ? root.querySelector(`[data-mirror-id="${id}"]`)
+                             : document.getElementById(id);
+    const btn = q('btn-mg-intro-next');
+    let note  = q('mg-intro-ready-note');
+    if (!dual) {
+        if (btn) { btn.textContent = 'GOT IT →'; btn.classList.remove('dual-done'); }
+        if (note) note.style.display = 'none';
+        return;
+    }
+    if (!note && !isMirror && btn) {
+        note = document.createElement('div');
+        note.id = 'mg-intro-ready-note';
+        note.className = 'dual-ready-note';
+        btn.parentNode.insertBefore(note, btn.nextSibling);
+    }
+    const me = _introReady[side], them = _introReady[1 - side];
+    if (btn) {
+        btn.textContent = me ? '✓ READY' : 'GOT IT →';
+        btn.classList.toggle('dual-done', me);
+    }
+    if (note) {
+        note.style.display = '';
+        note.textContent = me
+            ? (them ? 'Both ready!' : 'Waiting for the other player…')
+            : 'Both players tap once you have read it';
+    }
+}
+
+function _confirmIntro(side) {
+    if (!DualRead.isMirrorMode()) { mgIntroNext(); return; }
+    _introReady[side] = true;
+    if (_introReady[0] && _introReady[1]) {
+        _introReady = [false, false];
+        mgIntroNext();
+        return;
+    }
+    _presentIntroCard();   // repaint both sides and re-snapshot the mirror
+}
+
 // Builds the intro card. `practice` adds the no-stakes banner.
 function _showIntroCard(mgType, practice) {
     document.getElementById('mg-intro-overlay').style.display  = 'flex';
@@ -123,6 +192,8 @@ function _showIntroCard(mgType, practice) {
     _setPracticeBanner(practice);
     _setPracticeButton(false);
     document.getElementById('mg-step-0').classList.add('done');
+    _introReady = [false, false];
+    _presentIntroCard();
     sfx('mg_start');
 }
 
@@ -158,6 +229,7 @@ function _setPracticeButton(on) {
     }
     btn.textContent = '🎯 TRY IT FIRST (no stakes)';
     btn.style.display = 'block';
+    DualRead.refresh(document.getElementById('mg-page-info'));
 }
 
 // From the pre-match intro: play a no-stakes round, then come back to the card
@@ -179,6 +251,7 @@ function _startInMatchPractice() {
         state.players[1].isBot = wasBot;
         _showIntroCard(type, false);
         _setPracticeButton(true);
+        _presentIntroCard();          // the practice button changed the card
         document.getElementById('mg-intro-overlay').style.display = 'flex';
     });
 }
@@ -218,6 +291,8 @@ export function trigger(onComplete) {
             _setPracticeBanner(false);
             // Once the game is known, offer a no-stakes run of it first.
             _setPracticeButton(true);
+            _introReady = [false, false];
+            _presentIntroCard();
             sfx('mg_start');
         }
     }, 100);
@@ -230,10 +305,15 @@ export function trigger(onComplete) {
 // ---- Step 2: orientation screen ----
 
 function mgIntroNext() {
-    document.getElementById('mg-page-info').style.display = 'none';
+    const info = document.getElementById('mg-page-info');
+    info.style.display = 'none';
+    DualRead.unmirror(info);          // its copy must not outlive it
     document.getElementById('mg-page-hold').style.display = 'block';
     document.getElementById('mg-step-1').classList.add('done');
     _renderOrientationDiagram(state.mgType);
+    // "We're ready" is already a both-of-you prompt, so it mirrors but keeps a
+    // single confirm.
+    DualRead.present(document.getElementById('mg-page-hold'), { tier: 'shared' });
 }
 
 function _renderOrientationDiagram(mgTypeKey) {
@@ -257,6 +337,7 @@ function _renderOrientationDiagram(mgTypeKey) {
 // ---- Step 3: launch the actual game ----
 
 function launchMinigameUI() {
+    DualRead.clearAll();
     document.getElementById('mg-page-hold').style.display  = 'none';
     document.getElementById('mg-step-2').classList.add('done');
     document.getElementById('mg-intro-overlay').style.display = 'none';

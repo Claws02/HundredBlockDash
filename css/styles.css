@@ -114,7 +114,9 @@ body, html {
 /* Tabletop mode: flip center UI and the 3D canvas when P2 is the active player */
 .tabletop-p2-turn #game-container canvas { transform: rotate(180deg); }
 .tabletop-p2-turn #toast-box { transform: translate(-50%, -50%) rotate(180deg); }
-.tabletop-p2-turn .modal-box { transform: rotate(180deg); }
+/* .modal-box, #mg-page-info and #mg-page-hold are rotated through the
+   --card-rot custom property instead (see the DUAL READ block at the end of
+   this file), so the turn-flip and the manual ⟳ flip can compose. */
 .tabletop-p2-turn #space-info-card { bottom: auto; top: calc(var(--hud-h) + 90px); transform: translateX(-50%) rotate(180deg); }
 .tabletop-p2-turn #swipe-zone { transform: rotate(180deg); }
 .tabletop-p2-turn #gate-overlay > * { transform: rotate(180deg); }
@@ -125,7 +127,6 @@ body, html {
 .tabletop-p2-turn #branch-choice-overlay > *,
 .tabletop-p2-turn #realm-banner > *,
 .tabletop-p2-turn #hbd-story-overlay > *,
-.tabletop-p2-turn #mg-intro-overlay #mg-page-info,
 .tabletop-p2-turn #mg-intro-overlay #mg-intro-steps,
 .tabletop-p2-turn .map-panel,
 .tabletop-p2-turn #map-tooltip,
@@ -1255,3 +1256,134 @@ body.reduce-motion .hbd-story-crown, body.reduce-motion #realm-banner { animatio
 #win-screen.portrait .win-inner { overflow-y: auto; justify-content: flex-start; padding-bottom: 24px; }
 #win-screen.portrait .win-body { flex: 0 0 auto; }
 #win-screen.portrait #win-chart { min-height: 200px; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   DUAL READ — both players reading the same message
+   See src/ui/DualRead.js for the tier split this implements.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── The ⟳ flip button, and the rotation it drives ──────────────────────────
+   Card rotation goes through a custom property so the tabletop turn-flip and
+   the manual flip compose instead of overwriting each other. Order matters:
+   .modal-box.flipped and .tabletop-p2-turn .modal-box tie on specificity, so
+   the manual flip is declared last and the tabletop+flipped pair last of all. */
+.modal-box { transform: rotate(var(--card-rot, 0deg)); transition: transform .32s cubic-bezier(.22,.9,.3,1); }
+.tabletop-p2-turn .modal-box { --card-rot: 180deg; }
+.modal-box.flipped { --card-rot: 180deg; }
+.tabletop-p2-turn .modal-box.flipped { --card-rot: 0deg; }
+
+#mg-page-info, #mg-page-hold { transform: rotate(var(--card-rot, 0deg)); transition: transform .32s cubic-bezier(.22,.9,.3,1); }
+.tabletop-p2-turn #mg-intro-overlay #mg-page-info,
+.tabletop-p2-turn #mg-intro-overlay #mg-page-hold { --card-rot: 180deg; }
+#mg-page-info.flipped, #mg-page-hold.flipped { --card-rot: 180deg; }
+.tabletop-p2-turn #mg-intro-overlay #mg-page-info.flipped,
+.tabletop-p2-turn #mg-intro-overlay #mg-page-hold.flipped { --card-rot: 0deg; }
+
+.card-flip-btn {
+    position: absolute; top: 8px; right: 10px; z-index: 4;
+    width: 34px; height: 34px; padding: 0; line-height: 1;
+    border-radius: 10px; cursor: pointer;
+    background: rgba(255,255,255,.09);
+    border: 1px solid rgba(255,255,255,.26);
+    color: rgba(255,255,255,.82); font-size: 18px;
+    display: flex; align-items: center; justify-content: center;
+    transition: background .15s, transform .15s;
+}
+.card-flip-btn:active { transform: scale(.92); background: rgba(255,255,255,.18); }
+/* The cards the button sits inside need to be a positioning context. */
+.modal-box, #mg-page-info, #mg-page-hold { position: relative; }
+
+/* ── The "you can flip this" note, first few cards only ──────────────────── */
+.flip-hint {
+    display: none; align-items: center; gap: 7px;
+    margin: 12px auto 0; padding: 7px 11px; max-width: 300px;
+    border-radius: 10px;
+    background: rgba(245,200,66,.13);
+    border: 1px solid rgba(245,200,66,.4);
+    color: rgba(255,255,255,.88);
+    font-family: 'Nunito', system-ui, sans-serif; font-size: 12px; line-height: 1.35;
+    text-align: left;
+    animation: fadeSlideUp .4s ease backwards;
+}
+.flip-hint .fh-arrow { font-size: 15px; color: var(--gold); flex: 0 0 auto; }
+.flip-hint b { color: var(--gold); }
+
+/* ── SHARED tier: the mirrored copy ─────────────────────────────────────────
+   The container becomes a column and the copy sits above the original, rotated
+   180°, so the player at the far edge reads their copy the right way up. */
+#modal-overlay.dual-mode { flex-direction: column; gap: 10px; padding: 10px 0; }
+#mg-intro-content.dual-mode { display: flex; flex-direction: column; gap: 10px; }
+.dual-mirror { transform: rotate(180deg); }
+/* Mirrored pairs must ignore the whose-turn-is-it flip: one copy always faces
+   each player regardless of who is acting. */
+.tabletop-p2-turn .modal-box.dual-host,
+.tabletop-p2-turn #mg-intro-overlay #mg-page-info.dual-host,
+.tabletop-p2-turn #mg-intro-overlay #mg-page-hold.dual-host { --card-rot: 0deg; }
+/* Two copies share the height, so the card has to give some back. */
+#modal-overlay.dual-mode .modal-box,
+#modal-overlay.dual-mode .dual-mirror { max-height: 46vh; padding: 16px 20px; }
+#modal-overlay.dual-mode .m-title { font-size: 24px; margin-bottom: 5px; }
+#modal-overlay.dual-mode .m-desc  { font-size: 14px; margin-bottom: 13px; }
+#modal-overlay.dual-mode .modal-box > div:first-of-type { font-size: 34px !important; margin-bottom: 4px !important; }
+#modal-overlay.dual-mode .btn-close { padding: 9px 22px; font-size: 16px; }
+#mg-intro-content.dual-mode .mg-intro-title { font-size: 34px; margin-bottom: 7px; }
+#mg-intro-content.dual-mode .mg-intro-desc  { font-size: 13px; margin-bottom: 11px !important; line-height: 1.4; }
+#mg-intro-content.dual-mode #mg-intro-icon,
+#mg-intro-content.dual-mode .dual-mirror > div:first-child { font-size: 32px !important; margin-bottom: 4px !important; }
+#mg-intro-content.dual-mode .btn-close { padding: 8px 20px; font-size: 15px; }
+/* The diagram is 110×210 with absolutely-positioned parts, so it is scaled
+   rather than resized; the wrap is given the scaled height so the layout
+   actually gets the space back. */
+#mg-intro-content.dual-mode .phone-diagram-wrap { margin: 8px auto !important; height: 132px; overflow: hidden; }
+#mg-intro-content.dual-mode .phone-diagram { transform: scale(.6); flex: 0 0 auto; }
+#mg-intro-content.dual-mode .orient-name { font-size: 26px; }
+#mg-intro-content.dual-mode .orient-instructions { font-size: 11px; margin: 6px auto 10px; }
+#mg-intro-content.dual-mode .mg-practice-banner { font-size: 11px; }
+
+/* Caption overlays with no buttons (realm banner, "minigame next"). */
+.dual-cap { display: flex; flex-direction: column; align-items: center; }
+.dual-cap.mirror { transform: rotate(180deg); margin-bottom: 26px; }
+/* A mirrored banner already faces both ways — don't turn the pair as a unit. */
+.tabletop-p2-turn #realm-banner > .dual-cap { transform: none; }
+.tabletop-p2-turn #realm-banner > .dual-cap.mirror { transform: rotate(180deg); }
+
+/* ── OWNER tier: the opponent's headline strip ───────────────────────────── */
+.opp-ticker {
+    position: fixed; left: 50%; z-index: 260;
+    display: none; align-items: center; gap: 9px;
+    max-width: 88vw; padding: 8px 15px;
+    border-radius: 13px;
+    background: rgba(12, 8, 26, .95);
+    border: 1px solid rgba(255,255,255,.2);
+    box-shadow: 0 10px 28px rgba(0,0,0,.7);
+    pointer-events: none;
+    animation: fadeSlideUp .3s ease backwards;
+}
+.opp-ticker .ot-ic { font-size: 21px; flex: 0 0 auto; }
+.opp-ticker .ot-tx {
+    font-family: 'Nunito', system-ui, sans-serif; font-size: 13px; font-weight: 800;
+    color: rgba(255,255,255,.92); letter-spacing: .3px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* Player 2 sits at the top of the device, Player 1 at the bottom. The strip
+   goes on whichever edge the *opponent* is at, facing them. */
+.opp-ticker.at-top    { top: calc(var(--hud-h) + 10px);    transform: translateX(-50%) rotate(180deg); }
+.opp-ticker.at-bottom { bottom: calc(var(--hud-h) + 10px); transform: translateX(-50%); }
+
+/* ── Dual confirm: each side reports its own readiness ───────────────────── */
+.dual-ready-note {
+    font-family: 'Nunito', system-ui, sans-serif; font-size: 12px;
+    color: rgba(255,255,255,.6); margin-top: 8px; min-height: 15px;
+}
+.btn-close.dual-done {
+    background: rgba(74,222,128,.16) !important;
+    border-color: rgba(74,222,128,.6) !important;
+    color: #4ade80 !important;
+}
+
+/* A toast is pinned to the centre of the screen, which is where a card sits;
+   they were overlapping and neither was readable. While a card is up, the
+   toast moves to the edge nearest whoever is being addressed. */
+#toast-box { transition: top .25s ease, transform .25s ease; }
+body.modal-open #toast-box { top: 85%; }
+body.modal-open.tabletop-p2-turn #toast-box { top: 15%; }

@@ -5,6 +5,7 @@
 
 import { state } from '../core/GameState.js';
 import { ITEMS, MAX_INV, DISTRICT_SHOPS, BA_DISCOUNT, GRAND_MALL_DISCOUNT, DUEL_BET_OPTIONS } from '../config/GameConfig.js';
+import * as DualRead from './DualRead.js';
 
 let _controller    = null;
 let _wired         = false;
@@ -19,23 +20,45 @@ export function init(controller) {
 
 export function showModal(id) {
     document.querySelectorAll('.modal-box').forEach(b => b.style.display = 'none');
-    document.getElementById(id).style.display = 'block';
+    const box = document.getElementById(id);
+    box.style.display = 'block';
     document.getElementById('modal-overlay').classList.add('act');
+    // Toasts are pinned dead centre, which is exactly where a card sits — they
+    // were landing on top of the text. Move them off the card while one is up.
+    document.body.classList.add('modal-open');
+    // Every modal gets the ⟳ flip button, in every play mode. msg-modal is the
+    // exception: showMessage() presents it itself because it is the one that
+    // carries a tier.
+    if (id !== 'msg-modal') DualRead.present(box, { tier: 'owner' });
 }
 
 export function closeAllModals() {
     document.getElementById('modal-overlay').classList.remove('act');
     document.querySelectorAll('.modal-box').forEach(b => b.style.display = 'none');
+    document.body.classList.remove('modal-open');
+    DualRead.clearAll();
 }
 
 // ---- Message modal ----
-
-export function showMessage(title, desc, icon) {
+//
+// `opts.tier` decides who this card is for (see DualRead):
+//   'shared' — both players need it now (minigame outcome, gate result, the
+//              crown). In tabletop the card is drawn twice, facing both ways.
+//   'owner'  — the turn-taker's business (space result, item pickup). They get
+//              the card; the opponent gets a headline strip on their own edge.
+// Default is 'owner', which is what the great majority of these are.
+export function showMessage(title, desc, icon, opts = {}) {
     state.msgModalResolving = false;
     document.getElementById('msg-icon').textContent  = icon || '';
     document.getElementById('msg-title').textContent = title;
     document.getElementById('msg-desc').textContent  = desc;
     showModal('msg-modal');
+    const tier = opts.tier || 'owner';
+    const mirrored = DualRead.present(document.getElementById('msg-modal'), { tier });
+    // A mirrored card is already in front of both people; a strip on top of it
+    // would just be a third copy of the same sentence.
+    if (mirrored) DualRead.hideTicker();
+    else          DualRead.ticker(icon, opts.ticker || title);
 }
 
 // ---- Shop ----
