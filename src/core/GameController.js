@@ -18,6 +18,8 @@ import { calculateWinner } from './WinScreen.js';
 import { initContracts, checkContract as _checkContract } from './Contracts.js';
 import { earnCoins, loseCoins } from './Economy.js';
 import * as Storage from './Storage.js';
+import * as Director from './Director.js';
+import { SCENE, BOT_THINK } from '../config/SceneTiming.js';
 import { sfx, haptic } from '../engine/AudioManager.js';
 import * as Renderer from '../engine/Renderer.js';
 import * as Physics from '../engine/Physics.js';
@@ -202,6 +204,7 @@ export function quickStart(prefs) {
 
 export function startGame() {
     if (state.gameStarted) return;
+    Director.reset();          // no beat from a previous match may fire into this one
     state.gameStarted = true;
     _savePrefs();
     if (state.playStyle === 'tabletop') document.body.classList.add('tabletop-mode');
@@ -265,7 +268,7 @@ export function startPreRoll() {
     Physics.clearDice(Renderer.getDiceGroup());
     const p = state.players[state.activePlayer];
     if (p.isBot) {
-        setTimeout(() => {
+        Director.wait(BOT_THINK.PRE_ROLL, () => {
             if (state.gameState !== 'PRE_ROLL') return;
             // Bot ally activation (Cabbie)
             if (Bot.shouldUseCabbie(p)) activateCabbie_bot(p);
@@ -285,7 +288,7 @@ export function startPreRoll() {
                 }
             }
             if (state.gameState === 'PRE_ROLL') executeRoll(0.8 + Math.random() * 1.5);
-        }, 1200);
+        });
     } else {
         UIManager.showSwipeZone();
     }
@@ -340,8 +343,9 @@ export function executeRoll(flickVelocity) {
         let finalResult = result;
         if (p._overchargeNextRoll) { p._overchargeNextRoll = false; finalResult = Math.min(result * 2, 12); UIManager.toast(`⚡ Overcharged! ${result}×2 = ${finalResult}`, '#eab308'); }
         else UIManager.toast(`Rolled a ${finalResult}!`, '#fff');
+        // Beat: the number is on the table and legible before anything moves.
         const mover = state.selectedMap === 'hundred_block_dash' ? _movePlayerHBD : moveThroughGraph;
-        setTimeout(() => mover(state.players[state.activePlayer], finalResult), 500);
+        Director.hold('DICE_READ', () => mover(state.players[state.activePlayer], finalResult));
     });
 }
 
@@ -420,7 +424,7 @@ function _checkPassThroughShop(player, nodeId, stepsLeft, continueMove) {
                 setTimeout(() => {
                     if (state.gameState !== 'SHOP') return;
                     _botShop(player);
-                    setTimeout(() => { state.gameState = 'MOVING'; continueMove(); }, 2000);
+                    Director.wait(BOT_THINK.SHOP, () => { state.gameState = 'MOVING'; continueMove(); });
                 }, 400);
             } else setTimeout(continueMove, 300);
         } else {
@@ -472,7 +476,7 @@ function _offerBranchChoice(junctionId, onChosen) {
     const p = state.players[state.activePlayer];
     if (p.isBot) {
         const pick = Bot.branch(p, displayOptions);
-        setTimeout(() => onChosen(pick), 600);
+        Director.wait(BOT_THINK.BRANCH, () => onChosen(pick));
         return;
     }
 
@@ -540,7 +544,7 @@ function _resolveHBDSpace(p) {
         sfx('win'); haptic([100, 50, 100, 50, 200]);
         state.gameState = 'GAME_OVER';
         ModalManager.showMessage(`👑 ${p.name} REACHED THE CROWN!`, `+${HBD_FINISH_BONUS} finish bonus — but the most coins still wins!`, '👑');
-        setTimeout(calculateWinner, 2800);
+        Director.hold('WIN_SCREEN', calculateWinner);
         return;
     }
     // Gate check
@@ -587,14 +591,23 @@ export function resolveSpace(p) {
     const titleName = lbl ? lbl.name : (spc.n || space.type.toUpperCase());
     const descText  = lbl ? lbl.desc : (SPACE_DESCS[space.type] || '');
     const iconChar  = lbl ? lbl.icon : spc.ic;
-    UIManager.showSpaceInfoCard(titleName, descText);
-    ModalManager.showMessage(titleName, msg || 'Nothing happens.', iconChar);
     if (state.selectedMap === 'hundred_block_dash') Renderer.updateBiomeVisuals(typeof p.pos === 'number' ? p.pos : 0);
     else Renderer.updateBiomeVisuals(CITY_GRAPH[p.pos]?.district || 'ring');
 
-    if (p.isBot && state.gameState === 'ACKNOWLEDGE') {
-        setTimeout(() => { if (state.gameState === 'ACKNOWLEDGE') resolveMsgModal(); }, space.type === 'boost' ? 2500 : 1500);
-    }
+    // Beat: let the token visibly arrive, THEN say what the space did. The
+    // result then owns the screen for its full floor — nothing else may start.
+    Director.hold('LAND_SETTLE', () => {
+        if (state.gameState !== 'ACKNOWLEDGE') return;
+        UIManager.showSpaceInfoCard(titleName, descText);
+        ModalManager.showMessage(titleName, msg || 'Nothing happens.', iconChar);
+        Director.begin('LAND_RESULT');
+        if (p.isBot) {
+            // No tap is coming, so this floor is the whole readable window.
+            Director.hold(space.type === 'boost' ? 'BOOST_RESULT' : 'BOT_RESULT', () => {
+                if (state.gameState === 'ACKNOWLEDGE') resolveMsgModal();
+            });
+        }
+    });
 }
 
 export function resolveSpaceEffect(p, spaceType, space) {
@@ -675,19 +688,19 @@ export function resolveSpaceEffect(p, spaceType, space) {
         case 'shop': {
             _noteShopVisit(p);
             if (state.selectedMap === 'hundred_block_dash') {
-                setTimeout(() => openShop(hbdShopKey(p.pos), 1.0), 400); return null;
+                Director.hold('SHOP_OPEN', () => openShop(hbdShopKey(p.pos), 1.0)); return null;
             }
             const gNode   = CITY_GRAPH[p.pos];
             const distKey = gNode?.shopDistrict || 'ring';
             const disc    = distKey === 'ba' ? BA_DISCOUNT : 1.0;
-            setTimeout(() => openShop(distKey, disc), 400); return null;
+            Director.hold('SHOP_OPEN', () => openShop(distKey, disc)); return null;
         }
         case 'hq': {
             const gNode  = CITY_GRAPH[p.pos];
             const dist   = gNode?.district;
             const isGM   = gNode?.isGrandMall;
             _onDistrictHQReached(p, dist);
-            if (isGM) { _noteShopVisit(p); setTimeout(() => openShop('shop', GRAND_MALL_DISCOUNT), 600); }
+            if (isGM) { _noteShopVisit(p); Director.hold('SHOP_OPEN', () => openShop('shop', GRAND_MALL_DISCOUNT)); }
             const hqInfo = HQ_META[dist] || { name: 'HQ', icon: '🏛️' };
             const visits = p.districtsVisited[dist] || 1;
             const bonus  = visits <= 1 ? DISTRICT_HQ_FIRST_BONUS : DISTRICT_HQ_REVISIT_BONUS;
@@ -695,7 +708,7 @@ export function resolveSpaceEffect(p, spaceType, space) {
         }
         case 'duel': {
             if (p.isBot) { _startDuel(p, Bot.duelBet(p, opp)); return null; }
-            setTimeout(() => _openDuelModal(p), 400); return null;
+            Director.hold('DUEL_OPEN', () => _openDuelModal(p)); return null;
         }
         default: return '';
     }
@@ -743,21 +756,24 @@ function _skipBackward(p, steps) {
 export function resolveMsgModal() {
     if (state.msgModalResolving) return;
     state.msgModalResolving = true;
+    // A human tapping CONTINUE has read it — compress what's left of the floor
+    // rather than ignoring it, so the next scene still can't render underneath.
+    Director.ack();
     ModalManager.closeAllModals();
     UIManager.hideSpaceInfoCard();
     if (state.gameState === 'GAME_OVER') return;
-    if (state.gameState === 'ACKNOWLEDGE') { setTimeout(finishTurn, 300); return; }
     if (state.gameState === 'MINIGAME_ACK') {
-        setTimeout(() => {
+        Director.hold('POST_MINIGAME', () => {
             state.activePlayer = state.lastMinigameWinner >= 0 ? state.lastMinigameWinner : (state.activePlayer+1)%2;
             state.lastMinigameWinner = -1;
             state.lastMinigameTied   = false;
             proceedTurn();
-        }, 300);
+        });
         return;
     }
     state.gameState = 'ACKNOWLEDGE';
-    setTimeout(finishTurn, 300);
+    // Beat: the board on its own for a moment before the turn moves on.
+    Director.hold('POST_RESULT', finishTurn);
 }
 
 export function finishTurn() {
@@ -785,16 +801,21 @@ export function maybeTriggerMinigame() {
             state.currentRound++;
             _onRoundEnd();
             if (state.currentRound >= _cityRounds()) {
-                MinigameManager.trigger((winnerId) => {
+                // Beat: the board is allowed to breathe before the minigame
+                // takes the screen. Without this the payoff for the turn that
+                // just happened is cut off mid-read.
+                Director.hold('PRE_MINIGAME', () => MinigameManager.trigger((winnerId) => {
                     _resolveMinigameResult(winnerId);
-                    setTimeout(calculateWinner, 2200);
-                });
+                    Director.hold('WIN_SCREEN', calculateWinner);
+                }));
                 return;
             }
         }
-        MinigameManager.trigger((winnerId) => _resolveMinigameResult(winnerId));
+        UIManager.announceMinigameIncoming();
+        Director.hold('PRE_MINIGAME', () =>
+            MinigameManager.trigger((winnerId) => _resolveMinigameResult(winnerId)));
     } else {
-        proceedTurn();
+        Director.hold('TURN_HANDOFF', proceedTurn);
     }
 }
 
@@ -822,7 +843,7 @@ function _resolveMinigameResult(winnerId) {
     Renderer.startPostMinigameFlyover(() => { state.cameraState = 'FOLLOW'; });
     if (state.selectedMap !== 'hundred_block_dash') UIManager.updateRoundCounter(state.currentRound, _cityRounds());
     if (state.players[1].isBot) {
-        setTimeout(() => { if (state.gameState === 'MINIGAME_ACK') resolveMsgModal(); }, 1800);
+        Director.hold('BOT_RESULT', () => { if (state.gameState === 'MINIGAME_ACK') resolveMsgModal(); });
     }
     // Reset per-round state
     state.investorUsedThisRound = [false, false];
@@ -883,7 +904,7 @@ export function proceedTurn() {
 
 export function resolvePassModal() {
     ModalManager.closeAllModals();
-    setTimeout(startPreRoll, 300);
+    Director.hold('TURN_HANDOFF', startPreRoll);
 }
 
 // ============================================================
@@ -911,7 +932,7 @@ export function triggerGateChallenge(p) {
     const overlay = document.getElementById('gate-overlay');
     overlay.style.display = 'flex';
     overlay.dataset.pid = p.id;
-    if (p.isBot) setTimeout(() => { if (state.gameState === 'GATE') rollGate(); }, 1500);
+    if (p.isBot) Director.wait(BOT_THINK.GATE_ROLL, () => { if (state.gameState === 'GATE') rollGate(); });
 }
 
 export function rollGate() {
@@ -976,7 +997,7 @@ export function resolveGateRoll() {
             }
             document.getElementById('gate-continue-btn').style.display = 'block';
             state.gameState = 'GATE'; state.gateRolling = false;
-            if (p.isBot) setTimeout(() => { if (state.gameState === 'GATE') closeGate(); }, 2500);
+            if (p.isBot) Director.wait(BOT_THINK.GATE_CLOSE, () => { if (state.gameState === 'GATE') closeGate(); });
         }, faceValues.length*500+1000);
     }, 100);
 }
@@ -996,7 +1017,7 @@ export function closeGate() {
         ModalManager.showMessage('🔓 GATE OPEN!', openMsg, '🔓');
         if (_pendingStepsAfterGate > 0) {
             const steps = _pendingStepsAfterGate; _pendingStepsAfterGate = 0;
-            setTimeout(() => { ModalManager.closeAllModals(); _doMove(p, steps); }, 2000);
+            Director.hold('GATE_RESUME', () => { ModalManager.closeAllModals(); _doMove(p, steps); });
             return;
         }
     } else {
@@ -1009,7 +1030,7 @@ export function closeGate() {
             if (p.mesh) p.mesh.position.copy(Renderer.getPos('bp_d'));
         }
     }
-    if (p.isBot) setTimeout(() => { if (state.gameState === 'ACKNOWLEDGE') resolveMsgModal(); }, 1500);
+    if (p.isBot) Director.hold('BOT_RESULT', () => { if (state.gameState === 'ACKNOWLEDGE') resolveMsgModal(); });
 }
 
 // ============================================================
@@ -1055,7 +1076,7 @@ function _botShop(p) {
         UIManager.toast(`${p.name} bought ${ITEMS[pick].name}!`, '#a855f7');
     }
     state.gameState = 'ACKNOWLEDGE';
-    setTimeout(() => { if (state.gameState === 'ACKNOWLEDGE') finishTurn(); }, 1000);
+    Director.wait(BOT_THINK.SHOP, () => { if (state.gameState === 'ACKNOWLEDGE') finishTurn(); });
 }
 
 // Used only for HBD bot pass-through shops — does NOT call finishTurn
@@ -1087,7 +1108,7 @@ export function closeShopModal() {
     state.pendingReturnState = null;
     ModalManager.closeAllModals();
     if (wasPassThrough) { _afterPassThroughShop(); return; }
-    if (state.gameState === 'SHOP') { state.gameState = 'ACKNOWLEDGE'; setTimeout(finishTurn, 200); }
+    if (state.gameState === 'SHOP') { state.gameState = 'ACKNOWLEDGE'; Director.hold('POST_RESULT', finishTurn); }
 }
 
 export function shopOfferEnter() {
@@ -1104,7 +1125,7 @@ function _afterPassThroughShop() {
     ModalManager.closeAllModals();
     state.gameState = 'MOVING';
     const resume = _passThroughResumeHop; _passThroughResumeHop = null;
-    if (resume) setTimeout(resume, 200);
+    if (resume) Director.hold('PASSTHROUGH', resume);
 }
 
 export function confirmDrop(pid, dropIdx, newItemId) {
@@ -1122,8 +1143,8 @@ export function cancelDrop() {
     ModalManager.closeAllModals();
     if (ret === 'shop') { openShop(state.pendingShopDistrict, state.pendingShopDiscount); return; }
     if (ret === 'pass_through_done') { _afterPassThroughShop(); return; }
-    if (state.gameState === 'SHOP') { state.gameState = 'ACKNOWLEDGE'; setTimeout(finishTurn, 200); return; }
-    if (state.gameState === 'ACKNOWLEDGE') setTimeout(finishTurn, 200);
+    if (state.gameState === 'SHOP') { state.gameState = 'ACKNOWLEDGE'; Director.hold('POST_RESULT', finishTurn); return; }
+    if (state.gameState === 'ACKNOWLEDGE') Director.hold('POST_RESULT', finishTurn);
 }
 
 function _afterDropReturn(p) {
@@ -1136,7 +1157,7 @@ function _afterDropReturn(p) {
     if (ret === 'shop') { openShop(state.pendingShopDistrict, state.pendingShopDiscount); return; }
     if (ret === 'pass_through_done') { _afterPassThroughShop(); return; }
     if (state.gameState === 'ACKNOWLEDGE' || state.gameState === 'SHOP') {
-        state.gameState = 'ACKNOWLEDGE'; setTimeout(finishTurn, 200);
+        state.gameState = 'ACKNOWLEDGE'; Director.hold('POST_RESULT', finishTurn);
     }
 }
 
@@ -1435,7 +1456,7 @@ function _startDuel(p, betAmount) {
         state.pendingDuelBet = 0;
         state.gameState = 'ACKNOWLEDGE';
         Renderer.startPostMinigameFlyover(() => { state.cameraState = 'FOLLOW'; });
-        setTimeout(finishTurn, 800);
+        Director.hold('POST_RESULT', finishTurn);
     });
 }
 

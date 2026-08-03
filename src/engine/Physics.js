@@ -15,6 +15,8 @@ let _settleDeadline = 0;
 export function init() {
     world = new CANNON.World();
     world.gravity.set(0, -60, 0);
+    // Per-body allowSleep only takes effect when the world permits sleeping.
+    world.allowSleep = true;
 
     floorMat = new CANNON.Material('floor');
     diceMat  = new CANNON.Material('dice');
@@ -73,7 +75,18 @@ export function spawnDie(diceGroup) {
     mesh.castShadow = true;
     diceGroup.add(mesh);
 
-    const body = new CANNON.Body({ mass: 1, material: diceMat, linearDamping: 0.3, angularDamping: 0.4 });
+    // Damping governs how fast a die actually comes to rest, and it has to be
+    // strong enough to reach the sleep threshold in a readable amount of time.
+    // At angularDamping 0.4 spin decays as e^(-0.4t), so falling from ~22 rad/s
+    // to the old 0.1 rad/s threshold took ~13 s — the dice never settled on
+    // their own and every single roll sat until the safety timeout. Measured
+    // median for the whole rolling beat was 7.4 s. At 0.85 the same decay takes
+    // ~1.4 s, which is what a thrown die actually looks like.
+    const body = new CANNON.Body({
+        mass: 1, material: diceMat,
+        linearDamping: 0.42, angularDamping: 0.85,
+        allowSleep: true, sleepSpeedLimit: 0.35, sleepTimeLimit: 0.15,
+    });
     body.addShape(new CANNON.Box(new CANNON.Vec3(size, size, size)));
     world.addBody(body);
 
@@ -109,6 +122,13 @@ export function readResult(mode) {
     if (mode === 'forced_5') return 5;
     if (mode === 'double' && activeDice.length === 2)
         return readTopFace(activeDice[0]) + readTopFace(activeDice[1]);
+    // clearDice() can empty the array between settle detection and the deferred
+    // face read (turn abandoned, minigame force-ended, rematch). Reading
+    // activeDice[0].mesh then threw an uncaught TypeError and stranded the turn.
+    if (activeDice.length === 0) {
+        console.warn('[Physics] result read with no dice on the table — defaulting to 1');
+        return 1;
+    }
     return readTopFace(activeDice[0]);
 }
 
@@ -117,7 +137,11 @@ export function readResult(mode) {
 // against a wall or lands on a corner can otherwise stay above the sleep
 // threshold indefinitely, which strands the turn in the ROLLING state with no
 // way out. On expiry we freeze the dice and read whatever faces are up.
-const SETTLE_TIMEOUT_MS = 6000;
+// Below ~0.5 units/s a die's top face no longer changes.
+const SETTLE_EPS2 = 0.25;
+// Safety net only. With the damping above, a natural settle lands near 1.4 s,
+// so reaching this means something is genuinely stuck.
+const SETTLE_TIMEOUT_MS = 3200;
 export function onSettle(mode, callback) {
     _rollMode  = mode;
     _onSettle  = callback;
@@ -130,7 +154,11 @@ export function getActiveDice() { return activeDice; }
 // Called every frame by Renderer.step()
 export function step(dt) {
     if (!world) return;
-    world.step(1 / 60, dt, 3);
+    // maxSubSteps must cover the worst frame time or the simulation silently
+    // runs in slow motion: at 3 sub-steps a 100 ms frame advances only 50 ms of
+    // physics, so on a slow device the dice take twice as long to settle as they
+    // do on a fast one. 6 covers a 100 ms frame at the 1/60 fixed step.
+    world.step(1 / 60, dt, 6);
 
     activeDice.forEach(d => {
         d.mesh.position.copy(d.body.position);
@@ -140,9 +168,13 @@ export function step(dt) {
     if (_onSettle && activeDice.length > 0 && !_settled) {
         let allSleeping = true;
         activeDice.forEach(d => {
+            if (d.body.sleepState === CANNON.Body.SLEEPING) return;
             const v = d.body.velocity, av = d.body.angularVelocity;
-            if (v.x * v.x + v.y * v.y + v.z * v.z > 0.01 ||
-                av.x * av.x + av.y * av.y + av.z * av.z > 0.01) {
+            // Squared magnitudes against SETTLE_EPS² — the face a die shows is
+            // fixed long before it is perfectly still, so an over-tight
+            // threshold only adds dead air.
+            if (v.x * v.x + v.y * v.y + v.z * v.z > SETTLE_EPS2 ||
+                av.x * av.x + av.y * av.y + av.z * av.z > SETTLE_EPS2) {
                 allSleeping = false;
             }
         });
