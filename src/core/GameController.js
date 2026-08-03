@@ -35,6 +35,10 @@ let _branchChoiceCallback = null;
 let _allyMgCallback       = null;
 let _duelMgCallback       = null;
 let _pendingStepsAfterGate = 0;
+// True when the gate challenge was raised at the START of a turn (the player was
+// already parked on it) rather than mid-move. It decides whether opening the
+// gate should end the turn or hand the player their roll — see closeGate().
+let _gateFromTurnStart = false;
 let _rollAgainActive = false;
 let _skipStory = false;   // rematch fast-path skips the HBD story intro
 
@@ -205,6 +209,8 @@ export function quickStart(prefs) {
 export function startGame() {
     if (state.gameStarted) return;
     Director.reset();          // no beat from a previous match may fire into this one
+    _gateFromTurnStart = false;
+    _pendingStepsAfterGate = 0;
     state.gameStarted = true;
     _savePrefs();
     if (state.playStyle === 'tabletop') document.body.classList.add('tabletop-mode');
@@ -262,6 +268,7 @@ export function isMyTurn(pIdx) {
 
 export function startPreRoll() {
     state.gameState = 'PRE_ROLL';
+    UIManager.applyOrientation();
     state.rollAgainPending = false;
     state.rollAgainSamePlayer = false;
     UIManager.updateUI();
@@ -548,7 +555,10 @@ function _resolveHBDSpace(p) {
         return;
     }
     // Gate check
-    if (!state.gateOpen && p.pos === cfg.gatePos) { triggerGateChallenge(p); return; }
+    if (!state.gateOpen && p.pos === cfg.gatePos) {
+        _gateFromTurnStart = false;
+        triggerGateChallenge(p); return;
+    }
     resolveSpace(p);
 }
 
@@ -588,9 +598,10 @@ export function resolveSpace(p) {
 
     // Hundred Block Dash spaces carry realm-themed names/copy.
     const lbl       = state.selectedMap === 'hundred_block_dash' ? hbdSpaceLabel(p.pos, space.type) : null;
-    const titleName = lbl ? lbl.name : (spc.n || space.type.toUpperCase());
+    const ovr       = state.pendingResultOverride; state.pendingResultOverride = null;
+    const titleName = ovr ? ovr.title : (lbl ? lbl.name : (spc.n || space.type.toUpperCase()));
     const descText  = lbl ? lbl.desc : (SPACE_DESCS[space.type] || '');
-    const iconChar  = lbl ? lbl.icon : spc.ic;
+    const iconChar  = ovr ? ovr.icon : (lbl ? lbl.icon : spc.ic);
     if (state.selectedMap === 'hundred_block_dash') Renderer.updateBiomeVisuals(typeof p.pos === 'number' ? p.pos : 0);
     else Renderer.updateBiomeVisuals(CITY_GRAPH[p.pos]?.district || 'ring');
 
@@ -632,8 +643,12 @@ export function resolveSpaceEffect(p, spaceType, space) {
         case 'mystery': {
             const ids  = Object.keys(ITEMS);
             const pick = ids[Math.floor(Math.random() * ids.length)];
+            const it   = ITEMS[pick];
             tryGrantItem(p, pick);
-            return `Got a ${ITEMS[pick].name}!`;
+            // Receiving an item is its own moment — show what it is and what it
+            // does, under the item's own name, and make the player confirm it.
+            state.pendingResultOverride = { title: `YOU GOT: ${it.name.toUpperCase()}`, icon: it.icon };
+            return `${it.name} — ${it.desc}\n\nIt's in your bag. Open 🎒 ITEMS on your turn to use it.`;
         }
         case 'boost': {
             state.rollAgainPending = true; sfx('boost'); haptic([30,50,30]);
@@ -643,10 +658,19 @@ export function resolveSpaceEffect(p, spaceType, space) {
         case 'shortcut': {
             _checkContract(p, 'land_type', 'shortcut');
             const skip = 3 + Math.floor(Math.random() * 6);
-            _skipForward(p, skip); return null;
+            state.pendingForcedMove = skip;
+            return `🌀 A shortcut! Skipping ahead ${skip} spaces.`;
         }
-        case 'cfwd': { _skipForward(p, 10); return null; }
-        case 'cbwd': { _skipBackward(p, 10); return null; }
+        // These two used to return null, which meant no notification at all —
+        // you were silently moved 10 spaces and only saw wherever you ended up.
+        case 'cfwd': {
+            state.pendingForcedMove = 10;
+            return '🚀 LAUNCH! Blasted 10 spaces forward.';
+        }
+        case 'cbwd': {
+            state.pendingForcedMove = -10;
+            return '🌑 PULLED BACK! Dragged 10 spaces backward.';
+        }
         case 'swap_space': {
             const tmp = p.pos; p.pos = opp.pos; opp.pos = tmp;
             if (p.mesh) p.mesh.position.copy(Renderer.getPos(p.pos));
@@ -656,7 +680,10 @@ export function resolveSpaceEffect(p, spaceType, space) {
         }
         case 'anchor_trap': {
             const owner = space?.owner !== undefined ? state.players[space.owner] : null;
-            if (owner && owner.id !== p.id) { _skipBackward(p, 5); return null; }
+            if (owner && owner.id !== p.id) {
+                state.pendingForcedMove = -5;
+                return `⚓ ${owner.name}'s Anchor! Dragged back 5 spaces.`;
+            }
             return 'Your own Anchor.';
         }
         case 'magnet': {
@@ -772,14 +799,50 @@ export function resolveMsgModal() {
         return;
     }
     state.gameState = 'ACKNOWLEDGE';
+    // A forced move waited for this acknowledgement — now do the moving, and
+    // let the space it lands on resolve normally.
+    if (state.pendingForcedMove) {
+        const steps = state.pendingForcedMove;
+        state.pendingForcedMove = 0;
+        const mover = state.players[state.activePlayer];
+        Director.hold('POST_RESULT', () => {
+            state.msgModalResolving = false;
+            if (steps >= 0) _skipForward(mover, steps);
+            else            _skipBackward(mover, -steps);
+        });
+        return;
+    }
     // Beat: the board on its own for a moment before the turn moves on.
     Director.hold('POST_RESULT', finishTurn);
+}
+
+// Board progress as 0..1, so one chart shape works for both maps.
+function _progressOf(p) {
+    if (state.selectedMap === 'hundred_block_dash') {
+        const fin = (state.hbd || HBD_DEFAULT_CONFIG).finish || 99;
+        return typeof p.pos === 'number' ? Math.max(0, Math.min(1, p.pos / fin)) : 0;
+    }
+    const i = ALL_NODES_ORDERED.indexOf(p.pos);
+    const lapProgress = i < 0 ? 0 : i / (ALL_NODES_ORDERED.length - 1);
+    // City Circuit loops, so add completed laps to keep the line monotonic.
+    return p.fullCircuitsCompleted + lapProgress;
+}
+
+function _recordTurn() {
+    state.history.push({
+        turn:  state.totalTurns,
+        prog:  state.players.map(_progressOf),
+        coins: state.players.map(p => p.coins),
+    });
+    // A long City Circuit match could otherwise grow this unbounded.
+    if (state.history.length > 400) state.history.shift();
 }
 
 export function finishTurn() {
     if (!_rollAgainActive) {
         state.totalTurns++;
         _tickAllyTurns(state.activePlayer);
+        _recordTurn();
     }
     _rollAgainActive = false;
 
@@ -873,12 +936,14 @@ function _onRoundEnd() {
 
 export function proceedTurn() {
     UIManager.hideActionRows();
+    UIManager.applyOrientation();
     const p = state.players[state.activePlayer];
 
     if (state.selectedMap === 'hundred_block_dash') {
         Renderer.updateBiomeVisuals(typeof p.pos === 'number' ? p.pos : 0);
         // Gate check at the start of turn (player parked on gate)
         if (!state.gateOpen && p.pos === (state.hbd || HBD_DEFAULT_CONFIG).gatePos) {
+            _gateFromTurnStart = true;
             triggerGateChallenge(p); return;
         }
         if (state.playStyle === 'pass' && state.totalTurns > 0 && !state.rollAgainSamePlayer) {
@@ -914,6 +979,10 @@ export function resolvePassModal() {
 export function triggerGateChallenge(p) {
     state.msgModalResolving = false;
     state.gameState = 'GATE'; state.gateRolling = false;
+    // The gate is a full-screen scene that never called updateUI(), so in
+    // tabletop mode it inherited whatever rotation was last applied and could
+    // show Player 1 their own roll upside-down. Orient to the roller explicitly.
+    UIManager.orientTo(p.id);
     Physics.clearDice(Renderer.getDiceGroup());
     document.getElementById('ui-layer').style.display = 'none';
     const isHBD = state.selectedMap === 'hundred_block_dash';
@@ -1009,7 +1078,16 @@ export function closeGate() {
     state.cameraState = 'FOLLOW';
     const pid = parseInt(document.getElementById('gate-overlay').dataset.pid);
     const p   = state.players[pid];
+    // The gate overlay owned the whole screen; put the camera back on the player
+    // before anything moves, or the token walks off-frame while the follow
+    // camera lerps after it at 0.055/frame.
+    Renderer.snapCameraToActive();
+    UIManager.orientTo(p.id);
     state.gameState = 'ACKNOWLEDGE';
+
+    const fromTurnStart = _gateFromTurnStart;
+    _gateFromTurnStart = false;
+
     if (state.gateOpen) {
         const openMsg = state.selectedMap === 'hundred_block_dash'
             ? 'The Gate is open! Both players may now pass through.'
@@ -1017,7 +1095,25 @@ export function closeGate() {
         ModalManager.showMessage('🔓 GATE OPEN!', openMsg, '🔓');
         if (_pendingStepsAfterGate > 0) {
             const steps = _pendingStepsAfterGate; _pendingStepsAfterGate = 0;
-            Director.hold('GATE_RESUME', () => { ModalManager.closeAllModals(); _doMove(p, steps); });
+            Director.hold('GATE_RESUME', () => {
+                ModalManager.closeAllModals();
+                Renderer.snapCameraToActive();
+                _doMove(p, steps);
+            });
+            return;
+        }
+        if (fromTurnStart) {
+            // The challenge was raised at the start of this player's turn, so
+            // they have not rolled yet. Ending the turn here silently skipped
+            // them: they spent a turn opening the gate and then the turn passed
+            // to their opponent. Hand them their roll instead.
+            Director.hold('GATE_RESUME', () => {
+                ModalManager.closeAllModals();
+                Renderer.snapCameraToActive();
+                state.gameState = 'PRE_ROLL';
+                UIManager.toast('🔓 Gate open — take your roll!', '#4ade80');
+                startPreRoll();
+            });
             return;
         }
     } else {
@@ -1028,6 +1124,7 @@ export function closeGate() {
             // City Circuit: push player back out of Industrial
             p.pos = 'bp_d';
             if (p.mesh) p.mesh.position.copy(Renderer.getPos('bp_d'));
+            Renderer.snapCameraToActive();
         }
     }
     if (p.isBot) Director.hold('BOT_RESULT', () => { if (state.gameState === 'ACKNOWLEDGE') resolveMsgModal(); });

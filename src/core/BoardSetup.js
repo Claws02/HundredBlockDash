@@ -44,28 +44,40 @@ function _buildPools() {
 
 // ---- HBD board generation ----
 //
-// Goal: GOOD spaces always outnumber bad ones, and bad spaces are spread out
-// (never clustered) so no stretch of the board feels like a gauntlet. Danger
-// escalates gently toward the Void, but bad spaces never exceed ~40% of a realm.
+// Goal: the road is generous. At most ONE coin-losing space per ten blocks, and
+// they are spread out so no stretch feels like a gauntlet. Danger still rises
+// toward the Void, but as *variety* (swaps, pull-backs) rather than as a heavier
+// tax — the Void leans on swap spaces, which shuffle the race without emptying
+// anyone's purse.
 //
-// Per realm we (1) decide a bad-space count strictly below half the slots,
-// (2) place those bad spaces at evenly-spaced positions with a minimum gap of
-// two so they can't sit adjacent, then (3) fill everything else with good
-// spaces drawn from a realm-themed weighted bag.
+// Per realm we (1) cap the red count at ceil(slots / 10), (2) place them at
+// evenly-spaced positions with a minimum gap of two so they can't sit adjacent,
+// then (3) fill everything else from a realm-themed weighted bag of good spaces.
 
 // Weighted "bags" — higher weight = more common. Good clearly dominates.
+// Non-coin-losing spaces. cbwd (pulled back 10) and swap_space live here: they
+// disrupt the race without costing coins, which is how the later realms stay
+// tense now that the red budget is capped.
 const GOOD_WEIGHTS = {
     woods: { coin: 5, coin_big: 2, boost: 2, shortcut: 2, mystery: 2, truce: 1, magnet: 1 },
-    ember: { coin: 5, coin_big: 3, boost: 1, cfwd: 1, mystery: 2, magnet: 1 },
-    fae:   { coin: 4, coin_big: 3, mystery: 3, shortcut: 2, boost: 1, magnet: 2 },
-    void:  { coin: 3, coin_big: 4, mystery: 2, cfwd: 1, magnet: 1, swap_space: 2 },
+    ember: { coin: 5, coin_big: 3, boost: 1, cfwd: 2, mystery: 2, magnet: 1, cbwd: 1 },
+    fae:   { coin: 4, coin_big: 3, mystery: 3, shortcut: 2, boost: 1, magnet: 2, cbwd: 1, swap_space: 1 },
+    // The Void is the decider, so it is thick with swaps: the race can flip
+    // right up to the Crown without anyone being bled dry.
+    void:  { coin: 3, coin_big: 4, mystery: 2, cfwd: 1, magnet: 1, swap_space: 5, cbwd: 2 },
 };
+// "Red" here means specifically a space that TAKES COINS. cbwd (pulled back) is
+// a setback but costs nothing, so it is not counted against the red budget and
+// lives in the good bag as a disruption instead.
 const BAD_WEIGHTS = {
-    woods: { lose: 3, trap: 3 },
-    ember: { lose: 3, lose_big: 1, trap: 3 },
-    fae:   { lose: 3, trap: 2, cbwd: 1 },
-    void:  { lose: 2, lose_big: 3, trap: 2, cbwd: 1 },
+    woods: { lose: 3, trap: 2 },
+    ember: { lose: 3, lose_big: 1, trap: 2 },
+    fae:   { lose: 3, trap: 2 },
+    void:  { lose: 2, lose_big: 2, trap: 2 },
 };
+
+// At most one coin-losing space per this many blocks.
+const RED_PER_BLOCKS = 10;
 
 function _shuffle(a) {
     for (let i = a.length - 1; i > 0; i--) {
@@ -114,10 +126,13 @@ function _spacedBadPositions(n, badCount) {
 // Build the type assignment for one realm's slot list.
 function _fillRealm(slots, key, realmIdx, realmCount) {
     const n = slots.length;
-    const t = realmCount > 1 ? realmIdx / (realmCount - 1) : 0;
-    const badRatio = 0.30 + 0.10 * t;                       // 0.30 (start) → 0.40 (final realm)
-    let badCount = Math.round(n * badRatio);
-    badCount = Math.min(badCount, Math.floor((n - 1) / 2)); // guarantee good > bad, leaves room for gaps
+    // Hard cap: at most one coin-losing space per RED_PER_BLOCKS blocks. This is
+    // the whole balance rule — previously it was a 30–40% ratio, which put 7–10
+    // red spaces in a 25-block realm.
+    let badCount = Math.floor(n / RED_PER_BLOCKS);
+    // A realm shorter than the cap still gets at most one, so a short run isn't
+    // completely toothless.
+    if (badCount === 0 && n >= 6) badCount = 1;
     const badPos  = _spacedBadPositions(n, badCount);
     const badBag  = _shuffle(_drawBag(BAD_WEIGHTS[key]  || BAD_WEIGHTS.woods, badPos.size));
     const goodBag = _shuffle(_drawBag(GOOD_WEIGHTS[key] || GOOD_WEIGHTS.woods, n - badPos.size));

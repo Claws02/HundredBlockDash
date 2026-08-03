@@ -41,6 +41,15 @@ export const state = {
     pendingShopDistrict:   null,
     pendingShopDiscount:   1.0,
 
+    // A forced move (Launch / Pulled Back / Shortcut / Anchor) that must wait for
+    // the player to acknowledge the notification before it happens. Previously
+    // these spaces resolved silently — you were moved 10 spaces with no message
+    // at all, and only saw the result of wherever you ended up.
+    pendingForcedMove:     0,
+    // Overrides the title/icon of the next result card (used so an item pickup
+    // reads as the item, not as the space that produced it).
+    pendingResultOverride: null,
+
     // Duel
     pendingDuelBet:        0,
 
@@ -109,6 +118,11 @@ export const state = {
         },
     ],
 
+    // Turn-by-turn record for the end-of-match graph. One entry per completed
+    // turn: { turn, prog: [p1, p2], coins: [p1, p2] }. `prog` is normalised
+    // 0..1 board progress so the same chart works for both maps.
+    history: [],
+
     // Board — map of nodeId → { type, owner? }
     board: {},
 };
@@ -153,4 +167,7 @@ export function resetPlayers() {
     state.pendingDuelBet     = 0;
     state.pendingShopDistrict = null;
     state.pendingShopDiscount = 1.0;
+    state.pendingForcedMove   = 0;
+    state.pendingResultOverride = null;
+    state.history            = [];
 }

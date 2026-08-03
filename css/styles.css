@@ -118,6 +118,20 @@ body, html {
 .tabletop-p2-turn #space-info-card { bottom: auto; top: calc(var(--hud-h) + 90px); transform: translateX(-50%) rotate(180deg); }
 .tabletop-p2-turn #swipe-zone { transform: rotate(180deg); }
 .tabletop-p2-turn #gate-overlay > * { transform: rotate(180deg); }
+/* Every full-screen scene that shows text has to face the active player too.
+   Previously only the HUD, toasts, modals and the gate's children were covered,
+   so branch choices, realm banners, the story card, the minigame intro and the
+   map panel all stayed locked to Player 1's side of the table. */
+.tabletop-p2-turn #branch-choice-overlay > *,
+.tabletop-p2-turn #realm-banner > *,
+.tabletop-p2-turn #hbd-story-overlay > *,
+.tabletop-p2-turn #mg-intro-overlay #mg-page-info,
+.tabletop-p2-turn #mg-intro-overlay #mg-intro-steps,
+.tabletop-p2-turn .map-panel,
+.tabletop-p2-turn #map-tooltip,
+.tabletop-p2-turn #round-counter,
+.tabletop-p2-turn #contracts-strip { transform: rotate(180deg); }
+.tabletop-p2-turn #round-counter { transform-origin: center; }
 .hud-info { display: flex; flex-direction: column; gap: 2px; }
 .hud-name { font-size: 18px; letter-spacing: 2px; }
 .p1c { color: var(--p1); text-shadow: 0 0 10px var(--p1); }
@@ -1154,3 +1168,90 @@ body.reduce-motion .hbd-story-crown, body.reduce-motion #realm-banner { animatio
 
 /* Minigame-incoming banner reuses the realm-banner element. */
 #realm-banner .rb-tag { opacity: .8; }
+
+/* ── Win screen: landscape presentation ──────────────────────────────────────
+   The phone lies flat between two players, so the end-of-match summary is
+   rotated 90° and sized against the swapped viewport. Turning the device
+   sideways then gives a proper wide layout both players can read from the long
+   edge, instead of a tall column only one of them can face. */
+#win-screen { overflow: hidden; }
+.win-inner {
+    position: absolute; top: 50%; left: 50%;
+    width: 100vh; height: 100vw;                 /* swapped on purpose */
+    transform: translate(-50%, -50%) rotate(90deg);
+    transform-origin: center center;
+    display: flex; flex-direction: column; align-items: center;
+    justify-content: flex-start; gap: 8px;
+    padding: 14px 22px; box-sizing: border-box;
+    transition: transform .35s cubic-bezier(.22,.9,.3,1);
+}
+#win-screen.portrait .win-inner {
+    width: 100vw; height: 100vh;
+    transform: translate(-50%, -50%) rotate(0deg);
+}
+.win-rotate {
+    position: absolute; top: 10px; right: 14px; z-index: 5;
+    padding: 7px 12px; border-radius: 10px; cursor: pointer;
+    background: rgba(255,255,255,.10); border: 1px solid rgba(255,255,255,.28);
+    color: rgba(255,255,255,.85); font-size: 13px; letter-spacing: 1px;
+}
+.win-head { display: flex; align-items: center; gap: 14px; flex: 0 0 auto; }
+.win-head .win-crown { font-size: 40px; margin: 0; }
+.win-body {
+    display: flex; gap: 16px; width: 100%; flex: 1 1 auto;
+    align-items: stretch; justify-content: center; min-height: 0;
+}
+.win-body .win-cards { flex: 1 1 46%; margin: 0; align-content: flex-start; }
+.win-chart-wrap {
+    flex: 1 1 54%; display: flex; flex-direction: column; min-width: 0;
+    background: rgba(0,0,0,.28); border: 1px solid rgba(255,255,255,.12);
+    border-radius: 14px; padding: 10px 12px;
+}
+.win-chart-title {
+    font-size: 15px; letter-spacing: 1.5px; color: rgba(255,255,255,.72);
+    margin-bottom: 6px; text-align: center;
+}
+/* The SVG has no intrinsic height, so without min-height:0 the flex item
+   refuses to shrink below its content and spills out of the card. The floor
+   that keeps the chart readable is set per-orientation below. */
+#win-chart { flex: 1 1 auto; min-height: 0; }
+#win-chart svg { width: 100%; height: 100%; display: block; }
+.win-chart-legend {
+    display: flex; gap: 14px; justify-content: center; flex-wrap: wrap;
+    font-family: 'Nunito', system-ui, sans-serif; font-size: 11px;
+    color: rgba(255,255,255,.66); margin-top: 6px; flex: 0 0 auto;
+}
+.win-chart-legend b { font-weight: 800; }
+.wc-swatch { display: inline-block; width: 10px; height: 3px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
+.win-inner .win-btn-row { margin-top: 4px; flex: 0 0 auto; }
+.win-inner .win-stats { flex: 0 0 auto; }
+
+/* ── Landscape (default): only ~410px of height to work with ────────────────
+   Everything is a fixed-height band except .win-body, which absorbs the slack.
+   The numbers below are chosen so head + stats + buttons never squeeze the
+   chart out of the card — that was the original overflow. */
+#win-screen:not(.portrait) .win-inner { padding: 10px 20px; gap: 6px; justify-content: center; }
+#win-screen:not(.portrait) .win-crown { font-size: 34px; }
+#win-screen:not(.portrait) .win-name { font-size: 34px; letter-spacing: 2px; }
+#win-screen:not(.portrait) .win-subtitle { font-size: 13px; margin-bottom: 0; }
+#win-screen:not(.portrait) .win-cards { max-width: none; padding: 0; gap: 8px; flex-wrap: nowrap; }
+#win-screen:not(.portrait) .win-card { padding: 8px 10px; border-radius: 14px; min-width: 0; }
+#win-screen:not(.portrait) .win-card-name { font-size: 14px; margin-bottom: 2px; }
+#win-screen:not(.portrait) .win-card-score { font-size: 26px; margin-bottom: 4px; }
+#win-screen:not(.portrait) .win-card-stat { font-size: 11px; margin-bottom: 1px; gap: 6px; }
+#win-screen:not(.portrait) .win-chart-title { font-size: 12px; margin-bottom: 3px; }
+#win-screen:not(.portrait) .win-chart-wrap { padding: 7px 10px; }
+#win-screen:not(.portrait) .win-chart-legend { font-size: 10px; gap: 10px; margin-top: 4px; }
+#win-screen:not(.portrait) .win-stats { font-size: 12px; margin: 0; min-height: 0; }
+/* Side by side, not stacked — a stacked pair costs ~100px we don't have. */
+#win-screen:not(.portrait) .win-btn-row {
+    flex-direction: row; max-width: 460px; gap: 10px; margin-top: 0;
+}
+#win-screen:not(.portrait) .win-btn-row > button {
+    flex: 1 1 0; margin-top: 0; padding: 9px 14px; font-size: 17px; min-width: 0;
+}
+
+/* ── Portrait: the tall column, scrolled if the cards run long ───────────── */
+#win-screen.portrait .win-inner { overflow-y: auto; justify-content: flex-start; padding-bottom: 24px; }
+#win-screen.portrait .win-body { flex: 0 0 auto; }
+#win-screen.portrait #win-chart { min-height: 200px; }

@@ -95,9 +95,32 @@ export function updateUI() {
         if (el) el.textContent = (state.totalTurns > 0 ? `TURN ${state.totalTurns}` : 'TURN 1') + `  ·  🏁 Crown +${HBD_FINISH_BONUS}`;
     }
 
-    if (state.playStyle === 'tabletop') {
-        document.body.classList.toggle('tabletop-p2-turn', state.activePlayer === 1);
+    applyOrientation();
+}
+
+// ---- Screen orientation ----
+//
+// In tabletop mode the device lies flat between two players, so everything the
+// ACTIVE player has to read must be rotated to face them. This used to be a
+// single line at the bottom of updateUI(), which meant any scene that didn't
+// call updateUI() — the gate overlay above all — kept whatever rotation was
+// last applied. The gate then presented Player 1's dice roll upside-down.
+//
+// Call this on entry to every scene that shows text, not just on HUD refresh.
+export function applyOrientation() {
+    if (state.playStyle !== 'tabletop') {
+        document.body.classList.remove('tabletop-p2-turn');
+        return;
     }
+    document.body.classList.toggle('tabletop-p2-turn', state.activePlayer === 1);
+}
+
+// Force the orientation to a specific player — used when a scene belongs to
+// someone who isn't `state.activePlayer` yet (the gate reads its player from
+// the overlay's dataset, and minigame results belong to the winner).
+export function orientTo(playerIdx) {
+    if (state.playStyle !== 'tabletop') return;
+    document.body.classList.toggle('tabletop-p2-turn', playerIdx === 1);
 }
 
 function _updateAllySlots(playerIdx, p) {
