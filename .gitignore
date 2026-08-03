@@ -1,0 +1,5 @@
+# QA harness run artifacts — regenerated on every run, not source.
+qa/out-*.txt
+qa/result-*.json
+qa/shot-*.png
+node_modules/

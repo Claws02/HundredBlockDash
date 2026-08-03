@@ -63,6 +63,13 @@ export const SCENE = {
     // Handing the turn over — long enough to notice the HUD change hands.
     TURN_HANDOFF:    600,
 
+    // ── Opening ──────────────────────────────────────────────────────────────
+    // The establishing shot. It is the only chance to see the whole board, so
+    // it is paced to be read, not skipped past — the previous 5.5 s / 4.5 s
+    // sweeps moved faster than you can take a board in.
+    FLYOVER_HBD:    11000,
+    FLYOVER_CITY:    9000,
+
     // ── Set pieces ───────────────────────────────────────────────────────────
     REALM_BANNER:   2400,   // realm-entry cinematic
     GATE_RESULT:    2200,   // gate roll succeeded/failed, before the modal

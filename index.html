@@ -246,14 +246,30 @@
     <!-- Win Screen -->
     <div id="win-screen">
         <div class="win-confetti" id="win-confetti"></div>
-        <div class="win-crown">👑</div>
-        <div class="win-name bfont" id="win-name">PLAYER 1</div>
-        <div class="win-subtitle" id="win-subtitle">WINS THE CITY!</div>
-        <div class="win-cards" id="win-cards"></div>
-        <div id="win-stats" class="win-stats"></div>
-        <div class="win-btn-row">
-            <button class="btn-primary win-btn" id="btn-rematch">🔄 REMATCH</button>
-            <button class="mg-arcade-btn win-menu-btn" id="btn-main-menu">🏠 MAIN MENU</button>
+        <!-- Rotated 90° by default so the phone can be turned sideways and both
+             players read the result from the long edge. Toggleable. -->
+        <div class="win-inner" id="win-inner">
+            <button class="win-rotate bfont" id="btn-win-rotate" title="Rotate">⟳ ROTATE</button>
+            <div class="win-head">
+                <div class="win-crown">👑</div>
+                <div>
+                    <div class="win-name bfont" id="win-name">PLAYER 1</div>
+                    <div class="win-subtitle" id="win-subtitle">WINS THE CITY!</div>
+                </div>
+            </div>
+            <div class="win-body">
+                <div class="win-cards" id="win-cards"></div>
+                <div class="win-chart-wrap">
+                    <div class="win-chart-title bfont">THE RACE, TURN BY TURN</div>
+                    <div id="win-chart"></div>
+                    <div class="win-chart-legend" id="win-chart-legend"></div>
+                </div>
+            </div>
+            <div id="win-stats" class="win-stats"></div>
+            <div class="win-btn-row">
+                <button class="btn-primary win-btn" id="btn-rematch">🔄 REMATCH</button>
+                <button class="mg-arcade-btn win-menu-btn" id="btn-main-menu">🏠 MAIN MENU</button>
+            </div>
         </div>
     </div>
 

@@ -78,6 +78,9 @@ export function calculateWinner() {
         }
     }
 
+    _renderRaceChart();
+    _wireRotate();
+
     const confettiEl = document.getElementById('win-confetti'); confettiEl.innerHTML = '';
     const colors = ['#f59e0b','#a855f7','#3b82f6','#ef4444','#4ade80','#fbbf24','#ec4899'];
     for (let i = 0; i < 80; i++) {
@@ -87,4 +90,94 @@ export function calculateWinner() {
     }
     document.getElementById('win-screen').style.display = 'flex';
     sfx('win');
+}
+
+// ---- The race, turn by turn ----------------------------------------------
+//
+// Board progress for both players against turn number. `state.history` stores
+// progress normalised 0..1 (HBD) or laps + lap-fraction (City Circuit), so one
+// chart shape serves both maps. Drawn as inline SVG — no dependency, scales to
+// whatever box the landscape layout gives it.
+function _renderRaceChart() {
+    const host = document.getElementById('win-chart');
+    const legend = document.getElementById('win-chart-legend');
+    if (!host) return;
+    const h = state.history || [];
+    if (h.length < 2) {
+        host.innerHTML = '<div style="display:flex;height:100%;align-items:center;' +
+            'justify-content:center;color:rgba(255,255,255,.4);' +
+            'font-family:Nunito,system-ui,sans-serif;font-size:12px;">' +
+            'Match too short to chart</div>';
+        if (legend) legend.innerHTML = '';
+        return;
+    }
+
+    const W = 320, H = 150, padL = 26, padR = 10, padT = 10, padB = 20;
+    const iw = W - padL - padR, ih = H - padT - padB;
+    const maxTurn = Math.max(...h.map(e => e.turn), 1);
+    const maxProg = Math.max(1, ...h.map(e => Math.max(e.prog[0], e.prog[1])));
+    const x = t => padL + (t / maxTurn) * iw;
+    const y = v => padT + ih - (v / maxProg) * ih;
+
+    const colors = ['#ff5a5a', '#5a9bff'];
+    const paths = [0, 1].map(pi => {
+        const pts = h.map(e => `${x(e.turn).toFixed(1)},${y(e.prog[pi]).toFixed(1)}`);
+        return `<polyline fill="none" stroke="${colors[pi]}" stroke-width="2.5" ` +
+               `stroke-linejoin="round" stroke-linecap="round" points="${pts.join(' ')}"/>`;
+    }).join('');
+
+    // Mark where the lead changed hands — the story beat people argue about.
+    const flips = [];
+    for (let i = 1; i < h.length; i++) {
+        const a = Math.sign(h[i - 1].prog[0] - h[i - 1].prog[1]);
+        const b = Math.sign(h[i].prog[0] - h[i].prog[1]);
+        if (a !== 0 && b !== 0 && a !== b) flips.push(h[i]);
+    }
+    const flipMarks = flips.map(e =>
+        `<line x1="${x(e.turn).toFixed(1)}" y1="${padT}" x2="${x(e.turn).toFixed(1)}" y2="${padT + ih}" ` +
+        `stroke="rgba(251,191,36,.45)" stroke-width="1" stroke-dasharray="3 3"/>`).join('');
+
+    // Axes: turn numbers along the bottom, finish line along the top.
+    const ticks = [];
+    const step = Math.max(1, Math.ceil(maxTurn / 5));
+    for (let t = 0; t <= maxTurn; t += step) {
+        ticks.push(`<text x="${x(t).toFixed(1)}" y="${H - 6}" fill="rgba(255,255,255,.45)" ` +
+                   `font-size="9" font-family="Nunito,sans-serif" text-anchor="middle">${t}</text>`);
+    }
+    const finishLine = state.selectedMap === 'hundred_block_dash'
+        ? `<line x1="${padL}" y1="${y(1).toFixed(1)}" x2="${W - padR}" y2="${y(1).toFixed(1)}" ` +
+          `stroke="rgba(251,191,36,.55)" stroke-width="1.5" stroke-dasharray="5 4"/>` +
+          `<text x="${W - padR}" y="${(y(1) - 4).toFixed(1)}" fill="rgba(251,191,36,.8)" font-size="9" ` +
+          `font-family="Nunito,sans-serif" text-anchor="end">👑 CROWN</text>`
+        : '';
+
+    host.innerHTML =
+        `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" ` +
+        `aria-label="Board progress per turn for both players">` +
+        `<rect x="${padL}" y="${padT}" width="${iw}" height="${ih}" fill="rgba(255,255,255,.03)"/>` +
+        flipMarks + finishLine + paths +
+        `<text x="4" y="${padT + 8}" fill="rgba(255,255,255,.45)" font-size="9" ` +
+        `font-family="Nunito,sans-serif">${state.selectedMap === 'hundred_block_dash' ? 'END' : 'LAPS'}</text>` +
+        `<text x="4" y="${padT + ih}" fill="rgba(255,255,255,.45)" font-size="9" ` +
+        `font-family="Nunito,sans-serif">START</text>` +
+        ticks.join('') + `</svg>`;
+
+    if (legend) {
+        const flipTxt = flips.length
+            ? `<span><span class="wc-swatch" style="background:rgba(251,191,36,.8)"></span>lead changed <b>${flips.length}×</b></span>`
+            : '<span>lead never changed</span>';
+        legend.innerHTML =
+            `<span><span class="wc-swatch" style="background:${colors[0]}"></span><b>${state.players[0].name}</b></span>` +
+            `<span><span class="wc-swatch" style="background:${colors[1]}"></span><b>${state.players[1].name}</b></span>` +
+            `<span>turns: <b>${maxTurn}</b></span>` + flipTxt;
+    }
+}
+
+// Landscape by default; the toggle is there for anyone holding the phone upright.
+function _wireRotate() {
+    const btn = document.getElementById('btn-win-rotate');
+    const scr = document.getElementById('win-screen');
+    if (!btn || !scr || btn._wired) return;
+    btn._wired = true;
+    btn.addEventListener('click', () => scr.classList.toggle('portrait'));
 }

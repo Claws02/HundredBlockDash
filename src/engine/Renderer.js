@@ -5,6 +5,7 @@
 import { state } from '../core/GameState.js';
 import { SPACE_META, DISTRICT_BIOMES, getBiomeForDistrict, HBD_BIOMES, getBiomeForSpace, ALLIES, CHAR_ICONS, HBD_DEFAULT_CONFIG } from '../config/GameConfig.js';
 import { CITY_GRAPH, ALL_NODES_ORDERED, JUNCTION_IDS } from '../config/BoardGraph.js';
+import { SCENE } from '../config/SceneTiming.js';
 import * as Physics from './Physics.js';
 
 let scene, camera, renderer, clock;
@@ -1236,7 +1237,7 @@ export function startFlyover(onComplete) {
         // Linear flyover: sweep along boardCurve
         const flyObj = { p: 0 };
         activeAnims.push({
-            obj: flyObj, start: { p: 0 }, to: { p: 1.0 }, dur: 5.5,
+            obj: flyObj, start: { p: 0 }, to: { p: 1.0 }, dur: SCENE.FLYOVER_HBD / 1000,
             onUpdate: () => {
                 const safeT   = Math.max(0.001, Math.min(flyObj.p, 0.999));
                 const pt      = boardCurve.getPoint(safeT);
@@ -1253,7 +1254,7 @@ export function startFlyover(onComplete) {
         const flyObj = { angle: 0, height: 90, dist: 110 };
         activeAnims.push({
             obj: flyObj, start: { angle: 0, height: 90, dist: 110 }, to: { angle: Math.PI * 1.5, height: 28, dist: 55 },
-            dur: 4.5,
+            dur: SCENE.FLYOVER_CITY / 1000,
             onUpdate: () => {
                 camera.position.set(
                     Math.cos(flyObj.angle) * flyObj.dist,
@@ -1317,6 +1318,32 @@ export function setMapCameraTarget(nodeId, offsetY = 50, offsetZ = 30) {
     mapCam.targetLook.copy(pt);
     mapCam.dragCamStart.copy(mapCam.targetPos);
     mapCam.dragLookStart.copy(mapCam.targetLook);
+}
+
+// Put the follow camera exactly where it belongs for the active player, with no
+// lerp. Play resuming after a full-screen scene (the gate, a minigame) used to
+// start with the camera still parked where that scene left it, so the token
+// walked off-screen while the camera crawled after it at 0.055/frame.
+export function snapCameraToActive() {
+    const p = state.players[state.activePlayer];
+    if (!p || !p.mesh || !camera) return;
+    const currPt = p.mesh.position;
+    let fwd;
+    if (state.selectedMap === 'hundred_block_dash' && boardCurve && typeof p.pos === 'number') {
+        const t = Math.max(0.001, Math.min(p.pos / _hbdMax, 0.999));
+        fwd = boardCurve.getTangent(t).clone().normalize();
+    } else {
+        const prevPt = getPos(p.prevPos || p.pos);
+        fwd = new THREE.Vector3().subVectors(currPt, prevPt).normalize();
+        if (fwd.lengthSq() < 0.001) fwd.set(0, 0, -1);
+    }
+    const camTgt = currPt.clone().addScaledVector(fwd, -14).add(new THREE.Vector3(0, 22, 0));
+    if (isNaN(camTgt.x)) return;
+    camera.position.copy(camTgt);
+    const lookTarget = state.selectedMap === 'hundred_block_dash'
+        ? currPt.clone().addScaledVector(fwd, 10)
+        : currPt.clone().add(new THREE.Vector3(0, 1, 0));
+    camera.lookAt(lookTarget);
 }
 
 export function getDiceGroup() { return diceGrp; }
