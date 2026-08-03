@@ -33,8 +33,9 @@ Listed so the baseline is unambiguous. Detail in `QA_REPORT.md`.
 **Arcade expansion (second pass):**
 - Sumo Spheres and Tank Clash retuned for speed — see `MINIGAME_BACKLOG.md`
 - Duration floor and ceiling now enforced in code, closing DF-04 and DF-05
-- **Five new games, five new verbs: Tower Stack, Parry Duel, Circuit Trace,
-  Hot Streak, Keep Up.** Roster is now 20. Brainstorm and ranked backlog in
+- Five new games were added and then **archived after playtesting** — they were
+  solo score-attack duplicated across a divider, not two-player games. Roster is
+  back to 15. Post-mortem and the revised selection test are in
   `docs/MINIGAME_BACKLOG.md`
 
 ---

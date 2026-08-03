@@ -202,8 +202,9 @@ Criteria 7 and 8 are gated by §2 — if you followed the rules they're free.
 The roster should spread across verbs so the rotation feels fresh. Current
 shipped games and the target spread:
 
-The roster of **20** spreads across twenty distinct verbs — no two games
-share one:
+The roster of **15**. One game per verb is necessary but **not sufficient** —
+see `docs/MINIGAME_BACKLOG.md` for the shared-object test that comes first. Five
+games that passed the verb test and failed the fun test are in `archived/`.
 
 | Category             | Verb / feel                   | Shipped              |
 |----------------------|-------------------------------|----------------------|
@@ -222,23 +223,18 @@ share one:
 | Collect / select     | catch the good, reject the bad| ✅ Loot Catch        |
 | Restraint / stealth  | move only when unwatched      | ✅ Freeze            |
 | Flick / clear        | slingshot discs off your side | ✅ Clear Out         |
-| Stack / align        | drop slabs, keep them square  | ✅ Tower Stack       |
-| Read / counter       | outguess the person, not the screen | ✅ Parry Duel  |
-| Trace / route        | follow a path without crashing| ✅ Circuit Trace     |
-| Risk / greed         | how far will you push?        | ✅ Hot Streak        |
-| Sustain / juggle     | keep it airborne, compounding | ✅ Keep Up           |
 
 **Curation rule:** the 40 files in `src/minigames/archived/` are a **design
 backlog, not a code backlog** — their imports and shared-DOM dependencies are
 dead. Mine them for *concepts*, then rebuild to this standard. Keep the archive
 for reference (do not delete).
 
-Future additions should target a *new* verb rather than a second take on a
-filled category — and must still score ≥ 12/16 on §6 before shipping. Verbs the
-roster still has no entry for: **deduction** (narrow down a hidden answer from
-feedback), **territory** (claim and hold area), **routing** (connect endpoints
-under a constraint), **bluff/bid** (commit resources in secret), and
-**construction** (assemble to a spec against the clock).
+**Before the verb test, apply the shared-object test** (`MINIGAME_BACKLOG.md`):
+is there one thing both players are fighting over, and can one player's action
+hurt or help the other in the moment? If each player has a private copy of the
+playfield and the scores are only compared at the end, it is a leaderboard, not a
+two-player game — cut it regardless of how novel the verb is. Roughly half the
+current roster fails this test, which is a bigger problem than any missing verb.
 
 ---
 
