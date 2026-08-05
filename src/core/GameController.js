@@ -550,7 +550,7 @@ function _resolveHBDSpace(p) {
     if (p.pos >= cfg.finish) {
         sfx('win'); haptic([100, 50, 100, 50, 200]);
         state.gameState = 'GAME_OVER';
-        ModalManager.showMessage(`👑 ${p.name} REACHED THE CROWN!`, `+${HBD_FINISH_BONUS} finish bonus — but the most coins still wins!`, '👑');
+        ModalManager.showMessage(`👑 ${p.name} REACHED THE CROWN!`, `+${HBD_FINISH_BONUS} finish bonus — but the most coins still wins!`, '👑', { tier: 'shared' });
         Director.hold('WIN_SCREEN', calculateWinner);
         return;
     }
@@ -610,7 +610,12 @@ export function resolveSpace(p) {
     Director.hold('LAND_SETTLE', () => {
         if (state.gameState !== 'ACKNOWLEDGE') return;
         UIManager.showSpaceInfoCard(titleName, descText);
-        ModalManager.showMessage(titleName, msg || 'Nothing happens.', iconChar);
+        // Owner tier: the card is this player's, the opponent gets the headline
+        // on their own edge — first line only, so it stays one glanceable strip.
+        ModalManager.showMessage(titleName, msg || 'Nothing happens.', iconChar, {
+            tier:   'owner',
+            ticker: `${p.name}: ${(msg || titleName).split('\n')[0]}`,
+        });
         Director.begin('LAND_RESULT');
         if (p.isBot) {
             // No tap is coming, so this floor is the whole readable window.
@@ -902,7 +907,7 @@ function _resolveMinigameResult(winnerId) {
         _checkContract(state.players[winnerId], 'win_minigame');
         _checkContract(state.players[winnerId], 'win_minigames', null, state.players[winnerId].consecutiveMgWins);
     }
-    ModalManager.showMessage('MINIGAME OVER', msg, icon);
+    ModalManager.showMessage('MINIGAME OVER', msg, icon, { tier: 'shared' });
     Renderer.startPostMinigameFlyover(() => { state.cameraState = 'FOLLOW'; });
     if (state.selectedMap !== 'hundred_block_dash') UIManager.updateRoundCounter(state.currentRound, _cityRounds());
     if (state.players[1].isBot) {
@@ -1092,7 +1097,7 @@ export function closeGate() {
         const openMsg = state.selectedMap === 'hundred_block_dash'
             ? 'The Gate is open! Both players may now pass through.'
             : 'The Industrial Zone is accessible! Both players may now enter.';
-        ModalManager.showMessage('🔓 GATE OPEN!', openMsg, '🔓');
+        ModalManager.showMessage('🔓 GATE OPEN!', openMsg, '🔓', { tier: 'shared' });
         if (_pendingStepsAfterGate > 0) {
             const steps = _pendingStepsAfterGate; _pendingStepsAfterGate = 0;
             Director.hold('GATE_RESUME', () => {
@@ -1119,7 +1124,7 @@ export function closeGate() {
     } else {
         // Failed the roll — the banked steps are forfeit either way.
         _pendingStepsAfterGate = 0;
-        ModalManager.showMessage('🔒 GATE HOLDS', `${p.name} couldn't break through. Try again next turn!`, '🔒');
+        ModalManager.showMessage('🔒 GATE HOLDS', `${p.name} couldn't break through. Try again next turn!`, '🔒', { tier: 'shared' });
         if (state.selectedMap !== 'hundred_block_dash') {
             // City Circuit: push player back out of Industrial
             p.pos = 'bp_d';

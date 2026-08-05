@@ -10,6 +10,7 @@ import { ITEMS, ALLIES, SPACE_META, SPACE_DESCS, DISTRICT_BIOMES, HQ_META,
 import { CITY_GRAPH, ALL_NODES_ORDERED, BRANCH_OPTIONS, JUNCTION_IDS, DISTRICT_NAMES } from '../config/BoardGraph.js';
 import { COUNTED_TYPES } from '../config/ContractPool.js';
 import { SCENE } from '../config/SceneTiming.js';
+import * as DualRead from './DualRead.js';
 import { getPos, getTileMeshes, setMapCameraTarget, mapCamera, onResize, getCamera } from '../engine/Renderer.js';
 
 let _controller = null;
@@ -354,8 +355,11 @@ export function showHbdStory(onBegin) {
 export function announceMinigameIncoming() {
     const el = document.getElementById('realm-banner');
     if (!el) return;
-    el.innerHTML = '<div class="rb-ic">⚔️</div><div class="rb-name">MINIGAME NEXT</div>' +
-                   '<div class="rb-tag">Winner takes the coins — and rolls first</div>';
+    // Shared beat: both players are about to play. dualHTML draws it twice in
+    // tabletop mode, the top copy rotated, so neither has to read it upside down.
+    el.innerHTML = DualRead.dualHTML(
+        '<div class="rb-ic">⚔️</div><div class="rb-name">MINIGAME NEXT</div>' +
+        '<div class="rb-tag">Winner takes the coins — and rolls first</div>');
     el.style.display = 'flex';
     el.style.animation = 'none'; void el.offsetWidth; el.style.animation = '';
     clearTimeout(el._hideTimer);
@@ -365,7 +369,8 @@ export function announceMinigameIncoming() {
 export function showRealmBanner(realm) {
     const el = document.getElementById('realm-banner');
     if (!el || !realm) return;
-    el.innerHTML = `<div class="rb-ic">${realm.icon}</div><div class="rb-name">${realm.name}</div><div class="rb-tag">${realm.tagline || ''}</div>`;
+    el.innerHTML = DualRead.dualHTML(
+        `<div class="rb-ic">${realm.icon}</div><div class="rb-name">${realm.name}</div><div class="rb-tag">${realm.tagline || ''}</div>`);
     el.style.display = 'flex';
     el.style.animation = 'none'; void el.offsetWidth; el.style.animation = '';
     clearTimeout(el._hideTimer);
