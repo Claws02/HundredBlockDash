@@ -18,6 +18,13 @@ export const MG_TYPES = [
     'lootcatch',
     'freeze',
     'clearout',
+    // The four classic formats the genre is built on, added to fix the roster's
+    // structural gaps (docs/MINIGAME_BACKLOG.md): a paddle-and-ball rally,
+    // asymmetric roles, spatial denial, and a shared board taken in turns.
+    'puck',
+    'penalty',
+    'lightcycles',
+    'fourinarow',
 ];
 
 export const MG_INFO = {
@@ -35,6 +42,10 @@ export const MG_INFO = {
     lootcatch:   { icon: '🧺', title: 'LOOT CATCH',    desc: '💰 PAYDAY ROUND — every coin you catch is REAL money, and BOTH players keep every coin they scoop, win or lose. Slide your basket to grab 🪙 coins and 💎 gems (worth 3) and dodge every 💣. The exact same loot falls on both sides. Most caught after 34 seconds wins the bonus and rolls first — but nobody leaves empty-handed.' },
     freeze:      { icon: '👁️', title: 'FREEZE',        desc: 'One Crown in the middle, one track, and an Eye that picks a side. HOLD your half to creep toward the Crown — but when the Eye turns and looks at YOU, freeze or get sent back. It does not always watch both of you: when it stares at your rival, that is your free run. Get spotted and your scuffle covers their footsteps and hands them a free step. First to the Crown wins!' },
     clearout:    { icon: '🥏', title: 'CLEAR OUT',     desc: 'A wall splits the arena with one small gap. You start with 4 discs on your side — drag back and release to slingshot them through the gap onto your rival\'s side. Discs collide and ricochet! First to empty their own side wins (or fewest discs on your side when the clock runs out).' },
+    puck:        { icon: '🏒', title: 'PUCK',          desc: 'Air hockey. One puck, one table, a goal at each end. Drag your mallet anywhere in your half — the puck bounces off the walls and off whoever gets to it. Strike on the move to add pace, use the side walls for angles, and don\'t get caught upfield. FIRST TO 5 GOALS!' },
+    penalty:     { icon: '⚽', title: 'PENALTY',       desc: 'One shoots, one keeps, then you swap. The SHOOTER drags to aim and releases to strike. The KEEPER slides along the line and commits the instant the ball is hit — so it\'s a read of each other, not a test of your thumbs. Aim near a post and the keeper can\'t reach it, but the woodwork can. 3 kicks each, most goals wins!' },
+    lightcycles: { icon: '🏍️', title: 'LIGHT CYCLES',  desc: 'Two cycles, one arena, solid trails behind both. Tap LEFT or RIGHT of your cycle to turn. Crash into any wall — theirs, yours, or the arena\'s — and you lose the round. Every metre you take is a metre they can\'t have. Best of 3, and the arena closes in each round.' },
+    fourinarow:  { icon: '🔴', title: 'FOUR IN A ROW', desc: 'The classic, on one shared board you both read from your own edge. Tap a column on your side to drop a disc. First to line up four — across, down or diagonally — wins. There\'s a shot clock, so don\'t sit on it: run it out and the move gets made for you.' },
 };
 
 // ============================================================
@@ -86,6 +97,10 @@ export const MG_ORIENTATION_MAP = {
     lootcatch:   'faceoff',
     freeze:      'faceoff',
     clearout:    'faceoff',
+    puck:        'faceoff',
+    penalty:     'faceoff',
+    lightcycles: 'faceoff',
+    fourinarow:  'faceoff',
 };
 
 export const FALLBACK_TRIVIA = [

@@ -28,6 +28,10 @@ const MG_MODULES = {
     lootcatch:   () => import('./LootCatch.js'),
     freeze:      () => import('./Freeze.js'),
     clearout:    () => import('./ClearOut.js'),
+    puck:        () => import('./Puck.js'),
+    penalty:     () => import('./Penalty.js'),
+    lightcycles: () => import('./LightCycles.js'),
+    fourinarow:  () => import('./FourInARow.js'),
 };
 
 let _controller   = null;

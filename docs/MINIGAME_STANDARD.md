@@ -62,6 +62,13 @@ _last = now;
 Cap `dt` at `0.1 s` so a tab-switch never teleports objects. Every `+=` to a
 position, angle, or timer multiplies by `dt`.
 
+### R1b — Leave the outer edges clear
+`#mg-neutral` is a floating status pill at each player's outer edge (about 42 px
+tall including its margin), drawn above every game overlay. Anything your game
+puts at the very top or bottom of the screen — a goal mouth, a score, a control
+— will be behind it. Inset your playfield (Puck and Penalty use `PAD_Y`) or put
+your own HUD further in.
+
 ### R2 — Build your own DOM, into `#minigame-layer`
 Create your overlay in `start()` and append it to `#minigame-layer`. **Never**
 reference shared static element IDs — that graveyard was deleted. The only
@@ -100,6 +107,19 @@ End by tearing down, then calling `onWin(winnerId)` a single time. Guard with
 `_done` so a double-tap or a late timer can't fire it twice. The manager awards
 coins, flashes the zones, and continues the turn.
 
+### R6b — Coin games declare their payouts
+Most games hand the manager only a winner and the manager pays the flat
+`MINIGAME_REWARD`. A **coin game** instead lets both players keep what they
+earned inside it, and says so by passing a second argument:
+
+```js
+onWin(winnerId, [p1Coins, p2Coins]);   // both players bank their own haul
+```
+
+`MinigameManager` credits each player, shows the split on the result screen, and
+still pays the winner the flat reward on top. Loot Catch is the reference. Cap
+the payout inside your game — an uncapped one can decide a match off a minigame.
+
 ### R7 — Use the real audio vocabulary
 `sfx(name)` silently no-ops on an unknown name. Use a registered one or add it to
 `AudioManager.js`. Available today:
@@ -118,6 +138,12 @@ coins, flashes the zones, and continues the turn.
 - **Comeback potential.** Avoid runaway leads. Prefer best-of-N rounds or
   most-points-in-T-seconds over first-to-X, so a slow start isn't fatal. Escalate
   difficulty across rounds rather than snowballing score.
+- **Measure the length, don't guess it.** Run `node qa/botcheck.js` and read the
+  wall clock for easy and hard. Every game tuned by intuition in this repo has
+  been wrong: Shape Snap swept 3–0 in 9 s, Freeze crossed its track in 10 s with
+  no gap at all between easy and hard, and Four in a Row took 63 s on a 7×6
+  board. If the two tiers finish in the same time, the skill dial isn't
+  connected to anything.
 - **Length.** Target **15–40 seconds**, and enforce both ends in code:
   - **Ceiling.** Every game must resolve on its own. Either run on a fixed clock
     that settles on the current score, or close the space down (Sumo Spheres

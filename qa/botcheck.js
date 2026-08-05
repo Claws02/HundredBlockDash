@@ -75,6 +75,8 @@ const TIERS = [['easy', 0.25], ['hard', 0.85]];
                     gridrecall:'GridRecall', oddoneout:'OddOneOut',
                     steadyhand:'SteadyHand', sortrush:'SortRush', meteordodge:'MeteorDodge',
                     lootcatch:'LootCatch', freeze:'Freeze', clearout:'ClearOut',
+                    puck:'Puck', penalty:'Penalty', lightcycles:'LightCycles',
+                    fourinarow:'FourInARow',
                     towerstack:'TowerStack', parryduel:'ParryDuel', circuittrace:'CircuitTrace',
                     hotstreak:'HotStreak', keepup:'KeepUp',
                 };

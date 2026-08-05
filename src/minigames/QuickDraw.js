@@ -16,6 +16,11 @@ const WINS_NEEDED = 2;     // best of 3
 const ARM_MIN     = 1.4;   // s — shortest wait before DRAW
 const ARM_MAX     = 3.0;   // s — longest wait
 const TIE_WINDOW  = 0.05;  // s — taps this close count as a tie (replay)
+// Ceilings (§3). Without these the round sat in the 'fire' phase forever if
+// neither player drew, and the match only ended when the manager's 90 s tie
+// watchdog fired — the last game in the roster that could reach it.
+const DRAW_LIMIT  = 2.8;   // s after DRAW! before the round is scrubbed
+const MATCH_TIME  = 44;    // s hard ceiling; settles on rounds won
 
 // ── Module state ──────────────────────────────────────────────────────────────
 let _done = false, _onWin = null, _isBot = false, _botSkill = 0.55;
@@ -129,6 +134,13 @@ function _fire() {
     sfx('react_go'); haptic([40]);
     if (_isBot && _botReactMs > 0) _after(() => { if (_phase === 'fire') _tap(1); }, _botReactMs);
     _botReactMs = 0;
+    // Nobody drew: scrub the round rather than waiting forever.
+    _after(() => {
+        if (_done || _phase !== 'fire' || _taps.length) return;
+        _banner = 'NOBODY DREW!';
+        document.getElementById('mg-neutral').textContent = 'NOBODY DREW — REDRAW!';
+        _endRound(-1);
+    }, DRAW_LIMIT * 1000);
 }
 
 function _tap(pid) {
@@ -153,6 +165,7 @@ function _tap(pid) {
 
 function _resolveFire() {
     if (_done || _phase !== 'fire') return;
+    if (!_taps.length) return;                 // scrubbed by the draw limit
     const first = Math.min(..._taps.map(t => t.t));
     const winners = [...new Set(_taps.filter(t => t.t - first <= TIE_WINDOW * 1000).map(t => t.pid))];
     if (winners.length !== 1) {
@@ -188,7 +201,22 @@ function _tick() {
     const now = performance.now();
     const dt  = _last === 0 ? 1/60 : Math.min((now - _last) / 1000, 0.1);
     _last = now; _t += dt;
+    if (_t >= MATCH_TIME) {
+        _finishOnScore();
+        return;
+    }
     _draw();
+}
+
+function _finishOnScore() {
+    if (_done) return;
+    const w = _wins[0] > _wins[1] ? 0 : _wins[1] > _wins[0] ? 1 : -1;
+    _done = true;
+    state.mgActive = false;
+    document.getElementById('mg-neutral').textContent =
+        w < 0 ? `TIME — DRAW ${_wins[0]}–${_wins[1]}` : `TIME — P${w + 1} WINS ${_wins[0]}–${_wins[1]}!`;
+    sfx(w < 0 ? 'land_bad' : 'mg_win');
+    _after(() => { _destroy(); _onWin(w); }, 1300);
 }
 
 function _draw() {
