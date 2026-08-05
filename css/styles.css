@@ -235,7 +235,41 @@ body, html {
 .mg-zone { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; overflow: hidden; pointer-events: auto; width:100%; transition: background 0.3s; }
 #mg-p2 { background: rgba(59,142,255,.12); border-bottom: 3px solid var(--p2); transform: rotate(180deg); }
 #mg-p1 { background: rgba(255,59,59,.12); border-top: 3px solid var(--p1); }
-#mg-neutral { height: 76px; background: linear-gradient(90deg, #0a0a0a 0%, #111 50%, #0a0a0a 100%); border-top: 2px solid #333; border-bottom: 2px solid #333; display: flex; align-items: center; justify-content: center; font-size: 24px; color: var(--gold); letter-spacing: 3px; flex-shrink: 0; width:100%; text-shadow: 0 0 12px rgba(245,200,66,.6); transition: color 0.2s; }
+/* The status strip used to be a 76px opaque band in the flex column between the
+   two zones. Every minigame overlay is `position:absolute; inset:0`, so every
+   one of them painted straight over it — the clock, the score and the prompt
+   that fifteen games write here have been invisible the whole time. It is now a
+   compact floating pill above the game instead, in two copies (see
+   MinigameManager._syncNeutralMirror) so both players can read it, one pinned to
+   each player's own outer edge — the centre line is contested space in a
+   face-off game (ClearOut's gap, Sumo's arena) and a bar across it hides the
+   thing you are playing with. Taking it out of the flex flow also gives the two
+   halves an honest 50/50 split, which is what the overlays already assumed. */
+#mg-neutral {
+    position: absolute; left: 50%; bottom: 10px; z-index: 60;
+    transform: translateX(-50%);
+    max-width: 92%; padding: 5px 16px; border-radius: 12px;
+    background: rgba(8, 6, 18, 0.74); border: 1px solid rgba(255,255,255,.13);
+    backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 17px; line-height: 1.1; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
+    color: var(--gold); letter-spacing: 2px; pointer-events: none;
+    text-shadow: 0 0 10px rgba(245,200,66,.55); transition: color 0.2s;
+}
+/* The far player's copy, back to back with the first across the centre line. */
+#mg-neutral-mirror {
+    position: absolute; left: 50%; top: 10px; z-index: 60;
+    transform: translateX(-50%) rotate(180deg);
+    max-width: 92%; padding: 5px 16px; border-radius: 12px;
+    background: rgba(8, 6, 18, 0.74); border: 1px solid rgba(255,255,255,.13);
+    backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 17px; line-height: 1.1; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
+    color: var(--gold); letter-spacing: 2px; pointer-events: none;
+    text-shadow: 0 0 10px rgba(245,200,66,.55);
+}
 .mg-ready-btn { font-size: 30px; padding: 16px 48px; border-radius: 16px; border: 3px solid rgba(255,255,255,.4); cursor: pointer; background: rgba(255,255,255,.12); color: #fff; letter-spacing: 2px; transition: background .15s, transform .1s, border-color .15s; }
 .mg-ready-btn:active { transform: scale(.94); }
 .mg-ready-btn.ready { background: rgba(74,222,128,.35); border-color: #4ade80; color: #4ade80; box-shadow: 0 0 20px rgba(74,222,128,.4); }
@@ -1387,3 +1421,70 @@ body.reduce-motion .hbd-story-crown, body.reduce-motion #realm-banner { animatio
 #toast-box { transition: top .25s ease, transform .25s ease; }
 body.modal-open #toast-box { top: 85%; }
 body.modal-open.tabletop-p2-turn #toast-box { top: 15%; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   POST-MINIGAME SCOREBOARD
+   Two player cards with coin totals and a FIRST / SECOND badge, drawn twice —
+   the top copy rotated — so both ends of the table read the whole comparison
+   the right way up. Built by MinigameManager._showScoreboard.
+   ══════════════════════════════════════════════════════════════════════════ */
+.mg-score-screen {
+    position: absolute; inset: 0; z-index: 90;
+    display: flex; flex-direction: column;
+    background: radial-gradient(ellipse at 50% 50%, rgba(24,14,48,.97), rgba(6,4,14,.99));
+    animation: fadeSlideUp .28s ease backwards;
+}
+.mg-sc-panel {
+    flex: 1 1 50%; min-height: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 7px; padding: 10px 12px;
+}
+.mg-sc-panel.mg-sc-top { transform: rotate(180deg); }
+.mg-sc-head {
+    font-family: 'Bebas Neue', sans-serif; font-size: 30px; letter-spacing: 2px;
+    color: var(--gold); text-shadow: 0 0 22px rgba(245,200,66,.55); text-align: center;
+    line-height: 1.05;
+}
+.mg-sc-sub {
+    font-family: 'Nunito', system-ui, sans-serif; font-size: 12px;
+    color: rgba(255,255,255,.55); letter-spacing: .5px; margin-bottom: 2px;
+}
+.mg-sc-row { display: flex; gap: 10px; width: 100%; max-width: 400px; justify-content: center; }
+.mg-sc-card {
+    flex: 1 1 0; min-width: 0; padding: 10px 8px;
+    border-radius: 16px; text-align: center;
+    background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.14);
+}
+.mg-sc-card.mg-sc-win { border-color: var(--gold); background: rgba(245,200,66,.10); }
+.mg-sc-rank {
+    font-family: 'Bebas Neue', sans-serif; font-size: 14px; letter-spacing: 2px;
+    margin-bottom: 3px;
+}
+.mg-sc-rank.mg-sc-first  { color: var(--gold); }
+.mg-sc-rank.mg-sc-second { color: rgba(255,255,255,.45); }
+.mg-sc-rank.mg-sc-tie    { color: #a855f7; }
+.mg-sc-name {
+    font-family: 'Bebas Neue', sans-serif; font-size: 17px; letter-spacing: 1px;
+    margin-bottom: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.mg-sc-coins {
+    font-family: 'Bebas Neue', sans-serif; font-size: 34px; color: #4ade80;
+    line-height: 1; margin-bottom: 5px;
+}
+.mg-sc-coins .mg-sc-unit { font-size: 15px; margin-left: 3px; }
+.mg-sc-line {
+    display: block; font-family: 'Nunito', system-ui, sans-serif;
+    font-size: 11px; color: rgba(255,255,255,.78); line-height: 1.5;
+}
+.mg-sc-line b { color: var(--gold); }
+.mg-sc-dim { color: rgba(255,255,255,.42); }
+.mg-sc-dim b { color: rgba(255,255,255,.7); }
+.mg-sc-btn {
+    margin-top: 6px; padding: 8px 26px; border-radius: 12px; cursor: pointer;
+    font-family: 'Bebas Neue', sans-serif; font-size: 17px; letter-spacing: 2px;
+    color: #1a1206; background: linear-gradient(180deg, #f7d777, #eab13a);
+    border: none; box-shadow: 0 6px 18px rgba(245,200,66,.32);
+    transition: opacity .2s, transform .1s;
+}
+.mg-sc-btn:disabled { opacity: .35; }
+.mg-sc-btn:active:not(:disabled) { transform: scale(.96); }

@@ -43,6 +43,7 @@ let _lastTick = 0;
 let _vel1, _vel2, _input1, _input2, _mom1 = 0, _mom2 = 0;
 let _falling = { p1: false, p2: false };
 let _activeTouches = {};
+let _knobs = [null, null];   // joystick knobs, so the bot's stick can be animated
 const _cleanups = [];
 const _timers   = [];
 
@@ -85,7 +86,7 @@ function _build() {
 
     // Joystick zones — P2 on top, P1 on bottom
     const JOY_R = 52; // base radius px
-    const _knobs = [null, null];
+    _knobs = [null, null];
 
     for (let pid = 0; pid < 2; pid++) {
         const color = pid === 0 ? '#ff3b3b' : '#3b8eff';
@@ -96,14 +97,18 @@ function _build() {
             pid === 0 ? 'top:50%;bottom:0;' : 'top:0;bottom:50%;',
         ].join('');
 
-        // Static joystick base, centered in each half
+        // Floating joystick. The stick is not a fixed pad at the bottom of the
+        // half — it appears wherever the thumb first lands and the knob swings
+        // in a circle around that point. A fixed pad meant looking down to find
+        // it; this way you never take your eyes off your sphere.
         const base = document.createElement('div');
         base.style.cssText = [
-            'position:absolute;left:50%;',
-            pid === 0 ? 'bottom:32px;transform:translateX(-50%);' : 'top:32px;transform:translateX(-50%);',
+            'position:absolute;left:50%;top:50%;',
+            'transform:translate(-50%,-50%);',
             `width:${JOY_R * 2}px;height:${JOY_R * 2}px;border-radius:50%;`,
             'background:rgba(255,255,255,0.05);border:2px solid rgba(255,255,255,0.15);',
-            'pointer-events:none;',
+            'pointer-events:none;opacity:.35;',
+            'transition:left .18s ease, top .18s ease, opacity .18s ease;',
         ].join('');
 
         const knob = document.createElement('div');
@@ -118,11 +123,43 @@ function _build() {
         _knobs[pid] = knob;
         _overlay.appendChild(zone);
 
+        // Where the ring rests when nobody is touching: a visible hint at the
+        // outer edge of the half, out of the way of the arena.
+        const restLeft = '50%';
+        const restTop  = pid === 0 ? 'calc(100% - 84px)' : '84px';
+        base.style.left = restLeft;
+        base.style.top  = restTop;
+
+        const park = () => {
+            base.style.transition = 'left .18s ease, top .18s ease, opacity .18s ease';
+            base.style.left = restLeft;
+            base.style.top  = restTop;
+            base.style.opacity = '.35';
+            knob.style.transform = 'translate(-50%,-50%)';
+        };
+
         const onDown = e => {
             if (_done || _activeTouches[e.pointerId]) return;
             if (pid === 1 && _isBot) return;
             e.preventDefault();
             _activeTouches[e.pointerId] = { pid, startX: e.clientX, startY: e.clientY };
+            // Without capture, dragging past the midline silently stops steering
+            // because the moves are delivered to the other half's zone.
+            try { zone.setPointerCapture(e.pointerId); } catch (err) {}
+            // Snap the ring under the thumb, kept fully inside the half so it
+            // never gets clipped at an edge.
+            const r  = zone.getBoundingClientRect();
+            const cx = Math.max(JOY_R, Math.min(r.width  - JOY_R, e.clientX - r.left));
+            const cy = Math.max(JOY_R, Math.min(r.height - JOY_R, e.clientY - r.top));
+            base.style.transition = 'opacity .12s ease';   // no glide to the thumb
+            base.style.left = cx + 'px';
+            base.style.top  = cy + 'px';
+            base.style.opacity = '1';
+            knob.style.transform = 'translate(-50%,-50%)';
+            // The ring may have been clamped away from the finger; measure from
+            // where it actually landed so the stick is centred on the ring.
+            _activeTouches[e.pointerId].startX = r.left + cx;
+            _activeTouches[e.pointerId].startY = r.top  + cy;
         };
         const onMove = e => {
             const t = _activeTouches[e.pointerId];
@@ -142,7 +179,8 @@ function _build() {
             const t = _activeTouches[e.pointerId];
             if (!t) return;
             e.preventDefault();
-            knob.style.transform = 'translate(-50%,-50%)';
+            park();
+            try { zone.releasePointerCapture(e.pointerId); } catch (err) {}
             if (t.pid === 0) _input1.set(0, 0);
             else             _input2.set(0, 0);
             delete _activeTouches[e.pointerId];
@@ -298,6 +336,12 @@ function _botTick() {
         const dx = tx - _p2.position.x, dz = tz - _p2.position.z;
         const d = Math.sqrt(dx*dx + dz*dz);
         if (d > 0) _input2.set(dx/d + (Math.random()-.5)*noise, dz/d + (Math.random()-.5)*noise).normalize();
+    }
+    // Drive the bot's knob too, so its half doesn't look like dead UI.
+    if (_knobs[1]) {
+        const k = 30;
+        _knobs[1].style.transform =
+            `translate(calc(-50% + ${(_input2.x * k).toFixed(1)}px), calc(-50% + ${(_input2.y * k).toFixed(1)}px))`;
     }
     _after(_botTick, 220 - _botSkill * 140);                  // 185 ms easy → 100 ms hard
 }

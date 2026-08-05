@@ -174,8 +174,9 @@ function _botTick() {
     const blockChance = 0.35 + _botSkill * 0.6;               // 0.50 easy → 0.86 hard
     const aimErrPx    = (1 - _botSkill) * _cw * 0.22 * (Math.random() + Math.random() - 1);
     if (threat && minTime < 1.5 && Math.random() < blockChance) {
-        const lx = threat.x + threat.vx * 0.3 + aimErrPx;
-        const ly = Math.max(_ch * 0.05, Math.min(_ch * 0.44, threat.y + threat.vy * 0.3));
+        const lead = 0.18;   // s of prediction; trimmed with the faster orb
+        const lx = threat.x + threat.vx * lead + aimErrPx;
+        const ly = Math.max(_ch * 0.05, Math.min(_ch * 0.44, threat.y + threat.vy * lead));
         const w  = _cw * 0.14;
         _gs.barriers.push({
             points: [
@@ -188,7 +189,9 @@ function _botTick() {
         sfx('boost');
     }
 
-    _after(_botTick, 350 + Math.random() * 350);
+    // Poll faster than before: the orb now moves ~1.8× quicker, and at the old
+    // 350–700 ms cadence the bot was drawing barriers where the orb used to be.
+    _after(_botTick, 200 + Math.random() * 200);
 }
 
 // ── Physics helpers ───────────────────────────────────────────────────────────
@@ -201,8 +204,15 @@ function _distToSegment(x1, y1, x2, y2, px, py) {
     return { d: Math.hypot(px-nx, py-ny), nx, ny };
 }
 
+// Launch speed, in screen-heights per second. At 0.40 the orb drifted across
+// the arena and a deflection felt like nudging a balloon; 0.72 makes it read as
+// a shot you have to answer. The bounce cap below rises with it so a well-timed
+// barrier still adds pace.
+const ORB_LAUNCH_SPEED = 0.72;
+const ORB_MAX_SPEED    = 1.45;
+
 function _spawnOrb() {
-    const speed = _ch * 0.4;
+    const speed = _ch * ORB_LAUNCH_SPEED;
     const angle = Math.random() * Math.PI * 2;
     _gs.orbs.push({
         x: _cw / 2, y: _ch / 2,
@@ -318,7 +328,7 @@ function _update(dt) {
                     orb.vy = (orb.vy - 2*dot*ny) * 1.05;
                     // Speed cap to prevent runaway acceleration
                     const spd = Math.hypot(orb.vx, orb.vy);
-                    const maxSpd = _ch * 0.9;
+                    const maxSpd = _ch * ORB_MAX_SPEED;
                     if (spd > maxSpd) { orb.vx = orb.vx/spd*maxSpd; orb.vy = orb.vy/spd*maxSpd; }
                     orb.x += nx * (orb.r - hit.d + 2);
                     orb.y += ny * (orb.r - hit.d + 2);

@@ -21,7 +21,6 @@ const MG_MODULES = {
     snapstrike:  () => import('./SnapStrike.js'),
     quickdraw:   () => import('./QuickDraw.js'),
     gridrecall:  () => import('./GridRecall.js'),
-    tugtap:      () => import('./TugTap.js'),
     oddoneout:   () => import('./OddOneOut.js'),
     steadyhand:  () => import('./SteadyHand.js'),
     sortrush:    () => import('./SortRush.js'),
@@ -51,8 +50,30 @@ const _minigameCleanups = [];
 // straight through the explanation of a game the other one has never seen.
 let _introReady = [false, false];
 
+// Fifteen games write their clock and score into #mg-neutral with plain
+// textContent. Rather than change all of them, mirror the element: an observer
+// copies whatever they write into a second, 180°-rotated copy on the far side of
+// the centre line, so the player at the other end reads the same status.
+let _neutralObserver = null;
+
+function _syncNeutralMirror() {
+    const src = document.getElementById('mg-neutral');
+    const dst = document.getElementById('mg-neutral-mirror');
+    if (!src || !dst) return;
+    const txt = src.textContent || '';
+    dst.textContent = txt;
+    // An empty strip should not leave two empty pills floating over the game.
+    const show = txt.trim() ? '' : 'none';
+    src.style.display = show; dst.style.display = show;
+    if (!_neutralObserver) {
+        _neutralObserver = new MutationObserver(() => _syncNeutralMirror());
+        _neutralObserver.observe(src, { childList: true, characterData: true, subtree: true });
+    }
+}
+
 export function init(controller) {
     _controller = controller;
+    _syncNeutralMirror();
     document.getElementById('mg-ready-1').addEventListener('pointerdown', e => { e.preventDefault(); setReady(0); });
     document.getElementById('mg-ready-2').addEventListener('pointerdown', e => { e.preventDefault(); setReady(1); });
     document.getElementById('btn-mg-intro-next').addEventListener('pointerdown', e => {
@@ -351,6 +372,7 @@ function _startMinigameLayer() {
     clearTimeout(_botReadyTimeout); _botReadyTimeout = null;
     _countdownActive = false;
     _resolving = false;
+    _lastPayouts = [0, 0];
     state.gameState = 'MINIGAME';
 
     // Sweep any orphaned game overlay left by a force-ended minigame.
@@ -434,7 +456,37 @@ async function _launchGame() {
 
 const MINIGAME_TIE_REWARD = Math.floor(MINIGAME_REWARD / 2); // 5 coins each on tie
 
-export function winMinigame(winnerId) {
+// What each player banked from a coin game this round, for the result screen.
+let _lastPayouts = [0, 0];
+
+export function lastPayouts() { return _lastPayouts.slice(); }
+
+// Bank a coin game's per-player haul. Kept separate from the win reward so the
+// result screen can show "caught 24" and "+10 for the win" as different things.
+function _creditPayouts(payouts) {
+    if (!Array.isArray(payouts)) return [0, 0];
+    const out = [0, 0];
+    for (let i = 0; i < 2; i++) {
+        const n = Math.max(0, Math.round(payouts[i] || 0));
+        out[i] = n;
+        if (n > 0) { state.players[i].coins += n; state.players[i].coinsEarned += n; }
+    }
+    if (out[0] || out[1]) {
+        sfx('coin_gain');
+        import('../ui/UIManager.js').then(({ animateCoinDisplay, updateUI }) => {
+            state.players.forEach((p, i) => animateCoinDisplay(i, p.coins));
+            updateUI();
+        });
+    }
+    return out;
+}
+
+// `payouts` is the coin-game extension: a game may pass [p1Coins, p2Coins] as a
+// second argument, and BOTH players keep every coin they earned in it — not just
+// the winner. The winner still takes the standard reward on top and still rolls
+// first, so winning is worth something beyond the haul. Games that don't pass it
+// behave exactly as before.
+export function winMinigame(winnerId, payouts) {
     if (_practiceMode) return _finishPractice(winnerId);
     // Guard against double-resolution. Don't key this off state.mgActive:
     // most minigames clear mgActive in their own _finish() before calling
@@ -442,6 +494,7 @@ export function winMinigame(winnerId) {
     if (_resolving) return;
     _resolving = true;
     state.mgActive = false;
+    _lastPayouts = _creditPayouts(payouts);
     if (winnerId < 0) {
         // TIE — both players get coins, coin flip decides who goes first
         const flipWinner = Math.random() < 0.5 ? 0 : 1;
@@ -449,9 +502,8 @@ export function winMinigame(winnerId) {
             p.coins += MINIGAME_TIE_REWARD;
             p.coinsEarned += MINIGAME_TIE_REWARD;
         });
-        import('../ui/UIManager.js').then(({ animateCoinDisplay, toast, updateUI }) => {
+        import('../ui/UIManager.js').then(({ animateCoinDisplay, updateUI }) => {
             state.players.forEach((p, i) => animateCoinDisplay(i, p.coins));
-            toast(`🤝 TIE! Both get ${MINIGAME_TIE_REWARD} coins — coin flip: ${state.players[flipWinner].name} goes first!`, '#a855f7');
             updateUI();
         });
         sfx('coin_gain');
@@ -466,7 +518,10 @@ export function winMinigame(winnerId) {
             z1?.classList.remove('mg-victory');
             z2?.classList.remove('mg-victory');
             document.getElementById('mg-neutral').textContent = `${state.players[flipWinner].name.toUpperCase()} GOES FIRST!`;
-            setTimeout(() => endMinigame(flipWinner), 600);
+            _showScoreboard(-1, _lastPayouts, false, () => {
+                _resultToast(`🤝 TIE! Both get ${MINIGAME_TIE_REWARD} coins — coin flip: ${state.players[flipWinner].name} goes first!`, '#a855f7');
+                endMinigame(flipWinner);
+            });
         }, 700);
         return;
     }
@@ -474,9 +529,8 @@ export function winMinigame(winnerId) {
     winner.mgWins++;
     winner.coins += MINIGAME_REWARD;
     winner.coinsEarned += MINIGAME_REWARD;
-    import('../ui/UIManager.js').then(({ animateCoinDisplay, toast, updateUI }) => {
+    import('../ui/UIManager.js').then(({ animateCoinDisplay, updateUI }) => {
         animateCoinDisplay(winnerId, winner.coins);
-        toast(`🏆 ${winner.name} wins ${MINIGAME_REWARD} coins and goes first!`, '#f5c842');
         updateUI();
     });
     sfx('mg_win');
@@ -488,8 +542,100 @@ export function winMinigame(winnerId) {
     setTimeout(() => {
         winZone?.classList.remove('mg-victory');
         loseZone?.classList.remove('mg-defeat');
-        endMinigame(winnerId);
+        _showScoreboard(winnerId, _lastPayouts, false, () => {
+            const haul = _lastPayouts[winnerId]
+                ? ` (+${_lastPayouts[winnerId]} caught — both players keep theirs)` : '';
+            _resultToast(`🏆 ${winner.name} wins ${MINIGAME_REWARD} coins and goes first!${haul}`, '#f5c842');
+            endMinigame(winnerId);
+        });
     }, 800);
+}
+
+// Fired after the scoreboard is dismissed, not before: a toast is pinned to the
+// centre of the screen and sits above the scoreboard's z-index, so raising it
+// alongside the cards laid a truncated duplicate of the result across them.
+function _resultToast(msg, color) {
+    import('../ui/UIManager.js').then(({ toast }) => toast(msg, color));
+}
+
+// ── Post-game scoreboard ────────────────────────────────────────────────────
+//
+// Every minigame used to end on a one-line flash in the status strip, which the
+// losing player often never read. This is a proper result screen: both player
+// cards, both coin totals, and a FIRST / SECOND badge saying who rolls next.
+// The whole row is drawn twice — once rotated — so each end of the table gets
+// the full comparison the right way up, the same idiom the minigames themselves
+// use for their two halves.
+//
+// `payouts` is the per-player coin-game haul (see _creditPayouts); zero for the
+// ordinary games, where only the winner's flat reward moved.
+function _showScoreboard(winnerId, payouts, practice, done) {
+    const layer = document.getElementById('minigame-layer');
+    if (!layer) { done(); return; }
+    const old = layer.querySelector('.mg-score-screen');
+    if (old) old.remove();
+
+    const scr = document.createElement('div');
+    scr.className = 'mg-score-screen';
+
+    const cardsHTML = () => state.players.map((p, i) => {
+        const isWin  = winnerId === i;
+        const isTie  = winnerId < 0;
+        const rank   = isTie ? '🤝 TIE' : isWin ? '🥇 FIRST' : '🥈 SECOND';
+        const rankCls = isTie ? 'mg-sc-tie' : isWin ? 'mg-sc-first' : 'mg-sc-second';
+        const gained = (payouts && payouts[i]) || 0;
+        const bonus  = practice ? 0
+                     : isTie ? MINIGAME_TIE_REWARD
+                     : isWin ? MINIGAME_REWARD : 0;
+        const lines = [];
+        if (gained) lines.push(`<span class="mg-sc-line">🪙 caught <b>+${gained}</b></span>`);
+        if (bonus)  lines.push(`<span class="mg-sc-line">🏆 win bonus <b>+${bonus}</b></span>`);
+        if (!lines.length) lines.push(`<span class="mg-sc-line mg-sc-dim">${practice ? 'practice — nothing at stake' : 'no coins this round'}</span>`);
+        return `<div class="mg-sc-card ${isWin && !isTie ? 'mg-sc-win' : ''}">
+            <div class="mg-sc-rank ${rankCls}">${rank}</div>
+            <div class="mg-sc-name" style="color:${i === 0 ? '#ff6b6b' : '#6ba7ff'}">${p.name}</div>
+            <div class="mg-sc-coins">${p.coins}<span class="mg-sc-unit">🪙</span></div>
+            ${lines.join('')}
+            <div class="mg-sc-line mg-sc-dim">minigames won: <b>${p.mgWins}</b></div>
+        </div>`;
+    }).join('');
+
+    const headline = practice
+        ? 'PRACTICE ROUND'
+        : winnerId < 0 ? 'IT\'S A TIE!'
+                       : `${state.players[winnerId].name.toUpperCase()} WINS!`;
+    const sub = practice ? 'Nothing at stake'
+              : winnerId < 0 ? 'Coin flip decides who rolls first'
+                             : 'Rolls first next turn';
+
+    const panel = side => `<div class="mg-sc-panel ${side}">
+        <div class="mg-sc-head">${headline}</div>
+        <div class="mg-sc-sub">${sub}</div>
+        <div class="mg-sc-row">${cardsHTML()}</div>
+        <button class="mg-sc-btn" type="button">CONTINUE →</button>
+    </div>`;
+
+    scr.innerHTML = panel('mg-sc-top') + panel('mg-sc-bottom');
+    layer.appendChild(scr);
+
+    let finished = false;
+    const finish = () => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(autoId);
+        scr.remove();
+        done();
+    };
+    // A short floor before the buttons arm: an eager tapper on the winning side
+    // must not be able to wipe the screen before the other player has read it.
+    const ARM_MS = 700, AUTO_MS = 6000;
+    const btns = [...scr.querySelectorAll('.mg-sc-btn')];
+    btns.forEach(b => { b.disabled = true; });
+    const armId = setTimeout(() => btns.forEach(b => { b.disabled = false; }), ARM_MS);
+    btns.forEach(b => b.addEventListener('pointerdown', e => { e.preventDefault(); finish(); }));
+    const autoId = setTimeout(finish, AUTO_MS);
+    // A force-end must not leave the screen (or its timers) behind.
+    registerMinigameCleanup(() => { clearTimeout(armId); clearTimeout(autoId); scr.remove(); });
 }
 
 // Practice teardown: show the result, award nothing, hand control back.
@@ -506,7 +652,7 @@ function _finishPractice(winnerId) {
     if (winnerId >= 0) z[winnerId]?.classList.add('mg-victory');
     setTimeout(() => {
         z.forEach(e => e?.classList.remove('mg-victory', 'mg-defeat'));
-        endMinigame(winnerId);
+        _showScoreboard(winnerId, [0, 0], true, () => endMinigame(winnerId));
     }, 1100);
 }
 

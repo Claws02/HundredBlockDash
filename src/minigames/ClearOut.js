@@ -15,6 +15,8 @@ import { registerMinigameCleanup } from './MinigameManager.js';
 
 // ── Tunables (fractions of screen width unless noted) ────────────────────────
 const GAME_TIME   = 40;     // seconds (safety / tiebreak)
+// Clearance for the floating status pill pinned to each player's outer edge.
+const HUD_INSET   = 52;
 const N_PER_SIDE  = 4;
 const DISC_RF     = 0.050;  // disc radius
 const WALL_TF     = 0.016;  // wall thickness
@@ -234,8 +236,12 @@ function _checkWin() {
     if (_done) return;
     if (!_settled()) return;
     const bottom = _bottomCount(), top = _discs.length - bottom;
-    if (bottom === 0) _finish(0);          // P1's side cleared
-    else if (top === 0) _finish(1);        // P2's side cleared
+    // WIPEOUT: every disc has ended up on one player's side, so the other side
+    // is empty and that player has won outright — no need to run the clock out.
+    // Checked only once everything has come to rest, so a disc still rolling
+    // through the gap can't steal the call.
+    if (bottom === 0) _finish(0, 'WIPEOUT');
+    else if (top === 0) _finish(1, 'WIPEOUT');
 }
 
 // ── Bot ───────────────────────────────────────────────────────────────────────
@@ -289,13 +295,55 @@ function _draw() {
     const bottom = _bottomCount(), top = _discs.length - bottom;
     _ctx.save(); _ctx.fillStyle = '#ff6a6a'; _ctx.font = '900 22px "Bebas Neue", sans-serif';
     _ctx.textAlign = 'left'; _ctx.textBaseline = 'bottom';
-    _ctx.fillText(`P1 SIDE: ${bottom}`, 14, h - 12); _ctx.restore();
+    _ctx.fillText(`P1 SIDE: ${bottom}`, 14, h - HUD_INSET); _ctx.restore();
     _ctx.save(); _ctx.translate(w, 0); _ctx.rotate(Math.PI); _ctx.fillStyle = '#6aa8ff';
     _ctx.font = '900 22px "Bebas Neue", sans-serif'; _ctx.textAlign = 'left'; _ctx.textBaseline = 'bottom';
-    _ctx.fillText(`P2 SIDE: ${top}`, 14, h - 12); _ctx.restore();
+    _ctx.fillText(`P2 SIDE: ${top}`, 14, h - HUD_INSET); _ctx.restore();
+
+    _drawClock();
 
     const neu = document.getElementById('mg-neutral');
-    if (neu && !_done) neu.textContent = `EMPTY YOUR SIDE!   P1 ${bottom} · ${top} P2   ${Math.ceil(GAME_TIME - _t)}s`;
+    // The clock is drawn big on the canvas now, so the strip stays short.
+    if (neu && !_done) neu.textContent = `EMPTY YOUR SIDE!   P1 ${bottom} · ${top} P2`;
+}
+
+// The clock used to live only in the centre status strip, in small type, next to
+// two other numbers — players had no idea how long was left. It is now a bar
+// running along the centre wall that drains as the round does, with the seconds
+// printed at BOTH edges so each player reads their own copy the right way up.
+function _drawClock() {
+    const w = _W, h = _H, midY = h / 2;
+    const left = Math.max(0, GAME_TIME - _t);
+    const frac = left / GAME_TIME;
+    const col  = left <= 5 ? '#ff4d4d' : left <= 10 ? '#fbbf24' : '#7dd3fc';
+
+    // Drain bar, pinned just below the wall so it never hides the gap.
+    const barH = Math.max(4, h * 0.007);
+    const barY = midY + _wallT / 2 + barH * 1.6;
+    _ctx.save();
+    _ctx.fillStyle = 'rgba(255,255,255,.10)';
+    _ctx.fillRect(w * 0.06, barY, w * 0.88, barH);
+    _ctx.fillStyle = col;
+    _ctx.fillRect(w * 0.06, barY, w * 0.88 * frac, barH);
+    _ctx.restore();
+
+    // Seconds, one copy per player, each upright from that player's edge.
+    const label = `${Math.ceil(left)}`;
+    const size  = Math.round(Math.min(w, h) * 0.062);
+    const pulse = left <= 5 ? 1 + 0.08 * Math.sin(_t * 12) : 1;
+    for (let pid = 0; pid < 2; pid++) {
+        _ctx.save();
+        if (pid === 1) { _ctx.translate(w, h); _ctx.rotate(Math.PI); }
+        _ctx.globalAlpha = 0.85;
+        _ctx.fillStyle = col;
+        _ctx.font = `900 ${Math.round(size * pulse)}px "Bebas Neue", sans-serif`;
+        _ctx.textAlign = 'right'; _ctx.textBaseline = 'bottom';
+        _ctx.fillText(label, w - 14, h - HUD_INSET);
+        _ctx.globalAlpha = 0.5;
+        _ctx.font = `800 ${Math.round(size * 0.3)}px "Nunito", system-ui, sans-serif`;
+        _ctx.fillText('LEFT', w - 14, h - HUD_INSET - size * 0.95);
+        _ctx.restore();
+    }
 }
 
 function _drawDisc(d) {
@@ -334,12 +382,16 @@ function _drawAim(pid) {
 }
 
 // ── End ─────────────────────────────────────────────────────────────────────
-function _finish(winnerId) {
+function _finish(winnerId, how) {
     if (_done) return;
     _done = true;
     state.mgActive = false;
     const neu = document.getElementById('mg-neutral');
-    if (neu) neu.textContent = winnerId < 0 ? 'DRAW!' : `P${winnerId + 1} CLEARS THEIR SIDE!`;
+    if (neu) {
+        neu.textContent = winnerId < 0 ? 'DRAW!'
+            : how === 'WIPEOUT' ? `WIPEOUT! ALL DISCS ON P${2 - winnerId}'S SIDE — P${winnerId + 1} WINS!`
+            : `P${winnerId + 1} CLEARS THEIR SIDE!`;
+    }
     sfx(winnerId < 0 ? 'land_bad' : 'mg_win');
     _after(() => { _destroy(); _onWin(winnerId); }, 1600);
 }

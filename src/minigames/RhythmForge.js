@@ -50,6 +50,7 @@ let _gameBoard = null, _lanes = [], _laneTargets = [], _indicator = null;
 let _p1ScoreEl = null, _p2ScoreEl = null;
 let _scores = [0, 0], _activePlayer = 0, _currentRound = 0;
 let _beats = [], _turnStart = 0, _transitioning = false;
+let _turnTag = null;
 let _animId = null, _lastTick = 0;
 const _cleanups = [];
 const _timers   = [];
@@ -73,6 +74,7 @@ export function start(isBot, onWin, botSkill = 0.55) {
     registerMinigameCleanup(_destroy);
     _scores = [0, 0]; _activePlayer = 0; _currentRound = 0;
     _beats = []; _turnStart = 0; _lastTick = 0; _transitioning = false;
+    _turnTag = null;
     _lanes = []; _laneTargets = [];
 
     _buildDOM();
@@ -114,9 +116,28 @@ function _buildDOM() {
             background:#66fcf1;border-radius:14px;box-shadow:0 0 16px #66fcf1,0 0 4px #fff;
             pointer-events:none;z-index:5;
         }
+        /* Scoreboards live OUTSIDE .rf-board on purpose. They used to be children
+           of it, so the 180° board flip on Player 2's turn carried them along —
+           P1's score physically travelled to P2's edge and vice versa, which
+           read as the scores swapping owners every turn. Pinned to the overlay,
+           each one stays on its own player's edge for the whole game. */
         .rf-score {
-            position:absolute;font-size:46px;font-weight:900;
+            position:absolute;font-size:44px;font-weight:900;
             text-shadow:0 0 12px #45a29e;pointer-events:none;z-index:20;
+            transition:opacity .35s,color .35s,text-shadow .35s;
+            display:flex;flex-direction:column;align-items:center;gap:2px;line-height:1;
+        }
+        .rf-score .rf-who {
+            font-size:12px;font-weight:800;letter-spacing:2px;opacity:.85;
+            font-family:'Nunito',system-ui,sans-serif;text-shadow:none;
+        }
+        .rf-score.rf-idle { opacity:.34; color:#9fb0c0; text-shadow:none; }
+        .rf-score.rf-live { opacity:1; }
+        .rf-turn-tag {
+            position:absolute;font-family:'Nunito',system-ui,sans-serif;
+            font-size:12px;font-weight:900;letter-spacing:2px;z-index:21;
+            padding:4px 10px;border-radius:8px;pointer-events:none;
+            transition:opacity .3s;
         }
         .rf-indicator {
             position:absolute;top:50%;left:50%;transform:translate(-50%,-50%) scale(.85);
@@ -159,19 +180,28 @@ function _buildDOM() {
     }
     _gameBoard.appendChild(hitZone);
 
+    _overlay.appendChild(_gameBoard);
+
+    // Each player's score is pinned to their own edge of the phone and never
+    // moves. The one whose turn it is lights up; the other dims.
     _p1ScoreEl = document.createElement('div');
     _p1ScoreEl.className = 'rf-score';
-    _p1ScoreEl.style.cssText += 'bottom:28px;left:28px;';
-    _p1ScoreEl.textContent = '0';
+    _p1ScoreEl.style.cssText += 'bottom:22px;left:22px;color:#ff6b6b;';
+    _p1ScoreEl.innerHTML = '<span class="rf-val">0</span><span class="rf-who">P1</span>';
 
     _p2ScoreEl = document.createElement('div');
     _p2ScoreEl.className = 'rf-score';
-    _p2ScoreEl.style.cssText += 'top:28px;right:28px;transform:rotate(180deg);';
-    _p2ScoreEl.textContent = '0';
+    _p2ScoreEl.style.cssText += 'top:22px;right:22px;transform:rotate(180deg);color:#6ba7ff;';
+    _p2ScoreEl.innerHTML = '<span class="rf-val">0</span><span class="rf-who">P2</span>';
 
-    _gameBoard.appendChild(_p1ScoreEl);
-    _gameBoard.appendChild(_p2ScoreEl);
-    _overlay.appendChild(_gameBoard);
+    _overlay.appendChild(_p1ScoreEl);
+    _overlay.appendChild(_p2ScoreEl);
+
+    // "YOUR TURN" sits on the active player's edge — the board flip alone was
+    // not enough of a signal about who is meant to be tapping.
+    _turnTag = document.createElement('div');
+    _turnTag.className = 'rf-turn-tag';
+    _overlay.appendChild(_turnTag);
 
     _indicator = document.createElement('div');
     _indicator.className = 'rf-indicator';
@@ -208,10 +238,36 @@ function _hideIndicator(rotated) {
     _indicator.style.transform = `translate(-50%,-50%) scale(.85)${rotated ? ' rotate(180deg)' : ''}`;
 }
 
+// Redraw both scoreboards and the turn tag. Called on every score change and
+// on every turn change, so the two can never drift apart.
+function _paintScores() {
+    if (!_p1ScoreEl || !_p2ScoreEl) return;
+    _p1ScoreEl.querySelector('.rf-val').textContent = _scores[0];
+    _p2ScoreEl.querySelector('.rf-val').textContent = _scores[1];
+    _p1ScoreEl.classList.toggle('rf-live', _activePlayer === 0);
+    _p1ScoreEl.classList.toggle('rf-idle', _activePlayer !== 0);
+    _p2ScoreEl.classList.toggle('rf-live', _activePlayer === 1);
+    _p2ScoreEl.classList.toggle('rf-idle', _activePlayer !== 1);
+    if (_turnTag) {
+        const p1 = _activePlayer === 0;
+        _turnTag.textContent = p1 ? 'P1 — YOUR TURN' : 'P2 — YOUR TURN';
+        _turnTag.style.color      = p1 ? '#ff6b6b' : '#6ba7ff';
+        _turnTag.style.background = p1 ? 'rgba(255,59,59,.14)' : 'rgba(59,142,255,.14)';
+        // Explicit properties, not `cssText +=` — that would grow the rule string
+        // by one full block every turn.
+        _turnTag.style.top       = p1 ? 'auto'  : '34px';
+        _turnTag.style.bottom    = p1 ? '34px'  : 'auto';
+        _turnTag.style.left      = p1 ? 'auto'  : '22px';
+        _turnTag.style.right     = p1 ? '22px'  : 'auto';
+        _turnTag.style.transform = p1 ? 'none'  : 'rotate(180deg)';
+    }
+}
+
 function _startTurn(pid) {
     if (!state.mgActive || _done) return;
     _transitioning = false;
     _activePlayer  = pid;
+    _paintScores();
     _hideIndicator(pid === 1);
     _gameBoard.style.transform = pid === 1 ? 'rotate(180deg)' : 'rotate(0deg)';
     _lanes.forEach(l => l.innerHTML = '');
@@ -343,8 +399,7 @@ function _handleTap(lane) {
         _flashTarget(lane, 'miss'); sfx('land_bad');
     }
 
-    _p1ScoreEl.textContent = _scores[0];
-    _p2ScoreEl.textContent = _scores[1];
+    _paintScores();
 }
 
 function _flashTarget(lane, type) {

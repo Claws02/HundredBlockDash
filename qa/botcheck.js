@@ -72,7 +72,7 @@ const TIERS = [['easy', 0.25], ['hard', 0.85]];
                 const MODS = {
                     sumospheres:'SumoSpheres', tankclash:'TankClash', rhythmforge:'RhythmForge',
                     orbdeflect:'OrbDeflect', snapstrike:'SnapStrike', quickdraw:'QuickDraw',
-                    gridrecall:'GridRecall', tugtap:'TugTap', oddoneout:'OddOneOut',
+                    gridrecall:'GridRecall', oddoneout:'OddOneOut',
                     steadyhand:'SteadyHand', sortrush:'SortRush', meteordodge:'MeteorDodge',
                     lootcatch:'LootCatch', freeze:'Freeze', clearout:'ClearOut',
                     towerstack:'TowerStack', parryduel:'ParryDuel', circuittrace:'CircuitTrace',

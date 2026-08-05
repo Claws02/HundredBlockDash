@@ -14,14 +14,26 @@ import { sfx, haptic } from '../engine/AudioManager.js';
 import { registerMinigameCleanup } from './MinigameManager.js';
 
 // ── Tunables ─────────────────────────────────────────────────────────────────
-const GAME_TIME    = 30;     // seconds
-const SPAWN_START  = 0.85;   // s between spawns at the start
-const SPAWN_END    = 0.42;   // s between spawns at the end (faster)
-const FALL_START   = 0.52;   // half-heights per SECOND at the start
-const FALL_END     = 0.95;   // half-heights per second at the end
-const BOMB_CHANCE  = 0.30;   // probability a spawned item is a bomb
+//
+// THIS IS A COIN GAME. Unlike every other minigame, where the winner takes a
+// flat reward and the loser gets nothing, both players KEEP EVERY COIN THEY
+// CATCH here — the score on screen is real money going into a real purse. So
+// the numbers are deliberately much bigger than the old 1-per-coin scoring, and
+// the rain is thicker: a good run should be worth several turns of board income,
+// and the player who loses still walks away with something to show for it.
+const GAME_TIME    = 34;     // seconds — a little longer, it's the payday game
+const SPAWN_START  = 0.62;   // s between spawns at the start (was 0.85)
+const SPAWN_END    = 0.34;   // s between spawns at the end   (was 0.42)
+const FALL_START   = 0.58;   // half-heights per SECOND at the start
+const FALL_END     = 1.05;   // half-heights per second at the end
+const BOMB_CHANCE  = 0.26;   // probability a spawned item is a bomb
 const COIN_VALUE   = 1;
+const GEM_VALUE    = 3;      // rarer, worth three coins
+const GEM_CHANCE   = 0.14;   // share of non-bomb items that are gems
 const BOMB_PENALTY = 2;
+// Hard ceiling on what one round can pay out, so a freak run can never hand
+// somebody the match off a minigame. Measured: a perfect bot run banks ~70.
+const MAX_PAYOUT   = 80;
 const BASKET_W     = 0.20;   // basket width as a fraction of half-width
 const ITEM_R       = 0.045;  // item radius as a fraction of half-width
 
@@ -137,9 +149,10 @@ function _update(dt) {
         // Mirrored spawn — identical item to both halves for fairness.
         const x    = 0.1 + Math.random() * 0.8;
         const bomb = Math.random() < bombChance;
+        const gem  = !bomb && Math.random() < GEM_CHANCE;
         const vy   = fallSpeed * (0.9 + Math.random() * 0.2);
-        _items[0].push({ x, y: -ITEM_R, vy, bomb });
-        _items[1].push({ x, y: -ITEM_R, vy, bomb });
+        _items[0].push({ x, y: -ITEM_R, vy, bomb, gem });
+        _items[1].push({ x, y: -ITEM_R, vy, bomb, gem });
     }
 
     for (let pid = 0; pid < 2; pid++) _stepItems(pid, dt);
@@ -169,15 +182,16 @@ function _stepItems(pid, dt) {
 }
 
 function _catch(pid, it) {
+    const value = it.gem ? GEM_VALUE : COIN_VALUE;
     if (it.bomb) {
         _score[pid] = Math.max(0, _score[pid] - BOMB_PENALTY);
         sfx('land_bad'); if (pid === 0) haptic([40]);
         it._flash = 'bomb';
     } else {
-        _score[pid] += COIN_VALUE;
-        sfx('coin_gain'); if (pid === 0) haptic([12]);
+        _score[pid] += value;
+        sfx('coin_gain'); if (pid === 0) haptic(it.gem ? [12, 30, 12] : [12]);
     }
-    _flash[pid] = { type: it.bomb ? 'bomb' : 'coin', t: 0.35 };
+    _flash[pid] = { type: it.bomb ? 'bomb' : it.gem ? 'gem' : 'coin', t: 0.35, v: value };
 }
 
 // ── Bot ───────────────────────────────────────────────────────────────────────
@@ -234,6 +248,7 @@ function _drawHalf(pid, w, hh) {
     for (const it of _items[pid]) {
         const x = it.x * w, y = it.y * hh;
         if (it.bomb) _drawBomb(x, y, R);
+        else if (it.gem) _drawGem(x, y, R);
         else _drawCoin(x, y, R);
     }
 
@@ -254,10 +269,10 @@ function _drawHalf(pid, w, hh) {
     const fl = _flash[pid];
     if (fl && fl.t > 0) {
         _ctx.globalAlpha = Math.min(1, fl.t * 2);
-        _ctx.fillStyle = fl.type === 'bomb' ? '#ef4444' : '#fbbf24';
+        _ctx.fillStyle = fl.type === 'bomb' ? '#ef4444' : fl.type === 'gem' ? '#67e8f9' : '#fbbf24';
         _ctx.font = '900 26px "Bebas Neue", sans-serif';
         _ctx.textAlign = 'center';
-        _ctx.fillText(fl.type === 'bomb' ? `-${BOMB_PENALTY}` : `+${COIN_VALUE}`, bx, by - R);
+        _ctx.fillText(fl.type === 'bomb' ? `-${BOMB_PENALTY}` : `+${fl.v}`, bx, by - R);
         _ctx.globalAlpha = 1;
         fl.t -= 0.016;
         if (fl.t <= 0) _flash[pid] = null;
@@ -279,6 +294,24 @@ function _drawCoin(x, y, r) {
     _ctx.fillStyle = '#7a5200'; _ctx.font = `900 ${Math.round(r * 1.2)}px "Bebas Neue", sans-serif`;
     _ctx.textAlign = 'center'; _ctx.textBaseline = 'middle';
     _ctx.fillText('$', x, y + 1);
+}
+
+// A gem is worth three coins. Distinguished by SILHOUETTE (a diamond, not a
+// disc) as well as colour, so it reads at a glance and without colour vision.
+function _drawGem(x, y, r) {
+    const R = r * 1.15;
+    _ctx.beginPath();
+    _ctx.moveTo(x, y - R);
+    _ctx.lineTo(x + R * 0.82, y);
+    _ctx.lineTo(x, y + R);
+    _ctx.lineTo(x - R * 0.82, y);
+    _ctx.closePath();
+    _ctx.fillStyle = '#22d3ee'; _ctx.fill();
+    _ctx.lineWidth = 2; _ctx.strokeStyle = '#0e7490'; _ctx.stroke();
+    _ctx.beginPath();
+    _ctx.moveTo(x, y - R); _ctx.lineTo(x - R * 0.3, y - R * 0.1); _ctx.lineTo(x + R * 0.3, y - R * 0.1);
+    _ctx.closePath();
+    _ctx.fillStyle = 'rgba(255,255,255,0.6)'; _ctx.fill();
 }
 
 function _drawBomb(x, y, r) {
@@ -306,10 +339,13 @@ function _finish() {
     const winner = _score[0] > _score[1] ? 0 : _score[1] > _score[0] ? 1 : -1;
     const neu = document.getElementById('mg-neutral');
     if (neu) neu.textContent = winner < 0
-        ? `DRAW! ${_score[0]}-${_score[1]}`
-        : `P${winner + 1} WINS! ${_score[0]}-${_score[1]}`;
+        ? `DRAW! BOTH KEEP ${_score[0]} 🪙`
+        : `P${winner + 1} WINS! BOTH KEEP THEIR COINS — ${_score[0]} · ${_score[1]}`;
     sfx(winner < 0 ? 'land_bad' : 'mg_win');
-    _after(() => { _destroy(); _onWin(winner); }, 1500);
+    // Coin game: hand the manager each player's haul so BOTH banks it. Snapshot
+    // the scores first — _destroy() clears them.
+    const payouts = [Math.min(_score[0], MAX_PAYOUT), Math.min(_score[1], MAX_PAYOUT)];
+    _after(() => { _destroy(); _onWin(winner, payouts); }, 1500);
 }
 
 // ── Cleanup ───────────────────────────────────────────────────────────────────
