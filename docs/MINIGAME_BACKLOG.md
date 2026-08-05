@@ -189,10 +189,14 @@ written.
 
 ## Still-open items from the QA pass
 
-- **Quick Draw, Rhythm Forge, Orb Deflect, Freeze, Clear Out** have no hard
-  duration ceiling and can still reach the manager's 90 s tie watchdog when one
-  player disengages. Same fix as Tank Clash: a clock that settles on the current
-  score.
+- ~~**Quick Draw, Rhythm Forge, Orb Deflect, Freeze, Clear Out** have no hard
+  duration ceiling.~~ **Closed.** Orb Deflect and Clear Out already had one;
+  Freeze was rebuilt with a 44 s cap; Quick Draw was the last real case — its
+  round sat in the `fire` phase forever if neither player drew, so the match only
+  ended on the manager's 90 s watchdog. It now scrubs an undrawn round after
+  2.8 s and settles the match at 44 s. **Every game in the roster now resolves on
+  its own; reaching the watchdog is once again a bug signal rather than a
+  routine outcome.**
 - **Tank Clash's easy bot** lands zero hits on a stationary target. Defensible for
   the tier, but it isn't much of a contest.
 - **The 8 solo side-by-side games** in the current roster are the bigger question.
@@ -217,3 +221,56 @@ written.
    does not.
 5. **Watch for aim that is also movement.** Tank Clash's hull faces its travel
    direction, so raising tank speed silently widened every shot.
+
+---
+
+## Built: the four classic formats *(shipped)*
+
+All four proposals from the shortlist above are now in the roster, and the
+still-open items from the QA pass are resolved.
+
+| Game | Gap it fills | Shape |
+|---|---|---|
+| **PUCK** | paddle-and-ball rally | One puck, one table, a goal each end. Drag your mallet anywhere in your half. First to 5, or the score at 42 s. |
+| **PENALTY** | asymmetric roles | Shooter drags to aim and releases; keeper slides and commits at the moment of the strike. 3 kicks each, sudden death capped. |
+| **LIGHT CYCLES** | spatial denial | Two trails, one arena. Tap left or right of your cycle to turn. Best of 3, arena closes in each round. |
+| **FOUR IN A ROW** | shared board, turns | 6×5 connect-4 with a drop row on each player's edge and a 5 s shot clock. |
+
+RALLY was cut, as flagged: with PUCK shipped it is the same game with a bounce.
+
+### What the measurements changed
+
+Every one of these was tuned against a bot playing unopposed, not against
+intuition, and three of the four moved as a result:
+
+- **PUCK's bot only defended.** It returned to its goal line whenever the puck
+  was not coming at it, and finished 0–0 against an opponent who never moved. It
+  now enters an attack state when the puck is loose in its own half, gets behind
+  it, and drives at the far mouth.
+- **FOUR IN A ROW on a full 7×6 board took 63 s** just to fill, against a 15–40 s
+  budget. Dropped to 6×5 with a 5 s shot clock: a hard bot now beats random play
+  3–0 with the longest game at 21 s.
+- **LIGHT CYCLES started both cycles in the same column**, so doing nothing
+  produced a mutual head-on every round. Offset lanes make the opening about
+  space rather than about chicken.
+- **PENALTY's sudden death was unbounded** and ran to 93 s. Capped at two extra
+  pairs plus a 62 s ceiling.
+
+Two of these only showed up because the probe drove a *scripted* opponent rather
+than random taps — `qa/newgames.js`. The generic arcade sweep could not tell
+"the bot never attacks" from "the harness parked a mallet in its own goal mouth".
+
+### Roster interaction ratio
+
+The point of the exercise was the ratio, not the count. Genuine two-player games
+are now **13 of 18**, up from 7 of 15:
+
+**Shared object or asymmetric (13):** Puck, Penalty, Light Cycles, Four in a Row,
+Shape Snap *(reworked)*, Freeze *(rebuilt)*, Sumo Spheres, Tank Clash, Orb
+Deflect, Clear Out, Quick Draw, Grid Recall *(half — the race is real)*, Snap
+Strike *(half — shared clock, separate bars)*.
+
+**Still solo side-by-side (5):** Rhythm Forge, Odd One Out, Steady Hand, Meteor
+Dodge, Loot Catch. Loot Catch now has a reason to exist regardless — it is the
+coin game, and the identical loot on both sides is the point of it being fair.
+The remaining four are the next thing to fix or cut.

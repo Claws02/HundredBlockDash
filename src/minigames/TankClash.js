@@ -36,54 +36,80 @@ const HIT_IFRAME   = 900; // ms of invulnerability after taking a hit
 const MATCH_TIME   = 42;  // seconds
 const JOY_R        = 50;  // joystick base radius px
 
-// Each map is an array of axis-aligned box obstacles { minX, maxX, minZ, maxZ }.
-// Rules: keep a clear corridor through the center so tanks can never fully cage
-// each other, and always leave each player a safe spawn zone near ±ARENA_H/2.
+// Each arena is a named place, not a bare list of boxes: a colour scheme for the
+// floor, the walls and the cover, plus an accent used for the painted markings
+// and the emissive cap strip on top of every block. The overhead camera flattens
+// everything, so that cap strip is what makes cover read as cover at a glance —
+// it used to be one flat grey against a flat grey floor, on top of a wireframe
+// grid that added noise without adding information.
+//
+// Obstacle rules are unchanged: keep a clear corridor through the centre so
+// tanks can never fully cage each other, and leave each player a safe spawn
+// zone near ±ARENA_H/2.
 const MAPS = [
-    // 0 — "Bunkers" (original): two side walls + two top/bottom pillars
-    [
-        { minX: -10, maxX: -4, minZ: -3, maxZ:  3 },
-        { minX:   4, maxX: 10, minZ: -3, maxZ:  3 },
-        { minX:  -3, maxX:  3, minZ:-12, maxZ: -9 },
-        { minX:  -3, maxX:  3, minZ:  9, maxZ: 12 },
-    ],
-    // 1 — "Cross": a plus-sign barrier forcing flanking routes
-    [
-        { minX:  -2, maxX:  2, minZ: -10, maxZ: 10 }, // vertical bar
-        { minX: -10, maxX: -4, minZ:  -2, maxZ:  2 }, // left arm
-        { minX:   4, maxX: 10, minZ:  -2, maxZ:  2 }, // right arm
-    ],
-    // 2 — "Diagonal gauntlet": staggered pillars left and right
-    [
-        { minX: -11, maxX: -6, minZ: -14, maxZ: -10 },
-        { minX:   6, maxX: 11, minZ:  -7, maxZ:  -3 },
-        { minX:  -3, maxX:  2, minZ:  -2, maxZ:   2 },
-        { minX:  -11, maxX: -6, minZ:   3, maxZ:   7 },
-        { minX:   6, maxX: 11, minZ:  10, maxZ:  14 },
-    ],
-    // 3 — "Box ring": ring of four small pillars around center
-    [
-        { minX:  -8, maxX: -5, minZ:  -8, maxZ: -5 },
-        { minX:   5, maxX:  8, minZ:  -8, maxZ: -5 },
-        { minX:  -8, maxX: -5, minZ:   5, maxZ:  8 },
-        { minX:   5, maxX:  8, minZ:   5, maxZ:  8 },
-        { minX:  -2, maxX:  2, minZ:  -2, maxZ:  2 }, // center block
-    ],
-    // 4 — "Corridor": two long parallel walls leaving narrow side lanes
-    [
-        { minX:  -7, maxX: -4, minZ: -16, maxZ:  16 },
-        { minX:   4, maxX:  7, minZ: -16, maxZ:  16 },
-    ],
-    // 5 — "Zigzag": alternating offset barriers
-    [
-        { minX: -12, maxX: -4, minZ: -14, maxZ: -11 },
-        { minX:   4, maxX: 12, minZ:  -5, maxZ:  -2 },
-        { minX: -12, maxX: -4, minZ:   2, maxZ:   5 },
-        { minX:   4, maxX: 12, minZ:  11, maxZ:  14 },
-    ],
+    {
+        name: 'STEEL YARD',
+        floor: 0x232c3b, wall: 0x3f4a5c, block: 0x55617a, accent: 0x9fb3d1,
+        boxes: [
+            { minX: -10, maxX: -4, minZ: -3, maxZ:  3 },
+            { minX:   4, maxX: 10, minZ: -3, maxZ:  3 },
+            { minX:  -3, maxX:  3, minZ:-12, maxZ: -9 },
+            { minX:  -3, maxX:  3, minZ:  9, maxZ: 12 },
+        ],
+    },
+    {
+        name: 'REACTOR',
+        floor: 0x101d33, wall: 0x1f3a5f, block: 0x24507e, accent: 0x38e0f0,
+        boxes: [
+            { minX:  -2, maxX:  2, minZ: -10, maxZ: 10 }, // vertical bar
+            { minX: -10, maxX: -4, minZ:  -2, maxZ:  2 }, // left arm
+            { minX:   4, maxX: 10, minZ:  -2, maxZ:  2 }, // right arm
+        ],
+    },
+    {
+        name: 'DUST BASIN',
+        floor: 0x3a2e26, wall: 0x5c4736, block: 0x74593f, accent: 0xf0a63c,
+        boxes: [
+            { minX: -11, maxX: -6, minZ: -14, maxZ: -10 },
+            { minX:   6, maxX: 11, minZ:  -7, maxZ:  -3 },
+            { minX:  -3, maxX:  2, minZ:  -2, maxZ:   2 },
+            { minX: -11, maxX: -6, minZ:   3, maxZ:   7 },
+            { minX:   6, maxX: 11, minZ:  10, maxZ:  14 },
+        ],
+    },
+    {
+        name: 'CARGO BAY',
+        floor: 0x25292f, wall: 0x40464f, block: 0x8a5a1e, accent: 0xffc247,
+        boxes: [
+            { minX:  -8, maxX: -5, minZ:  -8, maxZ: -5 },
+            { minX:   5, maxX:  8, minZ:  -8, maxZ: -5 },
+            { minX:  -8, maxX: -5, minZ:   5, maxZ:  8 },
+            { minX:   5, maxX:  8, minZ:   5, maxZ:  8 },
+            { minX:  -2, maxX:  2, minZ:  -2, maxZ:  2 }, // center block
+        ],
+    },
+    {
+        name: 'ICE SHELF',
+        floor: 0x18303c, wall: 0x2f5468, block: 0x9fc4d4, accent: 0x8bf0ff,
+        boxes: [
+            { minX:  -7, maxX: -4, minZ: -16, maxZ:  16 },
+            { minX:   4, maxX:  7, minZ: -16, maxZ:  16 },
+        ],
+    },
+    {
+        name: 'OVERGROWTH',
+        floor: 0x1b2c20, wall: 0x2f4a35, block: 0x3d6244, accent: 0x67e08a,
+        boxes: [
+            { minX: -12, maxX: -4, minZ: -14, maxZ: -11 },
+            { minX:   4, maxX: 12, minZ:  -5, maxZ:  -2 },
+            { minX: -12, maxX: -4, minZ:   2, maxZ:   5 },
+            { minX:   4, maxX: 12, minZ:  11, maxZ:  14 },
+        ],
+    },
 ];
 
-let _obstacles = MAPS[0]; // set per-round in start()
+let _map       = MAPS[0];            // the arena picked for this round
+let _obstacles = MAPS[0].boxes;      // its collision boxes
 
 let _done = false, _onWin = null, _isBot = false, _botSkill = 0.55;
 let _overlay = null, _renderer = null, _scene = null, _camera = null;
@@ -109,7 +135,8 @@ export function start(isBot, onWin, botSkill = 0.55) {
     registerMinigameCleanup(_destroy);
     _hp = [3, 3]; _lastFire = [0, 0]; _invulnUntil = [0, 0];
     _tanks = []; _bullets = []; _activeTouches = {};
-    _obstacles = MAPS[Math.floor(Math.random() * MAPS.length)];
+    _map       = MAPS[Math.floor(Math.random() * MAPS.length)];
+    _obstacles = _map.boxes;
     _input = [new THREE.Vector2(), new THREE.Vector2()];
     _botWanderTarget = new THREE.Vector3();
     _lastTick = 0; _elapsed = 0;
@@ -129,6 +156,28 @@ function _build() {
 
     _overlay = document.createElement('div');
     _overlay.style.cssText = 'position:absolute;inset:0;overflow:hidden;background:#0f172a;touch-action:none;';
+
+    // Vignette over the canvas — the overhead view is otherwise a flat, evenly
+    // lit rectangle, and this pulls the eye to the middle where the fight is.
+    const vignette = document.createElement('div');
+    vignette.style.cssText = [
+        'position:absolute;inset:0;z-index:2;pointer-events:none;',
+        'background:radial-gradient(ellipse at 50% 50%, rgba(0,0,0,0) 42%, rgba(0,0,0,.55) 100%);',
+    ].join('');
+    _overlay.appendChild(vignette);
+
+    // The arena's name, held just long enough to register and then faded.
+    const arenaTag = document.createElement('div');
+    arenaTag.textContent = _map.name;
+    arenaTag.style.cssText = [
+        'position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:8;',
+        "font-family:'Bebas Neue',sans-serif;font-size:34px;letter-spacing:6px;",
+        `color:#${_map.accent.toString(16).padStart(6, '0')};pointer-events:none;`,
+        'text-shadow:0 2px 18px rgba(0,0,0,.9);transition:opacity .6s ease;opacity:.9;',
+    ].join('');
+    _overlay.appendChild(arenaTag);
+    _after(() => { arenaTag.style.opacity = '0'; }, 1600);
+    _after(() => arenaTag.remove(), 2400);
 
     // Half-zones: P2 top (rotated 180°), P1 bottom
     for (let pid = 0; pid < 2; pid++) {
@@ -302,7 +351,7 @@ function _initThree() {
     _overlay.insertBefore(_renderer.domElement, _overlay.firstChild);
 
     _scene = new THREE.Scene();
-    _scene.background = new THREE.Color(0x0f172a);
+    _scene.background = new THREE.Color(_map.floor).multiplyScalar(0.55);
 
     const aspect = w / h;
     const camH = _camHeightForAspect(aspect);
@@ -322,18 +371,32 @@ function _initThree() {
     // Floor
     const floor = new THREE.Mesh(
         new THREE.PlaneGeometry(ARENA_W, ARENA_H),
-        new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.8 })
+        new THREE.MeshStandardMaterial({ color: _map.floor, roughness: 0.85, metalness: 0.05 })
     );
     floor.rotation.x = -Math.PI / 2;
     floor.receiveShadow = true;
     _scene.add(floor);
 
-    const grid = new THREE.GridHelper(Math.max(ARENA_W, ARENA_H), 20, 0x334155, 0x1e293b);
-    grid.position.y = 0.01;
-    _scene.add(grid);
+    // Painted markings instead of the old wireframe grid: a halfway line and a
+    // spawn ring in each player's colour. They say where the arena divides and
+    // where you are without drawing 20 lines of noise across every sight line.
+    const paint = (geo, color, opacity, x, z, rotZ) => {
+        const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+            color, transparent: true, opacity, depthWrite: false,
+        }));
+        m.rotation.x = -Math.PI / 2;
+        if (rotZ) m.rotation.z = rotZ;
+        m.position.set(x, 0.02, z);
+        _scene.add(m);
+        return m;
+    };
+    paint(new THREE.PlaneGeometry(ARENA_W, 0.35), _map.accent, 0.28, 0, 0);
+    paint(new THREE.RingGeometry(2.6, 3.0, 48), _map.accent, 0.16, 0, 0);
+    paint(new THREE.RingGeometry(2.4, 2.9, 40), 0xff3b3b, 0.34, 0,  ARENA_H / 2 - 3);
+    paint(new THREE.RingGeometry(2.4, 2.9, 40), 0x3b8eff, 0.34, 0, -ARENA_H / 2 + 3);
 
     // Walls
-    const wallMat = new THREE.MeshStandardMaterial({ color: 0x475569 });
+    const wallMat = new THREE.MeshStandardMaterial({ color: _map.wall, roughness: 0.7 });
     [
         [ARENA_W, 2, 1, 0, 1, -ARENA_H/2],
         [ARENA_W, 2, 1, 0, 1,  ARENA_H/2],
@@ -346,14 +409,21 @@ function _initThree() {
         _scene.add(m);
     });
 
-    // Obstacles
-    const obsMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.6, metalness: 0.2 });
+    // Cover. From straight overhead every block is a flat rectangle, so each one
+    // gets a glowing cap in the arena's accent colour — that edge is what makes
+    // cover legible in the half-second you have to decide to duck behind it.
+    const obsMat = new THREE.MeshStandardMaterial({ color: _map.block, roughness: 0.55, metalness: 0.25 });
+    const capMat = new THREE.MeshBasicMaterial({ color: _map.accent, transparent: true, opacity: 0.55 });
     _obstacles.forEach(obs => {
         const w2 = obs.maxX - obs.minX, d = obs.maxZ - obs.minZ;
         const m = new THREE.Mesh(new THREE.BoxGeometry(w2, 3, d), obsMat);
         m.position.set(obs.minX + w2/2, 1.5, obs.minZ + d/2);
         m.castShadow = true; m.receiveShadow = true;
         _scene.add(m);
+        const cap = new THREE.Mesh(new THREE.PlaneGeometry(w2 - 0.5, d - 0.5), capMat);
+        cap.rotation.x = -Math.PI / 2;
+        cap.position.set(m.position.x, 3.02, m.position.z);
+        _scene.add(cap);
     });
 
     // Tanks
