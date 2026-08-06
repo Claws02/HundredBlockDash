@@ -1,7 +1,20 @@
 // ============================================================
 // TUNABLE CONSTANTS
 // ============================================================
-export const GATE_THRESHOLD      = 15;
+// Coin penalties, named once so the effect, the blurb and every realm's flavour
+// text can never drift apart (they had, in eight places).
+export const FINE_AMOUNT     = 3;    // was 4
+export const BIG_FINE_AMOUNT = 8;    // was 10
+export const TRAP_AMOUNT     = 5;
+
+// The Gate. HBD's Rift is the harder wall: it gates the run to the Crown and a
+// player who cannot break it loses real ground, so it is worth 20. City's Gate
+// only guards one district on a lap map and stays at 15.
+export const GATE_THRESHOLD      = 15;   // City Circuit
+export const GATE_THRESHOLD_HBD  = 20;   // Hundred Block Dash
+export function gateThreshold(map) {
+    return map === 'hundred_block_dash' ? GATE_THRESHOLD_HBD : GATE_THRESHOLD;
+}
 export const GATE_NUM_DICE       = 5;
 
 // Hundred Block Dash — selectable linear-map lengths.
@@ -58,36 +71,49 @@ export const ALLY_SPAWN_DELAY_TURNS   = 2; // turns after claim before next ally
 //   16 — Strong    (high-value movement & denial)
 //   20 — Power     (game-swinging)
 // ============================================================
+// The shop, narrowed to ONE ITEM PER VERB.
+//
+// It used to carry twelve, and five of them did the same job: warp_drive forced
+// a 5, custom_dice picked any number (strictly better, for four more coins),
+// double_die rolled two, overcharge doubled the result, and rocket jumped eight.
+// Five ways to say "move further" is not five choices — it is one choice with
+// four decoys, and it made the shop a wall of text to read on someone else's
+// turn. Cut to seven, each of which does something none of the others can:
+//
+//   defend · trap their path · sabotage their roll · control your own roll ·
+//   jump forward · take their coins · trade places
+//
+// Removed: Warp Drive (dominated by Custom Dice), Double Die and Overcharge
+// (both "bigger roll" again), Tollbooth (a second, weaker trap, and a coin tax
+// at a time when coin taxes are deliberately scarce), Mirror (a reactive counter
+// that does nothing on most turns and asks you to predict an item you cannot
+// see). They are gone from ITEMS entirely, so Mystery spaces cannot grant them
+// either — the roster is the roster.
 export const ITEMS = {
     // Utility — 8
-    shield:      { icon: '🛡️', name: 'Shield',       desc: 'Block the next negative space effect',       price: 8,  tier: 'Utility'  },
-    tollbooth:   { icon: '🚧', name: 'Tollbooth',   desc: 'Place on current space — enemies pay 5c',    price: 8,  tier: 'Utility'  },
+    shield:      { icon: '🛡️', name: 'Shield',      desc: 'Block the next negative space effect',      price: 8,  tier: 'Utility'  },
     // Tactical — 12
-    warp_drive:  { icon: '🚀', name: 'Warp Drive',  desc: 'Forces your next roll to be a 5',            price: 12, tier: 'Tactical' },
-    anchor:      { icon: '⚓', name: 'Anchor',       desc: 'Place trap — sends opponent back 5 spaces',  price: 12, tier: 'Tactical' },
-    mirror:      { icon: '🪞', name: 'Mirror',       desc: 'Reflect the next item used against you',     price: 12, tier: 'Tactical' },
+    anchor:      { icon: '⚓', name: 'Anchor',       desc: 'Place trap — sends opponent back 5 spaces', price: 12, tier: 'Tactical' },
     // Strong — 16
-    double_die:  { icon: '💥', name: 'Double Die',  desc: 'Roll 2 dice, move the sum',                  price: 16, tier: 'Strong'   },
-    overcharge:  { icon: '⚡', name: 'Overcharge',   desc: 'Your next roll result is doubled (max 12)',  price: 16, tier: 'Strong'   },
-    custom_dice: { icon: '🎯', name: 'Custom Dice',  desc: 'Pick any number 1–6 as your next roll',      price: 16, tier: 'Strong'   },
-    cursed_die:  { icon: '💀', name: 'Cursed Die',  desc: "Force opponent's next roll to 1 or 2",       price: 16, tier: 'Strong'   },
+    cursed_die:  { icon: '💀', name: 'Cursed Die',  desc: "Force opponent's next roll to 1 or 2",      price: 16, tier: 'Strong'   },
+    custom_dice: { icon: '🎯', name: 'Custom Dice', desc: 'Pick any number 1–6 as your next roll',     price: 16, tier: 'Strong'   },
     // Power — 20
-    rocket:      { icon: '🛸', name: 'Rocket',       desc: 'Instantly move forward 8 spaces',            price: 20, tier: 'Power'    },
-    steal:       { icon: '🐷', name: 'Steal',        desc: 'Take 10 coins from your opponent',           price: 20, tier: 'Power'    },
-    swap:        { icon: '🔄', name: 'Swap',         desc: 'Swap board positions with your opponent',    price: 20, tier: 'Power'    },
+    rocket:      { icon: '🛸', name: 'Rocket',      desc: 'Instantly move forward 8 spaces',           price: 20, tier: 'Power'    },
+    steal:       { icon: '🐷', name: 'Steal',       desc: 'Take 10 coins from your opponent',          price: 20, tier: 'Power'    },
+    swap:        { icon: '🔄', name: 'Swap',        desc: 'Swap board positions with your opponent',   price: 20, tier: 'Power'    },
 };
 
 // District-specific shop inventories (null = full shop at regular price)
 export const DISTRICT_SHOPS = {
     ring: null,
-    // Wall Street Exchange — economic/defensive items, expensive
-    fin:  ['steal', 'mirror', 'swap', 'custom_dice'],
-    // Underground Market — trap/aggressive items, discounted
-    ba:   ['tollbooth', 'anchor', 'cursed_die', 'shield'],
+    // Wall Street Exchange — money and position, expensive
+    fin:  ['steal', 'swap', 'custom_dice'],
+    // Underground Market — dirty tricks, discounted
+    ba:   ['anchor', 'cursed_die', 'shield'],
     // Grand Mall — full shop at 50% off (handled via isGrandMall flag in HQ)
     shop: null,
-    // Power Plant — best movement items + exclusive Overcharge
-    ind:  ['rocket', 'warp_drive', 'double_die', 'overcharge'],
+    // Power Plant — movement
+    ind:  ['rocket', 'custom_dice', 'swap'],
     // Hundred Block Dash realm shops — full inventory, themed title only.
     woods: null, ember: null, fae: null, void: null,
 };
@@ -176,11 +202,11 @@ export const SPACE_META = {
 export const SPACE_DESCS = {
     coin:        'Pocket some change. +3 coins.',
     coin_big:    'Big coin haul! +8 coins.',
-    lose:        'Pay up. −4 coins.',
-    lose_big:    'Ouch. Big loss. −10 coins.',
+    lose:        `Pay up. −${FINE_AMOUNT} coins.`,
+    lose_big:    `Ouch. Big loss. −${BIG_FINE_AMOUNT} coins.`,
     cfwd:        'Launches you forward through the district!',
     cbwd:        'Pulls you back through the district.',
-    trap:        'A trap! Lose 5 coins.',
+    trap:        `A trap! Lose ${TRAP_AMOUNT} coins.`,
     mystery:     'Random free item from any shop.',
     magnet:      'Steal 5 coins from your opponent.',
     boost:       'Roll again immediately!',
@@ -227,8 +253,8 @@ export const HBD_BIOMES = [
         lore: 'The old forest hums with secrets. Pocket what coins you can — the road only gets stranger from here.',
         bgTop: '#0f380f', bgBot: '#1b4a1b', fog: 0x0f380f, floorEdge: 0x22c55e, pathTint: 0x4ade80,
         flavor: {
-            lose:     { n: 'BRAMBLE SNAG',  d: 'Tangled in thorns. −4 coins.' },
-            lose_big: { n: 'BEAR TRAP',     d: 'Snapped a bear trap! −10 coins.' },
+            lose:     { n: 'BRAMBLE SNAG',  d: `Tangled in thorns. −${FINE_AMOUNT} coins.` },
+            lose_big: { n: 'BEAR TRAP',     d: `Snapped a bear trap! −${BIG_FINE_AMOUNT} coins.` },
             trap:     { n: 'HIDDEN SNARE',  d: 'A hunter\'s snare. Lose 5 coins.' },
             shop:     { n: 'FOREST CACHE',  d: 'A hidden cache of supplies. Browse and buy!' },
         },
@@ -239,8 +265,8 @@ export const HBD_BIOMES = [
         lore: 'Cracked earth and rivers of fire. Tread carefully — a single misstep here costs dearly.',
         bgTop: '#3f0f0f', bgBot: '#6b1313', fog: 0x3f0f0f, floorEdge: 0xf97316, pathTint: 0xf59e0b,
         flavor: {
-            lose:     { n: 'EMBER BURN',    d: 'Singed by cinders. −4 coins.' },
-            lose_big: { n: 'LAVA PLUNGE',   d: 'Into the magma! −10 coins.' },
+            lose:     { n: 'EMBER BURN',    d: `Singed by cinders. −${FINE_AMOUNT} coins.` },
+            lose_big: { n: 'LAVA PLUNGE',   d: `Into the magma! −${BIG_FINE_AMOUNT} coins.` },
             trap:     { n: 'MAGMA CRACK',   d: 'The ground splits. Lose 5 coins.' },
             shop:     { n: 'MAGMA FORGE',   d: 'Gear forged in fire. Browse and buy!' },
         },
@@ -251,8 +277,8 @@ export const HBD_BIOMES = [
         lore: 'Glittering and treacherous, the Glade is ruled by tricksters who love nothing more than swapping your fortune for theirs.',
         bgTop: '#380f3f', bgBot: '#5c126b', fog: 0x380f3f, floorEdge: 0xd946ef, pathTint: 0xc084fc,
         flavor: {
-            lose:     { n: 'FAE TRICK',     d: 'A sprite filches your purse. −4 coins.' },
-            lose_big: { n: 'CURSE HEX',     d: 'Hexed! −10 coins.' },
+            lose:     { n: 'FAE TRICK',     d: `A sprite filches your purse. −${FINE_AMOUNT} coins.` },
+            lose_big: { n: 'CURSE HEX',     d: `Hexed! −${BIG_FINE_AMOUNT} coins.` },
             trap:     { n: 'PIXIE PRANK',   d: 'A prank trap. Lose 5 coins.' },
             shop:     { n: 'FAE BAZAAR',    d: 'Enchanted wares for sale. Browse and buy!' },
         },
@@ -263,8 +289,8 @@ export const HBD_BIOMES = [
         lore: 'Reality frays at the edge of the Void. Push through the dark — the Crown of the Hundred Blocks waits at its heart.',
         bgTop: '#0a0a1a', bgBot: '#141433', fog: 0x0a0a1a, floorEdge: 0x3b82f6, pathTint: 0x60a5fa,
         flavor: {
-            lose:     { n: 'ENTROPY TAX',   d: 'Reality skims your coins. −4 coins.' },
-            lose_big: { n: 'REALITY RIFT',  d: 'Torn apart! −10 coins.' },
+            lose:     { n: 'ENTROPY TAX',   d: `Reality skims your coins. −${FINE_AMOUNT} coins.` },
+            lose_big: { n: 'REALITY RIFT',  d: `Torn apart! −${BIG_FINE_AMOUNT} coins.` },
             trap:     { n: 'VOID SNARE',    d: 'Caught in the dark. Lose 5 coins.' },
             shop:     { n: 'VOID EXCHANGE', d: 'Trade at the edge of reality. Browse and buy!' },
             gate:     { n: 'THE RIFT',      d: 'The Rift seals the Void. Roll 5 dice, score ≥15 to tear through!' },
