@@ -147,6 +147,10 @@ export const CHAR_ICONS = {
 // ============================================================
 export const SPACE_META = {
     start:       { ic: '🏁', n: 'START',         e: 0x1e293b, c: 0xfbbf24, geo: null         },
+    // The Crown was previously stored as a 'start' tile with an overridden name,
+    // which meant every count and every map label reported two START spaces per
+    // board and never named the finish.
+    finish:      { ic: '👑', n: 'THE CROWN',     e: 0x2a2000, c: 0xfbbf24, geo: null         },
     coin:        { ic: '🪙', n: 'COIN',           e: 0x1c3a1c, c: 0xfbbf24, geo: 'torus'      },
     coin_big:    { ic: '💰', n: 'BIG COIN',       e: 0x14451a, c: 0xf59e0b, geo: 'double_torus'},
     lose:        { ic: '💸', n: 'FINE',           e: 0x3b0f0f, c: 0xef4444, geo: 'cone_down'  },
@@ -191,6 +195,7 @@ export const SPACE_DESCS = {
     hq:          'District HQ! First visit: +15 coins. Revisit: +5 coins.',
     duel:        'DUEL! Set a coin bet — then compete in a minigame. Winner takes the pot!',
     start:       'Back at the start of the City Ring Road.',
+    finish:      'The Crown. Reach it for the finish bonus — but the most coins still wins.',
 };
 
 // ============================================================

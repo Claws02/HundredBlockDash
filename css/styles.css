@@ -1488,3 +1488,20 @@ body.modal-open.tabletop-p2-turn #toast-box { top: 15%; }
 }
 .mg-sc-btn:disabled { opacity: .35; }
 .mg-sc-btn:active:not(:disabled) { transform: scale(.96); }
+
+/* Map tooltip: what the space does, and how far away it is. Scouting the road
+   used to give you a name and a block number and nothing actionable.
+   The base rule is nowrap for a one-line label; now that there is a sentence in
+   here it has to be allowed to wrap. */
+#map-tooltip { white-space: normal; max-width: 264px; }
+#map-tooltip .map-effect {
+    display: block; margin-top: 5px;
+    font-family: 'Nunito', system-ui, sans-serif; font-size: 11.5px; line-height: 1.4;
+    color: rgba(255,255,255,.86); white-space: normal; max-width: 240px;
+}
+#map-tooltip .map-range {
+    display: block; margin-top: 5px; padding-top: 5px;
+    border-top: 1px solid rgba(255,255,255,.14);
+    font-family: 'Nunito', system-ui, sans-serif; font-size: 11px; font-weight: 800;
+    color: var(--gold); letter-spacing: .3px;
+}

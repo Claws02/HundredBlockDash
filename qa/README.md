@@ -35,6 +35,8 @@ cd qa
 | `node scenes.js <map> <seconds>` | Scene-timing probe: samples at 40 Hz and reports how long each beat owns the screen. The table behind `docs/SCENE_PACING.md`. | as given |
 | `node gate.js` | The three gate bugs: screen orientation follows the roller, opening the gate does not eat the turn, camera snaps back onto the player. Tabletop 2P on HBD. | ~3 min |
 | `node balance.js` | Red-space density over 40 generated boards at each length (cap: 1 coin-losing space per 10 blocks), plus the ±10 forced-move notifications and the item-pickup confirmation. | ~3 min |
+| `node spaceaudit.js [n]` | Generates n real boards per length and reports the true space distribution per map, length and realm. The source for `docs/SPACE_REFERENCE.md` — the weight tables don't answer this, because they're drawn with replacement and the red budget is capped separately. | ~1 min |
+| `node mapinfo.js` | The map view tells you what a space does and how far away it is, on both boards, with the City count following the lap order. | ~4 min |
 | `node newgames.js` | The four classic games driven by a *scripted* opponent instead of random taps: Puck's bot must score against an open goal, the Connect-4 bot must beat random play, and every game must resolve inside the time budget. Catches what the generic sweep can't. | ~5 min |
 | `node dualread.js` | Both-players readability: SHARED cards mirror in tabletop, OWNER cards get the opponent strip, the ⟳ flip button works, the minigame rules need two confirmations, and pass-and-play gets the button but no mirroring. Screenshots each case. | ~5 min |
 | `node winscreen.js <map>` | End-of-match screen: landscape presentation, the turn-by-turn race chart, the rotate toggle. Screenshots both orientations. | ~4 min |

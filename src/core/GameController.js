@@ -591,7 +591,7 @@ export function resolveSpace(p) {
     if (msg === null) return;
 
     const spc = SPACE_META[space.type] || SPACE_META.coin;
-    const goodTypes = ['coin','coin_big','shortcut','cfwd','mystery','truce','gate_open','hq'];
+    const goodTypes = ['coin','coin_big','shortcut','cfwd','mystery','truce','gate_open','hq','finish'];
     const badTypes  = ['lose','lose_big','trap','cbwd','magnet','player_trap','anchor_trap','duel'];
     if (goodTypes.includes(space.type))  sfx('land_good');
     else if (badTypes.includes(space.type)) sfx('land_bad');
@@ -630,6 +630,9 @@ export function resolveSpaceEffect(p, spaceType, space) {
     const opp = state.players[(p.id + 1) % 2];
     switch (spaceType) {
         case 'start':      return state.selectedMap === 'hundred_block_dash' ? 'Back at the start!' : 'Back at the city start!';
+        // Landing here is handled by the win check in _resolveHBDSpace before the
+        // space ever resolves; this only fires if something reaches it another way.
+        case 'finish':     return 'The Crown!';
         case 'coin': {
             const bonus = _allyPassive(p, 'coin_bonus');
             earnCoins(p, 3 + bonus);

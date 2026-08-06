@@ -110,6 +110,7 @@ const MAPS = [
 
 let _map       = MAPS[0];            // the arena picked for this round
 let _obstacles = MAPS[0].boxes;      // its collision boxes
+let _lastBump  = 0;                  // ms of the last tank-on-tank contact
 
 let _done = false, _onWin = null, _isBot = false, _botSkill = 0.55;
 let _overlay = null, _renderer = null, _scene = null, _camera = null;
@@ -139,7 +140,7 @@ export function start(isBot, onWin, botSkill = 0.55) {
     _obstacles = _map.boxes;
     _input = [new THREE.Vector2(), new THREE.Vector2()];
     _botWanderTarget = new THREE.Vector3();
-    _lastTick = 0; _elapsed = 0;
+    _lastTick = 0; _elapsed = 0; _lastBump = 0;
     _build();
     requestAnimationFrame(() => requestAnimationFrame(() => {
         _initThree();
@@ -556,6 +557,47 @@ function _tick(now) {
             if (d < TANK_RADIUS && d > 0.001) {
                 tank.position.x += (dx/d) * (TANK_RADIUS - d);
                 tank.position.z += (dz/d) * (TANK_RADIUS - d);
+            }
+        }
+    }
+
+    // Tank-on-tank. They used to drive straight through each other, which made
+    // the arena feel like two ghosts sharing a room and removed the whole idea
+    // of body-blocking a doorway. Now they shove: the overlap is split between
+    // them, so ramming actually pushes the other tank around and neither can
+    // occupy the other's ground.
+    if (_tanks[0] && _tanks[1] && _hp[0] > 0 && _hp[1] > 0) {
+        const a = _tanks[0].position, b = _tanks[1].position;
+        let dx = b.x - a.x, dz = b.z - a.z;
+        let d = Math.sqrt(dx * dx + dz * dz);
+        const min = TANK_RADIUS * 2;
+        if (d < min) {
+            // Exactly stacked (both spawned on the centre line): pick a
+            // direction rather than dividing by zero.
+            if (d < 0.001) { dx = 1; dz = 0; d = 1; }
+            const push = (min - d) / 2;
+            const nx = dx / d, nz = dz / d;
+            a.x -= nx * push; a.z -= nz * push;
+            b.x += nx * push; b.z += nz * push;
+            // Keep the shove inside the arena and out of the cover.
+            for (const t of [a, b]) {
+                t.x = Math.max(-ARENA_W / 2 + TANK_RADIUS, Math.min(ARENA_W / 2 - TANK_RADIUS, t.x));
+                t.z = Math.max(-ARENA_H / 2 + TANK_RADIUS, Math.min(ARENA_H / 2 - TANK_RADIUS, t.z));
+                for (const obs of _obstacles) {
+                    const cx = Math.max(obs.minX, Math.min(t.x, obs.maxX));
+                    const cz = Math.max(obs.minZ, Math.min(t.z, obs.maxZ));
+                    const ox = t.x - cx, oz = t.z - cz;
+                    const od = Math.sqrt(ox * ox + oz * oz);
+                    if (od < TANK_RADIUS && od > 0.001) {
+                        t.x += (ox / od) * (TANK_RADIUS - od);
+                        t.z += (oz / od) * (TANK_RADIUS - od);
+                    }
+                }
+            }
+            // A bump you can feel and hear, once per contact rather than per frame.
+            if (now - _lastBump > 220) {
+                _lastBump = now;
+                sfx('dice_land'); haptic([18]);
             }
         }
     }
