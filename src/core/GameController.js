@@ -285,14 +285,9 @@ export function startPreRoll() {
                 const idx = p.inv.indexOf(useId);
                 if (idx >= 0) {
                     p.inv.splice(idx, 1);
-                    // Respect the opponent's Mirror just like the human use-path does,
-                    // otherwise a player's Mirror is useless against the bot.
-                    if (_reflectIfMirrored(p, useId)) { UIManager.updateUI(); }
-                    else {
-                        UIManager.toast(`${p.name} used ${ITEMS[useId].name}!`, '#f5c842');
-                        _applyItemEffect(p, useId, true);
-                        if (useId === 'rocket' || useId === 'custom_dice') return;
-                    }
+                    UIManager.toast(`${p.name} used ${ITEMS[useId].name}!`, '#f5c842');
+                    _applyItemEffect(p, useId, true);
+                    if (useId === 'rocket' || useId === 'custom_dice') return;
                 }
             }
             if (state.gameState === 'PRE_ROLL') executeRoll(0.8 + Math.random() * 1.5);
