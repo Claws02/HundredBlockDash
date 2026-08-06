@@ -148,7 +148,7 @@ export function generateBoard() {
 
     state.board = new Array(length);
     state.board[0]      = { type: 'start' };
-    state.board[finish] = { type: 'start', n: 'FINISH', ic: '👑' };
+    state.board[finish] = { type: 'finish' };
 
     for (let r = 0; r < realmCount; r++) {
         const from = r === 0 ? 1 : r * 25;

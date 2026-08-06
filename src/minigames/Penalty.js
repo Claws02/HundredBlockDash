@@ -46,6 +46,7 @@ let _shooter = 0;               // whose kick this is
 let _phase = 'aim';             // 'aim' | 'flight' | 'settle' | 'over'
 let _phaseT = 0;
 let _aim = { x: 0.5, y: 0.5 };  // 0..1 within the goal mouth
+let _aimAnchor = null;          // where the aim drag began, and the aim it began from
 let _dragging = false;
 let _keeper = 0.5;              // 0..1 along the goal line
 let _keeperCommitted = null;    // where the keeper actually dived
@@ -67,7 +68,7 @@ export function start(isBot, onWin, botSkill = 0.55) {
     _done = false; _onWin = onWin; _isBot = isBot; _botSkill = botSkill;
     _score = [0, 0]; _kick = 0; _shooter = 0;
     _phase = 'aim'; _phaseT = 0;
-    _aim = { x: 0.5, y: 0.5 }; _keeper = 0.5; _keeperCommitted = null;
+    _aim = { x: 0.5, y: 0.5 }; _aimAnchor = null; _keeper = 0.5; _keeperCommitted = null;
     _dragging = false; _outcome = ''; _last = 0; _elapsed = 0; _botAimTimer = null;
     registerMinigameCleanup(_destroy);   // R3
     _build();
@@ -103,7 +104,7 @@ function _build() {
         e.preventDefault();
         const pid = halfOf(e);
         if (pid === 1 && _isBot) return;
-        if (pid === _shooter) { _dragging = true; _setAim(e.clientX, e.clientY); }
+        if (pid === _shooter) { _dragging = true; _beginAimDrag(e.clientX, e.clientY); }
         else                  { _setKeeper(e.clientX); }
         try { _overlay.setPointerCapture(e.pointerId); } catch (err) {}
     };
@@ -119,7 +120,9 @@ function _build() {
         try { _overlay.releasePointerCapture(e.pointerId); } catch (err) {}
         if (_phase !== 'aim') return;
         const pid = halfOf(e);
-        if (pid === _shooter && _dragging && !(pid === 1 && _isBot)) { _dragging = false; _shoot(); }
+        if (pid === _shooter && _dragging && !(pid === 1 && _isBot)) {
+            _dragging = false; _aimAnchor = null; _shoot();
+        }
     };
     _overlay.addEventListener('pointerdown', onDown);
     _overlay.addEventListener('pointermove', onMove);
@@ -157,15 +160,56 @@ function _goalRect() {
     return { x, y, w: gw, h: gh, keeperTop };
 }
 
-function _setAim(cx, cy) {
-    const g = _goalRect();
-    _aim.x = Math.max(0, Math.min(1, (cx - g.x) / g.w));
-    _aim.y = Math.max(0, Math.min(1, (cy - g.y) / g.h));
+// ── Aiming ──────────────────────────────────────────────────────────────────
+//
+// The aim used to map the finger's ABSOLUTE screen position onto the goal
+// rectangle. Horizontally that was survivable, because the goal is 86% of the
+// screen width. Vertically it was unusable: the mouth is about 90 px tall and
+// sits at the FAR end of the phone, so to aim at a top corner your thumb had to
+// be inside your opponent's half, and every real thumb position clamped to 0 or
+// 1. You could pick a side and nothing else.
+//
+// It is a relative drag now. Press anywhere in your half and the reticle moves
+// from where it was by how far you have dragged, scaled so a comfortable thumb
+// sweep covers the whole mouth. AIM_SPAN_* is that sweep, as a fraction of the
+// screen.
+const AIM_SPAN_X = 0.34;   // of screen width  = full left-to-right of the goal
+const AIM_SPAN_Y = 0.20;   // of screen height = full bar-to-line of the goal
+
+function _beginAimDrag(cx, cy) {
+    _aimAnchor = { x: cx, y: cy, ax: _aim.x, ay: _aim.y };
 }
 
+function _setAim(cx, cy) {
+    if (!_aimAnchor) { _beginAimDrag(cx, cy); return; }
+    // P2 holds the phone upside-down, so their "right" and "up" are the screen's
+    // left and down. Without this the aim ran backwards for one of the players.
+    const flip = _shooter === 1 ? -1 : 1;
+    const dx = (cx - _aimAnchor.x) * flip;
+    const dy = (cy - _aimAnchor.y) * flip;
+    _aim.x = Math.max(0, Math.min(1, _aimAnchor.ax + dx / (_W * AIM_SPAN_X)));
+    _aim.y = Math.max(0, Math.min(1, _aimAnchor.ay + dy / (_H * AIM_SPAN_Y)));
+}
+
+// The keeper tracks their finger along the goal line — but the line is at THEIR
+// edge and, for Player 2, the screen is turned around, so the raw x had to be
+// mirrored or the keeper dived the wrong way every time.
 function _setKeeper(cx) {
     const g = _goalRect();
-    _keeper = Math.max(0, Math.min(1, (cx - g.x) / g.w));
+    let t = (cx - g.x) / g.w;
+    if (_keeperIsP2()) t = 1 - t;
+    _keeper = Math.max(0, Math.min(1, t));
+}
+
+// Both players hold their own coordinates — "my left" — because that is what a
+// drag has to feel like. The shot is resolved in ONE canonical frame instead, so
+// the two are never compared while they mean opposite things. Screen space: 0 is
+// the left of the goal as the phone lies.
+function _keeperIsP2() { return _shooter === 0; }
+function _aimScreenX()    { return _shooter === 1 ? 1 - _aim.x : _aim.x; }
+function _keeperScreenX(v) {
+    const k = v === undefined ? _keeper : v;
+    return _keeperIsP2() ? 1 - k : k;
 }
 
 // ── Kick flow ───────────────────────────────────────────────────────────────
@@ -175,6 +219,7 @@ function _beginKick() {
     _phase = 'aim'; _phaseT = 0;
     _outcome = ''; _keeperCommitted = null; _dragging = false;
     _aim = { x: 0.5, y: 0.45 };
+    _aimAnchor = null;
     _keeper = 0.5;
     const g = _goalRect();
     _ball = { x: _W / 2, y: g.keeperTop ? _H * 0.74 : _H * 0.26, from: null, to: null };
@@ -212,24 +257,28 @@ function _shoot() {
     // The keeper commits at the moment of the strike — this is the read.
     if (_isBot && _shooter === 0) {
         // Bot keeper: guesses, weighted toward the shooter's current aim by
-        // skill. At low skill it is close to a coin flip.
-        const guess = Math.random() < (0.18 + _botSkill * 0.62)
-            ? _aim.x + (Math.random() - 0.5) * (1 - _botSkill) * 0.55
+        // skill. At low skill it is close to a coin flip. Guessed in SCREEN
+        // space and converted back, so it isn't diving at a mirrored target.
+        const aimS = _aimScreenX();
+        const guessS = Math.random() < (0.18 + _botSkill * 0.62)
+            ? aimS + (Math.random() - 0.5) * (1 - _botSkill) * 0.55
             : Math.random();
-        _keeper = Math.max(0, Math.min(1, guess));
+        const clamped = Math.max(0, Math.min(1, guessS));
+        _keeper = _keeperIsP2() ? 1 - clamped : clamped;
     }
     _keeperCommitted = _keeper;
 
     const g = _goalRect();
+    const aimS = _aimScreenX();
     _ball.from = { x: _ball.x, y: _ball.y };
-    _ball.to = { x: g.x + _aim.x * g.w, y: g.y + _aim.y * g.h };
+    _ball.to = { x: g.x + aimS * g.w, y: g.y + _aim.y * g.h };
 
     // Off the woodwork: aiming right at the very edge is the greedy shot.
     const edge = Math.abs(_aim.x - 0.5) * 2;
     if (edge > POST_MISS) _outcome = 'POST';
     else {
         const reach = KEEPER_W / 2 + 0.055;             // half the keeper's span
-        _outcome = Math.abs(_keeperCommitted - _aim.x) <= reach ? 'SAVED' : 'GOAL';
+        _outcome = Math.abs(_keeperScreenX(_keeperCommitted) - aimS) <= reach ? 'SAVED' : 'GOAL';
     }
     sfx('boost'); haptic([18]);
 }
@@ -310,7 +359,7 @@ function _draw() {
     }
 
     // Keeper
-    const kx = g.x + (_keeperCommitted ?? _keeper) * g.w;
+    const kx = g.x + _keeperScreenX(_keeperCommitted ?? _keeper) * g.w;
     const kw = g.w * KEEPER_W, kh = g.h * 0.92;
     ctx.fillStyle = _shooter === 0 ? '#5a9bff' : '#ff5a5a';
     _roundRect(ctx, kx - kw / 2, g.y + (g.h - kh) / 2, kw, kh, 8);
@@ -323,7 +372,7 @@ function _draw() {
 
     // Aim reticle, only while the shooter is choosing
     if (_phase === 'aim') {
-        const ax = g.x + _aim.x * g.w, ay = g.y + _aim.y * g.h;
+        const ax = g.x + _aimScreenX() * g.w, ay = g.y + _aim.y * g.h;
         ctx.strokeStyle = _shooter === 0 ? '#ff5a5a' : '#5a9bff';
         ctx.lineWidth = 3; ctx.globalAlpha = 0.9;
         ctx.beginPath(); ctx.arc(ax, ay, Math.max(13, g.h * 0.22), 0, Math.PI * 2); ctx.stroke();
@@ -334,6 +383,19 @@ function _draw() {
         ctx.setLineDash([6, 6]); ctx.globalAlpha = 0.45; ctx.lineWidth = 2;
         ctx.beginPath(); ctx.moveTo(_ball.x, _ball.y); ctx.lineTo(ax, ay); ctx.stroke();
         ctx.setLineDash([]); ctx.globalAlpha = 1;
+
+        // Name the placement you are committing to, so the drag has a readable
+        // result rather than being a guess at a dot's position.
+        const side = _aim.x < 0.30 ? 'LEFT' : _aim.x > 0.70 ? 'RIGHT' : 'CENTRE';
+        const hgt  = _aim.y < 0.38 ? 'HIGH' : _aim.y > 0.72 ? 'LOW' : 'MID';
+        const risky = Math.abs(_aim.x - 0.5) * 2 > 0.88;
+        ctx.save();
+        if (_shooter === 1) { ctx.translate(_W, _H); ctx.rotate(Math.PI); }
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.font = '900 15px "Bebas Neue", sans-serif';
+        ctx.fillStyle = risky ? '#fbbf24' : 'rgba(255,255,255,.72)';
+        ctx.fillText(`${hgt} ${side}${risky ? '  ·  POST RISK' : ''}`, _W / 2, _H * 0.56);
+        ctx.restore();
     }
 
     // Ball
@@ -411,6 +473,6 @@ function _destroy() {
     if (_af) { cancelAnimationFrame(_af); _af = null; }
     _ctx = null; _canvas = null;
     if (_overlay) { _overlay.remove(); _overlay = null; }
-    _botAimTimer = null; _keeperCommitted = null;
+    _botAimTimer = null; _keeperCommitted = null; _aimAnchor = null;
     _last = 0; _elapsed = 0; _W = 0; _H = 0;
 }

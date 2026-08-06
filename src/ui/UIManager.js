@@ -490,6 +490,44 @@ export function updateMapSlider() {
     document.getElementById('map-counter').textContent = label;
 }
 
+// What this space does to you, in one line. Prefers the realm-flavoured blurb on
+// HBD and falls back to the generic one; owned traps name their owner, because
+// whose Tollbooth it is changes whether you care.
+function _spaceEffectText(addr, type) {
+    const tile = state.board[addr];
+    if (typeof addr === 'number') {
+        const lbl = hbdSpaceLabel(addr, type);
+        if (lbl && lbl.desc) return lbl.desc;
+    }
+    let txt = SPACE_DESCS[type] || '';
+    if ((type === 'player_trap' || type === 'anchor_trap') && tile && tile.owner !== undefined) {
+        const owner = state.players[tile.owner];
+        if (owner) txt = `${owner.name}'s. ${txt}`;
+    }
+    return txt;
+}
+
+// How many spaces ahead of (or behind) the ACTIVE player this space is, and
+// whether a single roll can reach it. On City Circuit the count follows the
+// canonical lap order, which is the order you actually travel.
+function _distanceText(addr) {
+    const you = _playerMapIndex();
+    let idx;
+    if (typeof addr === 'number') idx = addr;
+    else {
+        idx = ALL_NODES_ORDERED.indexOf(addr);
+        if (idx < 0) return '';
+    }
+    let ahead = idx - you;
+    // The City board loops, so "12 behind" on a 60-node ring is really 48 ahead.
+    if (!_isHBD() && ahead < 0) ahead += ALL_NODES_ORDERED.length;
+
+    if (ahead === 0) return '📍 You are standing here';
+    if (ahead < 0)   return `↩︎ ${-ahead} space${-ahead === 1 ? '' : 's'} behind you`;
+    const reach = ahead <= 6 ? `  ·  reachable with a ${ahead}` : '';
+    return `➜ ${ahead} space${ahead === 1 ? '' : 's'} ahead${reach}`;
+}
+
 function _wireMapEvents() {
     const slider = document.getElementById('map-slider');
     slider.addEventListener('input', updateMapSlider);
@@ -498,7 +536,9 @@ function _wireMapEvents() {
 
     window.addEventListener('pointerdown', e => {
         if (state.gameState !== 'MAP') return;
-        if (e.target.closest('#map-ui')) return;
+        // e.target is only guaranteed to be an Element for real input; guard so a
+        // synthetic event (or one retargeted to the document) can't throw here.
+        if (e.target && e.target.closest && e.target.closest('#map-ui')) return;
         mapCamera.dragging   = true;
         mapCamera.dragStart  = { x: e.clientX, y: e.clientY };
         mapCamera.dragCamStart.copy(mapCamera.targetPos);
@@ -549,9 +589,21 @@ function _wireMapEvents() {
                 title = `${meta.ic} ${meta.n}`;
                 sub   = node ? (DISTRICT_BIOMES[node.district]?.name || DISTRICT_NAMES[node.district] || '') : '';
             }
-            tt.innerHTML = `<span style="color:#${cStr}">${title}</span><br><span class="map-dist">${sub}</span>`;
-            tt.style.left = Math.min(Math.max(e.clientX, 120), W - 120) + 'px';
-            tt.style.top  = Math.min(e.clientY, H - 80) + 'px';
+            // What the space actually DOES, and how far away it is. Scouting the
+            // road was previously a name and a block number — you could see that
+            // block 31 was "The Ember Toll" without any way to know it costs you
+            // four coins, or that it is exactly one 6 away.
+            const effect = _spaceEffectText(addr, type);
+            const dist   = _distanceText(addr);
+            tt.innerHTML =
+                `<span style="color:#${cStr}">${title}</span>` +
+                `<br><span class="map-dist">${sub}</span>` +
+                (effect ? `<br><span class="map-effect">${effect}</span>` : '') +
+                (dist ? `<br><span class="map-range">${dist}</span>` : '');
+            // The card is taller now that it carries an effect line, so keep it
+            // clear of both edges rather than only the bottom.
+            tt.style.left = Math.min(Math.max(e.clientX, 140), W - 140) + 'px';
+            tt.style.top  = Math.min(Math.max(e.clientY, 170), H - 90) + 'px';
             tt.style.display = 'block';
             clearTimeout(tt._hideTimer);
             tt._hideTimer = setTimeout(() => { tt.style.display = 'none'; }, 3000);

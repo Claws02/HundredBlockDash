@@ -10,10 +10,14 @@
 // interaction gets. The read is instant from across the room: two lines, one
 // stops.
 //
-// Steering is one thumb per player: tap or drag LEFT of your cycle to turn left,
-// RIGHT to turn right, relative to the way you are facing. That keeps it to a
-// single control on a phone half, and it works the same for both players once
-// their half is rotated.
+// Steering is a floating joystick per half — the same control Sumo Spheres uses.
+// It appears wherever your thumb lands and you push the direction you want to
+// go: up, down, left, right, in real screen terms. The first version asked you
+// to tap to the left or right OF YOUR CYCLE, relative to the way it was facing,
+// which meant working out your own heading before every turn and inverting the
+// whole control every time you drove downward. Absolute directions need no
+// mental arithmetic and read the same for both players once their half is
+// turned around.
 //
 // Best of 3 rounds. The arena shrinks each round so a stalemate can't run long,
 // and each round opens with a brief grace period so one twitch at the start is
@@ -33,6 +37,7 @@ const GRACE       = 0.9;    // s at round start where a crash is undone
 const ROUND_CAP   = 15;     // s per round; settles on who owns more ground
 const GAP         = 1250;   // ms between rounds
 const MARGIN      = [0, 2, 4];   // cells of wall closed in, per round
+const JOY_R       = 50;     // joystick base radius, css px
 
 // ── Module state ────────────────────────────────────────────────────────────
 let _done = false, _onWin = null, _isBot = false, _botSkill = 0.55;
@@ -48,6 +53,7 @@ let _between = false;
 let _margin = 0;
 let _flash = 0, _flashMsg = '';
 let _botCd = 0;
+let _sticks = [null, null];
 const _cleanups = [];
 const _timers   = [];
 
@@ -65,7 +71,7 @@ export function start(isBot, onWin, botSkill = 0.55) {
     if (!state.mgActive) return;
     _done = false; _onWin = onWin; _isBot = isBot; _botSkill = botSkill;
     _wins = [0, 0]; _round = 0; _last = 0; _between = false;
-    _flash = 0; _flashMsg = ''; _botCd = 0;
+    _flash = 0; _flashMsg = ''; _botCd = 0; _sticks = [null, null];
     registerMinigameCleanup(_destroy);   // R3
     _build();
     requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -90,26 +96,134 @@ function _build() {
     _overlay.appendChild(_canvas);
     _ctx = _canvas.getContext('2d');
 
-    // One thumb per player. Where you touch, relative to your own cycle's
-    // heading, is the turn — so the control is identical for both players once
-    // their half is turned around, and there are no buttons to hunt for.
-    const halfOf = e => (e.clientY < _overlay.clientHeight / 2 ? 1 : 0);
-    const onDown = e => {
-        if (_done || _between) return;
-        e.preventDefault();
-        const pid = halfOf(e);
-        if (pid === 1 && _isBot) return;
-        _turnToward(pid, e.clientX, e.clientY);
-    };
-    _overlay.addEventListener('pointerdown', onDown);
-    _cleanups.push(() => _overlay.removeEventListener('pointerdown', onDown));
+    _buildSticks();
 
     const onResize = () => _resize();
     window.addEventListener('resize', onResize);
     _cleanups.push(() => window.removeEventListener('resize', onResize));
 
     mg.appendChild(_overlay);
-    document.getElementById('mg-neutral').textContent = 'TAP LEFT OR RIGHT OF YOUR CYCLE TO TURN!';
+    document.getElementById('mg-neutral').textContent = 'STEER WITH YOUR STICK — DON\'T CRASH!';
+}
+
+// A floating joystick in each half. The ring appears under the thumb and the
+// knob swings around it; pushing past a dead zone picks the nearest of the four
+// compass directions, in the player's own frame.
+function _buildSticks() {
+    _sticks = [null, null];
+    for (let pid = 0; pid < 2; pid++) {
+        const color = pid === 0 ? '#ff5a5a' : '#5a9bff';
+
+        const zone = document.createElement('div');
+        zone.style.cssText = [
+            'position:absolute;left:0;right:0;z-index:5;',
+            pid === 0 ? 'top:50%;bottom:0;' : 'top:0;bottom:50%;',
+        ].join('');
+
+        const base = document.createElement('div');
+        base.style.cssText = [
+            'position:absolute;left:50%;top:calc(100% - 84px);transform:translate(-50%,-50%);',
+            `width:${JOY_R * 2}px;height:${JOY_R * 2}px;border-radius:50%;`,
+            'background:rgba(255,255,255,0.05);border:2px solid rgba(255,255,255,0.15);',
+            'pointer-events:none;opacity:.35;',
+            'transition:left .16s ease, top .16s ease, opacity .16s ease;',
+        ].join('');
+        const knob = document.createElement('div');
+        knob.style.cssText = [
+            'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);',
+            'width:42px;height:42px;border-radius:50%;pointer-events:none;',
+            `background:${color};box-shadow:0 0 14px ${color};opacity:.88;`,
+            'transition:transform .05s;',
+        ].join('');
+        base.appendChild(knob);
+        zone.appendChild(base);
+        _overlay.appendChild(zone);
+        _sticks[pid] = { base, knob, zone, origin: null, pointerId: null };
+
+        // P2's half is upside-down from where they sit, so their push has to be
+        // inverted to mean the same thing on screen.
+        const flip = pid === 1 ? -1 : 1;
+        const restTop = pid === 0 ? 'calc(100% - 84px)' : '84px';
+
+        const park = () => {
+            const st = _sticks[pid];
+            if (!st) return;
+            st.base.style.transition = 'left .16s ease, top .16s ease, opacity .16s ease';
+            st.base.style.left = '50%';
+            st.base.style.top  = restTop;
+            st.base.style.opacity = '.35';
+            st.knob.style.transform = 'translate(-50%,-50%)';
+            st.origin = null; st.pointerId = null;
+        };
+        base.style.top = restTop;
+
+        const onDown = e => {
+            const st = _sticks[pid];
+            if (_done || !st || st.pointerId !== null) return;
+            if (pid === 1 && _isBot) return;
+            e.preventDefault();
+            try { zone.setPointerCapture(e.pointerId); } catch (err) {}
+            const r = zone.getBoundingClientRect();
+            const cx = Math.max(JOY_R, Math.min(r.width  - JOY_R, e.clientX - r.left));
+            const cy = Math.max(JOY_R, Math.min(r.height - JOY_R, e.clientY - r.top));
+            st.base.style.transition = 'opacity .1s ease';
+            st.base.style.left = cx + 'px';
+            st.base.style.top  = cy + 'px';
+            st.base.style.opacity = '1';
+            st.pointerId = e.pointerId;
+            st.origin = { x: r.left + cx, y: r.top + cy };
+        };
+        const onMove = e => {
+            const st = _sticks[pid];
+            if (_done || !st || st.pointerId !== e.pointerId || !st.origin) return;
+            e.preventDefault();
+            let dx = e.clientX - st.origin.x, dy = e.clientY - st.origin.y;
+            const dist = Math.hypot(dx, dy);
+            const kOff = JOY_R - 21;
+            const cl = dist > JOY_R ? JOY_R / dist : 1;
+            st.knob.style.transform =
+                `translate(calc(-50% + ${(dx * cl / JOY_R * kOff).toFixed(1)}px), ` +
+                `calc(-50% + ${(dy * cl / JOY_R * kOff).toFixed(1)}px))`;
+            // Dead zone, so resting a thumb doesn't steer.
+            if (dist < JOY_R * 0.42) return;
+            // Nearest compass direction, in this player's own frame.
+            const ax = dx * flip, ay = dy * flip;
+            const dir = Math.abs(ax) > Math.abs(ay)
+                ? (ax > 0 ? 1 : 3)         // right : left
+                : (ay > 0 ? 2 : 0);        // down  : up
+            _steer(pid, dir);
+        };
+        const onUp = e => {
+            const st = _sticks[pid];
+            if (!st || st.pointerId !== e.pointerId) return;
+            e.preventDefault();
+            try { zone.releasePointerCapture(e.pointerId); } catch (err) {}
+            park();
+        };
+
+        zone.addEventListener('pointerdown',   onDown);
+        zone.addEventListener('pointermove',   onMove);
+        zone.addEventListener('pointerup',     onUp);
+        zone.addEventListener('pointercancel', onUp);
+        _cleanups.push(() => {
+            zone.removeEventListener('pointerdown',   onDown);
+            zone.removeEventListener('pointermove',   onMove);
+            zone.removeEventListener('pointerup',     onUp);
+            zone.removeEventListener('pointercancel', onUp);
+        });
+    }
+}
+
+// Point the cycle at an absolute direction. Reversing into your own neck is
+// ignored rather than punished — the same forgiveness the tap control had.
+function _steer(pid, dir) {
+    const c = _cycles[pid];
+    if (!c || !c.alive || _between) return;
+    if (dir === c.dir) return;
+    if (dir === (c.dir + 2) % 4) return;          // no instant U-turn
+    c.dir = dir;
+    sfx('seq_lit');
+    if (pid === 0) haptic([8]);
 }
 
 function _resize() {
@@ -158,23 +272,6 @@ function _get(x, y) {
     return _grid[_idx(x, y)];
 }
 function _set(x, y, v) { if (x >= 0 && y >= 0 && x < _cols && y < _rows) _grid[_idx(x, y)] = v; }
-
-// The touch point decides the turn, read in the cycle's own frame: a tap to the
-// left of where you're heading turns you left, a tap to the right turns right.
-// Reversing into your own neck is ignored rather than punished.
-function _turnToward(pid, clientX, clientY) {
-    const c = _cycles[pid];
-    if (!c || !c.alive) return;
-    const px = _ox + c.cx * CELL + CELL / 2;
-    const py = _oy + c.cy * CELL + CELL / 2;
-    const dx = clientX - px, dy = clientY - py;
-    // Cross product of heading × touch tells you which side the touch is on.
-    const cross = DX[c.dir] * dy - DY[c.dir] * dx;
-    if (Math.abs(cross) < CELL * 0.35) return;      // dead ahead: no turn
-    c.dir = cross > 0 ? (c.dir + 1) % 4 : (c.dir + 3) % 4;
-    sfx('seq_lit');
-    if (pid === 0) haptic([8]);
-}
 
 // ── Loop (R1) ───────────────────────────────────────────────────────────────
 function _tick(now) {
@@ -379,7 +476,7 @@ function _draw() {
         ctx.fillText(`P${pid + 1}  ROUNDS ${_wins[pid]}`, 14, h - 54);
         ctx.font = '800 11px "Nunito", system-ui, sans-serif';
         ctx.fillStyle = 'rgba(255,255,255,.45)';
-        ctx.fillText(_graceT > 0 && !_between ? 'SAFE START…' : 'TAP LEFT / RIGHT TO TURN', 14, h - 40);
+        ctx.fillText(_graceT > 0 && !_between ? 'SAFE START…' : 'PUSH THE STICK TO STEER', 14, h - 40);
         ctx.restore();
     }
 
@@ -424,6 +521,6 @@ function _destroy() {
     if (_af) { cancelAnimationFrame(_af); _af = null; }
     _ctx = null; _canvas = null;
     if (_overlay) { _overlay.remove(); _overlay = null; }
-    _grid = null; _cycles = []; _seen.clear();
+    _grid = null; _cycles = []; _seen.clear(); _sticks = [null, null];
     _last = 0; _acc = 0; _W = 0; _H = 0;
 }

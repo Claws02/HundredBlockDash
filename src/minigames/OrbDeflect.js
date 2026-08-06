@@ -77,7 +77,14 @@ function _build() {
     // Apply DPR transform after context is created (first call to _sizeCanvas had no ctx yet)
     { const dpr = Math.min(window.devicePixelRatio || 1, 2); _ctx.setTransform(dpr, 0, 0, dpr, 0, 0); }
 
-    // Pointer handlers
+    // Pointer handlers.
+    //
+    // Every recorded point is clamped into the drawable box (see _clampDraw):
+    // a swipe that ran off the screen edge used to record points at x = 0 or
+    // y = _ch, right on the boundary, where the stroke is half-clipped and a
+    // browser edge gesture can steal the drag. The box also confines a stroke to
+    // the half it started in — you could previously draw a barrier straight
+    // across your opponent's side.
     const onDown = e => {
         if (_done || !state.mgActive) return;
         e.preventDefault();
@@ -85,9 +92,10 @@ function _build() {
         if (isP2Zone && _isBot) return; // block P2 zone if bot
         const color = isP2Zone ? C_P2 : C_P1;
         _gs.activeTouches[e.pointerId] = {
-            points: [{ x: e.clientX, y: e.clientY }],
+            points: [_clampDraw(e.clientX, e.clientY, isP2Zone)],
             length: 0,
             color,
+            top: isP2Zone,
         };
     };
     const onMove = e => {
@@ -96,10 +104,11 @@ function _build() {
         if (!t) return;
         e.preventDefault();
         const last = t.points[t.points.length - 1];
-        const dx = e.clientX - last.x, dy = e.clientY - last.y;
+        const p = _clampDraw(e.clientX, e.clientY, t.top);
+        const dx = p.x - last.x, dy = p.y - last.y;
         const dist = Math.hypot(dx, dy);
         if (dist > _cw * 0.015) {
-            t.points.push({ x: e.clientX, y: e.clientY });
+            t.points.push(p);
             t.length += dist;
         }
     };
@@ -178,10 +187,12 @@ function _botTick() {
         const lx = threat.x + threat.vx * lead + aimErrPx;
         const ly = Math.max(_ch * 0.05, Math.min(_ch * 0.44, threat.y + threat.vy * lead));
         const w  = _cw * 0.14;
+        // The bot draws inside the same box a human is held to — otherwise it
+        // could defend the screen edge from a place no player can reach.
         _gs.barriers.push({
             points: [
-                { x: lx - w, y: ly },
-                { x: lx + w, y: ly + w * (Math.random() - 0.5) },
+                _clampDraw(lx - w, ly, true),
+                _clampDraw(lx + w, ly + w * (Math.random() - 0.5), true),
             ],
             life: 1.0,
             color: C_P2,
@@ -195,6 +206,29 @@ function _botTick() {
 }
 
 // ── Physics helpers ───────────────────────────────────────────────────────────
+
+// The drawable box, inset from the screen edges so a stroke can't run off and
+// so an edge swipe never reaches the browser's own gesture zone. Small enough
+// (4% of the width) that an orb hugging a wall is still inside a barrier's reach.
+const DRAW_INSET = 0.04;
+
+function _drawBox(top) {
+    const m = _cw * DRAW_INSET;
+    return {
+        x0: m, x1: _cw - m,
+        y0: top ? m : _ch / 2 + m * 0.5,
+        y1: top ? _ch / 2 - m * 0.5 : _ch - m,
+    };
+}
+
+// Clamp a touch into the drawable box for the half the stroke started in.
+function _clampDraw(x, y, top) {
+    const b = _drawBox(top);
+    return {
+        x: Math.max(b.x0, Math.min(b.x1, x)),
+        y: Math.max(b.y0, Math.min(b.y1, y)),
+    };
+}
 
 function _distToSegment(x1, y1, x2, y2, px, py) {
     const l2 = (x2-x1)**2 + (y2-y1)**2;
@@ -356,14 +390,58 @@ function _draw() {
     ctx.lineCap    = 'round';
     ctx.lineJoin   = 'round';
 
-    // Timer (large ghost text in center)
-    ctx.globalAlpha = 0.1;
-    ctx.fillStyle   = '#ffffff';
-    ctx.font        = `bold ${_cw * 0.22}px sans-serif`;
-    ctx.textAlign   = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(Math.ceil(Math.max(0, _gs.timeLeft)), _cw/2, _ch/2);
-    ctx.globalAlpha = 1.0;
+    // Clock. It used to be one enormous ghost numeral dead centre — exactly
+    // where the orb crosses, so the thing you most need to track was permanently
+    // sitting on top of the most important patch of screen. It is now a compact
+    // readout at each player's own edge, one copy each, upright from where they
+    // sit.
+    {
+        const left = Math.max(0, _gs.timeLeft);
+        const col  = left <= 5 ? '#ff6b6b' : left <= 10 ? '#fbbf24' : 'rgba(255,255,255,.5)';
+        const size = Math.round(_cw * 0.075);
+        for (let pid = 0; pid < 2; pid++) {
+            ctx.save();
+            if (pid === 1) { ctx.translate(_cw, _ch); ctx.rotate(Math.PI); }
+            ctx.fillStyle = col;
+            ctx.font = `900 ${size}px "Bebas Neue", sans-serif`;
+            ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
+            ctx.fillText(`${Math.ceil(left)}s`, _cw - 14, _ch - 54);
+            ctx.restore();
+        }
+        // A faint tick ring on the divider, so the pressure is visible without
+        // any text sitting in the play area.
+        ctx.save();
+        ctx.globalAlpha = 0.22;
+        ctx.strokeStyle = col; ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(_cw / 2, _ch / 2, _cw * 0.055, -Math.PI / 2,
+                -Math.PI / 2 + Math.PI * 2 * (left / 30));
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    // The status strip was left reading whatever the manager last put there —
+    // "MINIGAME TIME" for the whole round. Give it the live score.
+    {
+        const neu = document.getElementById('mg-neutral');
+        if (neu && !_done) {
+            neu.textContent = `DRAW BARRIERS!   P1 ${'♥'.repeat(Math.max(0, _gs.hp[0]))} · ` +
+                              `${'♥'.repeat(Math.max(0, _gs.hp[1]))} P2`;
+        }
+    }
+
+    // The drawable boundary, shown so players know where their strokes live.
+    ctx.save();
+    ctx.globalAlpha = 0.13;
+    ctx.setLineDash([7, 7]);
+    ctx.lineWidth = 2;
+    for (const top of [true, false]) {
+        const b = _drawBox(top);
+        ctx.strokeStyle = top ? C_P2 : C_P1;
+        ctx.strokeRect(b.x0, b.y0, b.x1 - b.x0, b.y1 - b.y0);
+    }
+    ctx.setLineDash([]);
+    ctx.restore();
 
     // Divider line
     ctx.globalCompositeOperation = 'source-over';

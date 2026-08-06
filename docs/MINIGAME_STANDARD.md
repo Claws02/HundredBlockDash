@@ -62,6 +62,19 @@ _last = now;
 Cap `dt` at `0.1 s` so a tab-switch never teleports objects. Every `+=` to a
 position, angle, or timer multiplies by `dt`.
 
+### R1a — Both players hold their own coordinates
+On a face-off board each player's "left" is the other's right, and "forward" is
+the opposite direction. Keep each player's input in **their own frame**, resolve
+the game in **one canonical frame**, and convert at the boundary. Penalty is the
+cautionary tale: the keeper's drag and the shooter's aim were compared directly
+while meaning mirrored things, so the keeper dived the wrong way every time.
+
+Related: never map an absolute finger position onto a small target at the far
+end of the screen. Penalty's aim did, and vertical aim was unusable — the goal
+mouth is ~90 px tall and sits in the opponent's half, so every real thumb
+position clamped to the top or the bottom. Use a **relative drag** with a gain
+that maps a comfortable thumb sweep onto the full range.
+
 ### R1b — Leave the outer edges clear
 `#mg-neutral` is a floating status pill at each player's outer edge (about 42 px
 tall including its margin), drawn above every game overlay. Anything your game

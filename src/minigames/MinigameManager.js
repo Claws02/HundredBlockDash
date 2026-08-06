@@ -572,7 +572,9 @@ function _resultToast(msg, color) {
 // use for their two halves.
 //
 // `payouts` is the per-player coin-game haul (see _creditPayouts); zero for the
-// ordinary games, where only the winner's flat reward moved.
+// ordinary games, where only the winner's flat reward moved. `practice` is kept
+// so a practice variant can be reinstated if it ever earns its place — today
+// practice skips this screen entirely, because it pays out nothing.
 function _showScoreboard(winnerId, payouts, practice, done) {
     const layer = document.getElementById('minigame-layer');
     if (!layer) { done(); return; }
@@ -656,7 +658,12 @@ function _finishPractice(winnerId) {
     if (winnerId >= 0) z[winnerId]?.classList.add('mg-victory');
     setTimeout(() => {
         z.forEach(e => e?.classList.remove('mg-victory', 'mg-defeat'));
-        _showScoreboard(winnerId, [0, 0], true, () => endMinigame(winnerId));
+        // No scoreboard in practice. The screen exists to show what the round
+        // paid out, and practice pays nothing — a card full of coin totals after
+        // a round that changed none of them is exactly the confusion it was
+        // built to remove. Practice also wants to hand control straight back so
+        // you can go again.
+        endMinigame(winnerId);
     }, 1100);
 }
 

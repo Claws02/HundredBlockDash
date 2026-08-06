@@ -128,22 +128,35 @@ export const CITY_GRAPH = G;
 // ---- Randomisable slots per district (type === null nodes) ----
 // Counts must match pool sizes in DISTRICT_POOLS below.
 export const DISTRICT_POOLS = {
-    // 17 null nodes: r2, r4, r5, r6, r7, r8, r9, r10, r11, r12, r14, r15, r16, r17, r18, r19, r20
+    // Coin-LOSING spaces (lose / lose_big / trap) are capped at one per ten
+    // nodes across the whole ring, the same rule the Hundred Block Dash
+    // generator enforces. The audit (qa/spaceaudit.js) measured the old pools at
+    // 13 red of 60 — one every 4.6 nodes — which bites harder here than on HBD
+    // because City is a lap map and you pass the same tiles again every circuit.
+    // The removed reds were replaced with disruption that costs no coins
+    // (swap_space, cbwd) so the districts keep their character.
+    // Current total: 6 red of 60 nodes.
+
+    // 17 null nodes: r2, r4, r5, r6, r7, r8, r9, r10, r11, r12, r14–r20
     ring: [
         ...Array(5).fill('coin'), ...Array(3).fill('coin_big'),
-        ...Array(2).fill('trap'), ...Array(2).fill('lose'),
+        ...Array(1).fill('trap'), ...Array(1).fill('lose'),
         ...Array(2).fill('mystery'), ...Array(1).fill('boost'),
         ...Array(1).fill('truce'), ...Array(1).fill('shortcut'),
+        ...Array(1).fill('swap_space'), ...Array(1).fill('cbwd'),
     ],
     // 8 null nodes: fin_0-fin_3, fin_5-fin_8
     fin: [
-        ...Array(3).fill('coin_big'), ...Array(2).fill('lose_big'),
-        ...Array(1).fill('magnet'), ...Array(1).fill('duel'), ...Array(1).fill('coin'),
+        ...Array(3).fill('coin_big'), ...Array(1).fill('lose_big'),
+        ...Array(1).fill('magnet'), ...Array(1).fill('duel'),
+        ...Array(1).fill('coin'), ...Array(1).fill('cbwd'),
     ],
-    // 10 null nodes: ba_0-ba_4, ba_6-ba_10
+    // 10 null nodes: ba_0-ba_4, ba_6-ba_10 — still the nastiest stretch, but
+    // the nastiness is now positional rather than a coin tax.
     ba: [
-        ...Array(3).fill('trap'), ...Array(2).fill('lose'),
-        ...Array(2).fill('magnet'), ...Array(2).fill('shortcut'), ...Array(1).fill('duel'),
+        ...Array(2).fill('trap'), ...Array(2).fill('magnet'),
+        ...Array(2).fill('shortcut'), ...Array(1).fill('duel'),
+        ...Array(2).fill('swap_space'), ...Array(1).fill('cbwd'),
     ],
     // 8 null nodes: shop_0-shop_3, shop_5-shop_8
     shop: [
@@ -152,7 +165,7 @@ export const DISTRICT_POOLS = {
     ],
     // 5 null nodes: ind_1, ind_2, ind_4, ind_5, ind_6
     ind: [
-        ...Array(1).fill('lose_big'), ...Array(1).fill('trap'),
+        ...Array(1).fill('lose_big'), ...Array(1).fill('swap_space'),
         ...Array(1).fill('cfwd'),     ...Array(1).fill('coin_big'), ...Array(1).fill('duel'),
     ],
 };
