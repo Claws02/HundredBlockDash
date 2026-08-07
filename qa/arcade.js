@@ -9,7 +9,12 @@ const path = require('path');
 
 const AGENT = fs.readFileSync(path.join(__dirname, 'agent.js'), 'utf8');
 const BASE = process.env.QA_BASE || 'http://127.0.0.1:8129/index.html';
-const PER_GAME = parseInt(process.argv[2] || '45', 10);
+// 90s, because the roster's slowest genuine finishes land at 65–70s under
+// synthetic input (four in a row, rhythm forge, penalty). The old 45s default
+// reported ten of eighteen games "unresolved" when every one of them was
+// running cleanly and simply had not reached a winner yet — a budget that
+// manufactures failures is worse than no sweep at all.
+const PER_GAME = parseInt(process.argv[2] || '90', 10);
 
 (async () => {
     const browser = await chromium.launch({

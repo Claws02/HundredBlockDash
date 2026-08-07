@@ -120,7 +120,30 @@ export function triggerPractice(mgType, isBotOpponent, onDone) {
 
     document.getElementById('mg-select-overlay').style.display = 'none';
     document.getElementById('ui-layer').style.display = 'none';
-    _showIntroCard(mgType, true);
+    _showPracticeHold(mgType);
+}
+
+// Practice skips the rules card. Whoever pressed practice has just read those
+// rules (or picked the game off the arcade grid), and re-showing the same card
+// meant confirming twice in a row — in tabletop mode, twice from BOTH players.
+// Straight to the orientation/ready screen with one small tag, and one READY.
+function _showPracticeHold(mgType) {
+    DualRead.clearAll();
+    const info = document.getElementById('mg-page-info');
+    document.getElementById('mg-intro-overlay').style.display = 'flex';
+    document.getElementById('mg-countdown').style.display     = 'none';
+    info.style.display = 'none';
+    DualRead.unmirror(info);          // its copy must not outlive it
+    document.getElementById('mg-page-hold').style.display = 'block';
+    document.getElementById('mg-step-0').classList.add('done');
+    document.getElementById('mg-step-1').classList.add('done');
+    document.getElementById('mg-step-2').classList.remove('done');
+    _introReady = [false, false];
+    _setPracticeButton(false);
+    _setPracticeBanner(true);         // before the snapshot, so the mirror has it
+    _renderOrientationDiagram(mgType);
+    DualRead.present(document.getElementById('mg-page-hold'), { tier: 'shared' });
+    sfx('mg_start');
 }
 
 // ---- Standalone entry point (called from minigame selector on main screen) ----
@@ -138,7 +161,7 @@ export function triggerStandalone(mgType, isBotOpponent = false) {
     state.players[1].isBot = !!isBotOpponent;
 
     document.getElementById('mg-select-overlay').style.display = 'none';
-    _showIntroCard(mgType, false);
+    _showIntroCard(mgType);
 }
 
 // ---- Dual read: the rules card is a SHARED beat ---------------------------
@@ -202,8 +225,9 @@ function _confirmIntro(side) {
     _presentIntroCard();   // repaint both sides and re-snapshot the mirror
 }
 
-// Builds the intro card. `practice` adds the no-stakes banner.
-function _showIntroCard(mgType, practice) {
+// Builds the rules card. Practice never comes through here — it goes straight to
+// the ready screen — so this is always the real thing.
+function _showIntroCard(mgType) {
     document.getElementById('mg-intro-overlay').style.display  = 'flex';
     document.getElementById('mg-countdown').style.display      = 'none';
     document.getElementById('mg-page-info').style.display      = 'block';
@@ -212,9 +236,9 @@ function _showIntroCard(mgType, practice) {
 
     const info = MG_INFO[mgType];
     document.getElementById('mg-intro-icon').textContent  = info.icon;
-    document.getElementById('mg-intro-title').textContent = practice ? `${info.title} — PRACTICE` : info.title;
+    document.getElementById('mg-intro-title').textContent = info.title;
     document.getElementById('mg-intro-desc').textContent  = info.desc;
-    _setPracticeBanner(practice);
+    _setPracticeBanner(false);
     _setPracticeButton(false);
     document.getElementById('mg-step-0').classList.add('done');
     _introReady = [false, false];
@@ -222,7 +246,9 @@ function _showIntroCard(mgType, practice) {
     sfx('mg_start');
 }
 
-// "no stakes" strip on the intro card.
+// The "this one is for practice" tag on the ready screen. Deliberately a small
+// pill rather than a strip of prose: a full-width banner above the orientation
+// diagram pushed the READY button off the bottom of a 412×892 phone.
 function _setPracticeBanner(on) {
     let el = document.getElementById('mg-practice-banner');
     if (!on) { if (el) el.style.display = 'none'; return; }
@@ -230,11 +256,11 @@ function _setPracticeBanner(on) {
         el = document.createElement('div');
         el.id = 'mg-practice-banner';
         el.className = 'mg-practice-banner';
-        const page = document.getElementById('mg-page-info');
+        const page = document.getElementById('mg-page-hold');
         page.insertBefore(el, page.firstChild);
     }
-    el.textContent = '🎯 PRACTICE — nothing is at stake, play it as many times as you like';
-    el.style.display = 'block';
+    el.textContent = '🎯 PRACTICE — no stakes';
+    el.style.display = '';     // '' keeps the stylesheet's inline-block, not 'block'
 }
 
 // "TRY IT FIRST" button on the in-match intro card.
@@ -274,7 +300,7 @@ function _startInMatchPractice() {
         state.cameraState = 'MINIGAME';
         state.mgType    = type;
         state.players[1].isBot = wasBot;
-        _showIntroCard(type, false);
+        _showIntroCard(type);
         _setPracticeButton(true);
         _presentIntroCard();          // the practice button changed the card
         document.getElementById('mg-intro-overlay').style.display = 'flex';
@@ -335,6 +361,7 @@ function mgIntroNext() {
     DualRead.unmirror(info);          // its copy must not outlive it
     document.getElementById('mg-page-hold').style.display = 'block';
     document.getElementById('mg-step-1').classList.add('done');
+    _setPracticeBanner(false);        // the tag lives on this page; this is the real match
     _renderOrientationDiagram(state.mgType);
     // "We're ready" is already a both-of-you prompt, so it mirrors but keeps a
     // single confirm.

@@ -28,7 +28,7 @@ cd qa
 | `node verify.js` | Assertion suite: all 25 contracts claimable, counter regression guards, dice settle watchdog, no errors. **Deterministic — use this as the CI gate.** | ~3 min |
 | `node verify2.js city_circuit 6` | Starts a real match: scene-graph leak census across 12 tile redraws, measured turn pacing, plays through to the win screen. | ≤25 min |
 | `node verify2.js hundred_block_dash` | Same, on the 50-block linear map. | ≤25 min |
-| `node arcade.js 75` | Launches every registered minigame from the arcade, plays each with synthetic input, checks each resolves and cleans up. | ~25 min |
+| `node arcade.js` | Launches every registered minigame from the arcade, plays each with synthetic input, checks each resolves and cleans up. Budget is 90s/game — the slowest genuine finishes are 65–70s, so anything less reports live games as failures. | ~25 min |
 | `node earlytap.js` | Hammers both halves from frame 0 after GO on every game — catches state-not-ready races (found QA-016). | ~8 min |
 | `node botcheck.js 65` | Drives each game's bot branch at easy and hard with **no human input at all**. Flags games that only end when a human plays, and bots that lose every hard run. | ~30 min |
 | `node features.js` | Map view on both boards (button shown, opens, slider range, camera follows, counter, closes) + practice mode (awards nothing, hands control back) + the payoff-beat dwell guarantee. | ~6 min |
