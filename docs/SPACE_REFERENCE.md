@@ -3,11 +3,10 @@
 Every space type in Hundred Block Dash, what it actually does in code, and how
 often it really appears on a board.
 
-The distribution numbers are **measured, not read off the weight tables**.
-`qa/spaceaudit.js` generates 200 real boards per length through the real
-generator and counts what comes out. That matters because the weights are drawn
-from a bag *with replacement* and the coin-loss budget is capped independently of
-them, so the weight constants do not tell you the answer.
+The distribution numbers are **measured**, not asserted. `qa/spaceaudit.js`
+generates 200 real boards per length through the real generator and counts what
+comes out — that is what makes the "exactly 20 mysteries" claim below a fact
+rather than an intention.
 
 Regenerate with:
 
@@ -32,7 +31,7 @@ per realm (`HBD_BIOMES[].flavor`), but the effect is identical everywhere.
 | 💰 | **BIG COIN** | +8 coins. +1 more with a Vendor ally. |
 | 🧲 | **MAGNET** | Steal up to 5 coins from your opponent. Good for you, bad for them — *not* a red space. |
 | 🕊️ | **TRUCE** | Both players gain 5 coins. |
-| 🏛️ | **DISTRICT HQ** | City only. First visit this lap +15 coins, revisits +5. |
+| 🏛️ | **DISTRICT HQ** | City only. First visit this lap +15 coins, revisits +5. Paid for **passing over** it — you do not have to land on it. |
 
 ### Coins out — the "red" spaces
 
@@ -40,10 +39,9 @@ These are the only three the 1-per-10 budget counts.
 
 | | Space | Effect |
 |---|---|---|
-| 💸 | **FINE** | −4 coins. Blocked entirely by a Shield. |
-| 🔥 | **BIG FINE** | −10 coins. Blocked entirely by a Shield. |
+| 💸 | **FINE** | −3 coins. Blocked entirely by a Shield. |
+| 🔥 | **BIG FINE** | −8 coins. Blocked entirely by a Shield. |
 | ⚠️ | **TRAP** | −5 coins. Blocked entirely by a Shield. |
-| 🚧 | **TOLLBOOTH** | Player-placed via an item. Pay the owner 5 coins; landing on your own is free. Never generated. |
 
 ### Movement
 
@@ -62,7 +60,7 @@ These are the only three the 1-per-10 budget counts.
 |---|---|---|
 | 🏁 | **START** | Block 0 / the City start. Nothing happens. |
 | 👑 | **THE CROWN** | HBD finish. Reaching it ends the match with a finish bonus — but **most coins still wins**. |
-| 🔒 | **THE GATE** | Blocks the road until someone rolls 5 dice for ≥15. Opens for *both* players. |
+| 🔒 | **THE GATE** | Blocks the road until someone rolls 5 dice for **20+** on HBD, **15+** on City. Opens for *both* players. |
 | 🔓 | **GATE (OPEN)** | Pass through freely. |
 | 🏪 | **ITEM SHOP** | Opens the shop. Themed per realm/district. |
 | 🎁 | **MYSTERY** | A random item straight into your bag, with a card naming it. |
@@ -72,48 +70,62 @@ These are the only three the 1-per-10 budget counts.
 
 ## 2. Hundred Block Dash — measured distribution
 
-200 generated boards per length. Figures are **spaces per board**.
+The headline types are **exact quotas**, not weighted draws: the generator now
+computes how many of each the board should carry from its length and places
+exactly that many, every time. The measured spread below is over 200 boards per
+length — where a number is a whole integer it is that on **every single board**.
+
+Per 100 blocks: **20 mystery · 20 coin · 10 big coin · 5 fine · 5 big fine**,
+with everything else sharing what is left.
 
 | Space | 50 blocks | 75 blocks | 100 blocks |
 |---|---:|---:|---:|
-| 🪙 COIN | 10.29 (20.6%) | 17.77 (23.7%) | 22.93 (22.9%) |
-| 💰 BIG COIN | 7.16 (14.3%) | 11.55 (15.4%) | 15.71 (15.7%) |
-| 🔄 SWAP ZONE | 5.49 (11.0%) | 5.63 (7.5%) | ~6.8 (6.8%) |
-| 🎁 MYSTERY | 5.35 (10.7%) | 7.89 (10.5%) | ~12.1 (12.1%) |
-| ⚡ BOOST | 2.94 (5.9%) | 4.06 (5.4%) | ~5.5 (5.5%) |
-| 🌀 SHORTCUT | 2.78 (5.6%) | 2.81 (3.7%) | ~5.2 (5.2%) |
-| 🧲 MAGNET | 2.50 (5.0%) | 4.15 (5.5%) | ~6.6 (6.6%) |
-| 🌑 PULLED BACK | 2.16 (4.3%) | 3.58 (4.8%) | ~5.0 (5.0%) |
-| 🏪 ITEM SHOP | 2 | 3 | 4 |
-| 💸 FINE | 1.82 (3.6%) | 2.83 (3.8%) | ~4.1 (4.1%) |
-| ⚠️ TRAP | 1.50 (3.0%) | 2.14 (2.9%) | ~2.8 (2.8%) |
-| 🕊️ TRUCE | 1.37 (2.7%) | 1.37 (1.8%) | ~1.3 (1.3%) |
-| 🚀 LAUNCH | 0.98 (2.0%) | 4.18 (5.6%) | ~3.9 (3.9%) |
-| 🔥 BIG FINE | 0.69 (1.4%) | 1.03 (1.4%) | ~1.1 (1.1%) |
-| 🏁 START · 🔒 GATE · 👑 CROWN | 1 each | 1 each | 1 each |
+| 🪙 COIN | **10** | **15** | **20** |
+| 🎁 MYSTERY | **10** | **15** | **20** |
+| 💰 BIG COIN | **5** | **8** | **10** |
+| 💸 FINE | **3** | **4** | **5** |
+| 🔥 BIG FINE | **2** | **3** | **5** |
+| 🏪 ITEM SHOP | **2** | **3** | **4** |
+| 🏁 START · 🔒 GATE · 👑 CROWN | **1** each | **1** each | **1** each |
+| 🔄 SWAP ZONE | 3.05 | 3.44 | 4.42 |
+| ⚡ BOOST | 2.66 | 4.08 | 5.59 |
+| 🧲 MAGNET | 2.29 | 3.81 | 6.08 |
+| 🌑 PULLED BACK | 2.29 | 3.96 | 5.42 |
+| 🌀 SHORTCUT | 2.13 | 3.11 | 4.96 |
+| 🕊️ TRUCE | 1.56 | 2.19 | 2.98 |
+| 🚀 LAUNCH | 1.00 | 3.42 | 3.54 |
 
-### The red budget holds
+The bolded rows are guaranteed. The rest are realm-weighted filler for whatever
+slots the quotas leave over, so they vary board to board — which is where the
+character of each stretch of road comes from.
+
+### The red budget
 
 | Length | Red spaces | Cap (1 per 10) | Gap between reds — min / median / mean |
 |---|---:|---:|---|
-| 50 | 4.0 | 5 | 7 / 12 / 12.2 |
-| 75 | 6.0 | 7 | 7 / 12 / 12.3 |
-| 100 | 8.0 | 10 | 6 / 12 / 12.4 |
+| 50 | 5 | 5 | 6 / 10 / 9.8 |
+| 75 | 7 | 7 | 6 / 11 / 10.6 |
+| 100 | 10 | 10 | 5 / 10 / 9.9 |
 
-The generator places reds at evenly-spaced positions with a minimum gap of two
-cells, so the shortest run between two coin losses is 6 blocks and the typical
-one is 12 — you never walk into a gauntlet.
+The budget is now spent in full rather than under-used, split evenly between the
+two fines, and placed at evenly-spaced positions with a minimum gap of two — so
+the shortest run between two coin losses is 5 blocks and the typical one is 10.
+
+**TRAP is not in the HBD mix.** With a budget this small a third red type only
+muddies what a red space means. It still exists on City Circuit.
 
 ### Balance read
 
-- **Coins in vs coins out.** Roughly 39% of the board pays you and 8% taxes you.
-  Deliberate: the road is generous, and the tension comes from *position* rather
-  than poverty.
-- **Late realms lean on disruption.** The Void's bag is thick with SWAP ZONE (its
-  share of the 50-block board is 11% because the Void is half of a short run),
-  which flips the race without emptying anyone's purse.
-- **Shops scale with length** — one per realm — so a longer board means more
-  chances to spend rather than a longer walk between them.
+- **Coins in vs coins out.** 30% of the board pays you directly (coin + big
+  coin), 20% hands you an item, and 10% taxes you. Deliberate: the road is
+  generous, and the tension comes from *position* rather than poverty.
+- **The fines got smaller as they got more common.** Ten reds on a 100-block
+  board at −3 and −8 costs less in total than the old eight at −4 and −10, but
+  you meet one more than twice as often — so a red space is now a regular part of
+  the rhythm rather than a rare spike.
+- **Mystery is the biggest single category after coin.** One block in five hands
+  you an item, which is what makes the narrowed seven-item shop matter: you will
+  be holding something most turns.
 
 ---
 
@@ -161,7 +173,36 @@ into the same slots every time, so the count is exact.
 
 ---
 
-## 4. Reading it in-game
+## 4. The shop — seven items, one per verb
+
+Narrowed from twelve. Five of the originals did the same job as another: Warp
+Drive forced a 5 while Custom Dice picks any number for four more coins, and
+Double Die and Overcharge were two more ways to say "bigger roll". Five ways to
+move further is one choice with four decoys.
+
+| | Item | Price | The verb it owns |
+|---|---|---:|---|
+| 🛡️ | **Shield** | 8 | Defend — blocks the next negative space |
+| ⚓ | **Anchor** | 12 | Trap their path — sends them back 5 |
+| 💀 | **Cursed Die** | 16 | Sabotage their roll — forces a 1 or 2 |
+| 🎯 | **Custom Dice** | 16 | Control your roll — pick any 1–6 |
+| 🛸 | **Rocket** | 20 | Jump forward 8, no roll needed |
+| 🐷 | **Steal** | 20 | Take 10 of their coins |
+| 🔄 | **Swap** | 20 | Trade board positions |
+
+**Cut:** Warp Drive, Double Die, Overcharge (all "bigger roll"), Tollbooth (a
+second, weaker trap, and a coin tax at a time when coin taxes are deliberately
+scarce), Mirror (a reactive counter that does nothing on most turns and asks you
+to predict an item you cannot see). They are gone from `ITEMS` entirely, so
+Mystery spaces cannot grant them either.
+
+District shops carry a subset: Wall Street sells Steal / Swap / Custom Dice, the
+Underground Market sells Anchor / Cursed Die / Shield at 25% off, and the Power
+Plant sells Rocket / Custom Dice / Swap. Every other shop carries all seven.
+
+---
+
+## 5. Reading it in-game
 
 The map view (🗺️ MAP on your turn) now answers the two questions the audit says
 matter, on both boards:

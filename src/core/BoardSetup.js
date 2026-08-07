@@ -44,40 +44,49 @@ function _buildPools() {
 
 // ---- HBD board generation ----
 //
-// Goal: the road is generous. At most ONE coin-losing space per ten blocks, and
-// they are spread out so no stretch feels like a gauntlet. Danger still rises
-// toward the Void, but as *variety* (swaps, pull-backs) rather than as a heavier
-// tax — the Void leans on swap spaces, which shuffle the race without emptying
-// anyone's purse.
+// EXACT QUOTAS, not weighted bags.
 //
-// Per realm we (1) cap the red count at ceil(slots / 10), (2) place them at
-// evenly-spaced positions with a minimum gap of two so they can't sit adjacent,
-// then (3) fill everything else from a realm-themed weighted bag of good spaces.
+// The board used to be filled by drawing from per-realm weight tables with
+// replacement, which meant the actual mix was whatever the dice gave you: the
+// measured counts drifted by several spaces between boards and no target could
+// be stated, only hoped for. The headline types now have exact quotas derived
+// from the board length, so a 100-block board really does contain 20 mysteries
+// and 5 big fines every single time.
+//
+// Per 100 blocks of fillable road:
+//     MYSTERY   20        COIN       20        BIG COIN  10
+//     FINE       5        BIG FINE    5        (= 10 red, exactly 1 per 10)
+//     everything else — swaps, magnets, boosts, shortcuts, launches,
+//     pull-backs, truces — shares the remaining ~40, weighted per realm so each
+//     stretch of road still has its own character.
+//
+// Reds are then placed at evenly-spaced positions with a minimum gap of two, so
+// no stretch is a gauntlet, and everything else is shuffled into what's left.
 
-// Weighted "bags" — higher weight = more common. Good clearly dominates.
-// Non-coin-losing spaces. cbwd (pulled back 10) and swap_space live here: they
-// disrupt the race without costing coins, which is how the later realms stay
-// tense now that the red budget is capped.
-const GOOD_WEIGHTS = {
-    woods: { coin: 5, coin_big: 2, boost: 2, shortcut: 2, mystery: 2, truce: 1, magnet: 1 },
-    ember: { coin: 5, coin_big: 3, boost: 1, cfwd: 2, mystery: 2, magnet: 1, cbwd: 1 },
-    fae:   { coin: 4, coin_big: 3, mystery: 3, shortcut: 2, boost: 1, magnet: 2, cbwd: 1, swap_space: 1 },
+// Headline quotas, as a share of the fillable slots.
+const QUOTA_SHARE = {
+    mystery:  0.20,
+    coin:     0.20,
+    coin_big: 0.10,
+};
+// Coin-losing spaces, as a share of the WHOLE board (this is the 1-per-10 rule),
+// split evenly between the two fines. TRAP is deliberately not in the HBD mix:
+// the budget is small enough that a third red type just muddies what a red space
+// means. It still exists on City Circuit.
+const RED_PER_BLOCKS = 10;
+const RED_SPLIT = { lose: 0.5, lose_big: 0.5 };
+
+// Everything that isn't a headline type or a red, weighted per realm. These
+// weights only decide how the LEFTOVER slots are shared, so changing them can
+// never break the quotas above.
+const FILLER_WEIGHTS = {
+    woods: { boost: 3, shortcut: 3, truce: 2, magnet: 2, cbwd: 1 },
+    ember: { cfwd: 3, boost: 2, magnet: 2, shortcut: 1, cbwd: 2, truce: 1 },
+    fae:   { shortcut: 3, magnet: 3, swap_space: 2, boost: 2, cbwd: 2, truce: 1 },
     // The Void is the decider, so it is thick with swaps: the race can flip
     // right up to the Crown without anyone being bled dry.
-    void:  { coin: 3, coin_big: 4, mystery: 2, cfwd: 1, magnet: 1, swap_space: 5, cbwd: 2 },
+    void:  { swap_space: 6, cbwd: 3, cfwd: 2, magnet: 2, boost: 1 },
 };
-// "Red" here means specifically a space that TAKES COINS. cbwd (pulled back) is
-// a setback but costs nothing, so it is not counted against the red budget and
-// lives in the good bag as a disruption instead.
-const BAD_WEIGHTS = {
-    woods: { lose: 3, trap: 2 },
-    ember: { lose: 3, lose_big: 1, trap: 2 },
-    fae:   { lose: 3, trap: 2 },
-    void:  { lose: 2, lose_big: 2, trap: 2 },
-};
-
-// At most one coin-losing space per this many blocks.
-const RED_PER_BLOCKS = 10;
 
 function _shuffle(a) {
     for (let i = a.length - 1; i > 0; i--) {
@@ -87,7 +96,8 @@ function _shuffle(a) {
     return a;
 }
 
-// Draw `count` items from a weight table (with replacement).
+// Draw `count` items from a weight table (with replacement). Only used for the
+// leftover slots now — the headline types are exact.
 function _drawBag(weights, count) {
     const pool = [];
     for (const [k, w] of Object.entries(weights)) for (let i = 0; i < w; i++) pool.push(k);
@@ -123,22 +133,77 @@ function _spacedBadPositions(n, badCount) {
     return out;
 }
 
-// Build the type assignment for one realm's slot list.
-function _fillRealm(slots, key, realmIdx, realmCount) {
-    const n = slots.length;
-    // Hard cap: at most one coin-losing space per RED_PER_BLOCKS blocks. This is
-    // the whole balance rule — previously it was a 30–40% ratio, which put 7–10
-    // red spaces in a 25-block realm.
-    let badCount = Math.floor(n / RED_PER_BLOCKS);
-    // A realm shorter than the cap still gets at most one, so a short run isn't
-    // completely toothless.
-    if (badCount === 0 && n >= 6) badCount = 1;
-    const badPos  = _spacedBadPositions(n, badCount);
-    const badBag  = _shuffle(_drawBag(BAD_WEIGHTS[key]  || BAD_WEIGHTS.woods, badPos.size));
-    const goodBag = _shuffle(_drawBag(GOOD_WEIGHTS[key] || GOOD_WEIGHTS.woods, n - badPos.size));
+// The exact number of each type the whole board should carry.
+//
+// `slotCount` is the fillable road (length minus start, gate, crown and shops);
+// `boardLength` drives the red budget, because "one red per ten blocks" is a
+// statement about the road you walk, not about the slots left over after the
+// furniture.
+function _boardQuotas(slotCount, boardLength) {
+    const q = {};
+    let used = 0;
+    // Shares are of the BOARD LENGTH, not of the slots left after the furniture,
+    // so "20 mysteries on a 100-block board" comes out as exactly 20 rather than
+    // 19 — the seven fixed squares would otherwise quietly eat one of each.
+    for (const [type, share] of Object.entries(QUOTA_SHARE)) {
+        const n = Math.round(boardLength * share);
+        q[type] = n; used += n;
+    }
+    const red = Math.floor(boardLength / RED_PER_BLOCKS);
+    // Odd budgets give the extra to the smaller fine — cheaper is kinder.
+    q.lose     = Math.ceil(red * RED_SPLIT.lose);
+    q.lose_big = red - q.lose;
+    used += red;
+    // Safety: a very short board could in principle ask for more than it has.
+    // Scale the headline quotas back proportionally rather than overflowing.
+    if (used > slotCount) {
+        const keep = (slotCount - red) / Math.max(1, used - red);
+        for (const type of Object.keys(QUOTA_SHARE)) q[type] = Math.floor(q[type] * keep);
+        used = red + Object.keys(QUOTA_SHARE).reduce((n, t) => n + q[t], 0);
+    }
+    return { quotas: q, redTotal: red, leftover: Math.max(0, slotCount - used) };
+}
+
+// Build the type assignment for every realm at once. Doing it board-wide rather
+// than per realm is what makes the quotas exact: a per-realm rounding error used
+// to compound across four realms.
+function _assignBoard(realmSlots, boardLength) {
+    const allSlots = realmSlots.flatMap(r => r.slots);
+    const { quotas, redTotal, leftover } = _boardQuotas(allSlots.length, boardLength);
+
+    // 1. Reds first, evenly spaced across the WHOLE road so the gaps hold across
+    //    realm boundaries too.
+    const redPos = _spacedBadPositions(allSlots.length, redTotal);
+    const redBag = _shuffle([
+        ...Array(quotas.lose).fill('lose'),
+        ...Array(quotas.lose_big).fill('lose_big'),
+    ]);
+
+    // 2. Everything else: the exact headline quotas, plus realm-weighted filler
+    //    for whatever is left.
+    const rest = _shuffle([
+        ...Array(quotas.mystery).fill('mystery'),
+        ...Array(quotas.coin).fill('coin'),
+        ...Array(quotas.coin_big).fill('coin_big'),
+    ]);
+    // Filler is drawn per realm so each stretch keeps its character, then the
+    // headline types are shuffled through the whole lot.
+    const fillerByRealm = realmSlots.map(r => {
+        const share = Math.round(leftover * (r.slots.length / allSlots.length));
+        return _drawBag(FILLER_WEIGHTS[r.key] || FILLER_WEIGHTS.woods, share);
+    });
+    let filler = fillerByRealm.flat();
+    // Rounding can leave the filler a slot short or long; settle it with coins.
+    while (rest.length + filler.length < allSlots.length - redPos.size) filler.push('coin');
+    while (rest.length + filler.length > allSlots.length - redPos.size) filler.pop();
+
+    const nonRed = _shuffle([...rest, ...filler]);
+
     const out = {};
-    let bi = 0, gi = 0;
-    for (let s = 0; s < n; s++) out[slots[s]] = badPos.has(s) ? badBag[bi++] : goodBag[gi++];
+    let ri = 0, ni = 0;
+    for (let i = 0; i < allSlots.length; i++) {
+        out[allSlots[i]] = redPos.has(i) ? (redBag[ri++] || 'lose') : (nonRed[ni++] || 'coin');
+    }
     return out;
 }
 
@@ -150,6 +215,9 @@ export function generateBoard() {
     state.board[0]      = { type: 'start' };
     state.board[finish] = { type: 'finish' };
 
+    // Collect every fillable slot, realm by realm, then assign the whole board in
+    // one pass — the quotas only come out exact if they are counted board-wide.
+    const realmSlots = [];
     for (let r = 0; r < realmCount; r++) {
         const from = r === 0 ? 1 : r * 25;
         const to   = Math.min((r + 1) * 25 - 1, finish - 1);
@@ -159,9 +227,11 @@ export function generateBoard() {
             slots.push(i);
         }
         if (slots.length === 0) continue;
-        const key    = getBiomeForSpace(from).key;
-        const assign = _fillRealm(slots, key, r, realmCount);
-        for (const idx of slots) state.board[idx] = { type: assign[idx] };
+        realmSlots.push({ key: getBiomeForSpace(from).key, slots });
+    }
+    const assign = _assignBoard(realmSlots, length);
+    for (const r of realmSlots) {
+        for (const idx of r.slots) state.board[idx] = { type: assign[idx] };
     }
 
     state.board[gatePos] = { type: 'gate' };

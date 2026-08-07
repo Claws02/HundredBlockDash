@@ -79,8 +79,7 @@ export const state = {
             pos: 'r1',           // string node ID
             prevPos: 'r1',       // for camera direction
             inv: [], mesh: null,
-            _warpNextRoll: false, _doubleNextRoll: false, _shielded: false, _mirrored: false,
-            _overchargeNextRoll: false,
+            _shielded: false,
             // City Circuit tracking
             allies: [],          // up to MAX_ALLIES: { type, turnsRemaining, shieldCharges?, mesh }
             districtsVisited: { fin: 0, ba: 0, shop: 0, ind: 0 },
@@ -101,8 +100,7 @@ export const state = {
             pos: 'r1',
             prevPos: 'r1',
             inv: [], mesh: null,
-            _warpNextRoll: false, _doubleNextRoll: false, _shielded: false, _mirrored: false,
-            _overchargeNextRoll: false,
+            _shielded: false,
             allies: [],
             districtsVisited: { fin: 0, ba: 0, shop: 0, ind: 0 },
             districtHQsThisLoop: new Set(),
@@ -133,9 +131,7 @@ export function resetPlayers() {
         p.coins = 10; p.coinsEarned = 10; p.mgWins = 0;
         p.pos = startPos; p.prevPos = startPos;
         p.inv = []; p.mesh = null;
-        p._warpNextRoll = false; p._doubleNextRoll = false;
-        p._shielded = false; p._mirrored = false;
-        p._overchargeNextRoll = false;
+        p._shielded = false;
         p.allies = [];
         p.districtsVisited = { fin: 0, ba: 0, shop: 0, ind: 0 };
         p.districtHQsThisLoop = new Set();

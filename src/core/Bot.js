@@ -50,16 +50,11 @@ function _itemValue(itemId, p, opp, behind) {
     switch (itemId) {
         case 'rocket':      return behind ? 9 : 4;
         case 'custom_dice': return behind ? 7 : 5;
-        case 'double_die':  return behind ? 7 : 4;
-        case 'overcharge':  return behind ? 7 : 4;
-        case 'warp_drive':  return behind ? 5 : 3;
         case 'steal':       return opp.coins >= 8 ? 8 : opp.coins >= 4 ? 5 : 1;
         case 'swap':        return behind ? 8 : -10;   // never swap away a lead
         case 'cursed_die':  return behind ? 3 : 6;
         case 'anchor':      return behind ? 2 : 5;
-        case 'tollbooth':   return 3;
         case 'shield':      return 4;
-        case 'mirror':      return 3;
         default:            return 1;
     }
 }

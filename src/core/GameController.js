@@ -1,6 +1,7 @@
 import { state, resetPlayers } from './GameState.js';
 import {
-    GATE_THRESHOLD, GATE_NUM_DICE, MAX_INV, MAX_ALLIES, ALLY_TURNS, ALLY_SPAWN_DELAY_TURNS,
+    gateThreshold, GATE_NUM_DICE, FINE_AMOUNT, BIG_FINE_AMOUNT, TRAP_AMOUNT,
+    MAX_INV, MAX_ALLIES, ALLY_TURNS, ALLY_SPAWN_DELAY_TURNS,
     MINIGAME_EVERY_N_TURNS, ITEMS, SPACE_META, SPACE_DESCS,
     DISTRICT_HQ_FIRST_BONUS, DISTRICT_HQ_REVISIT_BONUS,
     FULL_CIRCUIT_BONUSES,
@@ -284,14 +285,9 @@ export function startPreRoll() {
                 const idx = p.inv.indexOf(useId);
                 if (idx >= 0) {
                     p.inv.splice(idx, 1);
-                    // Respect the opponent's Mirror just like the human use-path does,
-                    // otherwise a player's Mirror is useless against the bot.
-                    if (_reflectIfMirrored(p, useId)) { UIManager.updateUI(); }
-                    else {
-                        UIManager.toast(`${p.name} used ${ITEMS[useId].name}!`, '#f5c842');
-                        _applyItemEffect(p, useId, true);
-                        if (useId === 'rocket' || useId === 'custom_dice') return;
-                    }
+                    UIManager.toast(`${p.name} used ${ITEMS[useId].name}!`, '#f5c842');
+                    _applyItemEffect(p, useId, true);
+                    if (useId === 'rocket' || useId === 'custom_dice') return;
                 }
             }
             if (state.gameState === 'PRE_ROLL') executeRoll(0.8 + Math.random() * 1.5);
@@ -314,10 +310,6 @@ export function executeRoll(flickVelocity) {
         state.cursedTarget[state.activePlayer] = false;
         state.currentRollMode = 'cursed_forced';
         UIManager.toast('💀 Cursed Die forces a bad roll!', '#ef4444');
-    } else if (p._warpNextRoll) {
-        p._warpNextRoll = false; state.currentRollMode = 'forced_5';
-    } else if (p._doubleNextRoll) {
-        p._doubleNextRoll = false; state.currentRollMode = 'double'; numDice = 2;
     } else {
         state.currentRollMode = 'normal';
     }
@@ -348,8 +340,7 @@ export function executeRoll(flickVelocity) {
     Physics.onSettle(state.currentRollMode, (result) => {
         sfx('dice_land'); haptic([10]);
         let finalResult = result;
-        if (p._overchargeNextRoll) { p._overchargeNextRoll = false; finalResult = Math.min(result * 2, 12); UIManager.toast(`⚡ Overcharged! ${result}×2 = ${finalResult}`, '#eab308'); }
-        else UIManager.toast(`Rolled a ${finalResult}!`, '#fff');
+        UIManager.toast(`Rolled a ${finalResult}!`, '#fff');
         // Beat: the number is on the table and legible before anything moves.
         const mover = state.selectedMap === 'hundred_block_dash' ? _movePlayerHBD : moveThroughGraph;
         Director.hold('DICE_READ', () => mover(state.players[state.activePlayer], finalResult));
@@ -423,6 +414,26 @@ function _noteDistrictEntry(player, nodeId) {
 
 function _checkPassThroughShop(player, nodeId, stepsLeft, continueMove) {
     const b = state.board[nodeId];
+
+    // District HQ pays for PASSING it, not just for stopping on it. Landing
+    // exactly on one of four HQs on a 60-node ring was a coin flip you had no
+    // control over, so the biggest single payout on the board was pure luck;
+    // now the reward is for choosing the route that goes through the district.
+    // Landing on it still pays via the 'hq' case, and the two can't both fire
+    // for one square because this branch only runs while steps remain.
+    if (stepsLeft > 0 && b?.type === 'hq') {
+        const dist = CITY_GRAPH[nodeId]?.district;
+        if (dist) {
+            const before = player.districtsVisited[dist] || 0;
+            _onDistrictHQReached(player, dist);
+            const bonus = before === 0 ? DISTRICT_HQ_FIRST_BONUS : DISTRICT_HQ_REVISIT_BONUS;
+            const info = HQ_META[dist] || { name: 'HQ', icon: '🏛️' };
+            UIManager.toast(`${info.icon} Passed ${info.name} — +${bonus} coins!`, '#fbbf24');
+            UIManager.animateCoinDisplay(player.id, player.coins);
+            sfx('coin_gain');
+        }
+    }
+
     if (stepsLeft > 0 && b?.type === 'shop') {
         if (player.isBot) {
             if (Bot.shopPassThrough()) {
@@ -645,9 +656,9 @@ export function resolveSpaceEffect(p, spaceType, space) {
             _checkContract(p, 'land_coin_big'); _checkContract(p, 'land_type', 'coin_big');
             return `+${8+bonus} coins!${bonus ? ' (Vendor +'+bonus+')' : ''}`;
         }
-        case 'lose':     { const l = loseCoins(p, 4);  return l === 0 ? '🛡️ Shielded!' : `-${l} coins!`; }
-        case 'lose_big': { const l = loseCoins(p, 10); return l === 0 ? '🛡️ Shielded!' : `-${l} coins!`; }
-        case 'trap':     { const l = loseCoins(p, 5);  return l === 0 ? '🛡️ Shielded!' : `-${l} coins!`; }
+        case 'lose':     { const l = loseCoins(p, FINE_AMOUNT);     return l === 0 ? '🛡️ Shielded!' : `-${l} coins!`; }
+        case 'lose_big': { const l = loseCoins(p, BIG_FINE_AMOUNT); return l === 0 ? '🛡️ Shielded!' : `-${l} coins!`; }
+        case 'trap':     { const l = loseCoins(p, TRAP_AMOUNT);     return l === 0 ? '🛡️ Shielded!' : `-${l} coins!`; }
         case 'mystery': {
             const ids  = Object.keys(ITEMS);
             const pick = ids[Math.floor(Math.random() * ids.length)];
@@ -997,8 +1008,8 @@ export function triggerGateChallenge(p) {
     const gateTitleEl = document.getElementById('gate-title');
     if (gateTitleEl) gateTitleEl.textContent = isHBD ? 'THE RIFT' : 'THE GATE';
     const gateMsg = isHBD
-        ? `Roll ${GATE_NUM_DICE} dice. Score ${GATE_THRESHOLD}+ to tear through The Rift into the Void!`
-        : `Roll ${GATE_NUM_DICE} dice. Score ${GATE_THRESHOLD}+ to break through the Industrial Zone!`;
+        ? `Roll ${GATE_NUM_DICE} dice. Score ${gateThreshold(state.selectedMap)}+ to tear through The Rift into the Void!`
+        : `Roll ${GATE_NUM_DICE} dice. Score ${gateThreshold(state.selectedMap)}+ to break through the Industrial Zone!`;
     document.getElementById('gate-sub').textContent = gateMsg;
     document.getElementById('gate-result').textContent = '';
     document.getElementById('gate-sum').textContent = '';
@@ -1046,7 +1057,7 @@ export function resolveGateRoll() {
         const total = faceValues.reduce((s,v) => s+v, 0);
         const pid   = parseInt(document.getElementById('gate-overlay').dataset.pid);
         const p     = state.players[pid];
-        const succeeded = total >= GATE_THRESHOLD;
+        const succeeded = total >= gateThreshold(state.selectedMap);
         const overlay = document.getElementById('gate-overlay');
         overlay.style.display = 'flex';
         document.getElementById('gate-roll-btn').style.display = 'none';
@@ -1055,7 +1066,7 @@ export function resolveGateRoll() {
         document.getElementById('gate-sum').textContent = '';
         let dieStr = '';
         faceValues.forEach((val,i) => { setTimeout(() => { dieStr += (i>0?' + ':'')+val; document.getElementById('gate-sum').textContent = `🎲 ${dieStr}`; }, i*500); });
-        setTimeout(() => { document.getElementById('gate-sum').textContent = `Total: ${total}  (need ≥ ${GATE_THRESHOLD})`; }, faceValues.length*500+300);
+        setTimeout(() => { document.getElementById('gate-sum').textContent = `Total: ${total}  (need ≥ ${gateThreshold(state.selectedMap)})`; }, faceValues.length*500+300);
         setTimeout(() => {
             if (succeeded) {
                 state.gateOpen = true; sfx('gate_open');
@@ -1270,9 +1281,6 @@ export function executeUseItem(pid, itemIdx) {
     if (pid !== state.activePlayer) return;
     const p = state.players[pid], opp = state.players[(pid+1)%2];
     const itemId = p.inv[itemIdx]; p.inv.splice(itemIdx, 1);
-    if (_reflectIfMirrored(p, itemId)) {
-        UIManager.updateUI(); ModalManager.closeAllModals(); return;
-    }
     UIManager.toast(`Used ${ITEMS[itemId].name}!`, '#f5c842'); sfx('buy');
     _checkContract(p, 'use_item', itemId);
     _applyItemEffect(p, itemId, false, opp);
@@ -1283,25 +1291,11 @@ export function executeUseItem(pid, itemIdx) {
 // Targeted items can be bounced by the opponent's Mirror. Returns true if the
 // item was reflected (and thus should NOT be applied). Used by both the human
 // use-path and the bot pre-roll path so Mirror works consistently in all modes.
-const MIRRORABLE = ['cursed_die', 'anchor', 'swap', 'steal'];
-function _reflectIfMirrored(p, itemId) {
-    const opp = state.players[(p.id + 1) % 2];
-    if (opp._mirrored && MIRRORABLE.includes(itemId)) {
-        opp._mirrored = false;
-        UIManager.toast(`🪞 ${opp.name}'s Mirror reflected ${ITEMS[itemId].name}!`, '#60a5fa');
-        sfx('shield');
-        return true;
-    }
-    return false;
-}
+
 
 function _applyItemEffect(p, itemId, isBot, opp) {
     opp = opp || state.players[(p.id+1)%2];
-    if (itemId === 'warp_drive')    p._warpNextRoll = true;
-    if (itemId === 'double_die')    p._doubleNextRoll = true;
-    if (itemId === 'overcharge')    p._overchargeNextRoll = true;
     if (itemId === 'cursed_die')  { state.cursedTarget[(p.id+1)%2] = true; UIManager.toast(`💀 Cursed Die!`, '#ef4444'); }
-    if (itemId === 'tollbooth')   { state.board[p.pos].type = 'player_trap'; state.board[p.pos].owner = p.id; Renderer.updateSingleTile(); }
     if (itemId === 'shield')        p._shielded = true;
     if (itemId === 'rocket')      { _doMove(p, 8); UIManager.updateUI(); ModalManager.closeAllModals(); }
     if (itemId === 'anchor')      { if (state.board[opp.pos]) { state.board[opp.pos].type = 'anchor_trap'; state.board[opp.pos].owner = p.id; Renderer.updateSingleTile(); UIManager.toast('⚓ Anchor placed!', '#f97316'); } }
@@ -1312,7 +1306,6 @@ function _applyItemEffect(p, itemId, isBot, opp) {
         sfx('swap'); haptic([50,30,50]);
     }
     if (itemId === 'steal')       { const s = Math.min(10, opp.coins); loseCoins(opp, s); earnCoins(p, s); }
-    if (itemId === 'mirror')        p._mirrored = true;
     if (itemId === 'custom_dice') {
         if (isBot) {
             const pick = Bot.customDice(p);

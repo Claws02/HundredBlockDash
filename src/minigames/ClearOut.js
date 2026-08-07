@@ -307,43 +307,46 @@ function _draw() {
     if (neu && !_done) neu.textContent = `EMPTY YOUR SIDE!   P1 ${bottom} · ${top} P2`;
 }
 
-// The clock used to live only in the centre status strip, in small type, next to
-// two other numbers — players had no idea how long was left. It is now a bar
-// running along the centre wall that drains as the round does, with the seconds
-// printed at BOTH edges so each player reads their own copy the right way up.
+// The clock, twice — once for each player, tucked just off the centre wall and
+// sitting to the RIGHT of the gap from that player's own point of view.
+//
+// It has been in the wrong place twice. First it was only in the centre status
+// strip, which every game overlay paints over, so nobody ever saw it. Then it
+// was a drain bar across the middle plus large numerals in the corners, which
+// put the clock right back in the middle of the arena and read as clutter. It is
+// now a small faded number hugging the wall, out of the way of the discs and out
+// of the way of the gap you are aiming through.
 function _drawClock() {
     const w = _W, h = _H, midY = h / 2;
     const left = Math.max(0, GAME_TIME - _t);
-    const frac = left / GAME_TIME;
-    const col  = left <= 5 ? '#ff4d4d' : left <= 10 ? '#fbbf24' : '#7dd3fc';
+    const col  = left <= 5 ? '#ff6b6b' : left <= 10 ? '#fbbf24' : '#9fd4ff';
+    const label = `${Math.ceil(left)}s`;
+    const size  = Math.round(Math.min(w, h) * 0.030);
+    // Faded on purpose — it is a glance, not a focus. It firms up as time runs
+    // out, which is the only moment it should pull the eye.
+    const alpha = left <= 5 ? 0.72 : left <= 10 ? 0.52 : 0.34;
+    const gapPad = Math.max(10, w * 0.03);
+    const wallPad = _wallT / 2 + Math.max(6, h * 0.008);
 
-    // Drain bar, pinned just below the wall so it never hides the gap.
-    const barH = Math.max(4, h * 0.007);
-    const barY = midY + _wallT / 2 + barH * 1.6;
     _ctx.save();
-    _ctx.fillStyle = 'rgba(255,255,255,.10)';
-    _ctx.fillRect(w * 0.06, barY, w * 0.88, barH);
+    _ctx.globalAlpha = alpha;
     _ctx.fillStyle = col;
-    _ctx.fillRect(w * 0.06, barY, w * 0.88 * frac, barH);
+    _ctx.font = `800 ${size}px "Nunito", system-ui, sans-serif`;
+    _ctx.textAlign = 'left';
+    _ctx.textBaseline = 'top';
+
+    // P1 is at the bottom: below the wall, just past the right edge of the gap.
+    _ctx.fillText(label, _gapX1 + gapPad, midY + wallPad);
+
+    // P2 is at the top and reading upside-down, so their "right of the gap" is
+    // the screen's left of it. Anchor there and turn the text around.
+    _ctx.save();
+    _ctx.translate(_gapX0 - gapPad, midY - wallPad);
+    _ctx.rotate(Math.PI);
+    _ctx.fillText(label, 0, 0);
     _ctx.restore();
 
-    // Seconds, one copy per player, each upright from that player's edge.
-    const label = `${Math.ceil(left)}`;
-    const size  = Math.round(Math.min(w, h) * 0.062);
-    const pulse = left <= 5 ? 1 + 0.08 * Math.sin(_t * 12) : 1;
-    for (let pid = 0; pid < 2; pid++) {
-        _ctx.save();
-        if (pid === 1) { _ctx.translate(w, h); _ctx.rotate(Math.PI); }
-        _ctx.globalAlpha = 0.85;
-        _ctx.fillStyle = col;
-        _ctx.font = `900 ${Math.round(size * pulse)}px "Bebas Neue", sans-serif`;
-        _ctx.textAlign = 'right'; _ctx.textBaseline = 'bottom';
-        _ctx.fillText(label, w - 14, h - HUD_INSET);
-        _ctx.globalAlpha = 0.5;
-        _ctx.font = `800 ${Math.round(size * 0.3)}px "Nunito", system-ui, sans-serif`;
-        _ctx.fillText('LEFT', w - 14, h - HUD_INSET - size * 0.95);
-        _ctx.restore();
-    }
+    _ctx.restore();
 }
 
 function _drawDisc(d) {
