@@ -64,6 +64,36 @@ const ok = (n, c, d) => (c ? pass : fail).push(n + (d ? ` — ${d}` : ''));
     ok('practice: flagged as practice on entry', practice.flagged === true);
     ok('practice: enters the intro', practice.started === 'MINIGAME_INTRO', practice.started);
 
+    // The flow the player actually sees. Practice used to re-show the rules card
+    // the player had just read, so entering it took two confirmations in a row —
+    // and in tabletop mode, two from BOTH players. It now lands on the ready
+    // screen directly, and the practice tag has to be small enough that WE'RE
+    // READY is still on the phone.
+    const ready = await page.evaluate(() => {
+        const hold = document.getElementById('mg-page-hold');
+        const info = document.getElementById('mg-page-info');
+        const tag  = document.getElementById('mg-practice-banner');
+        const btn  = document.getElementById('btn-mg-launch');
+        const r = btn.getBoundingClientRect();
+        return {
+            holdShown:  getComputedStyle(hold).display !== 'none',
+            infoHidden: getComputedStyle(info).display === 'none',
+            tagText:  tag ? tag.textContent : '',
+            tagInHold: !!tag && hold.contains(tag),
+            tagH:     tag ? tag.getBoundingClientRect().height : 0,
+            btnTop: r.top, btnBottom: r.bottom, vh: window.innerHeight,
+        };
+    });
+    ok('practice: goes straight to the ready screen, skipping the rules card',
+       ready.holdShown && ready.infoHidden,
+       `hold shown=${ready.holdShown} rules hidden=${ready.infoHidden}`);
+    ok('practice: the ready screen says it is practice, in one short tag',
+       /PRACTICE/.test(ready.tagText) && ready.tagText.length <= 32 && ready.tagInHold,
+       `"${ready.tagText}", ${ready.tagH.toFixed(0)}px tall`);
+    ok('practice: the READY button is fully on screen',
+       ready.btnTop >= 0 && ready.btnBottom <= ready.vh,
+       `button spans ${ready.btnTop.toFixed(0)}–${ready.btnBottom.toFixed(0)} of ${ready.vh}px`);
+
     // Walk the practice round through with the agent, then force a result.
     for (let i = 0; i < 90; i++) {
         const s = await page.evaluate(() => { const r = window.__QA.step(); return { r, a: window.__QA.snapshot().mgActive }; });
