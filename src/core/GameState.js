@@ -49,6 +49,11 @@ export const state = {
     // Overrides the title/icon of the next result card (used so an item pickup
     // reads as the item, not as the space that produced it).
     pendingResultOverride: null,
+    // An item was granted with a full bag, so the discard picker owns the next
+    // beat instead of the usual result card. Set by tryGrantItem, consumed by
+    // resolveSpace — opening the picker directly would just have it painted
+    // over by the result card, which lands a beat later.
+    pendingDropPick:       null,
 
     // Duel
     pendingDuelBet:        0,
@@ -56,6 +61,12 @@ export const state = {
     // Minigame
     mgActive:            false,
     mgType:              '',
+    // Draw bag for minigame selection. A minigame cannot come up twice in a
+    // match until every other one has been played — picking uniformly at random
+    // meant an 18-game roster still repeated itself inside four minigames more
+    // often than not.
+    mgBag:               [],
+    mgLastType:          '',
     mgReady:             [false, false],
     lastMinigameWinner:  -1,
     lastMinigameTied:    false,
@@ -154,6 +165,9 @@ export function resetPlayers() {
     state.rollAgainSamePlayer = false;
     state.lastMinigameWinner = -1;
     state.lastMinigameTied   = false;
+    state.mgBag              = [];   // a fresh match deals a fresh bag
+    state.mgLastType         = '';
+    state.pendingDropPick    = null;
     state.allyOnMap          = null;
     state.allySpawnCountdown = 0;
     state.activeContracts    = [];
