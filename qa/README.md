@@ -31,6 +31,8 @@ cd qa
 | `node arcade.js` | Launches every registered minigame from the arcade, plays each with synthetic input, checks each resolves and cleans up. Budget is 90s/game — the slowest genuine finishes are 65–70s, so anything less reports live games as failures. | ~25 min |
 | `node earlytap.js` | Hammers both halves from frame 0 after GO on every game — catches state-not-ready races (found QA-016). | ~8 min |
 | `node botcheck.js 65` | Drives each game's bot branch at easy and hard with **no human input at all**. Flags games that only end when a human plays, and bots that lose every hard run. | ~30 min |
+| `node inventory.js` | The bag-full discard picker on all three entry paths (mystery, shop purchase, pass-through shop) + minigame rotation over three full cycles. | ~2 min |
+| `node cityprogress.js [secs]` | Samples board turns and completed rounds on a City match every 30 s. Answers "is it slow or is it stuck?" — a stall shows as a flat run, a long game as a steady climb. | as asked |
 | `node features.js` | Map view on both boards (button shown, opens, slider range, camera follows, counter, closes) + practice mode (awards nothing, hands control back) + the payoff-beat dwell guarantee. | ~6 min |
 | `node scenes.js <map> <seconds>` | Scene-timing probe: samples at 40 Hz and reports how long each beat owns the screen. The table behind `docs/SCENE_PACING.md`. | as given |
 | `node gate.js` | The three gate bugs: screen orientation follows the roller, opening the gate does not eat the turn, camera snaps back onto the player. Tabletop 2P on HBD. | ~3 min |

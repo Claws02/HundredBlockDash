@@ -25,6 +25,12 @@ export const MG_TYPES = [
     'penalty',
     'lightcycles',
     'fourinarow',
+    // Round two. Memory Match is the first game to use the HUDDLE hold, which
+    // had been defined and unused since the orientation config was written.
+    'memorymatch',
+    'bombpass',
+    'grandprix',
+    'treeclimb',
 ];
 
 export const MG_INFO = {
@@ -46,6 +52,10 @@ export const MG_INFO = {
     penalty:     { icon: '⚽', title: 'PENALTY',       desc: 'One shoots, one keeps, then you swap. The SHOOTER drags to aim and releases to strike. The KEEPER slides along the line and commits the instant the ball is hit — so it\'s a read of each other, not a test of your thumbs. Aim near a post and the keeper can\'t reach it, but the woodwork can. 3 kicks each, most goals wins!' },
     lightcycles: { icon: '🏍️', title: 'LIGHT CYCLES',  desc: 'Two cycles, one arena, solid trails behind both. Push your stick to steer — up, down, left, right. Crash into any wall — theirs, yours, or the arena\'s — and you lose the round. Every metre you take is a metre they can\'t have. Best of 3, and the arena closes in each round.' },
     fourinarow:  { icon: '🔴', title: 'FOUR IN A ROW', desc: 'The classic, on one shared board you both read from your own edge. Tap a column on your side to drop a disc. First to line up four — across, down or diagonally — wins. There\'s a shot clock, so don\'t sit on it: run it out and the move gets made for you.' },
+    memorymatch: { icon: '🃏', title: 'MEMORY MATCH',  desc: '🪙 COIN GAME — lay the phone flat and both lean in. 25 cards: twelve pairs and one lone JACKPOT. Turn two on your go; match them and you keep the coins AND go again. Miss and they flip back — but now you both know what\'s there. Every pair pays, win or lose, and the jackpot pays triple. Most pairs takes it.' },
+    bombpass:    { icon: '💣', title: 'BOMB PASS',     desc: 'One lit bomb, and neither of you wants it. While it\'s on YOUR side, tap to smack it back — every return sends it faster. Let it reach the wall behind you and it goes off in your hands. Swing while it\'s on their side and you whiff, and you\'re locked out just long enough to regret it. Watch the fuse: when it burns out the bomb blows wherever it is. Best of 3!' },
+    grandprix:   { icon: '🏎️', title: 'GRAND PRIX',    desc: 'One track, one pedal. HOLD your half for gas, let go to slow down — there is no brake and no steering. Every corner has a speed on the board: arrive over it and you spin out for a full second. Lift too early and they\'re gone; lift too late and you\'re in the wall. Whoever\'s behind gets a slipstream, so it\'s never over. First to the flag!' },
+    treeclimb:   { icon: '🌳', title: 'TREE CLIMB',    desc: '🪙 COIN GAME — race your rival up your own stem. A leaf sprouts LEFT or RIGHT — tap that side to swing onto it, and only then does the next one grow. Tap the wrong side and you slip and lose a moment, but never your height. Every branch is coins in your pocket whether you win or lose. First to the top takes the bonus!' },
 };
 
 // ============================================================
@@ -77,7 +87,7 @@ export const MG_ORIENTATIONS = {
         name: 'HUDDLE',
         subtitle: 'One holder, both players lean in',
         huddle: true,
-        instructions: '<b style="color:#ff3b3b">P1 (Red)</b> holds the phone with both hands — keep it flat and steady so both players can see the screen.<br><br><b style="color:#3b8eff">P2 (Blue)</b> leans in from the side. <b>Both players tap the cards</b> to flip pairs — most matched pairs wins!',
+        instructions: 'Lay the phone <b>flat on the table</b> between you and both lean in from the side — nobody holds an end for this one.<br><br>You take it in <b>turns</b>. The banner at your own edge says when it\'s your move, and <b>only the player whose turn it is</b> should be tapping.',
         thumbAnim: 'pulse',
     },
 };
@@ -101,6 +111,10 @@ export const MG_ORIENTATION_MAP = {
     penalty:     'faceoff',
     lightcycles: 'faceoff',
     fourinarow:  'faceoff',
+    memorymatch: 'huddle',
+    bombpass:    'faceoff',
+    grandprix:   'faceoff',
+    treeclimb:   'faceoff',
 };
 
 export const FALLBACK_TRIVIA = [

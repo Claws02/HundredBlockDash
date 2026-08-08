@@ -32,7 +32,19 @@ const MG_MODULES = {
     penalty:     () => import('./Penalty.js'),
     lightcycles: () => import('./LightCycles.js'),
     fourinarow:  () => import('./FourInARow.js'),
+    memorymatch: () => import('./MemoryMatch.js'),
+    bombpass:    () => import('./BombPass.js'),
+    grandprix:   () => import('./GrandPrix.js'),
+    treeclimb:   () => import('./TreeClimb.js'),
 };
+
+// The single place that knows which file a game lives in. Exported so the QA
+// probes don't each keep their own copy of the table — botcheck.js did, and it
+// silently went stale the moment a game was added.
+export function loadMinigame(type) {
+    const loader = MG_MODULES[type] || MG_MODULES[MG_TYPES[0]];
+    return loader();
+}
 
 let _controller   = null;
 let _onComplete   = null;

@@ -184,8 +184,15 @@ window.__QA = (function () {
             return 'DUEL_NO_OPTION';
         }
         if (visId('drop-modal')) {
+            // Two presses now: a card only SELECTS, and DISCARD commits. Tapping
+            // a card and walking away used to be enough, which meant this branch
+            // silently stopped resolving when the picker gained its confirm.
+            const confirm = byId('btn-confirm-drop');
+            if (confirm && !confirm.disabled) return tap(confirm, 'drop confirm') && 'DROP';
             const items = [...byId('drop-inv-row').querySelectorAll('[data-drop-idx]')];
-            if (items.length && Math.random() < 0.7) return tap(items[0], 'drop item') && 'DROP';
+            if (items.length && Math.random() < 0.85) {
+                return tap(items[Math.floor(Math.random() * items.length)], 'drop select') && 'DROP_SELECT';
+            }
             return tap(byId('btn-cancel-drop'), 'drop cancel') && 'DROP_CANCEL';
         }
         if (visId('custom-dice-modal')) {

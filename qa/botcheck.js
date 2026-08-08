@@ -69,19 +69,13 @@ const TIERS = [['easy', 0.25], ['hard', 0.85]];
                 state.mgType    = t;
                 state.players[1].isBot = true;
 
-                const MODS = {
-                    sumospheres:'SumoSpheres', tankclash:'TankClash', rhythmforge:'RhythmForge',
-                    orbdeflect:'OrbDeflect', snapstrike:'SnapStrike', quickdraw:'QuickDraw',
-                    gridrecall:'GridRecall', oddoneout:'OddOneOut',
-                    steadyhand:'SteadyHand', sortrush:'SortRush', meteordodge:'MeteorDodge',
-                    lootcatch:'LootCatch', freeze:'Freeze', clearout:'ClearOut',
-                    puck:'Puck', penalty:'Penalty', lightcycles:'LightCycles',
-                    fourinarow:'FourInARow',
-                    towerstack:'TowerStack', parryduel:'ParryDuel', circuittrace:'CircuitTrace',
-                    hotstreak:'HotStreak', keepup:'KeepUp',
-                };
-                const mod = await import(`/src/minigames/${MODS[t]}.js`);
-                mod.start(true, (winner) => { window.__botResult = winner; }, s);
+                // Resolved through the manager's own table, so adding a game
+                // never leaves this probe pointing at undefined.js.
+                const mod = await MGM.loadMinigame(t);
+                mod.start(true, (winner, payouts) => {
+                    window.__botResult  = winner;
+                    window.__botPayouts = payouts || null;
+                }, s);
                 return true;
             }, { t: type, s: skill });
 

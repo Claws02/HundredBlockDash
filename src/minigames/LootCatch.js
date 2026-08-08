@@ -32,8 +32,11 @@ const GEM_VALUE    = 3;      // rarer, worth three coins
 const GEM_CHANCE   = 0.14;   // share of non-bomb items that are gems
 const BOMB_PENALTY = 2;
 // Hard ceiling on what one round can pay out, so a freak run can never hand
-// somebody the match off a minigame. Measured: a perfect bot run banks ~70.
-const MAX_PAYOUT   = 80;
+// somebody the match off a minigame. Measured: a perfect bot run banks ~70, so
+// 30 is a real cap rather than a formality — a good run reaches it with time to
+// spare, which is deliberate: it makes the last stretch about the WIN bonus.
+// The two other coin games (Tree Climb, Memory Match) use the same number.
+const MAX_PAYOUT   = 30;
 const BASKET_W     = 0.20;   // basket width as a fraction of half-width
 const ITEM_R       = 0.045;  // item radius as a fraction of half-width
 
