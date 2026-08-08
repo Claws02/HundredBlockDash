@@ -32,7 +32,19 @@ const MG_MODULES = {
     penalty:     () => import('./Penalty.js'),
     lightcycles: () => import('./LightCycles.js'),
     fourinarow:  () => import('./FourInARow.js'),
+    memorymatch: () => import('./MemoryMatch.js'),
+    bombpass:    () => import('./BombPass.js'),
+    grandprix:   () => import('./GrandPrix.js'),
+    treeclimb:   () => import('./TreeClimb.js'),
 };
+
+// The single place that knows which file a game lives in. Exported so the QA
+// probes don't each keep their own copy of the table — botcheck.js did, and it
+// silently went stale the moment a game was added.
+export function loadMinigame(type) {
+    const loader = MG_MODULES[type] || MG_MODULES[MG_TYPES[0]];
+    return loader();
+}
 
 let _controller   = null;
 let _onComplete   = null;
@@ -307,6 +319,42 @@ function _startInMatchPractice() {
     });
 }
 
+// ---- Which game comes next -------------------------------------------------
+//
+// A draw bag, not a die roll. Uniform random on an 18-game roster still repeats
+// itself inside the first four minigames more than half the time, and a repeat
+// reads as the game being broken rather than as luck. Every game is dealt once
+// before any is dealt twice.
+//
+// Exported so the QA sweep can assert the guarantee over a whole match.
+export function nextMgType() {
+    if (!Array.isArray(state.mgBag) || state.mgBag.length === 0) {
+        state.mgBag = _shuffled(MG_TYPES);
+        // Refilling can otherwise put the previous bag's last game first in the
+        // new one — a back-to-back repeat, which is the exact thing this is for.
+        if (state.mgBag.length > 1 && state.mgBag[state.mgBag.length - 1] === state.mgLastType) {
+            const last = state.mgBag.length - 1;
+            const swap = Math.floor(Math.random() * last);
+            [state.mgBag[last], state.mgBag[swap]] = [state.mgBag[swap], state.mgBag[last]];
+        }
+    }
+    state.mgLastType = state.mgBag.pop();
+    return state.mgLastType;
+}
+
+// How many games are still undealt in this match's bag. Only for the QA sweep
+// and the debug readout.
+export function mgBagRemaining() { return (state.mgBag || []).length; }
+
+function _shuffled(list) {
+    const a = [...list];
+    for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+}
+
 // ---- Entry point called by GameController ----
 
 export function trigger(onComplete) {
@@ -315,7 +363,7 @@ export function trigger(onComplete) {
     _onComplete = onComplete;
     state.gameState  = 'MINIGAME_INTRO';
     state.cameraState = 'MINIGAME';
-    state.mgType = MG_TYPES[Math.floor(Math.random() * MG_TYPES.length)];
+    state.mgType = nextMgType();
 
     document.getElementById('ui-layer').style.display  = 'none';
     document.getElementById('mg-intro-overlay').style.display = 'flex';

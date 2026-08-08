@@ -130,8 +130,12 @@ onWin(winnerId, [p1Coins, p2Coins]);   // both players bank their own haul
 ```
 
 `MinigameManager` credits each player, shows the split on the result screen, and
-still pays the winner the flat reward on top. Loot Catch is the reference. Cap
-the payout inside your game — an uncapped one can decide a match off a minigame.
+still pays the winner the flat reward on top. Loot Catch is the reference.
+
+**Cap the payout at 30.** Loot Catch, Tree Climb and Memory Match all use
+`MAX_PAYOUT = 30`; a new coin game uses the same number unless there is a reason
+to argue otherwise. Loot Catch originally paid up to 80, which was enough for one
+minigame to settle a board match on its own.
 
 ### R7 — Use the real audio vocabulary
 `sfx(name)` silently no-ops on an unknown name. Use a registered one or add it to
@@ -262,6 +266,13 @@ games that passed the verb test and failed the fun test are in `archived/`.
 | Collect / select     | catch the good, reject the bad| ✅ Loot Catch        |
 | Restraint / stealth  | move only when unwatched      | ✅ Freeze            |
 | Flick / clear        | slingshot discs off your side | ✅ Clear Out         |
+| Rally / paddle       | one puck, one table           | ✅ Puck              |
+| Asymmetric roles     | one shoots, one saves         | ✅ Penalty           |
+| Spatial denial       | take space away from them     | ✅ Light Cycles      |
+| Shared board, turns  | place, then they place        | ✅ Four in a Row · Memory Match |
+| Return / rally-back  | keep it off your own wall     | ✅ Bomb Pass         |
+| Throttle / racing    | one pedal, one track          | ✅ Grand Prix        |
+| Read & react climb   | tap the side it grew          | ✅ Tree Climb        |
 
 **Curation rule:** the 40 files in `src/minigames/archived/` are a **design
 backlog, not a code backlog** — their imports and shared-DOM dependencies are

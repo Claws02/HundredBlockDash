@@ -178,6 +178,46 @@ body, html {
 .btn-close { background: rgba(255,255,255,.16); color: #fff; border: none; padding: 12px 26px; border-radius: 10px; font-weight: bold; cursor: pointer; margin-top: 10px; width: 100%; font-size: 16px; font-family:'Bebas Neue'; letter-spacing: 1px;}
 .btn-close.primary { background: linear-gradient(135deg, #3b82f6, #60a5fa); color: #fff; box-shadow: 0 4px 15px rgba(59,130,246,.4); }
 .drop-item-btn { background: rgba(0,0,0,.5); border: 2px solid rgba(255,255,255,.5); color: #fff; font-family: 'Nunito'; font-size: 14px; font-weight: 700; padding: 10px 16px; border-radius: 12px; cursor: pointer; display: flex; align-items: center; gap: 7px; margin:4px; display:inline-flex;}
+/* ── Bag-full discard picker ──────────────────────────────────────────────
+   Four cards: the three you carry plus the one you just picked up. Two
+   columns, because four full-width rows plus a title, a line of copy and two
+   buttons does not fit above the fold on a phone. */
+.drop-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+    margin: 12px 0 14px;
+}
+.drop-card {
+    position: relative; text-align: left; cursor: pointer;
+    background: rgba(0,0,0,.5); border: 2px solid rgba(255,255,255,.28);
+    border-radius: 14px; padding: 10px 11px 11px;
+    color: #fff; font-family: 'Nunito', system-ui, sans-serif;
+    transition: border-color .16s, background .16s, transform .16s;
+}
+.drop-card .dc-ic   { font-size: 26px; line-height: 1; margin-bottom: 5px; }
+.drop-card .dc-name { font-size: 13px; font-weight: 800; letter-spacing: .2px; margin-bottom: 3px; }
+.drop-card .dc-desc { font-size: 10.5px; line-height: 1.35; color: rgba(255,255,255,.6); }
+/* The incoming item is the odd one out and has to read that way at a glance. */
+.drop-card.incoming { border-color: rgba(74,222,128,.55); background: rgba(74,222,128,.08); }
+.drop-card .dc-tag {
+    position: absolute; top: -8px; right: 8px;
+    font-size: 9px; font-weight: 900; letter-spacing: .8px;
+    padding: 2px 7px; border-radius: 999px;
+    background: #4ade80; color: #06240f;
+}
+/* Selected = the one about to be thrown away, so it goes red, not gold. */
+.drop-card.sel {
+    border-color: #f97316; background: rgba(249,115,22,.16);
+    transform: translateY(-2px);
+}
+.drop-card.sel .dc-toss {
+    display: block; position: absolute; top: -8px; left: 8px;
+    font-size: 9px; font-weight: 900; letter-spacing: .8px;
+    padding: 2px 7px; border-radius: 999px;
+    background: #f97316; color: #2a1002;
+}
+.drop-card .dc-toss { display: none; }
+#btn-confirm-drop:disabled { opacity: .4; cursor: default; }
+
 .inv-full-note { background: rgba(245,158,11,0.18); border: 1px solid rgba(245,158,11,0.5); color: #fbbf24; border-radius: 10px; padding: 8px 14px; font-size: 13px; font-family: 'Nunito'; font-weight: 700; margin-bottom: 8px; text-align: center; }
 
 /* Gate */

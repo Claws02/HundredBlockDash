@@ -156,18 +156,73 @@ export function showDuelModal(p, opp, callback) {
     }
 }
 
-// ---- Drop modal (inventory full) ----
+// ---- Drop modal (bag full) ----
+//
+// All four items are on screen at once — the three you carry and the one you
+// just picked up — because the decision is a comparison and you cannot make it
+// against an item you can't see. Tapping only *selects*; a separate DISCARD
+// press commits, so a mis-tap never throws away an item you paid for.
+//
+// Selecting the incoming item is a legal choice: it means "I'd rather keep what
+// I have". For a shop purchase that also means you are not charged.
+
+let _dropSel    = null;   // index into inv, or -1 for the incoming item
+let _dropPlayer = null;
 
 export function openDropModal(player, newItemId, cost, returnState) {
     state.pendingBuyId         = newItemId;
     if (cost !== undefined && cost !== null) state.pendingBuyCost = cost;
-    state.pendingShopAfterDrop = false;
     state.pendingReturnState   = returnState || (state.gameState === 'SHOP' ? 'shop' : 'finish_turn');
-    document.getElementById('drop-inv-row').innerHTML = player.inv
-        .map((it, idx) => `<button class="drop-item-btn" data-drop-pid="${player.id}" data-drop-idx="${idx}" data-drop-new="${newItemId}">${ITEMS[it]?.icon || '?'} ${ITEMS[it]?.name || it}</button>`)
-        .join('');
+    // NOTE: `pendingShopAfterDrop` is the caller's to set — buyItem() sets it
+    // just before calling here. This used to overwrite it with `false`, so a
+    // purchase made with a full bag was never charged for.
+    _dropSel    = null;
+    _dropPlayer = player;
+
+    const incoming = ITEMS[newItemId] || { icon: '❓', name: newItemId, desc: '' };
+    const bought   = state.pendingShopAfterDrop;
+    document.getElementById('drop-desc').textContent =
+        `${bought ? 'You bought' : 'You found'} ${incoming.name}, but you can only carry ${MAX_INV}. `
+        + `Tap one to throw away — picking ${incoming.name} ${bought ? 'cancels the purchase' : 'leaves it behind'}.`;
+
+    const card = (id, idx, isNew) => {
+        const it = ITEMS[id] || { icon: '❓', name: id, desc: '' };
+        return `<div class="drop-card${isNew ? ' incoming' : ''}" data-drop-pid="${player.id}" data-drop-idx="${idx}">
+            ${isNew ? '<span class="dc-tag">NEW</span>' : ''}
+            <span class="dc-toss">TOSS</span>
+            <div class="dc-ic">${it.icon}</div>
+            <div class="dc-name">${it.name}</div>
+            <div class="dc-desc">${it.desc || ''}</div>
+        </div>`;
+    };
+    document.getElementById('drop-inv-row').innerHTML =
+        player.inv.map((it, idx) => card(it, idx, false)).join('') + card(newItemId, -1, true);
+
+    _paintDropChoice();
     showModal('drop-modal');
 }
+
+// Called on every tap so the button always describes what it is about to do.
+function _paintDropChoice() {
+    const btn = document.getElementById('btn-confirm-drop');
+    document.querySelectorAll('#drop-inv-row .drop-card').forEach(el => {
+        el.classList.toggle('sel', _dropSel !== null && parseInt(el.dataset.dropIdx) === _dropSel);
+    });
+    if (_dropSel === null) {
+        btn.disabled = true;
+        btn.textContent = 'SELECT ONE TO DISCARD';
+    } else {
+        const p  = _dropPlayer || state.players[state.activePlayer];
+        const id = _dropSel === -1 ? state.pendingBuyId : p.inv[_dropSel];
+        btn.disabled = !id;
+        btn.textContent = id ? `🗑️ DISCARD ${(ITEMS[id]?.name || id).toUpperCase()}`
+                             : 'SELECT ONE TO DISCARD';
+    }
+    // The card changed, so the opponent's copy of it has to change too.
+    DualRead.refresh(document.getElementById('drop-modal'));
+}
+
+function _selectDrop(idx) { _dropSel = idx; _paintDropChoice(); }
 
 // ---- Use item modal ----
 
@@ -235,10 +290,15 @@ function _wireStaticButtons() {
     // Pass modal
     document.getElementById('btn-resolve-pass').addEventListener('click', () => _controller.resolvePassModal());
 
-    // Drop modal
+    // Drop modal — tapping a card only selects it; DISCARD commits.
     document.getElementById('drop-inv-row').addEventListener('click', e => {
-        const btn = e.target.closest('[data-drop-pid]');
-        if (btn) _controller.confirmDrop(parseInt(btn.dataset.dropPid), parseInt(btn.dataset.dropIdx), btn.dataset.dropNew);
+        const card = e.target.closest('[data-drop-pid]');
+        if (card) _selectDrop(parseInt(card.dataset.dropIdx));
+    });
+    document.getElementById('btn-confirm-drop').addEventListener('click', () => {
+        if (_dropSel === null) return;
+        _controller.confirmDrop((_dropPlayer || state.players[state.activePlayer]).id,
+                                _dropSel, state.pendingBuyId);
     });
     document.getElementById('btn-cancel-drop').addEventListener('click', () => _controller.cancelDrop());
 

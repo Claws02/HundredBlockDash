@@ -274,3 +274,73 @@ Strike *(half — shared clock, separate bars)*.
 Dodge, Loot Catch. Loot Catch now has a reason to exist regardless — it is the
 coin game, and the identical loot on both sides is the point of it being fair.
 The remaining four are the next thing to fix or cut.
+
+---
+
+## Built: round two *(shipped)*
+
+Four more, chosen from a shortlist by the person who has to play them. Pocket
+(pool), King of the Hill and Tug War were proposed and **cut before any code was
+written** — the right time to cut something.
+
+| Game | Shape | Category |
+|---|---|---|
+| **MEMORY MATCH** | 5×5 shared board, 12 pairs + 1 jackpot, taken in turns | coin game |
+| **BOMB PASS** | One lit bomb, bat it back while it's on your side, first to 3 | winner-takes |
+| **GRAND PRIX** | One track, one pedal; corners have a speed and over it you spin | winner-takes |
+| **TREE CLIMB** | A leaf grows left or right, tap that side to swing onto it | coin game |
+
+### Memory Match activates the HUDDLE hold
+
+`MG_ORIENTATIONS.huddle` had been defined since the orientation config was
+written and **no game used it** — dead configuration describing a way to play
+that did not exist. Memory Match is that game: the phone lies flat, nobody holds
+an end, and turns alternate. That is a second *physical* mode, which does more
+for variety than another face-off twitch game would.
+
+Its faces are twelve shapes chosen to be **unchanged by a 180° rotation**
+(circle, ring, square, diamond, two stars, hexagon, octagon, plus, cross, bars,
+dots). One drawing therefore reads correctly from both sides of the table, with
+no duplicated glyphs and no meaning carried by colour.
+
+### Coin games are now a category, not an exception
+
+Three of the roster pay both players what they earned: **Loot Catch**, **Tree
+Climb**, **Memory Match**. All three share one ceiling — `MAX_PAYOUT = 30` —
+lowered from Loot Catch's old 80 so that no single minigame can decide a match.
+At 30 a strong run reaches the cap with time to spare, which is deliberate: the
+closing stretch is then about the *win bonus* rather than about grinding coins.
+
+### What the measurements changed
+
+Every one of these was tuned against `qa/botcheck.js`, and every one moved:
+
+- **Grand Prix's bot rolled its braking decision every frame.** Both tiers
+  measured 27–28 s, i.e. the skill dial was connected to nothing: a per-frame
+  `Math.random()` on a continuous control made the throttle stutter at the
+  randomness rate rather than at the skill rate. The fix is a split — the
+  *margin* is committed once per corner, the braking *distance* is recomputed
+  live from actual speed. Getting that split wrong the other way (distance
+  computed once from `V_MAX`) had it braking from the start of every straight
+  and lapping in 64 s. Now 22 s hard, 25 s easy.
+- **Bomb Pass could be over in eight seconds.** At first-to-2 with a 330 px/s
+  serve, a player who missed both returns lost before they had looked up — the
+  §3 floor. The bomb now hangs on the centre line for 0.85 s before it launches,
+  starts slower, and the match is first to 3. Now 15–21 s.
+- **Memory Match ran to its ceiling every time.** 25 cards is not the problem;
+  turn overhead was. A 6 s shot clock and a 900 ms peek meant the *waiting* was
+  the game's length. Tightened to 4 s and 680 ms, and the bot's memory now
+  visibly separates the tiers — 7 pairs at hard against 4 at easy.
+- **Tree Climb's winner hit the coin cap every single run** at 2 per branch,
+  which made the payout a flat number instead of a record of the climb. 1 per
+  branch, 22 to the top.
+- **Three of the four had HUD rows drawn behind the status pill** (R1b). Caught
+  by screenshot, not by any assertion — worth remembering that the arcade sweep
+  and botcheck both passed while a prompt was invisible.
+
+### Deliberate exception to the 15–40 s target
+
+Memory Match's ceiling is 58 s and Four in a Row's is 52 s. Both are stated
+exceptions rather than oversights: they are the roster's slow beats, and the
+pacing contrast is what makes the frantic games feel frantic. A memory game with
+few enough cards to finish in 30 s is not a memory game.

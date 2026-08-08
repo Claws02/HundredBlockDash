@@ -145,14 +145,30 @@ export function shopBuy(p, distKey, disc) {
     return best;
 }
 
+// Bag full and something new has arrived. Returns the index of the item to
+// throw away, or -1 to keep what it is carrying. Same call a player makes at
+// the discard picker, scored with the same table the shop uses.
+export function dropChoice(p, newItemId) {
+    const opp = _opp(p), behind = _behind(p, opp);
+    const incoming = _itemValue(newItemId, p, opp, behind);
+    let worst = -1, worstV = Infinity;
+    p.inv.forEach((id, i) => {
+        const v = _itemValue(id, p, opp, behind);
+        if (v < worstV) { worstV = v; worst = i; }
+    });
+    if (!profile().smart) return _rand(p.inv.length);   // easy just picks one
+    return incoming > worstV ? worst : -1;
+}
+
 // HBD pass-through shop (full inventory, no discount). Returns an itemId or null.
 export function passThroughBuy(p) {
     const prof = profile();
     const affordable = Object.keys(ITEMS).filter(k => p.coins >= ITEMS[k].price);
     if (affordable.length === 0 || p.inv.length >= MAX_INV) return null;
     if (!prof.smart) return affordable[_rand(affordable.length)];
-    // HBD is a race — movement items first.
-    const movement = affordable.filter(k => ['rocket', 'warp_drive', 'double_die', 'overcharge', 'custom_dice'].includes(k));
+    // HBD is a race — movement items first. (warp_drive/double_die/overcharge
+    // were cut from ITEMS in the shop pass; they can never match here.)
+    const movement = affordable.filter(k => ['rocket', 'custom_dice'].includes(k));
     const pool = movement.length ? movement : affordable;
     return pool[_rand(pool.length)];
 }

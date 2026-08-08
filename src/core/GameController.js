@@ -621,6 +621,13 @@ export function resolveSpace(p) {
     Director.hold('LAND_SETTLE', () => {
         if (state.gameState !== 'ACKNOWLEDGE') return;
         UIManager.showSpaceInfoCard(titleName, descText);
+        // A full bag: the discard picker is the result card for this space.
+        const pick = state.pendingDropPick; state.pendingDropPick = null;
+        if (pick) {
+            ModalManager.openDropModal(p, pick, 0, 'finish_turn');
+            Director.begin('LAND_RESULT');
+            return;
+        }
         // Owner tier: the card is this player's, the opponent gets the headline
         // on their own edge — first line only, so it stays one glanceable strip.
         ModalManager.showMessage(titleName, msg || 'Nothing happens.', iconChar, {
@@ -663,10 +670,14 @@ export function resolveSpaceEffect(p, spaceType, space) {
             const ids  = Object.keys(ITEMS);
             const pick = ids[Math.floor(Math.random() * ids.length)];
             const it   = ITEMS[pick];
-            tryGrantItem(p, pick);
+            const took = tryGrantItem(p, pick);
             // Receiving an item is its own moment — show what it is and what it
             // does, under the item's own name, and make the player confirm it.
             state.pendingResultOverride = { title: `YOU GOT: ${it.name.toUpperCase()}`, icon: it.icon };
+            // A full bag hands this beat to the discard picker, which names and
+            // describes the item itself — so the card would be a duplicate.
+            if (state.pendingDropPick) return '';
+            if (!took) return `${it.name} — ${it.desc}\n\nYour bag was full, so it was left behind.`;
             return `${it.name} — ${it.desc}\n\nIt's in your bag. Open 🎒 ITEMS on your turn to use it.`;
         }
         case 'boost': {
@@ -1153,12 +1164,32 @@ export function closeGate() {
 // ITEM SHOP
 // ============================================================
 
+// Returns true if the item went straight into the bag. A full bag does NOT open
+// the picker here: the result card for this space lands a beat later and would
+// paint straight over it. resolveSpace reads `pendingDropPick` and gives the
+// picker that beat instead.
 export function tryGrantItem(p, itemId) {
-    if (p.inv.length >= MAX_INV) {
-        if (!p.isBot) ModalManager.openDropModal(p, itemId, 0, 'finish_turn');
-    } else {
+    if (p.inv.length < MAX_INV) {
         p.inv.push(itemId); UIManager.updateUI();
+        return true;
     }
+    if (p.isBot) {
+        // Bots used to lose the item silently while the card still claimed it
+        // was "in your bag". They now make the same call a player does.
+        const idx = Bot.dropChoice(p, itemId);
+        if (idx >= 0) {
+            const dropped = p.inv.splice(idx, 1)[0];
+            p.inv.push(itemId);
+            UIManager.toast(`${p.name} dropped ${ITEMS[dropped]?.name || dropped} for ${ITEMS[itemId]?.name || itemId}!`, '#f97316');
+        }
+        UIManager.updateUI();
+        return idx >= 0;
+    }
+    // Found, not bought — nothing is owed when the picker resolves.
+    state.pendingShopAfterDrop = false;
+    state.pendingBuyCost       = null;
+    state.pendingDropPick      = itemId;
+    return false;
 }
 
 export function openShop(district, discount) {
@@ -1211,7 +1242,11 @@ export function buyItem(itemId, cost) {
     if (p.inv.length >= MAX_INV) {
         state.pendingBuyCost = cost; state.pendingShopAfterDrop = true;
         ModalManager.closeAllModals();
-        ModalManager.openDropModal(p, itemId, cost, 'shop');
+        // A pass-through shop is entered mid-move; forcing the return state to
+        // 'shop' here dropped that fact, and closing the shop afterwards ended
+        // the turn instead of resuming the rest of the hop.
+        const ret = state.pendingReturnState === 'pass_through_done' ? 'pass_through_done' : 'shop';
+        ModalManager.openDropModal(p, itemId, cost, ret);
         return;
     }
     p.coins -= cost; p.inv.push(itemId);
@@ -1244,11 +1279,30 @@ function _afterPassThroughShop() {
     if (resume) Director.hold('PASSTHROUGH', resume);
 }
 
+// `dropIdx` of -1 means the player chose to throw away the item they just got
+// and keep all three they were carrying. On a shop purchase that also means no
+// coins change hands — buying something and immediately binning it is a trap,
+// not a decision.
 export function confirmDrop(pid, dropIdx, newItemId) {
     const p = state.players[pid];
+    // The picker is built from a snapshot of the bag. If anything moved
+    // underneath it, back out cleanly rather than splicing a hole in the
+    // inventory — this used to throw on ITEMS[undefined].name.
+    if (!p || !newItemId || !ITEMS[newItemId] || dropIdx < -1 || dropIdx >= p.inv.length) {
+        cancelDrop();
+        return;
+    }
+    if (dropIdx === -1) {
+        UIManager.toast(`Left the ${ITEMS[newItemId]?.name || 'item'} behind.`, '#94a3b8');
+        state.pendingShopAfterDrop = false; state.pendingBuyCost = null;
+        UIManager.updateUI(); ModalManager.closeAllModals();
+        _afterDropReturn(p);
+        return;
+    }
     const dropped = p.inv.splice(dropIdx, 1)[0];
     p.inv.push(newItemId);
     UIManager.toast(`Dropped ${ITEMS[dropped].name}, got ${ITEMS[newItemId].name}!`, '#f97316');
+    sfx('buy');
     UIManager.updateUI(); ModalManager.closeAllModals();
     _afterDropReturn(p);
 }
@@ -1257,8 +1311,12 @@ export function cancelDrop() {
     state.pendingBuyId = null; state.pendingBuyCost = null; state.pendingShopAfterDrop = false;
     const ret = state.pendingReturnState; state.pendingReturnState = null;
     ModalManager.closeAllModals();
-    if (ret === 'shop') { openShop(state.pendingShopDistrict, state.pendingShopDiscount); return; }
-    if (ret === 'pass_through_done') { _afterPassThroughShop(); return; }
+    // CANCEL means "not this item", not "I'm done shopping" — go back to the
+    // shop, still mid-move if that's how you got here.
+    if (ret === 'shop' || ret === 'pass_through_done') {
+        if (ret === 'pass_through_done') state.pendingReturnState = 'pass_through_done';
+        openShop(state.pendingShopDistrict, state.pendingShopDiscount); return;
+    }
     if (state.gameState === 'SHOP') { state.gameState = 'ACKNOWLEDGE'; Director.hold('POST_RESULT', finishTurn); return; }
     if (state.gameState === 'ACKNOWLEDGE') Director.hold('POST_RESULT', finishTurn);
 }
@@ -1268,10 +1326,17 @@ function _afterDropReturn(p) {
     const ret = state.pendingReturnState; state.pendingReturnState = null;
     if (state.pendingShopAfterDrop && state.pendingBuyCost !== null) {
         p.coins -= state.pendingBuyCost; state.pendingBuyCost = null; state.pendingShopAfterDrop = false;
+        // Going back to the shop must not lose "we are mid-move"; the rest of
+        // the hop is resumed when the shop is finally closed.
+        if (ret === 'pass_through_done') state.pendingReturnState = 'pass_through_done';
         openShop(state.pendingShopDistrict, state.pendingShopDiscount); return;
     }
-    if (ret === 'shop') { openShop(state.pendingShopDistrict, state.pendingShopDiscount); return; }
-    if (ret === 'pass_through_done') { _afterPassThroughShop(); return; }
+    // Backing out of a purchase returns you to the shop you were standing in,
+    // rather than throwing you out of it.
+    if (ret === 'shop' || ret === 'pass_through_done') {
+        if (ret === 'pass_through_done') state.pendingReturnState = 'pass_through_done';
+        openShop(state.pendingShopDistrict, state.pendingShopDiscount); return;
+    }
     if (state.gameState === 'ACKNOWLEDGE' || state.gameState === 'SHOP') {
         state.gameState = 'ACKNOWLEDGE'; Director.hold('POST_RESULT', finishTurn);
     }

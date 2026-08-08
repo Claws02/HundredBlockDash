@@ -330,9 +330,10 @@
 
         <!-- Drop Modal -->
         <div class="modal-box" id="drop-modal" style="display:none;">
-            <div class="m-title bfont" style="color:#f97316;">📦 INVENTORY FULL</div>
-            <div class="m-desc" style="font-family:'Nunito';">Drop one item to make room:</div>
-            <div class="drop-inv-row" id="drop-inv-row"></div>
+            <div class="m-title bfont" style="color:#f97316;">🎒 BAG FULL</div>
+            <div class="m-desc" id="drop-desc" style="font-family:'Nunito';">Pick one to throw away:</div>
+            <div class="drop-grid" id="drop-inv-row"></div>
+            <button class="btn-close primary" id="btn-confirm-drop" disabled>SELECT ONE TO DISCARD</button>
             <button class="btn-close" id="btn-cancel-drop">CANCEL</button>
         </div>
 
