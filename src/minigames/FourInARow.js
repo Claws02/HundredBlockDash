@@ -31,7 +31,13 @@ const ROWS       = 5;
 // the arcade's 15–40 s window. 6 s is still a comfortable think for a game
 // everybody already knows, and it keeps a full 42-disc game inside a minute.
 const SHOT_CLOCK = 5;      // s per move; expiring plays a reasonable move for you
-const MATCH_TIME = 52;     // s hard ceiling; a match still level at this is a draw
+// No match clock. The game ends when somebody connects four or the board fills,
+// and not on a stopwatch — calling a draw over a position one of you was about
+// to win is the worst possible ending for a game of this shape.
+//
+// It terminates by construction: 30 cells, every move fills one permanently, and
+// the shot clock guarantees a move every 5 s whether or not anybody presses
+// anything. Worst case is 30 moves.
 const DROP_TIME  = 0.26;   // s for a disc to fall into place
 
 // ── Module state ────────────────────────────────────────────────────────────
@@ -280,7 +286,6 @@ function _tick(now) {
         }
     }
 
-    if (_elapsed >= MATCH_TIME && !_winLine) { _finishOnCount(); return; }
     _draw();
 }
 

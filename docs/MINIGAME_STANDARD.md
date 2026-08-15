@@ -69,6 +69,15 @@ the game in **one canonical frame**, and convert at the boundary. Penalty is the
 cautionary tale: the keeper's drag and the shooter's aim were compared directly
 while meaning mirrored things, so the keeper dived the wrong way every time.
 
+**But check first whether the game actually HAS halves.** Light Cycles inverted
+P2's joystick on both axes on exactly this reasoning, and was wrong: its arena is
+one shared grid drawn once and unrotated, with both cycles on it and both players
+looking at the same picture. There is no per-player frame to convert into, so the
+inversion simply drove P2 backwards. The rule is about *frames*, not about player
+indices — if both players are reading one un-mirrored playfield, a screen-space
+push means the same thing for both of them. `qa/steering.js` checks this by
+driving a real drag and watching where the cycle goes.
+
 Related: never map an absolute finger position onto a small target at the far
 end of the screen. Penalty's aim did, and vertical aim was unusable — the goal
 mouth is ~90 px tall and sits in the opponent's half, so every real thumb
@@ -162,9 +171,18 @@ minigame to settle a board match on its own.
   board. If the two tiers finish in the same time, the skill dial isn't
   connected to anything.
 - **Length.** Target **15–40 seconds**, and enforce both ends in code:
-  - **Ceiling.** Every game must resolve on its own. Either run on a fixed clock
-    that settles on the current score, or close the space down (Sumo Spheres
-    shrinks its arena; Tank Clash caps the match at 42 s and awards it on HP).
+  - **Ceiling.** Every game must resolve on its own — but "on its own" does not
+    have to mean "on a clock". A game may instead terminate **structurally**:
+    Memory Match empties a 25-card board, Four in a Row fills 30 cells, Light
+    Cycles fills a shrinking arena. Each of those has a shot clock or a constant
+    speed guaranteeing the board advances, so the end state is reachable without
+    anybody being hurried toward it. Prefer this where the game has a natural
+    conclusion — cutting a memory game off on a stopwatch throws away the pairs
+    a player had just worked out, which is the whole reason they were playing.
+    Games that terminate structurally declare a longer safety net in
+    `MG_WATCHDOG_MS`. Otherwise, run on a fixed clock that settles on the current
+    score, or close the space down (Sumo Spheres shrinks its arena; Tank Clash
+    caps the match at 42 s and awards it on HP).
     The manager force-ends at 90 s as a *safety net* — reaching it is a bug
     signal, not a game rule, and it is the path where a force-ended game leaks
     if it forgot `registerMinigameCleanup`.

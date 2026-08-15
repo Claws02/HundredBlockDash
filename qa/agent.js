@@ -65,7 +65,20 @@ window.__QA = (function () {
     // full board games finish inside a test budget. Minigames get their own runs.
     let mgFastMs = 0, mgStartedAt = 0, mgLast = '';
     function setMinigameFastResolve(ms) { mgFastMs = ms; }
-    function launchArcade(type) { MGM.triggerStandalone(type); }
+    // Reaching the arcade in the real game goes through the splash's own button,
+    // which hides the splash on the way. Calling triggerStandalone directly
+    // skipped that, so #splash stayed on top of #minigame-layer and swallowed
+    // every pointer event the sweep dispatched — for as long as every game had a
+    // clock of its own, they all still finished and nobody noticed that the
+    // "plays each game with synthetic input" sweep was delivering no input at
+    // all. Penalty, with its shot clock removed, is what finally showed it.
+    function launchArcade(type) {
+        const splash = byId('splash');
+        if (splash) splash.style.display = 'none';
+        const sel = byId('mg-select-overlay');
+        if (sel) sel.style.display = 'none';
+        MGM.triggerStandalone(type);
+    }
 
     function snapshot() {
         if (!S) return {};
@@ -242,12 +255,22 @@ window.__QA = (function () {
         return 'WAIT:' + S.gameState;
     }
 
-    // Generic minigame input: hammer P1's half with taps + drags.
+    // Generic minigame input: taps + drags, alternating between the two halves.
+    //
+    // This used to hammer P1's half only. That was invisible for as long as every
+    // game had a clock that carried it along regardless — but a turn-based game
+    // needs BOTH players to act, so Four in a Row, Memory Match and Penalty were
+    // only ever finishing because a timer took the move for the side the agent
+    // never touched. Remove the timers and the sweep stalls on P2's turn
+    // forever. Driving both halves is what "plays every game" was supposed to
+    // mean, and it exercises both input paths besides.
     function mgPlay() {
         const layer = byId('minigame-layer');
         const overlay = [...layer.children].find(el => !el.id) || layer;
         const r = layer.getBoundingClientRect();
-        const y0 = r.top + r.height * 0.55, y1 = r.top + r.height * 0.95;
+        const bottom = mgTapPhase % 4 < 2;      // two goes each, so drags land in one half
+        const y0 = r.top + r.height * (bottom ? 0.55 : 0.06);
+        const y1 = r.top + r.height * (bottom ? 0.94 : 0.45);
         const x = r.left + r.width * (0.1 + Math.random() * 0.8);
         const y = y0 + Math.random() * (y1 - y0);
         const target = document.elementFromPoint(Math.round(x), Math.round(y)) || overlay;
