@@ -92,6 +92,22 @@ export const MG_ORIENTATIONS = {
     },
 };
 
+// ============================================================
+// WATCHDOG OVERRIDES
+//
+// MinigameManager force-ends a game after 90 s as a safety net — reaching it is
+// meant to be a bug signal, not a game rule. These four have no clock of their
+// own by design: they run until somebody wins, and terminate because their board
+// or arena strictly fills up rather than because time is called on them. They
+// need a net that a slow but perfectly normal game cannot trip.
+// ============================================================
+export const MG_WATCHDOG_MS = {
+    memorymatch: 240000,   // 25 cards, taken in turns
+    fourinarow:  240000,   // 30 cells, taken in turns
+    lightcycles: 240000,   // best of 3, each round ends on a crash
+    penalty:     240000,   // no shot clock — the taker shoots when ready
+};
+
 export const MG_ORIENTATION_MAP = {
     sumospheres: 'faceoff',
     tankclash:   'faceoff',

@@ -51,6 +51,15 @@ export function updateUI() {
         document.getElementById(`p${i + 1}-actions`).style.display =
             (isActive && state.gameState === 'PRE_ROLL' && !p.isBot) ? 'flex' : 'none';
 
+        // The bag carries its own count. Players were reaching the end of a
+        // match holding three unused items because nothing on screen said they
+        // had any — the button looked identical full or empty.
+        const itemsBtn = document.querySelector(`[data-items="${i}"]`);
+        if (itemsBtn) {
+            itemsBtn.textContent = p.inv.length ? `🎒 ITEMS (${p.inv.length})` : '🎒 ITEMS';
+            itemsBtn.classList.toggle('empty', p.inv.length === 0);
+        }
+
         // Position badge
         let districtLabel;
         if (state.selectedMap === 'hundred_block_dash') {

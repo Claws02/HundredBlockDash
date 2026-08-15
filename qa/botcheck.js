@@ -109,7 +109,14 @@ const TIERS = [['easy', 0.25], ['hard', 0.85]];
     }
 
     fs.writeFileSync(path.join(__dirname, 'result-botcheck.json'), JSON.stringify(rows, null, 2));
-    const hung = rows.filter(r => !r.resolved);
+    // Penalty has no shot clock: a kick is taken when the taker is ready, and
+    // this probe supplies no taker. Its half of the game genuinely never
+    // advances here, and that is the design rather than a hang — the manager's
+    // watchdog is the backstop for a table that walks away. Everything else must
+    // still carry itself to a result unattended.
+    const NEEDS_A_HUMAN = new Set(['penalty']);
+    const waiting = rows.filter(r => !r.resolved && NEEDS_A_HUMAN.has(r.type));
+    const hung = rows.filter(r => !r.resolved && !NEEDS_A_HUMAN.has(r.type));
     const withErrs = rows.filter(r => r.errors.length);
     // A bot that loses every single run at hard is a tuning smell worth surfacing.
     const botNeverWins = [...new Set(rows.map(r => r.type))].filter(t => {
@@ -118,6 +125,10 @@ const TIERS = [['easy', 0.25], ['hard', 0.85]];
     });
     console.log('\n--- SUMMARY ---');
     console.log('never resolved without a human:', hung.length ? hung.map(r => `${r.type}/${r.tier}`).join(', ') : 'none');
+    if (waiting.length) {
+        console.log('waits for a human by design (not a hang):',
+            waiting.map(r => `${r.type}/${r.tier}`).join(', '), '— covered by qa/newgames.js');
+    }
     console.log('errors:', withErrs.length ? withErrs.map(r => `${r.type}/${r.tier}(${r.errors.length})`).join(', ') : 'none');
     console.log('bot lost every hard run (check tuning):', botNeverWins.length ? botNeverWins.join(', ') : 'none');
     await browser.close();

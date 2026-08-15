@@ -87,7 +87,9 @@ export function openShop(district, discount) {
     if (titleEl) titleEl.textContent = distTitles[distKey] || '🏪 ITEM SHOP';
 
     document.getElementById('shop-player-label').textContent = `${p.name} — ${p.coins} coins available`;
-    document.getElementById('inv-full-note').style.display = isFull ? 'block' : 'none';
+    const fullNote = document.getElementById('inv-full-note');
+    fullNote.textContent = `🎒 Bag full — buy anyway and you'll pick one of the ${MAX_INV + 1} to drop.`;
+    fullNote.style.display = isFull ? 'block' : 'none';
 
     // Build item list for this district
     const allowedKeys = DISTRICT_SHOPS[distKey] || Object.keys(ITEMS);
@@ -98,7 +100,12 @@ export function openShop(district, discount) {
             if (!item) return '';
             const rawPrice  = item.price;
             const price     = disc < 1.0 ? Math.ceil(rawPrice * disc) : rawPrice;
-            const canBuy    = p.coins >= price && !isFull;
+            // A full bag no longer blocks the purchase. You buy, and the
+            // discard picker opens with all four items so you choose what to
+            // drop — which is the whole point of having built the picker. The
+            // old behaviour greyed out the entire shop and left you to work out
+            // that you had to leave, use something, and walk back.
+            const canBuy    = p.coins >= price;
             const discLabel = disc < 1.0 ? ` <span class="shop-discount">(${Math.round((1 - disc) * 100)}% off)</span>` : '';
             return `<div class="m-row">
                 <div class="m-row-info">

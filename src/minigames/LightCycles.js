@@ -34,7 +34,14 @@ const MAX_ROUNDS  = 3;
 const CELL        = 26;     // grid cell size in css px (trail thickness)
 const SPEED       = 5.4;    // cells per SECOND (R1)
 const GRACE       = 0.9;    // s at round start where a crash is undone
-const ROUND_CAP   = 15;     // s per round; settles on who owns more ground
+// No round clock. A round ends when somebody crashes, full stop — cutting it
+// off at 15 s and awarding it on floor area decided rounds that were still
+// being played, and "more ground" is not what anybody thinks they are competing
+// for while they are dodging a wall.
+//
+// It still terminates on its own: the grid is finite, every step fills a cell
+// permanently, and the arena closes in a further two cells each round, so the
+// space available strictly shrinks until a crash is forced.
 const GAP         = 1250;   // ms between rounds
 const MARGIN      = [0, 2, 4];   // cells of wall closed in, per round
 const JOY_R       = 50;     // joystick base radius, css px
@@ -140,9 +147,6 @@ function _buildSticks() {
         _overlay.appendChild(zone);
         _sticks[pid] = { base, knob, zone, origin: null, pointerId: null };
 
-        // P2's half is upside-down from where they sit, so their push has to be
-        // inverted to mean the same thing on screen.
-        const flip = pid === 1 ? -1 : 1;
         const restTop = pid === 0 ? 'calc(100% - 84px)' : '84px';
 
         const park = () => {
@@ -186,11 +190,18 @@ function _buildSticks() {
                 `calc(-50% + ${(dy * cl / JOY_R * kOff).toFixed(1)}px))`;
             // Dead zone, so resting a thumb doesn't steer.
             if (dist < JOY_R * 0.42) return;
-            // Nearest compass direction, in this player's own frame.
-            const ax = dx * flip, ay = dy * flip;
-            const dir = Math.abs(ax) > Math.abs(ay)
-                ? (ax > 0 ? 1 : 3)         // right : left
-                : (ay > 0 ? 2 : 0);        // down  : up
+            // The push direction IS the travel direction, for both players.
+            //
+            // P2's input used to be inverted on both axes on the reasoning that
+            // their half is upside-down — but this arena is not split into
+            // halves. It is ONE grid drawn once, unrotated, and both players are
+            // looking at the same picture of it. So a thumb pushed toward a
+            // patch of empty floor should send the cycle at that patch, whoever
+            // pushed it. The inversion meant P2 pushing away from themselves
+            // drove straight back at their own trail — every single time.
+            const dir = Math.abs(dx) > Math.abs(dy)
+                ? (dx > 0 ? 1 : 3)         // right : left
+                : (dy > 0 ? 2 : 0);        // down  : up
             _steer(pid, dir);
         };
         const onUp = e => {
@@ -286,7 +297,6 @@ function _tick(now) {
         _graceT = Math.max(0, _graceT - dt);
         if (_isBot) _botThink(dt);
         _step(dt);
-        if (_roundT >= ROUND_CAP) _settleRoundOnGround();
     }
     _draw();
 }
@@ -329,13 +339,6 @@ function _step(dt) {
             _set(c.cx, c.cy, i + 1);
         }
     }
-}
-
-// If neither crashes inside the round cap, whoever claimed more ground wins it.
-function _settleRoundOnGround() {
-    let a = 0, b = 0;
-    for (let i = 0; i < _grid.length; i++) { if (_grid[i] === 1) a++; else if (_grid[i] === 2) b++; }
-    _endRound(a > b ? 0 : b > a ? 1 : -1, 'MORE GROUND');
 }
 
 function _endRound(winnerId, why) {

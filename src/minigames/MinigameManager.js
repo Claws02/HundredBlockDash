@@ -7,7 +7,7 @@
 
 import { state } from '../core/GameState.js';
 import * as Bot from '../core/Bot.js';
-import { MG_TYPES, MG_INFO, MG_ORIENTATIONS, MG_ORIENTATION_MAP } from '../config/MinigameRegistry.js';
+import { MG_TYPES, MG_INFO, MG_ORIENTATIONS, MG_ORIENTATION_MAP, MG_WATCHDOG_MS } from '../config/MinigameRegistry.js';
 import { MINIGAME_REWARD } from '../config/GameConfig.js';
 import { sfx, haptic } from '../engine/AudioManager.js';
 import * as DualRead from '../ui/DualRead.js';
@@ -516,14 +516,16 @@ async function _launchGame() {
         const loader = MG_MODULES[state.mgType] || MG_MODULES[MG_TYPES[0]];
         const mod    = await loader();
         // RhythmForge legitimately takes ~57 s (3 rounds × 2 players + transitions).
-        // 90 s gives every game a comfortable safety margin.
+        // 90 s gives every game a comfortable safety margin — except the four
+        // that deliberately run to a conclusion instead of to a clock, which
+        // declare their own in MG_WATCHDOG_MS.
         _minigameTimeout = setTimeout(() => {
             if (state.gameState === 'MINIGAME' && state.mgActive) {
                 document.getElementById('mg-neutral').textContent = 'TIME\'S UP! TIE!';
                 sfx('land_bad');
                 winMinigame(-1);
             }
-        }, 90000);
+        }, MG_WATCHDOG_MS[state.mgType] || 90000);
         mod.start(state.players[1].isBot, winMinigame, Bot.skill());
     } catch (e) {
         console.error('[MinigameManager] _launchGame failed:', e);

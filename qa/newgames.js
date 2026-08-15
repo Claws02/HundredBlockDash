@@ -31,9 +31,9 @@ async function launch(page, type, skill) {
         state.players[1].isBot = true;
         document.getElementById('minigame-layer').style.display = 'flex';
         document.getElementById('splash').style.display = 'none';
-        const mod = await import(`/src/minigames/${
-            { puck: 'Puck', penalty: 'Penalty', lightcycles: 'LightCycles', fourinarow: 'FourInARow' }[type]
-        }.js`);
+        // Through the manager's table, so adding a game never leaves a second
+        // stale copy of the game-to-file mapping in a probe.
+        const mod = await MM.loadMinigame(type);
         window.__T0 = performance.now();
         mod.start(true, w => { window.__RESULT = { winner: w, ms: performance.now() - window.__T0 }; }, skill);
     }, { type, skill });
@@ -136,8 +136,86 @@ async function waitResult(page, budgetMs, tickFn) {
            !!r && r.ms / 1000 <= 45, r ? `${(r.ms / 1000).toFixed(1)}s` : '—');
     }
 
-    // ══════════════ PENALTY — resolves, and the shooter can score ══════════════
+    // ══════════ PENALTY — no shot clock, and the keeper keeps diving ══════════
     {
+        // 1. The shot must never be taken for you. Left completely alone, the
+        //    game should still be sitting on kick 1 waiting for the taker.
+        await launch(page, 'penalty', 0.55);
+        await page.waitForTimeout(9000);
+        const idle = await page.evaluate(() => ({
+            neutral: (document.getElementById('mg-neutral') || {}).textContent || '',
+            result: window.__RESULT || null,
+        }));
+        ok('penalty: no shot clock — the kick is not taken for you',
+           /KICK 1/.test(idle.neutral) && !idle.result, `"${idle.neutral}"`);
+
+        // 2. The keeper must still be moving after the ball is struck. Read the
+        //    keeper's drawn position straight off the canvas at the start and
+        //    end of the flight while dragging the finger to the far post: with
+        //    the old "commit at the strike" rule it could not move at all.
+        const moved = await (async () => {
+            // Find the keeper's x by scanning the canvas for its block colour.
+            // Read the keeper's block straight off the canvas. Which goal and
+            // which colour depends on who is shooting, so take that from the
+            // status line rather than assuming — the keeper swaps ends every
+            // kick, and scanning the wrong end finds static HUD pixels and
+            // reports a keeper that never moves.
+            const scan = () => page.evaluate(() => {
+                const cv = [...document.querySelectorAll('#minigame-layer canvas')].pop();
+                if (!cv) return null;
+                const txt = (document.getElementById('mg-neutral') || {}).textContent || '';
+                const m = txt.match(/P(\d) SHOOTS/);
+                if (!m) return null;
+                const shooter = parseInt(m[1]) - 1;
+                const g = cv.getContext('2d');
+                const dpr = cv.width / cv.clientWidth;
+                const H = cv.clientHeight, PAD_Y = 48;
+                const gh = H * 0.5 * 0.20;
+                const keeperTop = shooter === 0;
+                const gy = keeperTop ? PAD_Y + 10 : H - PAD_Y - 10 - gh;
+                const y = Math.round((gy + gh / 2) * dpr);
+                const row = g.getImageData(0, y, cv.width, 1).data;
+                let sum = 0, n = 0;
+                for (let x = 0; x < cv.width; x++) {
+                    const r = row[x * 4], gg = row[x * 4 + 1], b = row[x * 4 + 2];
+                    // The keeper is drawn in the KEEPER's colour: blue when P1
+                    // shoots (P2 keeps), red when P2 shoots (P1 keeps).
+                    const hit = keeperTop ? (b > 140 && b - r > 55) : (r > 140 && r - b > 55);
+                    if (hit) { sum += x; n++; }
+                }
+                return n > 4 ? { x: sum / n / dpr, n, shooter } : null;
+            });
+            // Get to a kick where P1 is the KEEPER — the bot then shoots on its
+            // own timer and P1's finger is free to chase the ball.
+            const shooterNow = async () => {
+                const t = await page.evaluate(() => (document.getElementById('mg-neutral') || {}).textContent || '');
+                const m = t.match(/P(\d) SHOOTS/);
+                return m ? parseInt(m[1]) - 1 : -1;
+            };
+            for (let attempt = 0; attempt < 8 && await shooterNow() === 0; attempt++) {
+                await page.mouse.move(206, 700);
+                await page.mouse.down();
+                await page.mouse.move(300, 660);
+                await page.mouse.up();
+                await page.waitForTimeout(2200);      // flight + settle
+            }
+            if (await shooterNow() !== 1) return null;
+
+            // Sweep the finger from post to post across P1's half and watch the
+            // keeper block travel with it. Frozen-at-the-strike would show ~0.
+            const samples = [];
+            for (let i = 0; i < 80; i++) {
+                await page.mouse.move(30 + (i % 2) * 350, 820);
+                const s = await scan();
+                if (s && s.shooter === 1) samples.push(s.x);
+                await page.waitForTimeout(50);
+            }
+            if (samples.length < 4) return null;
+            return Math.max(...samples) - Math.min(...samples);
+        })();
+        ok('penalty: the keeper is still able to move once the ball is struck',
+           moved !== null && moved > 20, moved === null ? 'could not read the keeper' : `travelled ${moved.toFixed(0)}px`);
+
         await launch(page, 'penalty', 0.55);
         const r = await waitResult(page, 80000, async () => {
             // P1: drag an aim somewhere in its half and release, which is both

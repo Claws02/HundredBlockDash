@@ -28,9 +28,10 @@ cd qa
 | `node verify.js` | Assertion suite: all 25 contracts claimable, counter regression guards, dice settle watchdog, no errors. **Deterministic — use this as the CI gate.** | ~3 min |
 | `node verify2.js city_circuit 6` | Starts a real match: scene-graph leak census across 12 tile redraws, measured turn pacing, plays through to the win screen. | ≤25 min |
 | `node verify2.js hundred_block_dash` | Same, on the 50-block linear map. | ≤25 min |
-| `node arcade.js` | Launches every registered minigame from the arcade, plays each with synthetic input, checks each resolves and cleans up. Budget is 90s/game — the slowest genuine finishes are 65–70s, so anything less reports live games as failures. | ~25 min |
+| `node arcade.js` | Launches every registered minigame from the arcade, plays each with synthetic input in **both** halves, checks each resolves and cleans up. Budget is 90s/game, or the game's own `MG_WATCHDOG_MS` where it declares a longer one. | ~20 min |
 | `node earlytap.js` | Hammers both halves from frame 0 after GO on every game — catches state-not-ready races (found QA-016). | ~8 min |
 | `node botcheck.js 65` | Drives each game's bot branch at easy and hard with **no human input at all**. Flags games that only end when a human plays, and bots that lose every hard run. | ~30 min |
+| `node steering.js` | Light Cycles: drives a real joystick drag in each half and checks the cycle travels the way it was pushed — all four directions, both players. | ~2 min |
 | `node inventory.js` | The bag-full discard picker on all three entry paths (mystery, shop purchase, pass-through shop) + minigame rotation over three full cycles. | ~2 min |
 | `node cityprogress.js [secs]` | Samples board turns and completed rounds on a City match every 30 s. Answers "is it slow or is it stuck?" — a stall shows as a flat run, a long game as a steady climb. | as asked |
 | `node features.js` | Map view on both boards (button shown, opens, slider range, camera follows, counter, closes) + practice mode (awards nothing, hands control back) + the payoff-beat dwell guarantee. | ~6 min |
@@ -45,6 +46,17 @@ cd qa
 | `node dualread.js` | Both-players readability: SHARED cards mirror in tabletop, OWNER cards get the opponent strip, the ⟳ flip button works, the minigame rules need two confirmations, and pass-and-play gets the button but no mirroring. Screenshots each case. | ~5 min |
 | `node winscreen.js <map>` | End-of-match screen: landscape presentation, the turn-by-turn race chart, the rotate toggle. Screenshots both orientations. | ~4 min |
 | `node run.js <config> <seconds>` | Full autoplay of one configuration. Configs in `run.js`: `hbd50_1p`, `hbd75_1p`, `hbd100_1p`, `hbd50_pass`, `hbd50_table`, `city_1p`, `city_pass`, `city_hard`. | as given |
+
+> **The arcade sweep delivered no input at all until 2026-08.** `launchArcade`
+> called `triggerStandalone` directly instead of going through the splash's own
+> button, so `#splash` stayed stacked above `#minigame-layer` and swallowed every
+> synthetic pointer event. Every game still "passed", because every game had a
+> clock of its own that carried it to a result regardless. Removing the shot
+> clock from Penalty is what finally exposed it — it was the first game that
+> genuinely could not finish without a player. Two lessons worth keeping: a
+> passing input probe proves nothing unless something in it *fails* when the
+> input stops, and the sweep now taps both halves, because a turn-based game
+> needs both players to act.
 
 Override the target with `QA_BASE=http://host:port/index.html`. `arcade.js`,
 `earlytap.js` and `botcheck.js` also accept `QA_ONLY=game1,game2` to sweep a

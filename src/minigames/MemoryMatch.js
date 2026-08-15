@@ -37,7 +37,13 @@ const MAX_PAYOUT  = 30;              // R6b cap, matching the other coin games
 // not an oversight: a memory game with fewer cards is not a memory game.
 const SHOT_CLOCK  = 4;               // s per move; expiring flips for you
 const PEEK_MS     = 680;             // how long a non-matching pair stays face up
-const MATCH_TIME  = 58;              // s ceiling
+// No match clock. This game ends when the board is empty and not before —
+// stopping a memory game on a timer means the pairs you had worked out never
+// get cashed in, which is the only reason to be playing it.
+//
+// The shot clock is what guarantees it still terminates: a move is always made,
+// by you or for you, every 4 seconds, and every move that matches removes two
+// cards for good. The board cannot stall.
 
 // Twelve faces, each drawn with 180° rotational symmetry.
 const FACES = ['circle', 'ring', 'square', 'diamond', 'star4', 'star6',
@@ -314,7 +320,6 @@ function _tick(now) {
         }
     }
 
-    if (_elapsed >= MATCH_TIME) { _finishOnScore(); return; }
     _draw();
 }
 

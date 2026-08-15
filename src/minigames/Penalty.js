@@ -22,13 +22,23 @@ import { registerMinigameCleanup } from './MinigameManager.js';
 // ── Tunables. Positions are fractions of the canvas so it fits any screen. ──
 const ROUNDS      = 3;      // shots each way
 const SUDDEN_MAX  = 4;      // extra kicks (2 pairs) before a level match is a draw
-const MATCH_TIME  = 62;     // s hard ceiling; settles on the score
-const AIM_TIME    = 3.2;    // s the shooter has before the shot is taken for them
-const FLIGHT      = 0.52;   // s of ball flight
+// No aim clock and no match clock. A penalty is taken when the taker is ready;
+// snatching the shot off them at 3.2 s made every kick a rushed one, and the
+// whole point of the format is the stand-off before the strike.
+//
+// It still terminates: a fixed number of kicks, sudden death capped, and the
+// only unbounded wait is a human choosing not to shoot.
+const FLIGHT      = 0.68;   // s of ball flight — the keeper's reaction window
 const SETTLE      = 1.15;   // s to read the outcome before the next kick
 const GOAL_W      = 0.86;   // goal width as a fraction of canvas width
 const GOAL_H      = 0.20;   // goal height as a fraction of the shooter's half
 const KEEPER_W    = 0.15;   // keeper's reach as a fraction of goal width
+// How fast the keeper can travel across the goal once the ball is struck, in
+// goal-widths per second. Before the kick they position freely; after it they
+// can only dive at a human speed, so tracking the ball is a race they can lose.
+// At 1.5 a full-width dive takes ~0.66 s against a 0.68 s flight — reachable
+// from the middle, not from the far post.
+const KEEPER_DIVE = 1.5;
 const POST_MISS   = 0.965;  // aim beyond this fraction of half-width hits the post
 // The status pill floats at each player's outer edge, which is exactly where
 // the goal sits — without this inset the mouth is drawn behind it.
@@ -49,7 +59,8 @@ let _aim = { x: 0.5, y: 0.5 };  // 0..1 within the goal mouth
 let _aimAnchor = null;          // where the aim drag began, and the aim it began from
 let _dragging = false;
 let _keeper = 0.5;              // 0..1 along the goal line
-let _keeperCommitted = null;    // where the keeper actually dived
+let _keeperTarget = 0.5;        // where the keeper's finger is asking to be
+let _keeperCommitted = null;    // where the keeper was standing at the strike
 let _ball = { x: 0.5, y: 1, from: null, to: null };
 let _outcome = '';              // 'GOAL' | 'SAVED' | 'POST'
 let _botAimTimer = null;
@@ -99,21 +110,33 @@ function _build() {
     // aim reticle, the keeper drags along their line — so neither has to reach
     // across the phone and the input split stays the usual one (R5).
     const halfOf = e => (e.clientY < _overlay.clientHeight / 2 ? 1 : 0);
+    // The keeper stays live through the flight — the shooter only through the
+    // aim. That is the asymmetry: the taker commits, the keeper reacts.
+    const keeperLive = () => _phase === 'aim' || _phase === 'flight';
     const onDown = e => {
-        if (_done || _phase !== 'aim') return;
-        e.preventDefault();
+        if (_done) return;
         const pid = halfOf(e);
         if (pid === 1 && _isBot) return;
-        if (pid === _shooter) { _dragging = true; _beginAimDrag(e.clientX, e.clientY); }
-        else                  { _setKeeper(e.clientX); }
+        if (pid === _shooter) {
+            if (_phase !== 'aim') return;
+            e.preventDefault();
+            _dragging = true; _beginAimDrag(e.clientX, e.clientY);
+        } else {
+            if (!keeperLive()) return;
+            e.preventDefault();
+            _setKeeper(e.clientX);
+        }
         try { _overlay.setPointerCapture(e.pointerId); } catch (err) {}
     };
     const onMove = e => {
-        if (_done || _phase !== 'aim') return;
+        if (_done) return;
         const pid = halfOf(e);
         if (pid === 1 && _isBot) return;
-        if (pid === _shooter) { if (_dragging) { e.preventDefault(); _setAim(e.clientX, e.clientY); } }
-        else                  { e.preventDefault(); _setKeeper(e.clientX); }
+        if (pid === _shooter) {
+            if (_phase === 'aim' && _dragging) { e.preventDefault(); _setAim(e.clientX, e.clientY); }
+        } else if (keeperLive()) {
+            e.preventDefault(); _setKeeper(e.clientX);
+        }
     };
     const onUp = e => {
         if (_done) return;
@@ -198,7 +221,13 @@ function _setKeeper(cx) {
     const g = _goalRect();
     let t = (cx - g.x) / g.w;
     if (_keeperIsP2()) t = 1 - t;
-    _keeper = Math.max(0, Math.min(1, t));
+    t = Math.max(0, Math.min(1, t));
+    // Before the strike the keeper stands where they like. After it, the finger
+    // only sets a TARGET and the dive travels there at a fixed speed (see the
+    // per-frame chase in _tick) — otherwise the keeper could teleport onto the
+    // ball the instant they saw it and no shot would ever go in.
+    _keeperTarget = t;
+    if (_phase === 'aim') _keeper = t;
 }
 
 // Both players hold their own coordinates — "my left" — because that is what a
@@ -206,6 +235,22 @@ function _setKeeper(cx) {
 // the two are never compared while they mean opposite things. Screen space: 0 is
 // the left of the goal as the phone lies.
 function _keeperIsP2() { return _shooter === 0; }
+// P2 is the AI in 1P, so the bot is in goal whenever P1 is taking the kick.
+function _keeperIsBot() { return _shooter === 0; }
+
+// The bot keeper now dives like a player: it starts from its pre-kick guess and
+// then chases the ball with a skill-scaled lag and a skill-scaled error, rather
+// than freezing at the moment of the strike.
+function _botKeeperTrack(dt) {
+    const aimS = _aimScreenX();
+    // Reaction: it does not begin correcting the instant the ball leaves.
+    const react = 0.10 + (1 - _botSkill) * 0.30;
+    if (_phaseT < react) return;
+    // Where it thinks the ball is going, in the keeper's own frame.
+    const err = (1 - _botSkill) * 0.42 * (Math.random() - 0.5);
+    const wantScreen = Math.max(0, Math.min(1, aimS + err));
+    _keeperTarget = _keeperIsP2() ? 1 - wantScreen : wantScreen;
+}
 function _aimScreenX()    { return _shooter === 1 ? 1 - _aim.x : _aim.x; }
 function _keeperScreenX(v) {
     const k = v === undefined ? _keeper : v;
@@ -220,7 +265,7 @@ function _beginKick() {
     _outcome = ''; _keeperCommitted = null; _dragging = false;
     _aim = { x: 0.5, y: 0.45 };
     _aimAnchor = null;
-    _keeper = 0.5;
+    _keeper = 0.5; _keeperTarget = 0.5;
     const g = _goalRect();
     _ball = { x: _W / 2, y: g.keeperTop ? _H * 0.74 : _H * 0.26, from: null, to: null };
 
@@ -266,24 +311,33 @@ function _shoot() {
         const clamped = Math.max(0, Math.min(1, guessS));
         _keeper = _keeperIsP2() ? 1 - clamped : clamped;
     }
+    // Where the keeper was standing when the ball was hit. Kept for the HUD and
+    // for the bot's starting point — it is no longer what decides the save.
     _keeperCommitted = _keeper;
+    _keeperTarget = _keeper;
 
     const g = _goalRect();
     const aimS = _aimScreenX();
     _ball.from = { x: _ball.x, y: _ball.y };
     _ball.to = { x: g.x + aimS * g.w, y: g.y + _aim.y * g.h };
 
-    // Off the woodwork: aiming right at the very edge is the greedy shot.
+    // Off the woodwork is settled now, because it is purely about the aim.
+    // Whether it is SAVED or a GOAL is NOT settled here any more — the keeper is
+    // still diving, and that is decided when the ball actually arrives.
     const edge = Math.abs(_aim.x - 0.5) * 2;
-    if (edge > POST_MISS) _outcome = 'POST';
-    else {
-        const reach = KEEPER_W / 2 + 0.055;             // half the keeper's span
-        _outcome = Math.abs(_keeperScreenX(_keeperCommitted) - aimS) <= reach ? 'SAVED' : 'GOAL';
-    }
+    _outcome = edge > POST_MISS ? 'POST' : '';
     sfx('boost'); haptic([18]);
 }
 
 function _resolveKick() {
+    // Decided on arrival, against wherever the keeper has managed to dive to.
+    // Settling this at the moment of the strike made the keeper a coin flip:
+    // they committed blind and then watched. Now they have the flight to react,
+    // and a capped dive speed means reacting is not the same as reaching.
+    if (_outcome !== 'POST') {
+        const reach = KEEPER_W / 2 + 0.055;             // half the keeper's span
+        _outcome = Math.abs(_keeperScreenX() - _aimScreenX()) <= reach ? 'SAVED' : 'GOAL';
+    }
     if (_outcome === 'GOAL') { _score[_shooter]++; sfx('coin_gain'); haptic('heavy'); }
     else sfx('land_bad');
     const neu = document.getElementById('mg-neutral');
@@ -310,18 +364,15 @@ function _tick(now) {
     _phaseT += dt;
     _elapsed += dt;
 
-    // Hard ceiling. Sudden death can otherwise run the round well past the
-    // arcade's time budget when neither player can convert.
-    if (_elapsed >= MATCH_TIME) {
-        _finish(_score[0] > _score[1] ? 0 : _score[1] > _score[0] ? 1 : -1);
-        return;
-    }
+    if (_phase === 'flight') {
+        // The dive: the keeper travels toward wherever their finger is asking
+        // for, at a fixed speed. Capped here rather than in the input handler so
+        // it is frame-rate independent (R1).
+        if (_isBot && _keeperIsBot()) _botKeeperTrack(dt);
+        const want = Math.max(0, Math.min(1, _keeperTarget));
+        const step = KEEPER_DIVE * dt;
+        _keeper += Math.max(-step, Math.min(step, want - _keeper));
 
-    if (_phase === 'aim') {
-        // The aim window is a ceiling, not a suggestion: run it out and the shot
-        // is struck from wherever the reticle happens to be.
-        if (_phaseT >= AIM_TIME) { _dragging = false; _shoot(); }
-    } else if (_phase === 'flight') {
         const p = Math.min(1, _phaseT / FLIGHT);
         _ball.x = _ball.from.x + (_ball.to.x - _ball.from.x) * p;
         _ball.y = _ball.from.y + (_ball.to.y - _ball.from.y) * p;
@@ -358,8 +409,8 @@ function _draw() {
         ctx.beginPath(); ctx.moveTo(g.x, y); ctx.lineTo(g.x + g.w, y); ctx.stroke();
     }
 
-    // Keeper
-    const kx = g.x + _keeperScreenX(_keeperCommitted ?? _keeper) * g.w;
+    // Keeper — drawn live, because they are still moving during the flight.
+    const kx = g.x + _keeperScreenX() * g.w;
     const kw = g.w * KEEPER_W, kh = g.h * 0.92;
     ctx.fillStyle = _shooter === 0 ? '#5a9bff' : '#ff5a5a';
     _roundRect(ctx, kx - kw / 2, g.y + (g.h - kh) / 2, kw, kh, 8);
@@ -436,9 +487,11 @@ function _drawSide(pid, w, h) {
     ctx.font = '800 12px "Nunito", system-ui, sans-serif';
     ctx.fillStyle = 'rgba(255,255,255,.62)';
     const role = _phase === 'aim'
-        ? (shooting ? `SHOOT — drag to aim, release to strike (${Math.ceil(Math.max(0, AIM_TIME - _phaseT))}s)`
-                    : 'KEEP — slide to pick your dive')
-        : (shooting ? 'SHOOTING' : 'KEEPING');
+        ? (shooting ? 'SHOOT — drag to aim, release to strike. Take your time.'
+                    : 'KEEP — slide to set your feet')
+        : _phase === 'flight'
+            ? (shooting ? 'STRUCK!' : 'DIVE! — keep sliding')
+            : (shooting ? 'SHOOTING' : 'KEEPING');
     ctx.fillText(role, 14, goalTop - 10);
 }
 
