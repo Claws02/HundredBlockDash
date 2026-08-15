@@ -76,8 +76,15 @@ const CONFIGS = {
 
         const sig = JSON.stringify(res.s);
         if (sig === lastSig) sameFor++; else { sameFor = 0; lastSig = sig; }
-        // ~45 s of no state change at all == soft lock
-        if (sameFor > 300) {
+        // ~45 s of no state change at all == soft lock.
+        //
+        // Except while a minigame is running, where nothing in the snapshot is
+        // SUPPOSED to change until it ends: coins, positions and turn all sit
+        // still for the whole game. A Bomb Pass rally that goes the distance is
+        // 56 s and a Memory Match can run to 240 s, so this window flagged
+        // healthy games as locked. Inside a minigame the manager's own watchdog
+        // is the guarantee, and the run's overall budget still bounds it.
+        if (sameFor > 300 && !res.s.mgActive) {
             out.stuck = { lastResult: res.r, snapshot: res.s, visible: await visibleOverlays(page) };
             out.outcome = 'SOFT_LOCK';
             break;

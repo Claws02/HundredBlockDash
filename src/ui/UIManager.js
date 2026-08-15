@@ -56,7 +56,10 @@ export function updateUI() {
         // had any — the button looked identical full or empty.
         const itemsBtn = document.querySelector(`[data-items="${i}"]`);
         if (itemsBtn) {
-            itemsBtn.textContent = p.inv.length ? `🎒 ITEMS (${p.inv.length})` : '🎒 ITEMS';
+            // Only the label span — the button also holds its icon, and
+            // rewriting textContent would throw both away.
+            const tx = itemsBtn.querySelector('.ba-tx');
+            if (tx) tx.textContent = p.inv.length ? `ITEMS ${p.inv.length}` : 'ITEMS';
             itemsBtn.classList.toggle('empty', p.inv.length === 0);
         }
 
