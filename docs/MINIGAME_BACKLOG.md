@@ -338,6 +338,17 @@ Every one of these was tuned against `qa/botcheck.js`, and every one moved:
   by screenshot, not by any assertion — worth remembering that the arcade sweep
   and botcheck both passed while a prompt was invisible.
 
+### Tree Climb wears your character
+
+The climber is the character that player chose at the start of the match, drawn
+on a disc in their player colour. The colour stays because all nine characters
+are available to both players, so the icon alone cannot say whose climber it is
+— the pair of channels is what makes it readable either way (§4).
+
+It is the only minigame that does this so far. Worth considering for the others
+where a character would fit naturally (Sumo Spheres, Meteor Dodge, Grand Prix),
+and worth NOT doing where the piece is the point (a tank, a puck, a bomb).
+
 ### Tree Climb's leaves were a metronome
 
 The side of each new leaf was drawn at random and then passed through a guard

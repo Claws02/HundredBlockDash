@@ -15,6 +15,7 @@
 // ============================================================
 
 import { state } from '../core/GameState.js';
+import { CHAR_ICONS } from '../config/GameConfig.js';
 import { sfx, haptic } from '../engine/AudioManager.js';
 import { registerMinigameCleanup } from './MinigameManager.js';
 
@@ -387,22 +388,41 @@ function _branch(ctx, cx, y, side, alpha, pulse = 1) {
     ctx.globalAlpha = 1;
 }
 
+// The character each player actually chose, so the climber up the tree is the
+// one whose token is on the board. Falls back to a plain face if the type is
+// somehow unknown, which keeps the game playable rather than drawing nothing.
+function _charIcon(pid) {
+    return CHAR_ICONS[state.players[pid]?.charType] || null;
+}
+
 function _climber(ctx, cx, y, pid, armSide, dazed, tumble = 0) {
     const body = pid === 0 ? '#ff5a5a' : '#5a9bff';
+    const icon = _charIcon(pid);
     ctx.save();
-    // A fall tumbles. The rotation is around the body, so the arm and eyes go
-    // with it and it reads as losing your grip rather than sliding down.
+    // A fall tumbles. The rotation is around the body, so the arm and the
+    // character go with it and it reads as losing your grip.
     if (tumble) { ctx.translate(cx, y); ctx.rotate(tumble); ctx.translate(-cx, -y); }
     // Reaching arm, so the jump reads as an action rather than a teleport.
     if (armSide) {
         ctx.strokeStyle = body; ctx.lineWidth = 6; ctx.lineCap = 'round';
         ctx.beginPath(); ctx.moveTo(cx, y - 6); ctx.lineTo(cx + armSide * 40, y - 26); ctx.stroke();
     }
+    // The player's colour stays as a disc behind the character: nine characters
+    // are choosable and either player can pick any of them, so the icon alone
+    // does not say whose climber this is (§4 — never colour alone, but never
+    // *only* the shape either when both players might pick the same one).
     ctx.fillStyle = body;
-    ctx.beginPath(); ctx.ellipse(cx, y, 15, 18, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#fff';
-    ctx.beginPath(); ctx.arc(cx - 5, y - 5, 3.2, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(cx + 5, y - 5, 3.2, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(cx, y, 17, 19, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,.35)'; ctx.lineWidth = 2; ctx.stroke();
+    if (icon) {
+        ctx.font = '24px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(icon, cx, y + 1);
+    } else {
+        ctx.fillStyle = '#fff';
+        ctx.beginPath(); ctx.arc(cx - 5, y - 5, 3.2, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(cx + 5, y - 5, 3.2, 0, Math.PI * 2); ctx.fill();
+    }
     ctx.restore();
     if (dazed) {
         ctx.strokeStyle = '#fbbf24'; ctx.lineWidth = 3;

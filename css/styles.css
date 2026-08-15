@@ -148,28 +148,35 @@ body, html {
 @keyframes pulse { 0%, 100% { opacity: 1 } 50% { opacity: .55 } }
 
 /* Actions */
-/* The turn controls live in a tall stack down the acting player's RIGHT half,
-   not in a thin strip across the bottom. Two reasons: it is where the thumb
-   already is on a phone, and at this size ITEMS is impossible to miss — a row
-   of small equal buttons made the bag look like a footnote, and players were
-   finishing matches without ever opening it.
+/* The turn controls are a column of SQUARES down the acting player's right
+   side, vertically centred rather than parked in the bottom corner. Square
+   because a full-width row of pills ate half the board while saying no more
+   than an icon and a word does; centred because the middle of the right edge is
+   the easiest place on a phone to reach without shifting your grip.
 
    `column-reverse` puts ROLL nearest the player's own edge in every hold: P1
    reads bottom-up from the bottom edge, and P2's stack is rotated a half turn
    in tabletop so it reads the same way from theirs. */
 .action-row {
-    position: absolute; right: 10px; left: auto;
-    display: none; flex-direction: column-reverse; gap: 9px;
-    width: 46%; max-width: 210px; min-width: 150px;
+    position: absolute; right: 12px; left: auto;
+    top: 50%; transform: translateY(-50%);
+    display: none; flex-direction: column-reverse; gap: 10px;
+    width: 86px;
     pointer-events: auto; z-index: 20;
 }
 /* Tabletop: P2 faces the other way, so their right hand is the screen's left. */
-.tabletop-mode #p2-actions { left: 10px; right: auto; transform: rotate(180deg); }
+.tabletop-mode #p2-actions {
+    left: 12px; right: auto;
+    transform: translateY(-50%) rotate(180deg);
+}
 .btn-action {
     background: rgba(0,0,0,.6); border: 2px solid rgba(255,255,255,.4); color: #fff;
-    font-size: 20px; letter-spacing: .5px; padding: 15px 12px; border-radius: 16px;
-    cursor: pointer; width: 100%; white-space: nowrap; text-align: center;
+    width: 86px; height: 86px; padding: 0; border-radius: 22px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+    letter-spacing: .5px; cursor: pointer; white-space: nowrap; text-align: center;
 }
+.btn-action .ba-ic { font-size: 27px; line-height: 1; }
+.btn-action .ba-tx { font-size: 14px; line-height: 1; }
 .btn-action:active { transform: scale(.96); }
 .btn-action.roll-btn { background: linear-gradient(135deg, #d4960e, var(--gold)); color: #000; font-weight: bold; border: none; box-shadow: 0 4px 15px rgba(245,200,66,.6); }
 .btn-action.map-btn { background: linear-gradient(135deg, #1e3a8a, #3b82f6); color: #fff; border: none; box-shadow: 0 4px 15px rgba(59,130,246,.5); }
@@ -929,10 +936,10 @@ body { overscroll-behavior: none; -webkit-overflow-scrolling: auto; }
     text-shadow: 0 1px 0 rgba(255,255,255,0.35);
     box-shadow: 0 6px 26px rgba(245,200,66,0.58), 0 0 0 1px rgba(245,200,66,0.28), inset 0 1px 0 rgba(255,255,255,0.32) !important;
     letter-spacing: 1px;
-    /* The one you press every turn, so it is the one that is bigger. */
-    font-size: 25px !important;
-    padding: 19px 12px !important;
 }
+/* The one you press every turn, so it stays the loudest square in the stack. */
+.btn-action.roll-btn .ba-ic { font-size: 33px; }
+.btn-action.roll-btn .ba-tx { font-size: 17px; }
 /* The bag is the button players forget exists. A live count on it is the
    reminder — and it greys out honestly when there is nothing to use. */
 .btn-action.items-btn { background: linear-gradient(145deg, #3b1d63, #6d3fae) !important; border: none !important; }
