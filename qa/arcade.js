@@ -113,8 +113,8 @@ const PER_GAME = parseInt(process.argv[2] || '90', 10);
     // This driver taps at random. That is a fair opponent for a game of reflex
     // or aim, and a hopeless one for a game of memory: clearing twelve pairs by
     // chance alone takes far longer than any sane budget, which is exactly the
-    // property that makes Memory Match a memory game. It is covered instead by
-    // qa/botcheck.js, where the real bot clears the board in 88-96 s.
+    // property that makes Memory Match a memory game. Covered instead by
+    // qa/memorymatch.js, which plays it against the real bot.
     const RANDOM_CANNOT_FINISH = new Set(['memorymatch']);
     const unfinished = results.filter(r => !r.resolved);
     const failed = unfinished.filter(r => !RANDOM_CANNOT_FINISH.has(r.type)).map(r => r.type);
@@ -123,7 +123,7 @@ const PER_GAME = parseInt(process.argv[2] || '90', 10);
     console.log('\n--- SUMMARY ---');
     console.log('unresolved:', failed.length ? failed.join(', ') : 'none');
     if (excused.length) {
-        console.log('random play cannot finish (by design):', excused.join(', '), '— covered by qa/botcheck.js');
+        console.log('random play cannot finish (by design):', excused.join(', '), '— covered by qa/memorymatch.js');
     }
     console.log('with errors:', withErrs.length ? withErrs.join(', ') : 'none');
     console.log('mesh count drift:', results.map(r => r.type + '=' + r.census.meshes).join(' '));

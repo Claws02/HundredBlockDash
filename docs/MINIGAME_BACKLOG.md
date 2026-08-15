@@ -338,6 +338,26 @@ Every one of these was tuned against `qa/botcheck.js`, and every one moved:
   by screenshot, not by any assertion — worth remembering that the arcade sweep
   and botcheck both passed while a prompt was invisible.
 
+### Tree Climb's leaves were a metronome
+
+The side of each new leaf was drawn at random and then passed through a guard
+meant to stop three of the same side running. The guard compared the new side
+against *the side just jumped to* — which, because the jump had already copied
+it, was always the current side. So the guard fired every time and the tree came
+out as a perfect left-right-left ladder. It read as random in the source and was
+completely predictable on the screen.
+
+It is now a real draw against the last two branches placed, so runs of two are
+common and only runs of three are excluded. `qa/treeclimb.js` checks the
+sequence for the properties randomness actually has, by reading the lit leaf off
+the canvas rather than by trusting the code.
+
+The same rewrite made the ladder **persist**: branches are remembered rather than
+recomputed from a formula, which is what allows a missed grab to drop you to the
+last branch on the side you jumped at and then have you climb the same ladder
+back up. A miss costs height now instead of a moment — measured, that made the
+climb long enough that the target came down from 22 branches to 18.
+
 ### Deliberate exception to the 15–40 s target
 
 Memory Match's ceiling is 58 s and Four in a Row's is 52 s. Both are stated

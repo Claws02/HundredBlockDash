@@ -35,15 +35,17 @@ const MAX_PAYOUT  = 30;              // R6b cap, matching the other coin games
 // This is the roster's deliberate slow beat and it sits above the 15–40 s
 // target in §3, as Four in a Row does at 52 s. That is a considered exception,
 // not an oversight: a memory game with fewer cards is not a memory game.
-const SHOT_CLOCK  = 4;               // s per move; expiring flips for you
 const PEEK_MS     = 680;             // how long a non-matching pair stays face up
-// No match clock. This game ends when the board is empty and not before —
-// stopping a memory game on a timer means the pairs you had worked out never
-// get cashed in, which is the only reason to be playing it.
+// No clocks of any kind. This game ends when the board is empty and not before,
+// and nobody is hurried toward it: stopping a memory game on a timer means the
+// pairs you had worked out never get cashed in, and a per-move clock that flips
+// a card FOR you throws away the one decision the game is made of.
 //
-// The shot clock is what guarantees it still terminates: a move is always made,
-// by you or for you, every 4 seconds, and every move that matches removes two
-// cards for good. The board cannot stall.
+// What that costs: the game no longer advances on its own if a player simply
+// stops playing. That is the accepted trade — the manager's watchdog
+// (MG_WATCHDOG_MS) is the backstop for a table that walks away, and every move
+// that matches still removes two cards permanently, so a played game always
+// terminates.
 
 // Twelve faces, each drawn with 180° rotational symmetry.
 const FACES = ['circle', 'ring', 'square', 'diamond', 'star4', 'star6',
@@ -59,7 +61,6 @@ let _W = 0, _H = 0;
 let _cards = null;          // [{ face, taken, up, flip }]
 let _turn = 0;
 let _sel = [];              // indices face-up this move
-let _clock = SHOT_CLOCK;
 let _busy = false;          // resolving a pair; input closed
 let _pairs = [0, 0];
 let _coins = [0, 0];
@@ -82,7 +83,7 @@ export function start(isBot, onWin, botSkill = 0.55) {
     _done = false; _onWin = onWin; _isBot = isBot; _botSkill = botSkill;
     _cards = _deal();
     _turn = Math.random() < 0.5 ? 0 : 1;
-    _sel = []; _clock = SHOT_CLOCK; _busy = false;
+    _sel = []; _busy = false;
     _pairs = [0, 0]; _coins = [0, 0];
     _botMem = new Map(); _botTimer = null;
     _flashIdx = -1; _flashT = 0;
@@ -186,7 +187,6 @@ function _pick(i) {
             _flashIdx = i; _flashT = 0;
             _sel = _sel.filter(x => x !== i);
             _busy = false;
-            _clock = SHOT_CLOCK;
             sfx('coin_gain'); haptic('heavy');
             _announce(`🪙 JACKPOT! +${COIN_JACK} — GO AGAIN`);
             if (_isBot && _turn === 1) _scheduleBot();
@@ -210,7 +210,7 @@ function _resolve() {
             _coins[_turn] += COIN_PAIR;
             _botMem.delete(a); _botMem.delete(b);
             sfx('coin_gain'); haptic([18, 40, 18]);
-            _sel = []; _busy = false; _clock = SHOT_CLOCK;
+            _sel = []; _busy = false;
             if (_cards.every(c => c.taken)) { _finishOnScore(); return; }
             _announce('MATCH! GO AGAIN');
             if (_isBot && _turn === 1) _scheduleBot();
@@ -219,7 +219,7 @@ function _resolve() {
             _cards[a].flip = 0.0001; _cards[b].flip = 0.0001;
             sfx('land_bad');
             _sel = []; _busy = false;
-            _turn = 1 - _turn; _clock = SHOT_CLOCK;
+            _turn = 1 - _turn;
             _announce();
         }
     }, hit ? 420 : PEEK_MS);
@@ -304,21 +304,6 @@ function _tick(now) {
 
     for (const c of _cards) if (c.flip > 0) { c.flip += dt * 6.5; if (c.flip >= 1) c.flip = 0; }
     if (_flashIdx >= 0) { _flashT += dt; if (_flashT > 0.9) _flashIdx = -1; }
-
-    if (!_busy) {
-        _clock -= dt;
-        if (_clock <= 0) {
-            _clock = SHOT_CLOCK;
-            // Running the clock out doesn't skip you — it turns a card for you,
-            // so the board always keeps moving and a distracted player only
-            // loses the choice, not the turn.
-            if (!(_isBot && _turn === 1)) {
-                const hidden = [];
-                for (let i = 0; i < _cards.length; i++) if (!_cards[i].taken && !_cards[i].up) hidden.push(i);
-                if (hidden.length) { sfx('countdown'); _pick(hidden[Math.floor(Math.random() * hidden.length)]); }
-            }
-        }
-    }
 
     _draw();
 }
@@ -471,13 +456,14 @@ function _hud(pid) {
     // answered on both sides.
     ctx.font = '900 16px "Bebas Neue", sans-serif';
     ctx.fillStyle = mine ? color : 'rgba(255,255,255,.22)';
-    ctx.fillText(mine ? `YOUR MOVE — ${Math.ceil(Math.max(0, _clock))}s` : 'WAITING…', _W / 2, _H - 72);
+    ctx.fillText(mine ? 'YOUR MOVE' : 'WAITING…', _W / 2, _H - 72);
 
+    // A steady underline on the player to move, in place of the countdown bar.
+    // It marks whose go it is without implying a deadline.
     if (mine) {
         const bw = Math.min(_W * 0.46, 200), bx = (_W - bw) / 2;
-        ctx.fillStyle = 'rgba(255,255,255,.12)'; ctx.fillRect(bx, _H - 60, bw, 4);
-        ctx.fillStyle = _clock <= 2.5 ? '#ef4444' : color;
-        ctx.fillRect(bx, _H - 60, bw * Math.max(0, _clock / SHOT_CLOCK), 4);
+        ctx.fillStyle = color;
+        ctx.fillRect(bx, _H - 60, bw, 4);
     }
 }
 

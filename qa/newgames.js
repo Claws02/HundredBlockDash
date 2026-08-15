@@ -94,7 +94,23 @@ async function waitResult(page, budgetMs, tickFn) {
         await page.mouse.up();
     }
 
-    // ══════════════ FOUR IN A ROW — does the bot beat random play? ══════════════
+    // ══════ FOUR IN A ROW — no clock on the move, and the bot still wins ══════
+    {
+        // The shot clock is gone, so nothing may play a move for the player.
+        // Left alone on P1's turn the board must sit exactly where it is.
+        await launch(page, 'fourinarow', 0.85);
+        // Wait out any bot move first, so we are certainly on P1's turn.
+        await page.waitForTimeout(3000);
+        const before = await page.evaluate(() => (document.getElementById('mg-neutral') || {}).textContent);
+        await page.waitForTimeout(13000);       // twice the old 5 s clock, and then some
+        const after = await page.evaluate(() => (document.getElementById('mg-neutral') || {}).textContent);
+        const res = await result(page);
+        ok('fourinarow: no shot clock — a move is never played for you',
+           before === after && !res, `"${before}" → "${after}"`);
+        ok('fourinarow: and no countdown is drawn on the player',
+           !/\d+s/.test(after || ''), `"${after}"`);
+    }
+
     // A connect-4 bot that never loses to a random opponent is the minimum bar.
     // Anything less means the win/block detection is broken.
     {

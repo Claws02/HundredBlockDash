@@ -109,12 +109,17 @@ const TIERS = [['easy', 0.25], ['hard', 0.85]];
     }
 
     fs.writeFileSync(path.join(__dirname, 'result-botcheck.json'), JSON.stringify(rows, null, 2));
-    // Penalty has no shot clock: a kick is taken when the taker is ready, and
-    // this probe supplies no taker. Its half of the game genuinely never
-    // advances here, and that is the design rather than a hang — the manager's
-    // watchdog is the backstop for a table that walks away. Everything else must
-    // still carry itself to a result unattended.
-    const NEEDS_A_HUMAN = new Set(['penalty']);
+    // Three games have no clock on the player's move by design: a penalty is
+    // taken when the taker is ready, and neither Memory Match nor Four in a Row
+    // will play a move for you. This probe supplies no player, so their half of
+    // the game genuinely never advances here — that is the design rather than a
+    // hang, and the manager's watchdog is the backstop for a table that walks
+    // away. Everything else must still carry itself to a result unattended.
+    //
+    // The trade is real and worth naming: these three lost their "resolves with
+    // nobody playing" guarantee when their clocks came out. `qa/arcade.js` is
+    // what covers them now, because it actually taps.
+    const NEEDS_A_HUMAN = new Set(['penalty', 'memorymatch', 'fourinarow']);
     const waiting = rows.filter(r => !r.resolved && NEEDS_A_HUMAN.has(r.type));
     const hung = rows.filter(r => !r.resolved && !NEEDS_A_HUMAN.has(r.type));
     const withErrs = rows.filter(r => r.errors.length);
@@ -127,7 +132,7 @@ const TIERS = [['easy', 0.25], ['hard', 0.85]];
     console.log('never resolved without a human:', hung.length ? hung.map(r => `${r.type}/${r.tier}`).join(', ') : 'none');
     if (waiting.length) {
         console.log('waits for a human by design (not a hang):',
-            waiting.map(r => `${r.type}/${r.tier}`).join(', '), '— covered by qa/newgames.js');
+            waiting.map(r => `${r.type}/${r.tier}`).join(', '), '— covered by qa/arcade.js, qa/memorymatch.js and qa/newgames.js');
     }
     console.log('errors:', withErrs.length ? withErrs.map(r => `${r.type}/${r.tier}(${r.errors.length})`).join(', ') : 'none');
     console.log('bot lost every hard run (check tuning):', botNeverWins.length ? botNeverWins.join(', ') : 'none');

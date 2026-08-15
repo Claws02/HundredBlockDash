@@ -31,6 +31,8 @@ cd qa
 | `node arcade.js` | Launches every registered minigame from the arcade, plays each with synthetic input in **both** halves, checks each resolves and cleans up. Budget is 90s/game, or the game's own `MG_WATCHDOG_MS` where it declares a longer one. | ~20 min |
 | `node earlytap.js` | Hammers both halves from frame 0 after GO on every game — catches state-not-ready races (found QA-016). | ~8 min |
 | `node botcheck.js 65` | Drives each game's bot branch at easy and hard with **no human input at all**. Flags games that only end when a human plays, and bots that lose every hard run. | ~30 min |
+| `node treeclimb.js` | Reads the lit leaf off the canvas over a 16-branch climb: the sides must not strictly alternate, must never run three deep, and a wrong grab must drop you to the last branch on that side. | ~1 min |
+| `node memorymatch.js` | Left alone for 14 s nothing turns itself over; then plays it out (memoryless P1 vs the real bot) to prove a clockless board still empties. | ~2 min |
 | `node steering.js` | Light Cycles: drives a real joystick drag in each half and checks the cycle travels the way it was pushed — all four directions, both players. | ~2 min |
 | `node inventory.js` | The bag-full discard picker on all three entry paths (mystery, shop purchase, pass-through shop) + minigame rotation over three full cycles. | ~2 min |
 | `node cityprogress.js [secs]` | Samples board turns and completed rounds on a City match every 30 s. Answers "is it slow or is it stuck?" — a stall shows as a flat run, a long game as a steady climb. | as asked |
