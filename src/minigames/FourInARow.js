@@ -8,8 +8,8 @@
 //
 // The board is drawn once, in the middle, with a column of drop buttons along
 // EACH player's edge — so both of you read the same grid from your own side and
-// neither has to reach across. A shot clock keeps it inside the arcade's time
-// budget: run it down and the move is made for you.
+// neither has to reach across. Take as long as you like over a move — there is
+// no clock on this one.
 //
 // Bot: a shallow search that always takes an immediate win and always blocks an
 // immediate loss, with a skill-scaled chance of missing that it would otherwise
@@ -27,17 +27,15 @@ import { registerMinigameCleanup } from './MinigameManager.js';
 // 15–40 s slot.
 const COLS       = 6;
 const ROWS       = 5;
-// Measured: at a 9 s clock the harness took 101 s to fill the board, far past
-// the arcade's 15–40 s window. 6 s is still a comfortable think for a game
-// everybody already knows, and it keeps a full 42-disc game inside a minute.
-const SHOT_CLOCK = 5;      // s per move; expiring plays a reasonable move for you
-// No match clock. The game ends when somebody connects four or the board fills,
-// and not on a stopwatch — calling a draw over a position one of you was about
-// to win is the worst possible ending for a game of this shape.
+// No clocks of any kind — neither a shot clock nor a match clock. Playing a move
+// FOR somebody in a thinking game takes away the only thing they are there to
+// do, and calling a draw on a stopwatch over a position one of you was about to
+// win is the worst possible ending for a game of this shape.
 //
-// It terminates by construction: 30 cells, every move fills one permanently, and
-// the shot clock guarantees a move every 5 s whether or not anybody presses
-// anything. Worst case is 30 moves.
+// What that costs: the board no longer advances on its own if a player stops
+// playing. Accepted — the manager's watchdog (MG_WATCHDOG_MS) is the backstop,
+// and every move fills one of 30 cells permanently, so a played game always
+// terminates in at most 30 moves.
 const DROP_TIME  = 0.26;   // s for a disc to fall into place
 
 // ── Module state ────────────────────────────────────────────────────────────
@@ -47,7 +45,6 @@ let _af = null, _last = 0, _elapsed = 0;
 let _W = 0, _H = 0;
 let _board = null;              // Int8Array COLS*ROWS: 0 empty, 1 P1, 2 P2
 let _turn = 0;                  // whose move
-let _clock = SHOT_CLOCK;
 let _drop = null;               // { col, row, pid, t } animation in flight
 let _winLine = null;            // [[c,r] × 4] once somebody connects
 let _lockUntil = 0;
@@ -68,7 +65,7 @@ export function start(isBot, onWin, botSkill = 0.55) {
     _done = false; _onWin = onWin; _isBot = isBot; _botSkill = botSkill;
     _board = new Int8Array(COLS * ROWS);
     _turn = Math.random() < 0.5 ? 0 : 1;
-    _clock = SHOT_CLOCK; _drop = null; _winLine = null;
+    _drop = null; _winLine = null;
     _last = 0; _elapsed = 0; _lockUntil = 0; _botTimer = null;
     registerMinigameCleanup(_destroy);   // R3
     _build();
@@ -170,7 +167,6 @@ function _settleDrop() {
     if (line) { _winLine = line; _after(() => _finish(pid), 1500); sfx('mg_win'); haptic('heavy'); return; }
     if (_board.every(v => v !== 0)) { _after(() => _finish(-1), 1200); return; }
     _turn = 1 - _turn;
-    _clock = SHOT_CLOCK;
     _lockUntil = performance.now() + 220;   // brief lock so one finger can't play both moves
     _announceTurn();
 }
@@ -269,21 +265,6 @@ function _tick(now) {
     if (_drop) {
         _drop.t += dt;
         if (_drop.t >= DROP_TIME) _settleDrop();
-    } else if (!_winLine) {
-        // Shot clock. Running it out doesn't skip your turn — it plays the move
-        // the bot would have played, so a distracted player loses tempo, not the
-        // game, and the round always keeps moving.
-        _clock -= dt;
-        if (_clock <= 0) {
-            _clock = SHOT_CLOCK;
-            if (!(_isBot && _turn === 1)) {
-                const save = _botSkill; _botSkill = 0.5;
-                const col = _botMove();
-                _botSkill = save;
-                _play(col, _turn);
-                sfx('countdown');
-            }
-        }
     }
 
     _draw();
@@ -370,20 +351,20 @@ function _drawSide(pid, w, h, g) {
     }
     ctx.globalAlpha = 1;
 
-    // Name, and the shot clock while it is your move.
+    // Name, and whether it is your move.
     ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
     ctx.font = '900 20px "Bebas Neue", sans-serif';
     ctx.fillStyle = mine ? color : 'rgba(255,255,255,.35)';
-    const label = mine ? `YOUR MOVE — ${Math.ceil(Math.max(0, _clock))}s` : 'WAITING…';
+    const label = mine ? 'YOUR MOVE' : 'WAITING…';
     ctx.fillText(label, w / 2, h - 52);
 
     // Shot-clock bar, so the pressure is visible and not just a number.
+    // A steady underline marks whose move it is, where the countdown bar used
+    // to be — the same signal without the deadline.
     if (mine) {
         const bw = Math.min(w * 0.5, 220), bh = 5;
-        const bx = (w - bw) / 2, by = h - 46;
-        ctx.fillStyle = 'rgba(255,255,255,.12)'; ctx.fillRect(bx, by, bw, bh);
-        ctx.fillStyle = _clock <= 3 ? '#ef4444' : color;
-        ctx.fillRect(bx, by, bw * Math.max(0, _clock / SHOT_CLOCK), bh);
+        ctx.fillStyle = color;
+        ctx.fillRect((w - bw) / 2, h - 46, bw, bh);
     }
 }
 

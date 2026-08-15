@@ -19,15 +19,22 @@ import { sfx, haptic } from '../engine/AudioManager.js';
 import { registerMinigameCleanup } from './MinigameManager.js';
 
 // ── Tunables ────────────────────────────────────────────────────────────────
-const TARGET      = 22;     // branches to the top
+// 18, down from 22. A wrong tap now costs height rather than a moment, so the
+// same number of branches is a materially longer climb: measured, an easy bot
+// was still short of 22 when the 40 s ceiling arrived. 18 lands both tiers
+// inside the budget with the top still reachable.
+const TARGET      = 18;     // branches to the top
 // 1 per branch, not 2: at 2 the winner hit the 30 cap every single time, which
 // made the payout a flat number instead of a record of how far you got.
 const COIN_PER    = 1;      // coins banked per branch
 const MAX_PAYOUT  = 30;     // R6b: cap it, matching Loot Catch's ceiling
-const SLIP_MS     = 620;    // stun after a wrong tap
 const MATCH_TIME  = 40;     // s ceiling; tallest climber takes it
-const RISE_TIME   = 0.17;   // s of swing animation per branch
+const RISE_TIME   = 0.20;   // s of the jump up onto a leaf
+const FALL_PER    = 0.16;   // s per branch dropped when you grab the wrong side
+const RECOVER_MS  = 170;    // brief hold after landing a fall
 const SPACING     = 74;     // px between branches on the drawn stem
+const PERCH_DX    = 30;     // px the climber sits off-centre, onto its branch
+const HOP_H       = 22;     // px of arc above the line during a jump
 
 // ── Module state ────────────────────────────────────────────────────────────
 let _done = false, _onWin = null, _isBot = false, _botSkill = 0.55;
@@ -47,17 +54,42 @@ function _after(fn, ms) {
     return id;
 }
 
+// The stem is a ladder of branches that PERSISTS. `branches[i]` is the side of
+// the i-th branch from the ground, and the invariant is that there is always
+// exactly one more branch than you have climbed — `branches[height]` is the leaf
+// you are reading right now. Falling doesn't delete the branches above you; you
+// climb the same ladder back up, which is why the sides have to be remembered
+// rather than recomputed.
 function _newClimber() {
-    return {
-        height: 0,          // branches climbed
-        side: Math.random() < 0.5 ? -1 : 1,   // where the current leaf grew: -1 left, +1 right
-        rise: 0,            // 0..1 swing progress, 0 when standing
-        slipUntil: 0,       // performance.now() while stunned
-        shake: 0,           // px of wobble after a slip, decays
+    const c = {
+        height: 0,          // branches climbed; you stand on branches[height-1]
+        best: 0,            // deepest height reached — coins bank off this
+        branches: [],       // side of every branch placed, ground upward
+        perch: 0,           // side you are standing on (0 = the ground)
+        anim: null,         // { kind:'rise'|'fall', from, to, fromX, toX, t, dur }
+        holdUntil: 0,       // performance.now() during the recovery after a fall
+        shake: 0,
         coins: 0,
-        lastSide: 0,
+        falls: 0,
     };
+    c.branches.push(_nextSide(c));
+    return c;
 }
+
+// Genuinely random, with one restriction: never a third of the same side in a
+// row. The old rule read the side you had *just jumped to*, which was always the
+// current side by the time it ran — so it flipped every single time and the tree
+// was a perfect left-right-left ladder. Runs of two are now common and are what
+// make the read worth doing.
+function _nextSide(c) {
+    let s = Math.random() < 0.5 ? -1 : 1;
+    const n = c.branches.length;
+    if (n >= 2 && c.branches[n - 1] === c.branches[n - 2] && s === c.branches[n - 1]) s = -s;
+    return s;
+}
+
+// The leaf currently showing: always the next branch up the ladder.
+function _pending(c) { return c.branches[c.height]; }
 
 // ── Lifecycle ───────────────────────────────────────────────────────────────
 export function start(isBot, onWin, botSkill = 0.55) {
@@ -125,36 +157,59 @@ function _resize() {
 // ── Moves ───────────────────────────────────────────────────────────────────
 function _tap(pid, side) {
     const c = _p[pid];
-    if (!c || c.rise > 0) return;                       // already swinging
-    if (performance.now() < c.slipUntil) return;        // still stunned
+    if (!c || c.anim) return;                           // mid jump or mid fall
+    if (performance.now() < c.holdUntil) return;        // still picking yourself up
     if (c.height >= TARGET) return;
 
-    if (side !== c.side) {
-        c.slipUntil = performance.now() + SLIP_MS;
-        c.shake = 9;
-        sfx('land_bad');
-        if (pid === 0) haptic([26, 40, 26]);
+    if (side === _pending(c)) {
+        // Jump: arc from the branch you're on onto the leaf you just picked.
+        c.anim = { kind: 'rise', from: c.height, to: c.height + 1,
+                   fromX: c.perch, toX: side, t: 0, dur: RISE_TIME };
+        sfx('seq_lit');
+        if (pid === 0) haptic([12]);
         return;
     }
-    c.rise = 0.0001;                                    // start the swing
-    c.lastSide = c.side;
-    sfx('seq_lit');
-    if (pid === 0) haptic([12]);
+
+    // Wrong side. You jumped at thin air on THAT side, so you drop to the last
+    // branch that was actually placed there — searched strictly below the one
+    // you're standing on, so a mistake always costs you height. If that side has
+    // nothing below you, it is all the way back to the ground.
+    let to = 0;
+    for (let i = c.height - 2; i >= 0; i--) {
+        if (c.branches[i] === side) { to = i + 1; break; }
+    }
+    c.falls++;
+    c.shake = 9;
+    c.anim = { kind: 'fall', from: c.height, to,
+               fromX: c.perch, toX: to > 0 ? c.branches[to - 1] : 0,
+               t: 0, dur: Math.max(0.18, (c.height - to) * FALL_PER) };
+    sfx('land_bad');
+    if (pid === 0) haptic([26, 40, 26]);
 }
 
-// The branch is reached: bank it, and only then grow the next leaf.
-function _land(pid) {
+// An animation finished — apply it.
+function _settle(pid) {
     const c = _p[pid];
-    c.rise = 0;
-    c.height++;
-    c.coins = Math.min(MAX_PAYOUT, c.height * COIN_PER);
-    // Never three of the same side in a row — a run of them stops being a read
-    // and becomes a metronome, which is a different (worse) game.
-    let next = Math.random() < 0.5 ? -1 : 1;
-    if (next === c.side && next === c.lastSide) next = -next;
-    c.side = next;
-    if (c.height >= TARGET) { _finish(pid); return; }
-    if (pid === 0) sfx('coin_gain');
+    const a = c.anim;
+    c.anim = null;
+    c.height = a.to;
+    c.perch  = a.toX;
+
+    if (a.kind === 'fall') {
+        c.holdUntil = performance.now() + RECOVER_MS;
+        return;                                        // coins already banked
+    }
+
+    // Landed a branch. Coins bank off the DEEPEST height reached, so a later
+    // fall never takes money back out of your pocket.
+    if (c.height > c.best) {
+        c.best = c.height;
+        c.coins = Math.min(MAX_PAYOUT, c.best * COIN_PER);
+        if (pid === 0) sfx('coin_gain');
+    }
+    // Keep exactly one leaf showing above the top of the ladder.
+    if (c.branches.length <= c.height) c.branches.push(_nextSide(c));
+    if (c.height >= TARGET) _finish(pid);
 }
 
 // ── Bot (§5) ────────────────────────────────────────────────────────────────
@@ -167,12 +222,13 @@ function _botReact() {
 
 function _botStep(dtMs) {
     const c = _p[1];
-    if (!c || c.rise > 0 || performance.now() < c.slipUntil || c.height >= TARGET) return;
+    if (!c || c.anim || performance.now() < c.holdUntil || c.height >= TARGET) return;
     _botDelay -= dtMs;
     if (_botDelay > 0) return;
     _botDelay = _botReact();
+    const want = _pending(c);
     const wrong = Math.random() < (0.30 - _botSkill * 0.28);   // 23% easy → 6% hard
-    _tap(1, wrong ? -c.side : c.side);
+    _tap(1, wrong ? -want : want);
 }
 
 // ── Loop (R1) ───────────────────────────────────────────────────────────────
@@ -185,9 +241,9 @@ function _tick(now) {
 
     for (let i = 0; i < 2; i++) {
         const c = _p[i];
-        if (c.rise > 0) {
-            c.rise += dt / RISE_TIME;
-            if (c.rise >= 1) _land(i);
+        if (c.anim) {
+            c.anim.t += dt / c.anim.dur;
+            if (c.anim.t >= 1) _settle(i);
         }
         if (c.shake > 0) c.shake = Math.max(0, c.shake - dt * 26);
     }
@@ -212,7 +268,9 @@ function _draw() {
 function _drawHalf(pid) {
     const ctx = _ctx, c = _p[pid];
     const halfTop = _H / 2;
-    const stunned = performance.now() < c.slipUntil;
+    const a = c.anim;
+    const falling = !!a && a.kind === 'fall';
+    const recovering = performance.now() < c.holdUntil;
 
     // The climber sits at a fixed height and the stem scrolls past, so the
     // sense of climbing comes from the world moving rather than from the
@@ -225,8 +283,12 @@ function _drawHalf(pid) {
     // own stem, and the brief is two of them.
     const cx  = _W * 0.37 + (c.shake ? Math.sin(performance.now() / 22) * c.shake : 0);
 
-    // Scroll offset: whole branches climbed, plus the partial swing.
-    const climbed = c.height + (c.rise > 0 ? _ease(c.rise) : 0);
+    // Visual height, which runs continuously through a jump or a fall so the
+    // stem scrolls with the movement instead of snapping at the end of it.
+    // A fall accelerates; a jump eases out at the top of its arc.
+    const t = a ? Math.min(1, a.t) : 0;
+    const p = a ? (a.kind === 'fall' ? t * t : _ease(t)) : 0;
+    const climbed = a ? a.from + (a.to - a.from) * p : c.height;
     const off = climbed * SPACING;
 
     // ── Stem ───────────────────────────────────────────────────────────────
@@ -246,25 +308,32 @@ function _drawHalf(pid) {
         ctx.beginPath(); ctx.moveTo(cx - 14, y); ctx.lineTo(cx + 12, y + 7); ctx.stroke();
     }
 
-    // ── Branches already climbed, scrolling down out of view ───────────────
-    for (let k = 0; k <= 4; k++) {
-        const idx = c.height - k;
-        if (idx < 1) break;
-        const y = meY + (climbed - idx) * SPACING;
-        if (y > _H + 40) continue;
-        _branch(ctx, cx, y, _sideOf(pid, idx), 0.5);
-    }
-
-    // ── The live leaf: the one thing the player is reading ─────────────────
-    if (c.height < TARGET) {
-        const y = meY - SPACING + (c.rise > 0 ? _ease(c.rise) * SPACING : 0);
-        const pulse = 0.75 + Math.sin(performance.now() / 180) * 0.25;
-        _branch(ctx, cx, y, c.side, 1, pulse);
+    // ── The ladder ─────────────────────────────────────────────────────────
+    // Every branch is drawn from the remembered side, not from a formula, so
+    // what you climbed back down to is what you climbed up. Only the leaf you
+    // are reading right now is lit; the rest are behind you or above you.
+    const lit = _pending(c);
+    const litIdx = c.height;
+    for (let i = Math.max(0, Math.floor(climbed) - 5); i < c.branches.length; i++) {
+        const y = meY + (climbed - (i + 1)) * SPACING;
+        if (y > _H + 60) continue;
+        if (y < halfTop - 60) break;
+        const live = i === litIdx && c.height < TARGET && !falling;
+        const pulse = live ? 0.75 + Math.sin(performance.now() / 180) * 0.25 : 1;
+        _branch(ctx, cx, y, c.branches[i], live ? 1 : (i < c.height ? 0.5 : 0.34), pulse);
     }
 
     // ── The climber ────────────────────────────────────────────────────────
-    const armSide = c.rise > 0 ? c.lastSide : 0;
-    _climber(ctx, cx, meY, pid, armSide, stunned);
+    // Sideways travel onto (or down to) the branch, with a hop over the top of
+    // a jump. This is the whole reason the jump reads as a jump: the character
+    // visibly leaves one branch and arrives on the one you pressed.
+    const fromX = a ? a.fromX * PERCH_DX : c.perch * PERCH_DX;
+    const toX   = a ? a.toX   * PERCH_DX : c.perch * PERCH_DX;
+    const meX   = cx + fromX + (toX - fromX) * (a ? _ease(t) : 0);
+    const hop   = a && a.kind === 'rise' ? -Math.sin(t * Math.PI) * HOP_H : 0;
+    const tumble = falling ? t * 5.2 : 0;
+    const armSide = a && a.kind === 'rise' ? a.toX : 0;
+    _climber(ctx, meX, meY + hop, pid, armSide, recovering, tumble);
     ctx.restore();
 
     // ── HUD at this player's edge ──────────────────────────────────────────
@@ -276,17 +345,17 @@ function _drawHalf(pid) {
     ctx.fillStyle = '#fcd34d';
     ctx.fillText(`🪙 ${c.coins}`, _W / 2, _H - 70);
 
-    if (stunned) {
+    if (falling || recovering) {
         ctx.font = '900 20px "Bebas Neue", sans-serif';
         ctx.fillStyle = '#ef4444';
-        ctx.fillText('SLIPPED!', _W / 2, _H - 124);
+        ctx.fillText('MISSED — FELL!', _W / 2, _H - 124);
     }
 
     // Left/right tap hints, lit on the side the leaf is on so the control and
     // the answer are never ambiguous — shape and position, not colour (§4).
     for (const s of [-1, 1]) {
         const bx = _W / 2 + s * (_W * 0.30);
-        const live = !stunned && c.rise === 0 && s === c.side;
+        const live = !a && !recovering && s === lit;
         ctx.globalAlpha = live ? 0.92 : 0.16;
         ctx.fillStyle = '#e7f6cf';
         ctx.beginPath();
@@ -297,10 +366,6 @@ function _drawHalf(pid) {
         ctx.globalAlpha = 1;
     }
 }
-
-// Deterministic side for an already-climbed branch, so the trail below the
-// climber doesn't flicker between frames.
-function _sideOf(pid, idx) { return ((idx * 7 + pid * 3) % 2) ? 1 : -1; }
 
 function _branch(ctx, cx, y, side, alpha, pulse = 1) {
     ctx.globalAlpha = alpha;
@@ -322,9 +387,13 @@ function _branch(ctx, cx, y, side, alpha, pulse = 1) {
     ctx.globalAlpha = 1;
 }
 
-function _climber(ctx, cx, y, pid, armSide, stunned) {
+function _climber(ctx, cx, y, pid, armSide, dazed, tumble = 0) {
     const body = pid === 0 ? '#ff5a5a' : '#5a9bff';
-    // Reaching arm, so the swing reads as an action rather than a teleport.
+    ctx.save();
+    // A fall tumbles. The rotation is around the body, so the arm and eyes go
+    // with it and it reads as losing your grip rather than sliding down.
+    if (tumble) { ctx.translate(cx, y); ctx.rotate(tumble); ctx.translate(-cx, -y); }
+    // Reaching arm, so the jump reads as an action rather than a teleport.
     if (armSide) {
         ctx.strokeStyle = body; ctx.lineWidth = 6; ctx.lineCap = 'round';
         ctx.beginPath(); ctx.moveTo(cx, y - 6); ctx.lineTo(cx + armSide * 40, y - 26); ctx.stroke();
@@ -334,7 +403,8 @@ function _climber(ctx, cx, y, pid, armSide, stunned) {
     ctx.fillStyle = '#fff';
     ctx.beginPath(); ctx.arc(cx - 5, y - 5, 3.2, 0, Math.PI * 2); ctx.fill();
     ctx.beginPath(); ctx.arc(cx + 5, y - 5, 3.2, 0, Math.PI * 2); ctx.fill();
-    if (stunned) {
+    ctx.restore();
+    if (dazed) {
         ctx.strokeStyle = '#fbbf24'; ctx.lineWidth = 3;
         for (let k = 0; k < 3; k++) {
             const a = performance.now() / 160 + k * 2.1;
@@ -379,20 +449,26 @@ function _round(ctx, x, y, w, h, r) {
 function _ease(t) { const x = Math.min(1, t); return 1 - (1 - x) * (1 - x); }
 
 // ── End (R6 / R6b) ──────────────────────────────────────────────────────────
+// Out of time with nobody at the top: the higher climber takes it. Reported as
+// what it is — the old copy said "REACHES THE TOP" for this too, which claimed
+// something that had plainly not happened.
 function _finishOnHeight() {
     const [a, b] = [_p[0].height, _p[1].height];
-    _finish(a === b ? -1 : (a > b ? 0 : 1));
+    _finish(a === b ? -1 : (a > b ? 0 : 1), true);
 }
 
-function _finish(winnerId) {
+function _finish(winnerId, onHeight = false) {
     if (_done) return;
     _done = true;
     state.mgActive = false;
     const neu = document.getElementById('mg-neutral');
     if (neu) {
+        const coins = `🪙 ${_p[0].coins} · ${_p[1].coins}`;
         neu.textContent = winnerId < 0
             ? `DEAD HEAT — ${_p[0].height} EACH`
-            : `P${winnerId + 1} REACHES THE TOP! 🪙 ${_p[0].coins} · ${_p[1].coins}`;
+            : onHeight
+                ? `TIME! P${winnerId + 1} CLIMBED HIGHEST — ${coins}`
+                : `P${winnerId + 1} REACHES THE TOP! ${coins}`;
     }
     sfx(winnerId < 0 ? 'land_bad' : 'mg_win');
     haptic('heavy');
