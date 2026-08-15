@@ -132,7 +132,7 @@ const TIERS = [['easy', 0.25], ['hard', 0.85]];
     console.log('never resolved without a human:', hung.length ? hung.map(r => `${r.type}/${r.tier}`).join(', ') : 'none');
     if (waiting.length) {
         console.log('waits for a human by design (not a hang):',
-            waiting.map(r => `${r.type}/${r.tier}`).join(', '), '— covered by qa/arcade.js and qa/newgames.js');
+            waiting.map(r => `${r.type}/${r.tier}`).join(', '), '— covered by qa/arcade.js, qa/memorymatch.js and qa/newgames.js');
     }
     console.log('errors:', withErrs.length ? withErrs.map(r => `${r.type}/${r.tier}(${r.errors.length})`).join(', ') : 'none');
     console.log('bot lost every hard run (check tuning):', botNeverWins.length ? botNeverWins.join(', ') : 'none');
