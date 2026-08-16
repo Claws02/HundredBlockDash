@@ -129,10 +129,18 @@ body, html {
 .tabletop-p2-turn #hbd-story-overlay > *,
 .tabletop-p2-turn #mg-intro-overlay #mg-intro-steps,
 .tabletop-p2-turn .map-panel,
-.tabletop-p2-turn #map-tooltip,
 .tabletop-p2-turn #round-counter,
 .tabletop-p2-turn #contracts-strip { transform: rotate(180deg); }
 .tabletop-p2-turn #round-counter { transform-origin: center; }
+/* The map's control panel is pinned to the bottom of the screen, which is
+   Player 1's edge. Turning it round in place still left P2 reaching across the
+   whole phone for the slider, so it moves to their end as well. */
+.tabletop-p2-turn #map-ui { justify-content: flex-start; padding-bottom: 0; padding-top: 32px; }
+/* The tooltip carries its own offset — it hangs ABOVE the tile you tapped, via
+   translate(-50%,-110%). The blanket rotate above replaced that transform
+   outright, so for P2 the card lost its offset and landed on top of the tile.
+   Rotate AND offset, to the side that is "above" from where P2 is sitting. */
+.tabletop-p2-turn #map-tooltip { transform: translate(-50%, 10%) rotate(180deg); }
 .hud-info { display: flex; flex-direction: column; gap: 2px; }
 .hud-name { font-size: 18px; letter-spacing: 2px; }
 .p1c { color: var(--p1); text-shadow: 0 0 10px var(--p1); }

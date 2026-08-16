@@ -540,6 +540,16 @@ function _distanceText(addr) {
     return `➜ ${ahead} space${ahead === 1 ? '' : 's'} ahead${reach}`;
 }
 
+// In tabletop mode on Player 2's turn the board canvas is turned a half turn by
+// CSS (`.tabletop-p2-turn #game-container canvas`) so P2 sees the board the right
+// way up from their end. The canvas pixels move; the pointer coordinates do not.
+// Anything that converts a screen position into a position ON the board has to
+// undo that rotation, or it works on the mirror image — which is why P2's drag
+// went the wrong way and tapping a tile either selected the wrong one or nothing.
+function _boardFlipped() {
+    return document.body.classList.contains('tabletop-p2-turn');
+}
+
 function _wireMapEvents() {
     const slider = document.getElementById('map-slider');
     slider.addEventListener('input', updateMapSlider);
@@ -559,8 +569,11 @@ function _wireMapEvents() {
 
     window.addEventListener('pointermove', e => {
         if (!mapCamera.dragging || state.gameState !== 'MAP') return;
-        const dx = e.clientX - mapCamera.dragStart.x;
-        const dy = e.clientY - mapCamera.dragStart.y;
+        // Drag the board the way the finger moves, in the direction the player
+        // is actually looking at it from.
+        const f  = _boardFlipped() ? -1 : 1;
+        const dx = (e.clientX - mapCamera.dragStart.x) * f;
+        const dy = (e.clientY - mapCamera.dragStart.y) * f;
         mapCamera.targetPos.copy(mapCamera.dragCamStart).add(new THREE.Vector3(-dx * 0.10, 0, -dy * 0.10));
         mapCamera.targetLook.copy(mapCamera.dragLookStart).add(new THREE.Vector3(-dx * 0.10, 0, -dy * 0.10));
     }, { passive: false });
@@ -574,8 +587,13 @@ function _wireMapEvents() {
         if (!wasTap) return;
 
         const W = window.innerWidth || 300, H = window.innerHeight || 500;
-        mouse.x = (e.clientX / W) * 2 - 1;
-        mouse.y = -(e.clientY / H) * 2 + 1;
+        // Undo the canvas's half turn before casting, or P2 picks the tile
+        // diagonally opposite the one they touched.
+        const flipped = _boardFlipped();
+        const px = flipped ? W - e.clientX : e.clientX;
+        const py = flipped ? H - e.clientY : e.clientY;
+        mouse.x = (px / W) * 2 - 1;
+        mouse.y = -(py / H) * 2 + 1;
         raycaster.setFromCamera(mouse, getCamera());
         const hits = raycaster.intersectObjects(getTileMeshes());
         const tt   = document.getElementById('map-tooltip');
@@ -613,9 +631,12 @@ function _wireMapEvents() {
                 (effect ? `<br><span class="map-effect">${effect}</span>` : '') +
                 (dist ? `<br><span class="map-range">${dist}</span>` : '');
             // The card is taller now that it carries an effect line, so keep it
-            // clear of both edges rather than only the bottom.
+            // clear of both edges rather than only the bottom. The control panel
+            // sits at whichever edge belongs to the player whose turn it is, so
+            // the bigger margin swaps ends with it.
+            const nearPad = flipped ? 90 : 170, farPad = flipped ? 170 : 90;
             tt.style.left = Math.min(Math.max(e.clientX, 140), W - 140) + 'px';
-            tt.style.top  = Math.min(Math.max(e.clientY, 170), H - 90) + 'px';
+            tt.style.top  = Math.min(Math.max(e.clientY, nearPad), H - farPad) + 'px';
             tt.style.display = 'block';
             clearTimeout(tt._hideTimer);
             tt._hideTimer = setTimeout(() => { tt.style.display = 'none'; }, 3000);
