@@ -6,9 +6,14 @@
 // one, so the game is never a memorised pattern — it is a read-and-react loop
 // that gets faster the higher you go.
 //
-// Tap the wrong side and you slip: a short stun, no height lost. Losing height
-// on a mistake would make an early stumble unrecoverable, and the arcade's
-// comeback rule (§3) says a behind player must still be able to win.
+// Grab the wrong side and you fall to the last branch actually placed on THAT
+// side — the ladder above you survives, so you climb the same branches back.
+// Coins bank off the deepest height you reached, so a fall costs you the race
+// but never your purse: the comeback rule (§3) is served by the money rather
+// than by making mistakes free.
+//
+// The climbers are the players' real 3D board pieces, rendered once at the start
+// of the round and drawn as sprites.
 //
 // COIN GAME (R6b): every branch pays, and both players keep what they climbed.
 // You are racing for the bonus, not for the right to be paid at all.
@@ -16,6 +21,7 @@
 
 import { state } from '../core/GameState.js';
 import { CHAR_ICONS } from '../config/GameConfig.js';
+import { createCharacterMesh } from '../engine/Renderer.js';
 import { sfx, haptic } from '../engine/AudioManager.js';
 import { registerMinigameCleanup } from './MinigameManager.js';
 
@@ -46,8 +52,77 @@ let _W = 0, _H = 0;
 // stun clocks, and the scrolling offset that makes the stem slide past.
 let _p = null;
 let _botDelay = 0;
+let _sprites = [null, null];      // the two climbers, pre-rendered from the 3D models
 const _cleanups = [];
 const _timers   = [];
+
+// ── The climbers are the real board pieces ──────────────────────────────────
+//
+// Each player's actual 3D character is rendered ONCE into an offscreen canvas at
+// the start of the round and then drawn as a sprite. Rendering it live would
+// mean holding a second WebGL context open for the whole game alongside the
+// board's, for a model that never changes shape — so the context is created,
+// used for two frames and released immediately.
+//
+// If anything here fails the game falls back to the flat emoji climber, because
+// a minigame that will not start is far worse than one drawn simply.
+function _renderCharSprites() {
+    const out = [null, null];
+    if (typeof THREE === 'undefined') return out;
+    let gl = null;
+    try {
+        const SIZE = 168;
+        gl = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        gl.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));   // R4
+        gl.setSize(SIZE, SIZE, false);
+        gl.setClearColor(0x000000, 0);
+
+        const scene = new THREE.Scene();
+        scene.add(new THREE.AmbientLight(0xffffff, 0.9));
+        const key = new THREE.DirectionalLight(0xffffff, 1.15);
+        key.position.set(2.5, 4, 3.5);
+        scene.add(key);
+        const rim = new THREE.DirectionalLight(0xbcd8ff, 0.5);
+        rim.position.set(-3, 2, -2);
+        scene.add(rim);
+        const cam = new THREE.PerspectiveCamera(30, 1, 0.1, 60);
+
+        for (let pid = 0; pid < 2; pid++) {
+            const p = state.players[pid];
+            const grp = createCharacterMesh(p?.charType || 'slime', p?.color ?? 0xffffff);
+            scene.add(grp);
+            // Frame whatever the model happens to be — they range from a squat
+            // slime to a banker in a top hat. Pulling back a fixed multiple of
+            // the model's height cropped the tall ones (the bunny lost its ears,
+            // the cabbie half its cap), so the distance is solved from the
+            // bounding SPHERE and the field of view, with a margin.
+            const box = new THREE.Box3().setFromObject(grp);
+            const sph = box.getBoundingSphere(new THREE.Sphere());
+            const mid = sph.center;
+            const dist = (sph.radius * 1.10) / Math.sin((cam.fov * Math.PI / 180) / 2);
+            cam.position.set(mid.x + dist * 0.16, mid.y + dist * 0.11, mid.z + dist);
+            cam.lookAt(mid);
+            gl.render(scene, cam);
+
+            const cv = document.createElement('canvas');
+            cv.width = gl.domElement.width; cv.height = gl.domElement.height;
+            cv.getContext('2d').drawImage(gl.domElement, 0, 0);
+            out[pid] = cv;
+
+            scene.remove(grp);
+            grp.traverse(n => {
+                if (n.geometry) n.geometry.dispose();
+                if (n.material) (Array.isArray(n.material) ? n.material : [n.material]).forEach(m => m.dispose());
+            });
+        }
+    } catch (e) {
+        return [null, null];
+    } finally {
+        // Hand the context straight back — the board needs it more than we do.
+        if (gl) { try { gl.forceContextLoss && gl.forceContextLoss(); } catch (e) {} gl.dispose(); }
+    }
+    return out;
+}
 
 function _after(fn, ms) {
     const id = setTimeout(() => { _timers.splice(_timers.indexOf(id), 1); fn(); }, ms);
@@ -99,6 +174,7 @@ export function start(isBot, onWin, botSkill = 0.55) {
     _p = [_newClimber(), _newClimber()];
     _last = 0; _elapsed = 0;
     _botDelay = _botReact();
+    _sprites = _renderCharSprites();
     registerMinigameCleanup(_destroy);           // R3
     _build();
     requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -228,7 +304,11 @@ function _botStep(dtMs) {
     if (_botDelay > 0) return;
     _botDelay = _botReact();
     const want = _pending(c);
-    const wrong = Math.random() < (0.30 - _botSkill * 0.28);   // 23% easy → 6% hard
+    // 15% easy → 5% hard. It was 23% easy, which was fine when a mistake cost a
+    // moment — now that it costs one or two branches the errors compound, and
+    // measured, the easy bot failed to reach the top inside the ceiling about
+    // half the time. The tiers still separate cleanly on climb rate.
+    const wrong = Math.random() < (0.20 - _botSkill * 0.18);
     _tap(1, wrong ? -want : want);
 }
 
@@ -397,6 +477,7 @@ function _charIcon(pid) {
 
 function _climber(ctx, cx, y, pid, armSide, dazed, tumble = 0) {
     const body = pid === 0 ? '#ff5a5a' : '#5a9bff';
+    const sprite = _sprites[pid];
     const icon = _charIcon(pid);
     ctx.save();
     // A fall tumbles. The rotation is around the body, so the arm and the
@@ -407,21 +488,33 @@ function _climber(ctx, cx, y, pid, armSide, dazed, tumble = 0) {
         ctx.strokeStyle = body; ctx.lineWidth = 6; ctx.lineCap = 'round';
         ctx.beginPath(); ctx.moveTo(cx, y - 6); ctx.lineTo(cx + armSide * 40, y - 26); ctx.stroke();
     }
-    // The player's colour stays as a disc behind the character: nine characters
-    // are choosable and either player can pick any of them, so the icon alone
-    // does not say whose climber this is (§4 — never colour alone, but never
-    // *only* the shape either when both players might pick the same one).
-    ctx.fillStyle = body;
-    ctx.beginPath(); ctx.ellipse(cx, y, 17, 19, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = 'rgba(0,0,0,.35)'; ctx.lineWidth = 2; ctx.stroke();
-    if (icon) {
-        ctx.font = '24px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
-        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText(icon, cx, y + 1);
+    if (sprite) {
+        // The real board piece. It is already built in the player's colour, so
+        // it says whose climber it is without needing a disc behind it.
+        // Sized and seated so the model's feet land on the branch rather than
+        // its bounding box centre — the frame carries a margin all round.
+        const h = 84, w = h * (sprite.width / sprite.height);
+        ctx.save();
+        ctx.shadowColor = 'rgba(0,0,0,.45)'; ctx.shadowBlur = 8; ctx.shadowOffsetY = 3;
+        ctx.drawImage(sprite, cx - w / 2, y - h * 0.70, w, h);
+        ctx.restore();
     } else {
-        ctx.fillStyle = '#fff';
-        ctx.beginPath(); ctx.arc(cx - 5, y - 5, 3.2, 0, Math.PI * 2); ctx.fill();
-        ctx.beginPath(); ctx.arc(cx + 5, y - 5, 3.2, 0, Math.PI * 2); ctx.fill();
+        // Fallback if the model could not be rendered: the player's colour as a
+        // disc with their character's icon on it. Nine characters are choosable
+        // by either player, so the icon alone cannot say whose climber this is
+        // (§4 — and never colour alone either).
+        ctx.fillStyle = body;
+        ctx.beginPath(); ctx.ellipse(cx, y, 17, 19, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = 'rgba(0,0,0,.35)'; ctx.lineWidth = 2; ctx.stroke();
+        if (icon) {
+            ctx.font = '24px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText(icon, cx, y + 1);
+        } else {
+            ctx.fillStyle = '#fff';
+            ctx.beginPath(); ctx.arc(cx - 5, y - 5, 3.2, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.arc(cx + 5, y - 5, 3.2, 0, Math.PI * 2); ctx.fill();
+        }
     }
     ctx.restore();
     if (dazed) {
@@ -504,5 +597,6 @@ function _destroy() {
     if (_af) { cancelAnimationFrame(_af); _af = null; }
     _ctx = null; _canvas = null;
     if (_overlay) { _overlay.remove(); _overlay = null; }
-    _p = null; _last = 0; _elapsed = 0; _W = 0; _H = 0;
+    _p = null; _sprites = [null, null];
+    _last = 0; _elapsed = 0; _W = 0; _H = 0;
 }

@@ -338,12 +338,25 @@ Every one of these was tuned against `qa/botcheck.js`, and every one moved:
   by screenshot, not by any assertion — worth remembering that the arcade sweep
   and botcheck both passed while a prompt was invisible.
 
-### Tree Climb wears your character
+### Tree Climb wears your character — the real one
 
-The climber is the character that player chose at the start of the match, drawn
-on a disc in their player colour. The colour stays because all nine characters
-are available to both players, so the icon alone cannot say whose climber it is
-— the pair of channels is what makes it readable either way (§4).
+The climbers are the players' **actual 3D board pieces**. Each one is rendered
+once at the start of the round through `Renderer.createCharacterMesh` into an
+offscreen canvas, then drawn as a sprite; the WebGL context is created, used for
+two frames and released immediately rather than held open alongside the board's
+for a model that never changes shape.
+
+Two things that needed care:
+
+- **Framing.** Pulling the camera back a fixed multiple of the model's height
+  cropped the tall ones — the bunny lost its ears, the cabbie half its cap. The
+  distance is solved from the model's bounding *sphere* and the field of view.
+- **Failure.** If WebGL is unavailable the game falls back to a flat disc in the
+  player's colour with the character's emoji on it. A minigame that will not
+  start is far worse than one drawn simply.
+
+The model is already built in the player's colour, so it carries whose climber
+it is without a disc behind it.
 
 It is the only minigame that does this so far. Worth considering for the others
 where a character would fit naturally (Sumo Spheres, Meteor Dodge, Grand Prix),
