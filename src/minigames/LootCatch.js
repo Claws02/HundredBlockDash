@@ -26,7 +26,11 @@ const SPAWN_START  = 0.62;   // s between spawns at the start (was 0.85)
 const SPAWN_END    = 0.34;   // s between spawns at the end   (was 0.42)
 const FALL_START   = 0.58;   // half-heights per SECOND at the start
 const FALL_END     = 1.05;   // half-heights per second at the end
-const BOMB_CHANCE  = 0.26;   // probability a spawned item is a bomb
+// 0.36, up from 0.26. Play-tested, the basket was never in real danger — you
+// could sweep the whole half collecting everything and simply never meet a
+// bomb often enough to have to choose. Better than one item in three is now a
+// hazard, so a greedy line across the screen actually costs you.
+const BOMB_CHANCE  = 0.36;   // probability a spawned item is a bomb
 const COIN_VALUE   = 1;
 const GEM_VALUE    = 3;      // rarer, worth three coins
 const GEM_CHANCE   = 0.14;   // share of non-bomb items that are gems
@@ -142,7 +146,9 @@ function _progress() { return Math.min(_t / GAME_TIME, 1); }
 function _update(dt) {
     const p = _progress();
     // Late "gold rush": coins become more common in the final stretch.
-    const bombChance = p > 0.75 ? BOMB_CHANCE * 0.5 : BOMB_CHANCE;
+    // The late gold rush still tilts toward coins, but less generously — at half
+    // the bomb rate the closing stretch was a free-for-all.
+    const bombChance = p > 0.75 ? BOMB_CHANCE * 0.72 : BOMB_CHANCE;
     const spawnEvery = SPAWN_START + (SPAWN_END - SPAWN_START) * p;
     const fallSpeed  = FALL_START + (FALL_END - FALL_START) * p;
 

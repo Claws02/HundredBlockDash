@@ -26,16 +26,17 @@ import { sfx, haptic } from '../engine/AudioManager.js';
 import { registerMinigameCleanup } from './MinigameManager.js';
 
 // ── Tunables ────────────────────────────────────────────────────────────────
-// 18, down from 22. A wrong tap now costs height rather than a moment, so the
-// same number of branches is a materially longer climb: measured, an easy bot
-// was still short of 22 when the 40 s ceiling arrived. 18 lands both tiers
-// inside the budget with the top still reachable.
-const TARGET      = 18;     // branches to the top
+// A RACE AGAINST THE CLOCK, not to a finish line. Whoever is highest when the
+// 30 s runs out takes it — there is no top to reach. First-to-N ended the moment
+// the leader arrived, which meant the trailing player's climb simply stopped
+// being counted, and a run of bad luck early was unrecoverable because the race
+// was over before they could make it back. On a clock every second is still
+// worth climbing for, right to the last one.
+const MATCH_TIME  = 30;     // s — the whole game
 // 1 per branch, not 2: at 2 the winner hit the 30 cap every single time, which
 // made the payout a flat number instead of a record of how far you got.
 const COIN_PER    = 1;      // coins banked per branch
 const MAX_PAYOUT  = 30;     // R6b: cap it, matching Loot Catch's ceiling
-const MATCH_TIME  = 40;     // s ceiling; tallest climber takes it
 const RISE_TIME   = 0.20;   // s of the jump up onto a leaf
 const FALL_PER    = 0.16;   // s per branch dropped when you grab the wrong side
 const RECOVER_MS  = 170;    // brief hold after landing a fall
@@ -236,7 +237,6 @@ function _tap(pid, side) {
     const c = _p[pid];
     if (!c || c.anim) return;                           // mid jump or mid fall
     if (performance.now() < c.holdUntil) return;        // still picking yourself up
-    if (c.height >= TARGET) return;
 
     if (side === _pending(c)) {
         // Jump: arc from the branch you're on onto the leaf you just picked.
@@ -286,7 +286,6 @@ function _settle(pid) {
     }
     // Keep exactly one leaf showing above the top of the ladder.
     if (c.branches.length <= c.height) c.branches.push(_nextSide(c));
-    if (c.height >= TARGET) _finish(pid);
 }
 
 // ── Bot (§5) ────────────────────────────────────────────────────────────────
@@ -299,7 +298,7 @@ function _botReact() {
 
 function _botStep(dtMs) {
     const c = _p[1];
-    if (!c || c.anim || performance.now() < c.holdUntil || c.height >= TARGET) return;
+    if (!c || c.anim || performance.now() < c.holdUntil) return;
     _botDelay -= dtMs;
     if (_botDelay > 0) return;
     _botDelay = _botReact();
@@ -399,7 +398,7 @@ function _drawHalf(pid) {
         const y = meY + (climbed - (i + 1)) * SPACING;
         if (y > _H + 60) continue;
         if (y < halfTop - 60) break;
-        const live = i === litIdx && c.height < TARGET && !falling;
+        const live = i === litIdx && !falling;
         const pulse = live ? 0.75 + Math.sin(performance.now() / 180) * 0.25 : 1;
         _branch(ctx, cx, y, c.branches[i], live ? 1 : (i < c.height ? 0.5 : 0.34), pulse);
     }
@@ -421,10 +420,19 @@ function _drawHalf(pid) {
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.font = '900 34px "Bebas Neue", sans-serif';
     ctx.fillStyle = pid === 0 ? '#ff6b6b' : '#6bb0ff';
-    ctx.fillText(`${c.height}/${TARGET}`, _W / 2, _H - 96);
+    // Height climbed, and the clock — the clock IS the finish line now, so it
+    // has to be the thing you can see from your own edge.
+    ctx.fillText(`${c.height}`, _W / 2 - 40, _H - 96);
+    const left = Math.max(0, MATCH_TIME - _elapsed);
+    ctx.fillStyle = left <= 5 ? '#ef4444' : 'rgba(255,255,255,.82)';
+    ctx.fillText(`${Math.ceil(left)}s`, _W / 2 + 44, _H - 96);
+    ctx.font = '800 11px "Nunito", system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,.42)';
+    ctx.fillText('BRANCHES', _W / 2 - 40, _H - 74);
+    ctx.fillText('LEFT', _W / 2 + 44, _H - 74);
     ctx.font = '800 14px "Nunito", system-ui, sans-serif';
     ctx.fillStyle = '#fcd34d';
-    ctx.fillText(`🪙 ${c.coins}`, _W / 2, _H - 70);
+    ctx.fillText(`🪙 ${c.coins}`, _W / 2, _H - 56);
 
     if (falling || recovering) {
         ctx.font = '900 20px "Bebas Neue", sans-serif';
@@ -538,15 +546,19 @@ function _drawDivider() {
     const bw = _W * 0.72, bx = (_W - bw) / 2;
     ctx.fillStyle = 'rgba(255,255,255,.10)';
     _round(ctx, bx, y - 7, bw, 14, 7); ctx.fill();
+    // With no finish line the bars are scaled to whoever is currently highest,
+    // so the gap between them is the thing being read rather than progress
+    // toward a number nobody is racing to.
+    const lead = Math.max(1, _p[0].height, _p[1].height);
     for (let i = 0; i < 2; i++) {
-        const f = Math.min(1, _p[i].height / TARGET);
+        const f = _p[i].height / lead;
         ctx.fillStyle = i === 0 ? 'rgba(255,90,90,.85)' : 'rgba(90,155,255,.85)';
-        _round(ctx, bx, y - 7 + i * 7, bw * f, 7, 3); ctx.fill();
+        _round(ctx, bx, y - 7 + i * 7, Math.max(2, bw * f), 7, 3); ctx.fill();
     }
     ctx.fillStyle = 'rgba(255,255,255,.85)';
     ctx.font = '900 12px "Bebas Neue", sans-serif';
     ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-    ctx.fillText('TOP', bx + bw + 6, y);
+    ctx.fillText(`${_p[0].height}–${_p[1].height}`, bx + bw + 6, y);
 }
 
 function _round(ctx, x, y, w, h, r) {
@@ -570,18 +582,18 @@ function _finishOnHeight() {
     _finish(a === b ? -1 : (a > b ? 0 : 1), true);
 }
 
+// Every finish is now on height — there is no top to reach — so the flag stays
+// only to keep the signature honest for a future finish-line variant.
 function _finish(winnerId, onHeight = false) {
     if (_done) return;
     _done = true;
     state.mgActive = false;
     const neu = document.getElementById('mg-neutral');
     if (neu) {
-        const coins = `🪙 ${_p[0].coins} · ${_p[1].coins}`;
+        const score = `${_p[0].height}–${_p[1].height}`;
         neu.textContent = winnerId < 0
-            ? `DEAD HEAT — ${_p[0].height} EACH`
-            : onHeight
-                ? `TIME! P${winnerId + 1} CLIMBED HIGHEST — ${coins}`
-                : `P${winnerId + 1} REACHES THE TOP! ${coins}`;
+            ? `TIME! DEAD HEAT — ${_p[0].height} BRANCHES EACH`
+            : `TIME! P${winnerId + 1} CLIMBED HIGHEST — ${score}`;
     }
     sfx(winnerId < 0 ? 'land_bad' : 'mg_win');
     haptic('heavy');

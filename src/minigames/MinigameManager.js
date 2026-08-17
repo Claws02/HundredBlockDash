@@ -65,6 +65,10 @@ const _minigameCleanups = [];
 // GOT IT before the intro advances. Without this the active player could tap
 // straight through the explanation of a game the other one has never seen.
 let _introReady = [false, false];
+// Arcade-only scoreline. Deliberately separate from anything the board reads:
+// player.coins and player.mgWins belong to a match and must not move here.
+let _arcadeWins  = [0, 0];
+let _arcadeDraws = 0;
 
 // Fifteen games write their clock and score into #mg-neutral with plain
 // textContent. Rather than change all of them, mirror the element: an observer
@@ -569,6 +573,13 @@ function _creditPayouts(payouts) {
 // behave exactly as before.
 export function winMinigame(winnerId, payouts) {
     if (_practiceMode) return _finishPractice(winnerId);
+    // The arcade is a place to play the minigames, not a way to earn. It used to
+    // run the full match payout — flat win reward, coin-game hauls, mgWins, the
+    // lot — straight onto the real players, and those totals STACKED across
+    // rounds because nothing reset them until a board match started. Playing the
+    // arcade for ten minutes and then starting a game handed somebody a fortune.
+    // It keeps a round tally instead and touches nothing the board cares about.
+    if (_standaloneMode) return _finishArcade(winnerId);
     // Guard against double-resolution. Don't key this off state.mgActive:
     // most minigames clear mgActive in their own _finish() before calling
     // onWin, which previously made this early-return and strand the result.
@@ -661,11 +672,23 @@ function _showScoreboard(winnerId, payouts, practice, done) {
     const scr = document.createElement('div');
     scr.className = 'mg-score-screen';
 
+    // `practice` doubles as the mode: 'arcade' shows a running scoreline and no
+    // money at all, because nothing was ever at stake there.
+    const arcade = practice === 'arcade';
+
     const cardsHTML = () => state.players.map((p, i) => {
         const isWin  = winnerId === i;
         const isTie  = winnerId < 0;
-        const rank   = isTie ? '🤝 TIE' : isWin ? '🥇 FIRST' : '🥈 SECOND';
+        const rank   = isTie ? '🤝 DRAW' : isWin ? '🥇 WINNER' : '🥈 SECOND';
         const rankCls = isTie ? 'mg-sc-tie' : isWin ? 'mg-sc-first' : 'mg-sc-second';
+        if (arcade) {
+            return `<div class="mg-sc-card ${isWin && !isTie ? 'mg-sc-win' : ''}">
+                <div class="mg-sc-rank ${rankCls}">${rank}</div>
+                <div class="mg-sc-name" style="color:${i === 0 ? '#ff6b6b' : '#6ba7ff'}">${p.name}</div>
+                <div class="mg-sc-coins">${_arcadeWins[i]}<span class="mg-sc-unit">won</span></div>
+                <div class="mg-sc-line mg-sc-dim">rounds won in the arcade</div>
+            </div>`;
+        }
         const gained = (payouts && payouts[i]) || 0;
         const bonus  = practice ? 0
                      : isTie ? MINIGAME_TIE_REWARD
@@ -683,13 +706,17 @@ function _showScoreboard(winnerId, payouts, practice, done) {
         </div>`;
     }).join('');
 
-    const headline = practice
-        ? 'PRACTICE ROUND'
+    const headline = arcade
+        ? (winnerId < 0 ? 'DRAWN ROUND' : `${state.players[winnerId].name.toUpperCase()} WINS THE ROUND`)
+        : practice ? 'PRACTICE ROUND'
         : winnerId < 0 ? 'IT\'S A TIE!'
                        : `${state.players[winnerId].name.toUpperCase()} WINS!`;
-    const sub = practice ? 'Nothing at stake'
-              : winnerId < 0 ? 'Coin flip decides who rolls first'
-                             : 'Rolls first next turn';
+    const total = _arcadeWins[0] + _arcadeWins[1] + _arcadeDraws;
+    const sub = arcade
+        ? `Arcade series ${_arcadeWins[0]}–${_arcadeWins[1]}${_arcadeDraws ? ` (${_arcadeDraws} drawn)` : ''} · round ${total} · no coins at stake`
+        : practice ? 'Nothing at stake'
+        : winnerId < 0 ? 'Coin flip decides who rolls first'
+                       : 'Rolls first next turn';
 
     const panel = side => `<div class="mg-sc-panel ${side}">
         <div class="mg-sc-head">${headline}</div>
@@ -720,6 +747,41 @@ function _showScoreboard(winnerId, payouts, practice, done) {
     // A force-end must not leave the screen (or its timers) behind.
     registerMinigameCleanup(() => { clearTimeout(armId); clearTimeout(autoId); scr.remove(); });
 }
+
+// ── Arcade teardown: a scoreline, and nothing else ──────────────────────────
+//
+// Who won this round, and how many rounds each player has won since the arcade
+// was opened. No coins move, no match statistics move.
+function _finishArcade(winnerId) {
+    if (_resolving) return;
+    _resolving = true;
+    state.mgActive = false;
+    _lastPayouts = [0, 0];
+    if (winnerId >= 0) _arcadeWins[winnerId]++;
+    else _arcadeDraws++;
+
+    const neutral = document.getElementById('mg-neutral');
+    if (neutral) {
+        neutral.textContent = winnerId < 0
+            ? `DRAW — ${_arcadeWins[0]}–${_arcadeWins[1]}`
+            : `${state.players[winnerId].name.toUpperCase()} WINS THE ROUND — ${_arcadeWins[0]}–${_arcadeWins[1]}`;
+    }
+    sfx(winnerId < 0 ? 'land_bad' : 'mg_win');
+    const z = [document.getElementById('mg-p1'), document.getElementById('mg-p2')];
+    if (winnerId >= 0) {
+        z[winnerId]?.classList.add('mg-victory');
+        z[1 - winnerId]?.classList.add('mg-defeat');
+    }
+    setTimeout(() => {
+        z.forEach(e => e?.classList.remove('mg-victory', 'mg-defeat'));
+        _showScoreboard(winnerId, [0, 0], 'arcade', () => endMinigame(winnerId));
+    }, 800);
+}
+
+// Called when the arcade is opened from the splash, so a session's tally starts
+// at nil rather than carrying over from the last time it was browsed.
+export function resetArcadeScores() { _arcadeWins = [0, 0]; _arcadeDraws = 0; }
+export function arcadeScores() { return { wins: _arcadeWins.slice(), draws: _arcadeDraws }; }
 
 // Practice teardown: show the result, award nothing, hand control back.
 function _finishPractice(winnerId) {
