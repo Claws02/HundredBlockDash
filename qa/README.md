@@ -31,6 +31,7 @@ cd qa
 | `node arcade.js` | Launches every registered minigame from the arcade, plays each with synthetic input in **both** halves, checks each resolves and cleans up. Budget is 90s/game, or the game's own `MG_WATCHDOG_MS` where it declares a longer one. | ~20 min |
 | `node earlytap.js` | Hammers both halves from frame 0 after GO on every game — catches state-not-ready races (found QA-016). | ~8 min |
 | `node botcheck.js 65` | Drives each game's bot branch at easy and hard with **no human input at all**. Flags games that only end when a human plays, and bots that lose every hard run. | ~30 min |
+| `node arcadecoins.js` | Plays four arcade rounds and asserts **nothing the board reads moved** — no coins, no lifetime earnings, no match win count — while the arcade's own round tally did. Also checks a real match minigame still pays. | ~2 min |
 | `node mapp2.js` | The map from **Player 2's** end in tabletop: touching a block selects that block, the tooltip faces them and keeps its offset, and dragging pushes the board the way the finger moves. `mapinfo.js` only ever plays P1, which is how the inverted raycast survived. | ~2 min |
 | `node treeclimb.js` | Reads the lit leaf off the canvas over a 16-branch climb: the sides must not strictly alternate, must never run three deep, and a wrong grab must drop you to the last branch on that side. | ~1 min |
 | `node memorymatch.js` | Left alone for 14 s nothing turns itself over; then plays it out (memoryless P1 vs the real bot) to prove a clockless board still empties. | ~2 min |

@@ -193,6 +193,8 @@ function _populateMgGrid() {
 }
 
 document.getElementById('btn-minigames').addEventListener('click', () => {
+    // A fresh visit to the arcade starts a fresh series.
+    MinigameManager.resetArcadeScores();
     _selectedMgType = null;
     document.getElementById('btn-mg-select-play').disabled = true;
     document.getElementById('btn-mg-select-practice').disabled = true;

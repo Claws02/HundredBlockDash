@@ -141,6 +141,12 @@ onWin(winnerId, [p1Coins, p2Coins]);   // both players bank their own haul
 `MinigameManager` credits each player, shows the split on the result screen, and
 still pays the winner the flat reward on top. Loot Catch is the reference.
 
+**Only in a match.** In the arcade nothing is paid at all — not the flat reward,
+not the coin-game haul, not `mgWins`. The arcade keeps its own round tally and
+touches nothing the board reads. It used to run the full payout onto the real
+players and those totals *stacked* across rounds, so browsing the arcade before
+a game handed somebody a fortune. `qa/arcadecoins.js` guards it.
+
 **Cap the payout at 30.** Loot Catch, Tree Climb and Memory Match all use
 `MAX_PAYOUT = 30`; a new coin game uses the same number unless there is a reason
 to argue otherwise. Loot Catch originally paid up to 80, which was enough for one

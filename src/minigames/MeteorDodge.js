@@ -21,8 +21,15 @@ const START_LIVES  = 3;
 const SHIP_Y       = 0.82;    // pod sits near the player's outer edge
 const HIT_X        = 0.085;   // x overlap for a hit
 const HIT_BAND     = 0.06;    // y band around the pod
-const SPAWN_HI     = 0.95;    // spawn interval at the start (s)
-const SPAWN_LO     = 0.42;    // ...and at the end
+// Thicker storm. At the old rate a player could sit still through most of a
+// round and never be threatened, which made "dodge" an overstatement.
+//
+// Measured on the way to these numbers: at 0.68/0.28 the BOT died faster than a
+// player who never moved at all. A storm dense enough that dodging is worse than
+// standing still is not difficulty, it is noise — so this is the density that
+// still rewards moving.
+const SPAWN_HI     = 0.80;    // spawn interval at the start (s)
+const SPAWN_LO     = 0.34;    // ...and at the end
 const FALL_HI      = 0.30;    // fall speed at the start (frac/s)
 const FALL_LO      = 0.62;    // ...and at the end
 const INVULN       = 0.9;     // s of i-frames after a hit
