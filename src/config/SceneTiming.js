@@ -27,8 +27,10 @@ export const SCENE = {
     // the player just acted and wants to see a reaction.
     ROLL_LAUNCH:     220,
     // The dice have settled and the number is legible. Holding here is what
-    // makes the roll feel like a result rather than a loading step.
-    DICE_READ:       850,
+    // makes the roll feel like a result rather than a loading step. 850 ms was
+    // not enough to read a number and register it before the token set off;
+    // a second and a half is.
+    DICE_READ:      1500,
 
     // ── Moving ───────────────────────────────────────────────────────────────
     // Between the token arriving and the result card appearing. Long enough to
