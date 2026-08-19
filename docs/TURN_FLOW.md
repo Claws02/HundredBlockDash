@@ -66,7 +66,7 @@ place a turn can go somewhere else.
                             │
                      Physics.onSettle
                             ▼
-                    ⏱ DICE_READ  850 ms                   the number is legible
+                    ⏱ DICE_READ 1500 ms                   the number is legible
                             │                              before anything moves
                             ▼
               moveThroughGraph() / _movePlayerHBD()        ── state: MOVING
@@ -105,7 +105,7 @@ place a turn can go somewhere else.
 | Beat | Floor | What it protects |
 |---|---:|---|
 | `ROLL_LAUNCH` | 220 ms | The gap between committing and the dice leaving the hand. |
-| `DICE_READ` | 850 ms | The number is on the table and readable before the token moves. |
+| `DICE_READ` | 1500 ms | The number is on the table and readable **before** the token moves. 850 ms was not long enough to read a number and register it before the token set off. |
 | `PASSTHROUGH` | 320 ms | The shop prompt does not collide with the hop that triggered it. |
 | `JUNCTION_COMMIT` | 620 ms | **§3** — the camera turns down the chosen road before the walk starts. |
 | `LAND_ARRIVE` | 500 ms | **§4** — you see *where* you are before anything is done to you. |
@@ -413,8 +413,22 @@ Three changes:
 - **Two at a time, not five**, at a smaller size.
 
 `toast(msg, colour, { urgent: true })` bypasses the queue. That is for things
-you must see *as* they happen rather than after — currently a shield absorbing
-a hit (which explains why a fine cost you nothing) and the gate breaking.
+that are worthless after the fact rather than merely late:
+
+| Urgent | Why |
+|---|---|
+| **"Rolled a N!"** | `gameState` is `ROLLING` when the dice settle, so the queue held the number back until the token had already arrived — the player was told what they rolled *after* it had been spent. This is the one the whole queue must not touch. |
+| **"Cursed Die forces a bad roll!"** | It explains the roll that is about to happen. |
+| **Shield / Bodyguard absorbed it** | It explains why a fine cost nothing. |
+| **The gate breaking** | It is the cue for the set piece already playing. |
+
+Everything else — HQ pass-through bonuses, bounty claims, ally arrivals, item
+pickups — waits. Those are all *reports*, and a report is just as true a second
+later.
+
+> This is the trap the queue sets, and it caught the roll callout the day it was
+> written. Ask of every new toast: **is this still worth reading once the thing
+> it describes is over?** If not, it is urgent.
 
 ---
 
@@ -435,10 +449,14 @@ The card says so out loud: *"No items at the gate — the roll is all you have."
 
 ## 10. Verified
 
-`qa/pacing.js` — **35/35**, zero page errors.
+`qa/pacing.js` — **38/38**, zero page errors.
 
 - **Order**: the tile names itself 585 ms before the coins move; the effect
   fires before the result card; the effect still actually fires.
+- **The roll**: driving a real `executeRoll`, the number is on screen 1.7 s
+  before the token's first movement. Removing the `urgent` flag makes all three
+  of those assertions fail — the callout never appears at all, because the queue
+  holds it until after the move.
 - **Junction**: closest approach to the fork node 0.51 units (it goes through
   it); the camera is 34.6 units from the token when the walk starts.
 - **Swap**: saucer, beam, 235 units of camera travel, a token carried out of

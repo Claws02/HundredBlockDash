@@ -367,6 +367,74 @@ const GL = ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=swiftshader',
         rail.afterFlush <= 2, `${rail.afterFlush} stacked`);
 
     // ---------------------------------------------------------------
+    // 4b. The roll callout. The number you rolled must be on screen BEFORE the
+    //     token moves, and stay up long enough to read. It is the one
+    //     notification that is worthless after the fact — and the mid-move
+    //     queue swallowed it, because gameState is 'ROLLING' when the dice
+    //     settle, so it appeared once the player had already arrived.
+    // ---------------------------------------------------------------
+    const roll = await page.evaluate(async () => {
+        const { state } = await import('/src/core/GameState.js');
+        const GC = await import('/src/core/GameController.js');
+        const R  = await import('/src/engine/Renderer.js');
+        const D  = await import('/src/core/Director.js');
+        const U  = await import('/src/ui/UIManager.js');
+        const M  = await import('/src/ui/ModalManager.js');
+        D.reset(); R.getActiveAnims().length = 0; M.closeAllModals();
+        U.clearToastQueue();
+
+        state.activePlayer = 0;
+        const p = state.players[0];
+        p.isBot = false;
+        p.pos = 'r2'; p.prevPos = 'r1';
+        p.mesh.position.copy(R.getPos('r2'));
+        const startX = p.mesh.position.x, startZ = p.mesh.position.z;
+
+        // t0 is when the dice SETTLE, not when they are thrown — the throw
+        // takes a variable and (in this container) very long time, and it is
+        // the gap between the number appearing and the token setting off that
+        // this is measuring.
+        const log = [];
+        let t0 = null;
+        const iv = setInterval(() => {
+            const box = document.getElementById('toast-box');
+            const txt = box ? box.innerText : '';
+            const rolled = /Rolled a/i.test(txt);
+            if (rolled && t0 === null) t0 = performance.now();
+            if (t0 === null) return;
+            log.push({
+                t: Math.round(performance.now() - t0),
+                rolled,
+                moved: Math.hypot(p.mesh.position.x - startX, p.mesh.position.z - startZ) > 0.6,
+            });
+        }, 25);
+
+        // Drive the REAL roll, dice and all. A synthetic toast would prove the
+        // DICE_READ floor but not that the call site marks the callout urgent —
+        // and the urgent flag is the whole bug: without it the queue holds the
+        // number back until the token has already arrived.
+        GC.executeRoll(1.4);
+        await new Promise(r => setTimeout(r, 14000));
+        clearInterval(iv);
+
+        const shown = log.find(e => e.rolled);
+        const moved = log.find(e => e.moved);
+        return {
+            shownAt: shown ? shown.t : null,
+            movedAt: moved ? moved.t : null,
+            samples: log.length,
+        };
+    });
+    ok('roll: the number appears at all (it is queued, and urgent skips the queue)',
+        roll.shownAt !== null, `${roll.samples} samples taken`);
+    ok('roll: the number is on screen before the token moves',
+        roll.shownAt !== null && roll.movedAt !== null && roll.shownAt < roll.movedAt,
+        `shown at ${roll.shownAt}ms, first movement at ${roll.movedAt}ms`);
+    ok('roll: and holds for about a second and a half first',
+        roll.movedAt !== null && roll.movedAt >= 1300,
+        `${roll.movedAt}ms between the number and the first step`);
+
+    // ---------------------------------------------------------------
     // 5. The gate: the board stays visible, and items are unavailable.
     // ---------------------------------------------------------------
     const gate = await page.evaluate(async () => {

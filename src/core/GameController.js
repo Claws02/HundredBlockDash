@@ -378,7 +378,9 @@ export function executeRoll(flickVelocity) {
     if (state.cursedTarget[state.activePlayer]) {
         state.cursedTarget[state.activePlayer] = false;
         state.currentRollMode = 'cursed_forced';
-        UIManager.toast('💀 Cursed Die forces a bad roll!', '#ef4444');
+        // Also urgent: it explains the roll that is about to happen, so it is
+        // worthless once the roll has happened.
+        UIManager.toast('💀 Cursed Die forces a bad roll!', '#ef4444', { urgent: true });
     } else {
         state.currentRollMode = 'normal';
     }
@@ -409,7 +411,12 @@ export function executeRoll(flickVelocity) {
     Physics.onSettle(state.currentRollMode, (result) => {
         sfx('dice_land'); haptic([10]);
         let finalResult = result;
-        UIManager.toast(`Rolled a ${finalResult}!`, '#fff');
+        // URGENT: the number you rolled is the one notification that must be
+        // read BEFORE the token moves, not after it stops. The queue that keeps
+        // mid-move chatter off the board swallowed this one — gameState is
+        // 'ROLLING' when the dice settle — so the result appeared once the
+        // player had already arrived somewhere, which is exactly backwards.
+        UIManager.toast(`Rolled a ${finalResult}!`, '#fff', { urgent: true });
         // Beat: the number is on the table and legible before anything moves.
         const mover = state.selectedMap === 'hundred_block_dash' ? _movePlayerHBD : moveThroughGraph;
         Director.hold('DICE_READ', () => mover(state.players[state.activePlayer], finalResult));
