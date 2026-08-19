@@ -4,7 +4,7 @@
 // ============================================================
 
 import { state } from '../core/GameState.js';
-import { ITEMS, ALLIES, SPACE_META, SPACE_DESCS, DISTRICT_BIOMES, HQ_META,
+import { ITEMS, ALLIES, SPACE_META, SPACE_DESCS, DISTRICT_BIOMES, HQ_META, CHAR_ICONS,
          getActiveRealms, HBD_FINISH_BONUS, CITY_DEFAULT_ROUNDS,
          hbdSpaceLabel, getRealmForSpace } from '../config/GameConfig.js';
 import { CITY_GRAPH, ALL_NODES_ORDERED, BRANCH_OPTIONS, JUNCTION_IDS, DISTRICT_NAMES,
@@ -675,6 +675,70 @@ export function showRealmBanner(realm) {
     clearTimeout(el._hideTimer);
     el._hideTimer = setTimeout(() => { el.style.display = 'none'; }, SCENE.REALM_BANNER);
 }
+
+// ---- Turn banner --------------------------------------------------------
+//
+// Whose turn it is was only ever implied — by which HUD bar lit up, and by
+// which side of the screen the action buttons appeared on. Both are easy to
+// miss when you have just looked away for a minigame result. This says it out
+// loud on every hand-over.
+//
+// Two copies, one at each edge, because it matters to BOTH players: the one
+// taking the turn needs to know they are up, and the one who just finished
+// needs to know they are done. The top copy is turned in tabletop so it faces
+// Player 2. It never takes pointer events — a roll must never land on it.
+
+let _lastAnnouncedTurn = -1;
+
+export function showTurnBanner(playerIdx, opts = {}) {
+    const el = document.getElementById('turn-banner');
+    if (!el) return;
+    const p = state.players[playerIdx];
+    if (!p) return;
+
+    const icon = CHAR_ICONS[p.charType] || (playerIdx === 0 ? '🚗' : '🎩');
+    const col  = playerIdx === 0 ? '#ff6b6b' : '#6ba7ff';
+    const sub  = opts.sub || (p.isBot ? 'thinking…' : 'your move');
+
+    el.querySelectorAll('.tb-card').forEach(card => {
+        const mine = Number(card.dataset.tb) === playerIdx;
+        card.innerHTML =
+            `<span class="tb-ic">${icon}</span>` +
+            `<span class="tb-txt"><span class="tb-name bfont">${p.name.toUpperCase()}</span>` +
+            `<span class="tb-sub">${mine ? sub : 'their turn'}</span></span>`;
+        card.style.setProperty('--tb-col', col);
+        card.classList.toggle('tb-active', mine);
+    });
+
+    el.style.display = 'block';
+    // Restart the animation even if the banner is already up.
+    el.classList.remove('tb-show'); void el.offsetWidth; el.classList.add('tb-show');
+    clearTimeout(el._hideTimer);
+    el._hideTimer = setTimeout(() => {
+        el.classList.remove('tb-show');
+        el.style.display = 'none';
+    }, SCENE.TURN_BANNER || 1700);
+}
+
+export function hideTurnBanner() {
+    const el = document.getElementById('turn-banner');
+    if (!el) return;
+    clearTimeout(el._hideTimer);
+    el.classList.remove('tb-show');
+    el.style.display = 'none';
+}
+
+// Announce only when the turn actually changed hands. A BOOST re-roll, or the
+// gate handing a player their roll back, is the same player continuing — saying
+// "PLAYER 1" again there is noise, not information.
+export function announceTurnIfChanged(playerIdx) {
+    if (playerIdx === _lastAnnouncedTurn) return false;
+    _lastAnnouncedTurn = playerIdx;
+    showTurnBanner(playerIdx);
+    return true;
+}
+
+export function resetTurnAnnouncer() { _lastAnnouncedTurn = -1; }
 
 // ---- Toasts ----
 

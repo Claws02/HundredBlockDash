@@ -81,6 +81,9 @@ export const SCENE = {
     // ── UI element lifetimes ─────────────────────────────────────────────────
     SPACE_CARD:     3600,   // the on-board "what this space does" card
     TOAST:          2600,
+    // Whose-turn banner. Long enough to read across a table, short enough that
+    // it is gone before anyone reaches for the roll button.
+    TURN_BANNER:    1700,
 };
 
 // Bot "thinking" pauses. Separate from the beat floors because these are about

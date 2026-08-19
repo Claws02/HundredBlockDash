@@ -27,6 +27,11 @@ export let boardCurve = null; // HBD CatmullRom curve, null for City Circuit
 const allyMarkers   = new Map();
 
 export function getActiveAnims() { return activeAnims; }
+// The render loop animates everything in `floatingIcons` every frame, forever.
+// A row that outlives the mesh it points at is invisible in every screenshot and
+// in the scene-graph census — the only way to see it is to count the rows. The
+// ally marker leaked one per spawn until 2026-08.
+export function getFloatingIconCount() { return floatingIcons.length; }
 
 // Shared geometries
 const GEOS = {
@@ -1119,24 +1124,116 @@ function buildPlayerMeshes() {
 
 // ---- Ally markers on map ----
 
+// An ally waiting on the board used to be an anonymous gold octahedron. Deciding
+// whether to detour for it — and whether to spend a minigame on it — depends
+// entirely on WHICH ally it is: the Bodyguard soaks two hits, the Cabbie
+// teleports you, the Banker pays interest. The marker is now the ally's own
+// character model, standing on the tile under a floating gold ring so it still
+// reads as something to go and get.
 export function placeAllyMarker(nodeId, allyType) {
     removeAllyMarker();
     const ally = ALLIES[allyType];
     if (!ally || !nodeId) return;
-    const pos  = getPos(nodeId).clone(); pos.y = 3.5;
-    const mat  = new THREE.MeshPhysicalMaterial({ color: 0xfbbf24, emissive: 0xf59e0b, emissiveIntensity: 2.0, metalness: 0.8 });
-    const mesh = new THREE.Mesh(new THREE.OctahedronGeometry(0.9), mat);
-    mesh.position.copy(pos);
-    scene.add(mesh);
-    allyMarkers.set('current', mesh);
-    floatingIcons.push({ mesh, baseY: 3.5, speed: 2.0, phase: 0 });
+
+    const grp = new THREE.Group();
+    grp.position.copy(getPos(nodeId)).setY(0);
+
+    const model = createCharacterMesh(allyType, 0xfbbf24);
+    model.scale.setScalar(0.85);
+    grp.add(model);
+
+    // A halo above the head: the "there is something here" signal the octahedron
+    // used to carry on its own.
+    const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(0.62, 0.09, 8, 20),
+        new THREE.MeshStandardMaterial({ color: 0xfbbf24, emissive: 0xf59e0b, emissiveIntensity: 1.6 }));
+    ring.position.y = 2.5;
+    ring.rotation.x = Math.PI / 2;
+    grp.add(ring);
+
+    // And a glow disc on the ground, so the tile itself is marked from a
+    // distance even when the model is behind a building.
+    const pad = new THREE.Mesh(
+        new THREE.CircleGeometry(1.35, 20),
+        new THREE.MeshBasicMaterial({ color: 0xfbbf24, transparent: true, opacity: 0.32, side: THREE.DoubleSide }));
+    pad.rotation.x = -Math.PI / 2;
+    pad.position.y = 0.06;
+    grp.add(pad);
+
+    scene.add(grp);
+    allyMarkers.set('current', grp);
+    // Bob the ring, not the whole group — a hovering character reads as a ghost.
+    floatingIcons.push({ mesh: ring, group: grp, baseY: 2.5, speed: 2.0, phase: 0 });
 }
 
 export function removeAllyMarker() {
     const m = allyMarkers.get('current');
-    if (m) { scene.remove(m); allyMarkers.delete('current'); }
-    const idx = floatingIcons.findIndex(f => f.mesh === allyMarkers.get('current'));
-    if (idx >= 0) floatingIcons.splice(idx, 1);
+    if (!m) return;
+    // The old order deleted the map entry FIRST and then looked the mesh up
+    // again to find its floatingIcons row — which by then returned undefined, so
+    // the row was never removed. Every ally spawn leaked one animated entry
+    // pointing at a mesh no longer in the scene. Drop the row first.
+    for (let i = floatingIcons.length - 1; i >= 0; i--) {
+        const f = floatingIcons[i];
+        if (f.group === m || f.mesh === m) floatingIcons.splice(i, 1);
+    }
+    scene.remove(m);
+    _disposeTree(m);
+    allyMarkers.delete('current');
+}
+
+// ---- Character portraits -------------------------------------------------
+//
+// The character picker was nine emoji. An emoji says nothing about what the
+// piece you will spend a whole match looking at actually is — the Vendor's chef
+// hat, the Banker's top hat and briefcase, the Bunny's ears are all invisible
+// until the board loads. These are the real meshes, rendered offscreen once.
+//
+// A throwaway WebGL context is created, used and released inside this call, so
+// it never competes with the board renderer (which does not exist yet at char
+// select) and cannot leak a context if the player backs out.
+export function renderCharacterPortraits(types, colorCode, size = 176) {
+    const out = {};
+    if (typeof THREE === 'undefined' || !types || !types.length) return out;
+    let gl = null;
+    try {
+        gl = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        gl.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+        gl.setSize(size, size, false);
+        gl.setClearColor(0x000000, 0);
+
+        const s = new THREE.Scene();
+        s.add(new THREE.AmbientLight(0xffffff, 0.95));
+        const key = new THREE.DirectionalLight(0xffffff, 1.2); key.position.set(2.5, 4, 3.5); s.add(key);
+        const rim = new THREE.DirectionalLight(0xbcd8ff, 0.55); rim.position.set(-3, 2, -2); s.add(rim);
+        const cam = new THREE.PerspectiveCamera(30, 1, 0.1, 60);
+
+        types.forEach(t => {
+            const grp = createCharacterMesh(t, colorCode);
+            s.add(grp);
+            // Frame from the bounding SPHERE, not a fixed multiple of height —
+            // a fixed pull-back crops the tall ones (the bunny loses its ears,
+            // the cabbie half its cap) and leaves the squat ones tiny.
+            const sph = new THREE.Box3().setFromObject(grp).getBoundingSphere(new THREE.Sphere());
+            const dist = (sph.radius * 1.12) / Math.sin((cam.fov * Math.PI / 180) / 2);
+            cam.position.set(sph.center.x + dist * 0.20, sph.center.y + dist * 0.13, sph.center.z + dist);
+            cam.lookAt(sph.center);
+            gl.render(s, cam);
+            out[t] = gl.domElement.toDataURL('image/png');
+            s.remove(grp);
+            _disposeTree(grp);
+        });
+    } catch (e) {
+        console.warn('[Renderer] character portraits unavailable:', e);
+    } finally {
+        // Browsers cap live WebGL contexts hard; forcing the loss frees this one
+        // immediately rather than whenever GC gets round to it.
+        if (gl) {
+            try { gl.forceContextLoss(); } catch (e) {}
+            try { gl.dispose(); } catch (e) {}
+        }
+    }
+    return out;
 }
 
 // ---- Ally follower meshes ----
@@ -1489,6 +1586,11 @@ export function worldToScreen(worldPos) {
 
 export function getDiceGroup() { return diceGrp; }
 export function getCamera()    { return camera;  }
+// The camera is deliberately NOT a child of the scene, so walking up from it to
+// find a root finds only the camera. Every scene-graph census in the QA harness
+// did exactly that and had been counting zero meshes for months while reporting
+// "no leak". Hand out the scene itself.
+export function getScene()     { return scene;   }
 
 export function onResize() {
     if (!camera || !renderer) return;
