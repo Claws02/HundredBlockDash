@@ -7,6 +7,7 @@ import { SPACE_META, DISTRICT_BIOMES, getBiomeForDistrict, HBD_BIOMES, getBiomeF
 import { CITY_GRAPH, ALL_NODES_ORDERED, JUNCTION_IDS } from '../config/BoardGraph.js';
 import { SCENE } from '../config/SceneTiming.js';
 import * as Physics from './Physics.js';
+import { sfx } from './AudioManager.js';   // set pieces cue their own sound
 
 let scene, camera, renderer, clock;
 let boardGrp, diceGrp;
@@ -661,6 +662,10 @@ export function init(container) {
     }
     _measureBoardExtent();
     resetCameraSmoothing();
+    // A new match builds a new scene, so anything cached against the old one has
+    // to go — the saucer's `parent` would still point at the discarded scene and
+    // it would never be re-added.
+    _swapUfo = null;
 
     scene = new THREE.Scene();
     scene.fog = new THREE.FogExp2(isHBD ? 0x0f380f : 0xa8d4f0, isHBD ? 0.005 : 0.003);
@@ -1299,7 +1304,12 @@ export function updateBiomeVisuals(districtOrIdx) {
 
 // ---- Player hop animation ----
 
-export function animatePlayerHop(player, targetNodeId, onComplete) {
+// `opts.faceToward` overrides where the token turns to look on arrival, and
+// `opts.dur` overrides the hop length. Both exist for the junction walk: a
+// token stepping onto the fork is heading down whichever road was chosen, not
+// down `next[0]`, and the fork-to-district leg covers 26 units where an
+// ordinary hop covers about 10 — at a fixed 0.35 s that read as a teleport.
+export function animatePlayerHop(player, targetNodeId, onComplete, opts = {}) {
     const dest = getPos(targetNodeId).clone();
     dest.y = 0;
     if (typeof targetNodeId === 'number') {
@@ -1313,8 +1323,9 @@ export function animatePlayerHop(player, targetNodeId, onComplete) {
         }
     } else {
         // City Circuit: use graph next node for orientation
-        const nextId = CITY_GRAPH[targetNodeId]?.next?.[0];
-        if (nextId && !JUNCTION_IDS.has(nextId)) {
+        let nextId = opts.faceToward || CITY_GRAPH[targetNodeId]?.next?.[0];
+        if (nextId && JUNCTION_IDS.has(nextId)) nextId = CITY_GRAPH[nextId]?.next?.[0];
+        if (nextId) {
             const nextPos = getPos(nextId);
             const fwd     = new THREE.Vector3().subVectors(nextPos, dest).normalize();
             const right   = new THREE.Vector3(0, 1, 0).cross(fwd).normalize();
@@ -1323,10 +1334,263 @@ export function animatePlayerHop(player, targetNodeId, onComplete) {
         }
     }
     player.prevPos = player.pos;
+    // Keep the token's ground speed roughly constant. Every hop used to take
+    // 0.35 s regardless of distance, so the long fork-to-district leg travelled
+    // three times faster than a normal step and read as a jump cut.
+    let dur = opts.dur;
+    if (dur === undefined) {
+        const d = player.mesh.position.distanceTo(dest);
+        dur = Math.max(0.28, Math.min(0.9, 0.28 + (d - 10) * 0.022));
+    }
     activeAnims.push({
         obj: player.mesh.position, start: player.mesh.position.clone(), to: dest,
-        dur: 0.35, isHop: true, onComplete,
+        dur, isHop: true, hopH: opts.hopH, onComplete,
     });
+}
+
+// ============================================================
+// SWAP SPACE — the abduction
+// ============================================================
+//
+// A Swap used to be instantaneous: two `mesh.position.copy()` calls and a
+// toast. Both tokens simply appeared somewhere else, which is the single most
+// dramatic thing that can happen on the board delivered as a rendering glitch.
+//
+// It is now a set piece the camera actually watches. The shape is a round trip:
+//
+//   1. a saucer drops out of the sky over whoever landed on the tile
+//   2. it beams them up — they rise into the light and vanish
+//   3. it flies to the opponent, the camera travelling with it
+//   4. it sets the first player down there
+//   5. it beams the opponent up
+//   6. it flies back, again with the camera
+//   7. it sets them down on the tile the first player came from
+//
+// The camera rides the saucer rather than either player, because the saucer is
+// the thing that is moving. cameraState is parked on 'CINEMATIC', which the
+// render loop deliberately does not drive — this function owns the camera for
+// its duration and hands it back at the end.
+
+// Seven legs, ~5.9 s all told. It is a set piece and it should feel like one,
+// but it also fires on a tile you can land on more than once in a match, so it
+// is paced to be watched twice rather than admired once.
+const SWAP = {
+    DESCEND: 0.70,   // saucer drops out of the sky
+    BEAM:    0.65,   // player rises into the light
+    TRAVEL:  1.15,   // saucer crosses the board
+    DROP:    0.55,   // player is set down
+    LIFT:    0.45,   // saucer pulls back up at the end
+};
+
+function _buildUfo() {
+    const g = new THREE.Group();
+    // Bright and only lightly metallic: there is no environment map in this
+    // scene, so a shiny metal saucer renders as a black disc.
+    const hull = new THREE.Mesh(
+        new THREE.SphereGeometry(2.6, 22, 12),
+        new THREE.MeshStandardMaterial({ color: 0x8f9ab5, metalness: 0.5, roughness: 0.35,
+                                         emissive: 0x141a2a, emissiveIntensity: 0.5 }));
+    hull.scale.set(1, 0.26, 1);
+    g.add(hull);
+    const dome = new THREE.Mesh(
+        new THREE.SphereGeometry(1.15, 18, 12, 0, Math.PI * 2, 0, Math.PI / 2),
+        new THREE.MeshPhysicalMaterial({ color: 0x7ee7ff, transparent: true, opacity: 0.55,
+                                         emissive: 0x1a6b7d, emissiveIntensity: 0.7, roughness: 0.1 }));
+    dome.position.y = 0.35;
+    g.add(dome);
+    // Running lights around the rim.
+    const lampGeo = new THREE.SphereGeometry(0.2, 8, 6);
+    const lampMat = new THREE.MeshBasicMaterial({ color: 0x9df7ff });
+    const lamps = [];
+    for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2;
+        const l = new THREE.Mesh(lampGeo, lampMat.clone());
+        l.position.set(Math.cos(a) * 2.35, -0.15, Math.sin(a) * 2.35);
+        g.add(l); lamps.push(l);
+    }
+    // The tractor beam: a cone from the saucer to the ground, scaled in and out.
+    // Apex at the ship, base on the ground, and wider than the hull so it is
+    // not hidden inside the saucer's own silhouette from every angle.
+    const beam = new THREE.Mesh(
+        new THREE.ConeGeometry(3.4, 1, 24, 1, true),
+        new THREE.MeshBasicMaterial({ color: 0x8ef0ff, transparent: true, opacity: 0.0,
+                                      side: THREE.DoubleSide, depthWrite: false,
+                                      blending: THREE.AdditiveBlending }));
+    beam.position.y = -0.5;
+    g.add(beam);
+    g.userData.beam  = beam;
+    g.userData.lamps = lamps;
+    return g;
+}
+
+let _swapUfo = null;
+
+export function playSwapCinematic(playerA, playerB, onDone) {
+    const done = () => { try { onDone && onDone(); } catch (e) { console.error(e); } };
+    if (!scene || !camera || !playerA?.mesh || !playerB?.mesh) { done(); return; }
+
+    const aStart = playerA.mesh.position.clone().setY(0);
+    const bStart = playerB.mesh.position.clone().setY(0);
+    // Standing on the same tile: there is nothing to watch, so don't.
+    if (aStart.distanceTo(bStart) < 0.8) { done(); return; }
+
+    const HOVER = 9;
+    const ufo = _swapUfo || (_swapUfo = _buildUfo());
+    if (!ufo.parent) scene.add(ufo);
+    ufo.visible = true;
+    ufo.position.copy(aStart).setY(HOVER + 26);      // drops in from above
+    const beam = ufo.userData.beam;
+    const setBeam = (v) => {
+        beam.material.opacity = 0.26 * v;   // additive over a daylit city: less is more
+        // x/z only — scale.y is the beam's reach and is set by stretchBeam().
+        beam.scale.x = beam.scale.z = 0.45 + v * 0.75;
+    };
+    setBeam(0);
+
+    state.cameraState = 'CINEMATIC';
+
+    // Ride alongside the saucer, aimed at the ground beneath it. Two things had
+    // to be got right here:
+    //
+    //   * Looking DOWN at the saucer hides the beam inside the hull's own
+    //     silhouette and hides whoever is being lifted. The shot is side-on.
+    //   * A fixed world-space offset (`+z`) puts the camera inside a building
+    //     on whichever part of the board happens to have one there. The offset
+    //     is instead perpendicular to the saucer's flight path, on the side
+    //     facing the middle of the board — which on a ring map is the open
+    //     plaza, and on a linear one is the inside of the curve.
+    const travel = bStart.clone().sub(aStart).setY(0).normalize();
+    const side   = new THREE.Vector3(0, 1, 0).cross(travel).normalize();
+    const centre = new THREE.Vector3(_panBounds.cx, 0, _panBounds.cz);
+    if (side.dot(centre.clone().sub(aStart).setY(0)) < 0) side.negate();
+    const shot = (at, ease = 1) => {
+        const want = at.clone().addScaledVector(side, 21);
+        want.y = at.y + 5.5;
+        camera.position.lerp(want, ease);
+        camera.lookAt(at.x, at.y - 6.5, at.z);
+    };
+    // Height of the beam cone so it always reaches the ground.
+    const stretchBeam = () => { beam.scale.y = Math.max(0.1, ufo.position.y); beam.position.y = -ufo.position.y / 2; };
+
+    const step = (o, from, to, dur, onUpdate, then) => {
+        activeAnims.push({
+            obj: o, start: from, to, dur,
+            onUpdate: (t) => { onUpdate && onUpdate(t); },
+            onComplete: then,
+        });
+    };
+
+    // Carried token: hidden inside the saucer between legs.
+    const carry = (mesh, visible) => { mesh.visible = visible; };
+
+    const t = { v: 0 };
+
+    // 1 — descend over A
+    step(ufo.position, ufo.position.clone(), aStart.clone().setY(HOVER), SWAP.DESCEND,
+        () => { stretchBeam(); shot(ufo.position, 0.22); }, () => {
+        sfx('swap');
+        // 2 — beam A up
+        const aFrom = playerA.mesh.position.clone();
+        step(t, { v: 0 }, { v: 1 }, SWAP.BEAM, (pr) => {
+            setBeam(Math.sin(pr * Math.PI) * 1.0 + 0.25);
+            stretchBeam();
+            playerA.mesh.position.set(aFrom.x, aFrom.y + pr * (HOVER - 1.2), aFrom.z);
+            playerA.mesh.rotation.y += 0.22;
+            playerA.mesh.scale.setScalar(Math.max(0.02, 1 - pr));
+            shot(ufo.position, 0.18);
+        }, () => {
+            carry(playerA.mesh, false);
+            playerA.mesh.scale.setScalar(1);
+            setBeam(0);
+            // 3 — fly to B, camera along for the ride
+            step(ufo.position, ufo.position.clone(), bStart.clone().setY(HOVER), SWAP.TRAVEL,
+                () => { stretchBeam(); shot(ufo.position, 0.14); }, () => {
+                // 4 — set A down where B was standing
+                carry(playerA.mesh, true);
+                playerA.mesh.position.set(bStart.x, HOVER - 1.2, bStart.z);
+                playerA.mesh.scale.setScalar(0.02);
+                step(t, { v: 0 }, { v: 1 }, SWAP.DROP, (pr) => {
+                    setBeam(Math.sin(pr * Math.PI));
+                    stretchBeam();
+                    playerA.mesh.position.y = (HOVER - 1.2) * (1 - pr);
+                    playerA.mesh.scale.setScalar(Math.max(0.02, pr));
+                    shot(ufo.position, 0.18);
+                }, () => {
+                    playerA.mesh.position.set(bStart.x, 0, bStart.z);
+                    playerA.mesh.scale.setScalar(1);
+                    sfx('swap');
+                    // 5 — beam B up
+                    const bFrom = playerB.mesh.position.clone();
+                    step(t, { v: 0 }, { v: 1 }, SWAP.BEAM, (pr) => {
+                        setBeam(Math.sin(pr * Math.PI) * 1.0 + 0.25);
+                        stretchBeam();
+                        playerB.mesh.position.set(bFrom.x, bFrom.y + pr * (HOVER - 1.2), bFrom.z);
+                        playerB.mesh.rotation.y += 0.22;
+                        playerB.mesh.scale.setScalar(Math.max(0.02, 1 - pr));
+                        shot(ufo.position, 0.18);
+                    }, () => {
+                        carry(playerB.mesh, false);
+                        playerB.mesh.scale.setScalar(1);
+                        setBeam(0);
+                        // 6 — fly back
+                        step(ufo.position, ufo.position.clone(), aStart.clone().setY(HOVER), SWAP.TRAVEL,
+                            () => { stretchBeam(); shot(ufo.position, 0.14); }, () => {
+                            // 7 — set B down where A came from
+                            carry(playerB.mesh, true);
+                            playerB.mesh.position.set(aStart.x, HOVER - 1.2, aStart.z);
+                            playerB.mesh.scale.setScalar(0.02);
+                            step(t, { v: 0 }, { v: 1 }, SWAP.DROP, (pr) => {
+                                setBeam(Math.sin(pr * Math.PI));
+                                stretchBeam();
+                                playerB.mesh.position.y = (HOVER - 1.2) * (1 - pr);
+                                playerB.mesh.scale.setScalar(Math.max(0.02, pr));
+                                shot(ufo.position, 0.18);
+                            }, () => {
+                                playerB.mesh.position.set(aStart.x, 0, aStart.z);
+                                playerB.mesh.scale.setScalar(1);
+                                setBeam(0);
+                                // 8 — the saucer leaves
+                                step(ufo.position, ufo.position.clone(),
+                                     ufo.position.clone().setY(HOVER + 30), SWAP.LIFT,
+                                    () => { stretchBeam(); shot(ufo.position, 0.10); }, () => {
+                                    ufo.visible = false;
+                                    endSwapCinematic();
+                                    done();
+                                });
+                            });
+                        });
+                    });
+                });
+            });
+        });
+    });
+}
+
+// Put everything back the way a cinematic found it. Called on completion and,
+// defensively, by anything that interrupts one — a half-finished abduction must
+// never leave a token invisible or scaled to nothing.
+export function endSwapCinematic() {
+    if (_swapUfo) {
+        _swapUfo.visible = false;
+        if (_swapUfo.userData.beam) _swapUfo.userData.beam.material.opacity = 0;
+    }
+    state.players.forEach(p => {
+        if (!p.mesh) return;
+        p.mesh.visible = true;
+        p.mesh.scale.setScalar(1);
+        p.mesh.position.y = 0;
+    });
+    if (state.cameraState === 'CINEMATIC') {
+        state.cameraState = 'FOLLOW';
+        resetCameraSmoothing();
+        snapCameraToActive();
+    }
+}
+
+// Total run time, so the caller can size its beat from the animation rather
+// than guessing a number that then drifts out of sync with it.
+export function swapCinematicMs() {
+    return Math.round((SWAP.DESCEND + SWAP.BEAM * 2 + SWAP.TRAVEL * 2 + SWAP.DROP * 2 + SWAP.LIFT) * 1000);
 }
 
 // ---- Flyover (game start) ----
@@ -1501,6 +1765,28 @@ export function focusJunction(junctionId, fromNodeId) {
 
 export function clearJunctionFocus() { junctionCam.active = false; }
 
+// Point the follow camera down a specific road before the token starts walking
+// it. Without this the camera keeps whatever heading the previous node had and
+// only turns as the token moves — so the player set off down a road they could
+// not yet see, and the camera arrived after they had already landed.
+export function aimAlongRoad(fromNodeId, toNodeId) {
+    const a = getPos(fromNodeId).clone().setY(0);
+    const b = getPos(toNodeId).clone().setY(0);
+    const d = b.sub(a);
+    if (d.lengthSq() < 1e-6) return;
+    _camFwd.copy(d.normalize());
+    _camFwdInit = true;
+}
+
+// True once the follow camera has essentially arrived at where it wants to be,
+// so a caller can wait for the shot to settle instead of guessing a delay.
+export function followCameraSettled(tolerance = 3.5) {
+    const p = state.players[state.activePlayer];
+    if (!p || !p.mesh || !camera) return true;
+    const { pos } = _followPose(p);
+    return camera.position.distanceTo(pos) <= tolerance;
+}
+
 // ---- Map camera ----
 
 const mapCam = {
@@ -1618,6 +1904,16 @@ function _loop() {
         f.mesh.rotation.y += 1.4 * dt * f.speed;
     });
 
+    // The saucer keeps turning and its rim lights chase while it is on screen.
+    if (_swapUfo && _swapUfo.visible) {
+        _swapUfo.rotation.y += dt * 1.5;
+        const lamps = _swapUfo.userData.lamps || [];
+        lamps.forEach((l, i) => {
+            const on = (Math.sin(time * 6 - i * 0.8) + 1) * 0.5;
+            l.material.color.setRGB(0.35 + on * 0.3, 0.85 + on * 0.15, 1);
+        });
+    }
+
     Physics.step(dt);
 
     for (let i = activeAnims.length - 1; i >= 0; i--) {
@@ -1628,7 +1924,7 @@ function _loop() {
         if (a.obj && a.to) {
             if (a.obj.isVector3) {
                 a.obj.lerpVectors(a.start, a.to, ease);
-                if (a.isHop) a.obj.y = a.to.y + Math.sin(p * Math.PI) * 2.5;
+                if (a.isHop) a.obj.y = a.to.y + Math.sin(p * Math.PI) * (a.hopH || 2.5);
             } else {
                 for (const k in a.to) a.obj[k] = a.start[k] + (a.to[k] - a.start[k]) * ease;
             }

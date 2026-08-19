@@ -118,6 +118,28 @@ const LOSING = ['lose', 'lose_big', 'trap', 'player_trap'];
         return { at };
     }, { type, at });
 
+// Landing is now three beats — ARRIVE (500 ms), RESOLVE, then the card after
+// LAND_SETTLE (420 ms) — so the result card cannot exist for at least ~950 ms,
+// and longer on a slow renderer. A fixed wait guesses; this waits for the thing
+// it is about to assert on.
+const waitForCard = async (page, want) => {
+    const until = Date.now() + 9000;
+    while (Date.now() < until) {
+        const got = await page.evaluate(t => {
+            const box = document.getElementById('msg-modal');
+            const shown = box && getComputedStyle(box).display !== 'none'
+                && getComputedStyle(document.getElementById('modal-overlay')).display !== 'none';
+            if (!shown) return false;
+            const body = (document.getElementById('msg-desc') || {}).innerText || '';
+            const title = (document.getElementById('msg-title') || {}).innerText || '';
+            return !t || new RegExp(t, 'i').test(body) || new RegExp(t, 'i').test(title);
+        }, want || null);
+        if (got) { await page.waitForTimeout(140); return true; }
+        await page.waitForTimeout(120);
+    }
+    return false;
+};
+
     const readCard = () => page.evaluate(() => {
         const box = document.getElementById('msg-modal');
         const shown = box && getComputedStyle(box).display !== 'none'
@@ -157,7 +179,7 @@ const LOSING = ['lose', 'lose_big', 'trap', 'player_trap'];
 
     // ── B1. launch forward 10 ────────────────────────────────────────────────
     await land('cfwd', 8);
-    await page.waitForTimeout(900);            // LAND_SETTLE floor is 420 ms
+    await waitForCard(page, '10 spaces forward');
     const cfwdCard = await readCard();
     ok('cfwd: the +10 launch announces itself before moving you',
        cfwdCard.shown && /10 spaces forward/i.test(cfwdCard.body),
@@ -170,7 +192,7 @@ const LOSING = ['lose', 'lose_big', 'trap', 'player_trap'];
 
     // ── B2. pulled back 10 ───────────────────────────────────────────────────
     await land('cbwd', 30);
-    await page.waitForTimeout(900);
+    await waitForCard(page, '10 spaces backward');
     const cbwdCard = await readCard();
     ok('cbwd: the −10 pullback announces itself before moving you',
        cbwdCard.shown && /10 spaces backward/i.test(cbwdCard.body),
@@ -187,7 +209,7 @@ const LOSING = ['lose', 'lose_big', 'trap', 'player_trap'];
         state.players[0].inv = [];              // room to receive
     });
     await land('mystery', 12);
-    await page.waitForTimeout(900);
+    await waitForCard(page, 'YOU GOT');
     const itemCard = await readCard();
     const inv = await page.evaluate(async () =>
         (await import('/src/core/GameState.js')).state.players[0].inv.slice());
