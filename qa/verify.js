@@ -121,8 +121,10 @@ const ok = (n, cond, detail) => (cond ? out.pass : out.fail).push(n + (detail ? 
     const leak = await page.evaluate(async () => {
         const R = await import('/src/engine/Renderer.js');
         const census = () => {
-            const cam = R.getCamera();
-            let root = cam; while (root && root.parent) root = root.parent;
+            // getScene(), not a walk up from the camera — the camera is not in
+            // the scene graph, so that walk measured nothing at all. This check
+            // has been reporting "meshes 0→0" on every run since it was written.
+            const root = R.getScene();
             let meshes = 0; const geos = new Set(), mats = new Set();
             if (root) root.traverse(n => {
                 if (n.isMesh || n.isPoints || n.isLine) {

@@ -358,8 +358,11 @@ window.__QA = (function () {
             const R = await import('/src/engine/Renderer.js');
             let meshes = 0, materials = 0, geos = 0;
             const seenM = new Set(), seenG = new Set();
-            const cam = R.getCamera();
-            let root = cam; while (root && root.parent) root = root.parent;
+            // The camera is NOT a child of the scene in this renderer, so
+            // walking up from it to find a root found only the camera — this
+            // census counted zero meshes for months while reporting "no leak".
+            // Ask the renderer for the scene.
+            const root = R.getScene ? R.getScene() : null;
             (root ? [root] : []).forEach(function walk(o) {
                 o.traverse(n => {
                     if (n.isMesh || n.isPoints || n.isLine) {

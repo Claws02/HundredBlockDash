@@ -140,6 +140,13 @@
         <div id="branch-cards" class="branch-cards"></div>
     </div>
 
+    <!-- Turn banner: says whose turn it is at every hand-over. Never blocks
+         input — it fades over the board and clears itself. -->
+    <div id="turn-banner" style="display:none;">
+        <div class="tb-card tb-top" data-tb="1"></div>
+        <div class="tb-card tb-bottom" data-tb="0"></div>
+    </div>
+
     <!-- Junction arrows: buttons hung over the 3D board at the two roads
          leaving the junction. The board stays visible behind them. -->
     <div id="junction-layer" style="display:none;">

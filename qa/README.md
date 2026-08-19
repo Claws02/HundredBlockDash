@@ -32,6 +32,7 @@ cd qa
 | `node earlytap.js` | Hammers both halves from frame 0 after GO on every game — catches state-not-ready races (found QA-016). | ~8 min |
 | `node botcheck.js 65` | Drives each game's bot branch at easy and hard with **no human input at all**. Flags games that only end when a human plays, and bots that lose every hard run. | ~30 min |
 | `node arcadecoins.js` | Plays four arcade rounds and asserts **nothing the board reads moved** — no coins, no lifetime earnings, no match win count — while the arcade's own round tally did. Also checks a real match minigame still pays. | ~2 min |
+| `node polish.js` | The presentation pass: the whose-turn banner (fires on hand-over, silent on a re-roll, never over the roll button), City's coins-per-round end chart, the win-screen stat tiles and both buttons on screen, the ally's real 3D model on the board with no leak across 12 spawn cycles, and a rendered 3D portrait on every character card. | ~4 min |
 | `node city.js` | The City Circuit audit: the opening briefing and its map tour, junction **arrows over the board** (labelled, separated, correct through the tabletop half turn, and returning from a map scout with the choice still open), zero track-moving spaces in the pools *and* on a live board, the bounty panel, and a sampled camera trace — position **and aim**. | ~4 min |
 | `node mapp2.js` | The map from **Player 2's** end in tabletop: touching a block selects that block, the tooltip faces them and keeps its offset, and dragging pushes the board the way the finger moves. `mapinfo.js` only ever plays P1, which is how the inverted raycast survived. | ~2 min |
 | `node treeclimb.js` | Reads the lit leaf off the canvas over a 16-branch climb: the sides must not strictly alternate, must never run three deep, and a wrong grab must drop you to the last branch on that side. | ~1 min |
@@ -73,6 +74,20 @@ cd qa
 > 95th percentile, 6.05° → 2.61° worst case. Sample dt too and normalise to a
 > 60 Hz frame, or a frame-rate-independent damp looks like a lurch on a slow
 > renderer and the probe flags the fix as the bug.
+
+> **The scene-graph census was measuring nothing at all.** Both `agent.js` and
+> `verify.js` found the scene by taking the camera and walking up `.parent`
+> until it ran out. The camera in this renderer is never added to the scene, so
+> that walk returns the camera itself: every census since it was written
+> reported `meshes 0→0` and passed. It now calls `Renderer.getScene()` and
+> counts 744 meshes / 242 materials, stable across 12 tile redraws. A leak check
+> that cannot see the thing it is checking passes forever — if a census returns
+> zero, that is the bug, not the result.
+
+> **`verify.js`'s pacing check is load-sensitive.** It counts board turns in a
+> fixed 180 s window, and a dice settle can take 20 s under software GL when the
+> container is busy. Two runs launched alongside other Playwright jobs reported
+> `0 turns`; the same file run on its own reports 12. Run it alone.
 
 > **Two probes had latent isolation bugs that only surfaced when the City pools
 > changed.** `rules.js` asserted an exact coin delta for walking past an HQ while

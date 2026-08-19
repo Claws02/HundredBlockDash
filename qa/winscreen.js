@@ -96,8 +96,13 @@ const ok = (n, c, d) => (c ? pass : fail).push(n + (d ? ` — ${d}` : ''));
     ok('win screen: is rotated for the flat-on-the-table read', view.rotated, view.transform);
     ok('chart: renders an SVG', view.hasSvg);
     ok('chart: one line per player', view.polylines === 2, `${view.polylines} polylines`);
-    ok('chart: legend names both players and the turn count',
-       /turns:/.test(view.legend), view.legend.replace(/\n/g, ' | '));
+    // City is scored on coins and played in rounds, so its chart counts rounds;
+    // HBD is a race to a finish line, so its chart counts turns.
+    ok('chart: legend names both players and the unit the board is measured in',
+       /(turns|rounds):/.test(view.legend)
+       && /Player 1/.test(view.legend)
+       && (MAP === 'city_circuit' ? /rounds:/ : /turns:/).test(view.legend),
+       view.legend.replace(/\n/g, ' | '));
     await page.screenshot({ path: path.join(__dirname, `shot-win-landscape-${MAP}.png`) });
 
     // Portrait toggle

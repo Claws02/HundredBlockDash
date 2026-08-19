@@ -1349,25 +1349,65 @@ body.reduce-motion .hbd-story-crown, body.reduce-motion #realm-banner { animatio
    Everything is a fixed-height band except .win-body, which absorbs the slack.
    The numbers below are chosen so head + stats + buttons never squeeze the
    chart out of the card — that was the original overflow. */
-#win-screen:not(.portrait) .win-inner { padding: 10px 20px; gap: 6px; justify-content: center; }
-#win-screen:not(.portrait) .win-crown { font-size: 34px; }
-#win-screen:not(.portrait) .win-name { font-size: 34px; letter-spacing: 2px; }
-#win-screen:not(.portrait) .win-subtitle { font-size: 13px; margin-bottom: 0; }
+/* The rotated inner box is exactly one screen-width tall (412px on a phone),
+   and the bands inside it added up to a few pixels more — which #win-screen's
+   overflow:hidden clipped, taking REMATCH with it. Let it scroll: the stat
+   grid can grow and the buttons stay reachable either way. */
+#win-screen:not(.portrait) .win-inner {
+    padding: 6px 18px 8px; gap: 4px; justify-content: flex-start;
+    overflow-y: auto; overflow-x: hidden;
+    scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.22) transparent;
+}
+#win-screen:not(.portrait) .win-inner::-webkit-scrollbar { width: 4px; }
+#win-screen:not(.portrait) .win-inner::-webkit-scrollbar-thumb { background: rgba(255,255,255,.22); border-radius: 2px; }
+/* The chart needs a floor or it collapses to nothing when the cards are tall. */
+#win-screen:not(.portrait) .win-body { min-height: 150px; }
+/* A flex item defaults to min-height:auto, which refuses to shrink below its
+   own content — so .win-body could never actually give back the height its
+   min-height allowed, and the overflow landed on the button row instead. Let
+   every level shrink; the stat block has its own scrollbar to absorb it. */
+#win-screen:not(.portrait) .win-body > *,
+#win-screen:not(.portrait) .win-cards,
+#win-screen:not(.portrait) .win-card { min-height: 0; }
+/* And clip at the body. Without this a card ten pixels taller than the row it
+   sits in still contributes those ten pixels to .win-inner's scrollHeight —
+   which is exactly how REMATCH kept ending up just past the bottom edge even
+   though every band measured as fitting. The stat blocks scroll internally, so
+   nothing is lost by clipping here. */
+#win-screen:not(.portrait) .win-body { overflow: hidden; }
+#win-screen:not(.portrait) .win-crown { font-size: 26px; }
+#win-screen:not(.portrait) .win-head { gap: 10px; }
+#win-screen:not(.portrait) .win-btn-row > button { line-height: 1.1; }
+#win-screen:not(.portrait) .win-name { font-size: 27px; letter-spacing: 1.6px; line-height: 1; }
+#win-screen:not(.portrait) .win-subtitle { font-size: 11px; margin-bottom: 0; line-height: 1.2; }
 #win-screen:not(.portrait) .win-cards { max-width: none; padding: 0; gap: 8px; flex-wrap: nowrap; }
 #win-screen:not(.portrait) .win-card { padding: 8px 10px; border-radius: 14px; min-width: 0; }
 #win-screen:not(.portrait) .win-card-name { font-size: 14px; margin-bottom: 2px; }
 #win-screen:not(.portrait) .win-card-score { font-size: 26px; margin-bottom: 4px; }
 #win-screen:not(.portrait) .win-card-stat { font-size: 11px; margin-bottom: 1px; gap: 6px; }
+#win-screen:not(.portrait) .ws-tile { padding: 3px 4px; }
+#win-screen:not(.portrait) .ws-v { font-size: 15px; }
+#win-screen:not(.portrait) .ws-l { font-size: 8px; }
+#win-screen:not(.portrait) .ws-ic { font-size: 10px; }
+#win-screen:not(.portrait) .ws-chip { font-size: 10px; padding: 1px 4px; }
+#win-screen:not(.portrait) .ws-dlabel { font-size: 8px; }
 #win-screen:not(.portrait) .win-chart-title { font-size: 12px; margin-bottom: 3px; }
 #win-screen:not(.portrait) .win-chart-wrap { padding: 7px 10px; }
 #win-screen:not(.portrait) .win-chart-legend { font-size: 10px; gap: 10px; margin-top: 4px; }
 #win-screen:not(.portrait) .win-stats { font-size: 12px; margin: 0; min-height: 0; }
-/* Side by side, not stacked — a stacked pair costs ~100px we don't have. */
+/* Side by side, not stacked — a stacked pair costs ~100px we don't have.
+   Sticky, because the bands above add up to almost exactly the rotated screen
+   height and a few pixels of font-metric drift used to push REMATCH clean off
+   the edge. Pinned to the end of the scroll container it is reachable whatever
+   the stat block does. */
 #win-screen:not(.portrait) .win-btn-row {
     flex-direction: row; max-width: 460px; gap: 10px; margin-top: 0;
+    position: sticky; bottom: 0; z-index: 3;
+    padding-top: 4px;
+    background: linear-gradient(to bottom, rgba(15,12,41,0), rgba(15,12,41,.92) 45%);
 }
 #win-screen:not(.portrait) .win-btn-row > button {
-    flex: 1 1 0; margin-top: 0; padding: 9px 14px; font-size: 17px; min-width: 0;
+    flex: 1 1 0; margin-top: 0; padding: 8px 14px; font-size: 16px; min-width: 0;
 }
 
 /* ── Portrait: the tall column, scrolled if the cards run long ───────────── */
@@ -1813,3 +1853,130 @@ body.modal-open.tabletop-p2-turn #toast-box { top: 15%; }
 #city-briefing.dual-mode .cb-len   { font-size: 14px; width: 24px; }
 #city-briefing.dual-mode .cb-actions { flex-direction: row; gap: 6px; }
 #city-briefing.dual-mode .cb-actions button { padding: 9px 8px; font-size: 11px; letter-spacing: .4px; flex: 1; }
+
+/* ============================================================
+   WIN SCREEN — stat tiles
+   ============================================================
+   Ten stacked label/value rows per player did not fit the landscape screen:
+   they ran past the chart and pushed REMATCH clean off the edge. The stats are
+   now a two-across tile grid — half the height for the same information — and
+   the block scrolls inside its card, so nothing below it can ever be displaced
+   again however many stats get added later. */
+.win-card { display: flex; flex-direction: column; min-height: 0; }
+.win-card-head { flex: 0 0 auto; }
+.win-card-stats {
+    flex: 1 1 auto; min-height: 0; overflow-y: auto;
+    scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.25) transparent;
+}
+.win-card-stats::-webkit-scrollbar { width: 4px; }
+.win-card-stats::-webkit-scrollbar-thumb { background: rgba(255,255,255,.25); border-radius: 2px; }
+
+.ws-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.ws-tile {
+    position: relative; display: flex; flex-direction: column; align-items: center;
+    gap: 0; padding: 5px 4px; border-radius: 9px;
+    background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.09);
+    min-width: 0;
+}
+.ws-ic { position: absolute; top: 3px; left: 4px; font-size: 11px; opacity: .75; line-height: 1; }
+.ws-v {
+    font-family: 'Bebas Neue', Impact, sans-serif; font-size: 18px; line-height: 1.05;
+    color: #fff; letter-spacing: .5px;
+}
+.ws-l {
+    font-family: 'Nunito', system-ui, sans-serif; font-size: 9px; line-height: 1.15;
+    color: rgba(255,255,255,.52); text-align: center;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
+}
+/* Four districts as one strip of chips instead of four full-width rows. */
+.ws-districts {
+    display: flex; align-items: center; gap: 6px; margin-top: 5px;
+    padding-top: 5px; border-top: 1px solid rgba(255,255,255,.1);
+}
+.ws-dlabel {
+    font-family: 'Nunito', system-ui, sans-serif; font-size: 9px; font-weight: 800;
+    letter-spacing: .5px; color: rgba(255,255,255,.42); flex: 0 0 auto;
+}
+.ws-chips { display: flex; gap: 3px; flex: 1 1 auto; justify-content: flex-end; flex-wrap: wrap; }
+.ws-chip {
+    display: inline-flex; align-items: center; gap: 2px; padding: 1px 5px;
+    border-radius: 8px; background: rgba(255,255,255,.06);
+    border: 1px solid rgba(255,255,255,.1);
+    font-family: 'Nunito', system-ui, sans-serif; font-size: 11px;
+    color: rgba(255,255,255,.7); line-height: 1.3;
+}
+.ws-chip b { font-weight: 800; color: #fff; }
+.ws-chip i { font-style: normal; font-size: 9px; }
+.ws-chip.ws-held { border-color: rgba(251,191,36,.65); background: rgba(251,191,36,.13); }
+
+/* ============================================================
+   TURN BANNER — whose turn it is, at every hand-over
+   ============================================================
+   Two copies, one on each player's edge, because it matters to both: whoever
+   is up needs to know they are up, and whoever just finished needs to know
+   they are done. Purely informational — it must never eat a tap meant for the
+   roll button, hence pointer-events: none the whole way down. */
+#turn-banner {
+    position: fixed; inset: 0; z-index: 120;
+    pointer-events: none;
+}
+.tb-card {
+    position: absolute; left: 50%;
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 18px 9px 14px; border-radius: 999px;
+    background: rgba(8, 6, 18, .9);
+    border: 1.5px solid var(--tb-col, rgba(255,255,255,.4));
+    box-shadow: 0 10px 30px rgba(0,0,0,.6), 0 0 22px -6px var(--tb-col, transparent);
+    white-space: nowrap; opacity: 0;
+    transition: opacity .22s ease, transform .28s cubic-bezier(.22,.9,.3,1);
+}
+/* Whoever is NOT up gets the quieter copy — same information, less shout. */
+.tb-card:not(.tb-active) { opacity: 0; filter: saturate(.4); }
+.tb-bottom { bottom: calc(var(--hud-h) + 108px); transform: translate(-50%, 14px); }
+.tb-top    { top: calc(var(--hud-h) + 108px);    transform: translate(-50%, -14px) rotate(180deg); }
+/* Pass-and-play and 1P: the device is not being shared across a table, so one
+   upright banner is the whole story — the mirrored copy would just be upside
+   down for the only person looking. */
+body:not(.tabletop-mode) #turn-banner .tb-top { display: none; }
+body:not(.tabletop-mode) .tb-bottom { bottom: auto; top: 50%; transform: translate(-50%, -50%) scale(.94); }
+
+#turn-banner.tb-show .tb-card { opacity: 1; }
+#turn-banner.tb-show .tb-card:not(.tb-active) { opacity: .55; }
+#turn-banner.tb-show .tb-bottom { transform: translate(-50%, 0); }
+#turn-banner.tb-show .tb-top    { transform: translate(-50%, 0) rotate(180deg); }
+body:not(.tabletop-mode) #turn-banner.tb-show .tb-bottom { transform: translate(-50%, -50%) scale(1); }
+
+.tb-ic { font-size: 26px; line-height: 1; }
+.tb-txt { display: flex; flex-direction: column; gap: 1px; }
+.tb-name {
+    font-size: 19px; letter-spacing: 1.4px; line-height: 1;
+    color: var(--tb-col, #fff);
+}
+.tb-sub {
+    font-family: 'Nunito', system-ui, sans-serif; font-size: 10.5px;
+    letter-spacing: .6px; color: rgba(255,255,255,.6); line-height: 1.1;
+}
+
+/* ============================================================
+   CHARACTER PICKER — the real 3D piece, not an emoji
+   ============================================================
+   The portrait replaces the emoji rather than sitting next to it: the emoji is
+   kept in the DOM as the fallback for a browser that gives us no WebGL
+   context, and hidden as soon as a real render lands. */
+.char-shot {
+    display: block; width: 100%; max-width: 84px; height: auto;
+    margin: 0 auto 2px; aspect-ratio: 1 / 1; object-fit: contain;
+    filter: drop-shadow(0 4px 10px rgba(0,0,0,.55));
+    pointer-events: none;
+}
+.char-card.has-shot .char-icon { display: none; }
+.char-card .char-name { font-family: 'Nunito', system-ui, sans-serif; font-weight: 800; }
+/* Player 2 picking: mark what Player 1 already took. Not disabled — two players
+   may want the same piece, and they are drawn in different colours anyway. */
+.char-card.taken { opacity: .55; }
+.char-card.taken::after {
+    content: 'P1'; position: absolute; top: 5px; right: 7px;
+    font-family: 'Nunito', system-ui, sans-serif; font-size: 9px; font-weight: 800;
+    letter-spacing: .5px; color: var(--p1); opacity: .9;
+}
+.char-card { position: relative; }

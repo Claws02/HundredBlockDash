@@ -53,6 +53,31 @@ export function selectDifficulty(level) {
     if (['easy', 'medium', 'hard'].includes(level)) state.botDifficulty = level;
 }
 
+// Paint the real 3D piece into every card, in the colour the player about to
+// choose will actually be. Nine emoji told you nothing about what you were
+// picking; these are the same meshes the board will draw.
+function _paintCharPortraits(playerIdx) {
+    const cards = [...document.querySelectorAll('#char-select [data-char]')];
+    if (!cards.length) return;
+    const types = cards.map(c => c.dataset.char);
+    const shots = Renderer.renderCharacterPortraits(types, state.players[playerIdx].color);
+    cards.forEach(c => {
+        const url = shots[c.dataset.char];
+        // No WebGL, or a context we could not get: the emoji stays. A picker
+        // that renders nothing is worse than one that renders the old thing.
+        if (!url) return;
+        let img = c.querySelector('.char-shot');
+        if (!img) {
+            img = document.createElement('img');
+            img.className = 'char-shot';
+            img.alt = '';
+            c.insertBefore(img, c.firstChild);
+        }
+        img.src = url;
+        c.classList.add('has-shot');
+    });
+}
+
 export function goToCharSelect() {
     if (!state.playStyle) { UIManager.toast('Please select a game mode first!', '#ef4444'); return; }
     document.getElementById('splash').style.display = 'none';
@@ -60,6 +85,7 @@ export function goToCharSelect() {
     state.charSelectStep = 1;
     document.getElementById('cs-title').textContent = 'PLAYER 1: CHOOSE CHARACTER';
     document.getElementById('cs-title').style.color = 'var(--p1)';
+    _paintCharPortraits(0);
     state.players[1].isBot = (state.playStyle === '1p');
     if (state.players[1].isBot) state.players[1].name = 'Borat the Bot';
 }
@@ -81,6 +107,11 @@ export function confirmCharSelect() {
             document.getElementById('cs-title').textContent = 'PLAYER 2: CHOOSE CHARACTER';
             document.getElementById('cs-title').style.color = 'var(--p2)';
             state.p2CharSelection = state.p1CharSelection === 'slime' ? 'boxy' : 'slime';
+            // Re-render in Player 2's colour, and mark whatever Player 1 took.
+            _paintCharPortraits(1);
+            document.querySelectorAll('#char-select [data-char]').forEach(c => {
+                c.classList.toggle('taken', c.dataset.char === state.p1CharSelection);
+            });
         }
     } else {
         state.players[1].charType = state.p2CharSelection;
@@ -224,6 +255,7 @@ export function startGame() {
         UIManager.setPlayerNames();
         state.activePlayer = Math.floor(Math.random() * 2);
         resetPlayers();
+        UIManager.resetTurnAnnouncer();   // a new match announces its first turn
         if (state.selectedMap === 'hundred_block_dash') {
             state.hbd = buildHbdConfig(state.hbdLength);
             setHbdRealmCount(state.hbd.realmCount);
@@ -300,6 +332,11 @@ export function startPreRoll() {
     const uiLayer = document.getElementById('ui-layer');
     if (uiLayer && uiLayer.style.display === 'none') uiLayer.style.display = 'block';
     UIManager.applyOrientation();
+    // Say whose turn it is. Whose it was had only ever been implied — by which
+    // HUD bar lit up and which edge the buttons appeared on — and that is easy
+    // to miss coming back from a minigame. Only fires when the turn actually
+    // changed hands, so a BOOST re-roll does not re-announce the same player.
+    UIManager.announceTurnIfChanged(state.activePlayer);
     state.rollAgainPending = false;
     state.rollAgainSamePlayer = false;
     UIManager.updateUI();
@@ -900,6 +937,11 @@ function _progressOf(p) {
 function _recordTurn() {
     state.history.push({
         turn:  state.totalTurns,
+        // The round this turn belonged to. City Circuit is scored on coins and
+        // played in rounds, so its end-of-match chart plots the coin totals at
+        // each round boundary — board position on a lap map says very little
+        // about who is winning.
+        round: state.currentRound || 0,
         prog:  state.players.map(_progressOf),
         coins: state.players.map(p => p.coins),
     });

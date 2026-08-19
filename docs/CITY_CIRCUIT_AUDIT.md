@@ -353,3 +353,128 @@ it **feels** right. Specifically unverified:
 - **Whether the briefing is the right length.** Five rows plus two buttons is a
   lot to read before a first turn. It may want to be shorter, or to be offered
   rather than shown.
+
+
+---
+
+## 4. Presentation pass (2026-08-19, second round)
+
+Five follow-ups after a real play session. The camera was reported as good.
+
+### P-01 — Nothing said whose turn it was
+
+Whose turn it is was only ever *implied*: which HUD bar lit up, and which edge
+the action buttons appeared on. Both are easy to miss coming back from a
+minigame or a shop. A banner now names the player at every hand-over.
+
+Two copies, one on each edge, because it matters to both — whoever is up needs
+to know they are up, and whoever just finished needs to know they are done. The
+top copy is turned in tabletop; pass-and-play and 1P get one upright card in the
+middle, since nobody is reading from the far edge. It is `pointer-events: none`
+the whole way down: a banner that swallows the tap it is announcing is worse
+than no banner.
+
+It fires only when the turn actually **changed hands**, so a BOOST re-roll does
+not announce the same player twice.
+
+### P-02 — The end-of-match chart measured the wrong thing on City
+
+City Circuit is a lap map scored on coins. Where you were standing when the last
+round closed says almost nothing about who won — a player can be half a lap
+behind and forty coins up. The City chart now plots **coin totals at each round
+boundary**, one marked point per round, with the axis in rounds. Hundred Block
+Dash is an actual race to a finish line, so it keeps position-per-turn and the
+CROWN line.
+
+Rounds, not turns: coins swing hard *inside* a round (an HQ payout, a minigame,
+a duel), so a per-turn coin line is a sawtooth nobody can read. The last sample
+of each round is the standing as that round closed.
+
+### P-03 — The player stat lists ran off the screen
+
+Ten stacked label/value rows per player did not fit the rotated landscape
+screen. They ran past the chart and pushed **REMATCH clean off the edge** —
+`#win-screen` has `overflow: hidden`, so the button was simply gone.
+
+The stats are now a two-across tile grid (half the height for the same
+information) and the four district rows collapsed into one strip of chips, with
+a crown on the ones you control. The block scrolls inside its card, so nothing
+below it can be displaced however many stats get added later.
+
+Three separate things were pushing the button off, and all three needed fixing:
+
+- the card content was genuinely too tall — hence the tiles;
+- `.win-body` could not shrink to the height its own `min-height` allowed,
+  because a flex item defaults to `min-height: auto` and refuses to go below its
+  content. Every level now gets `min-height: 0`;
+- `.win-body` did not clip, so a card ten pixels taller than its row still
+  contributed those ten pixels to the scroll height of the panel above it.
+
+The button row is also `position: sticky` at the end of the scroll container, so
+it stays reachable whatever happens above it.
+
+> One false lead worth recording: the probe kept reporting REMATCH at `x = -10`
+> even after the layout fitted. `.win-btn` enters on a `fadeSlideUp` with a 1.2 s
+> delay and `animation-fill-mode: backwards`, so for the first ~1.7 s it really
+> is sitting at the animation's starting transform. The probe was measuring
+> before the screen had finished arriving.
+
+### P-04 — The ally on the board was an anonymous blob
+
+An ally waiting on a tile was a gold octahedron. Whether it is worth detouring
+for — and worth spending a minigame on — depends entirely on *which* ally it is:
+the Bodyguard soaks two hits, the Cabbie teleports you, the Banker pays
+interest. The marker is now the ally's own character model, under a floating
+gold halo, on a glowing ground disc so the tile still reads from a distance.
+
+`removeAllyMarker()` also leaked. It deleted its map entry **first** and then
+looked the mesh up again to find its row in the render loop's floating-icon
+list — by which point the lookup returned `undefined`, so the row was never
+removed. Every ally spawn left one animated entry pointing at a mesh no longer
+in the scene, forever. `qa/polish.js` spawns and despawns twelve times and
+asserts both the scene graph and the icon list come back to where they started.
+
+### P-05 — The character picker was nine emoji
+
+An emoji says nothing about the piece you will spend a whole match looking at.
+Every card now carries the real mesh, rendered offscreen at selection time in
+the colour that player will actually be, with the emoji left in the DOM as the
+fallback for a browser that gives us no WebGL context. Player 2's pass marks
+whatever Player 1 took.
+
+The renderer creates, uses and releases one throwaway WebGL context per batch —
+browsers cap live contexts hard, and the board renderer does not even exist yet
+at char select. `qa/polish.js` runs twenty more batches and checks the last one
+still returns images.
+
+### A harness defect found on the way
+
+`agent.js` and `verify.js` both located the scene by taking the camera and
+walking up `.parent` until it ran out. **The camera in this renderer is never
+added to the scene**, so that walk returns the camera itself. Every scene-graph
+leak census since it was written reported `meshes 0→0` and passed — it had been
+measuring nothing at all. Both now call `Renderer.getScene()`, and the census
+reads 744 meshes / 242 materials, stable across 12 tile redraws.
+
+A leak check that cannot see the thing it is checking passes forever. If a
+census returns zero, that is the bug, not the result.
+
+### Verified
+
+`qa/polish.js` — **31/31**, zero page errors. Plus re-runs of `city.js` (36/36),
+`verify.js` (31 bounties claimable, real census, 12 turns in the pacing window),
+`winscreen.js` on both boards, `features.js`, and the parse gate.
+
+`winscreen.js` needed one assertion widened: it hard-coded `turns:` in the chart
+legend, which is now `rounds:` on City by design.
+
+### Not verified
+
+- How the turn banner reads in the hand — 1.7 s was chosen to be long enough to
+  read across a table and short enough to be gone before anyone reaches for the
+  roll button. That is a guess until it is played.
+- Whether the character portraits are legible at card size on a real screen.
+  They render correctly and distinctly; whether the Banker's briefcase is
+  visible at 84 px on a phone is a look-at-it question.
+- Whether coins-per-round is the *right* chart for City, or whether it wants a
+  second series (position, or bounties claimed) alongside it.
