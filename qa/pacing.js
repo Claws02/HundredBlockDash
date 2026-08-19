@@ -206,12 +206,30 @@ const GL = ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=swiftshader',
     // ---------------------------------------------------------------
     // 3. Swap cinematic, driven through the real space-resolution path.
     // ---------------------------------------------------------------
+    // Cancel anything the junction step left in flight. Without this a Director
+    // beat from the previous landing can raise a card DURING the swap, and the
+    // poll below reads that as "the cinematic finished" while a token is still
+    // halfway up the beam.
     await page.evaluate(async () => {
         const M = await import('/src/ui/ModalManager.js');
+        const D = await import('/src/core/Director.js');
+        const R = await import('/src/engine/Renderer.js');
+        const SP = await import('/src/engine/SetPieces.js');
         const GC = await import('/src/core/GameController.js');
-        M.closeAllModals(); GC.startPreRoll();
+        // Director.reset() cancels scheduled beats but NOT animations already
+        // running on the renderer's list. The junction step lands on a Back
+        // Alley tile, which can be a Magnet or a Duel — both of which are set
+        // pieces whose completion raises a card. Left running, that card lands
+        // in the middle of the swap and the poll below reads it as "finished"
+        // while a token is still halfway up the beam.
+        D.reset();
+        R.getActiveAnims().length = 0;
+        SP.clearSetPieces();
+        R.endCinematic();
+        M.closeAllModals();
+        GC.startPreRoll();
     });
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(700);
 
     const swapStart = await page.evaluate(async () => {
         const { state } = await import('/src/core/GameState.js');
@@ -299,6 +317,164 @@ const GL = ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=swiftshader',
     ok('swap: an interrupted cinematic can always be undone',
         rescue.cam === 'FOLLOW' && rescue.m.every(m => m.vis && m.s === 1 && m.y === 0),
         JSON.stringify(rescue));
+
+    // ---------------------------------------------------------------
+    // 4. Notifications must not sit on the board, and must not appear
+    //    while it is moving.
+    // ---------------------------------------------------------------
+    const rail = await page.evaluate(async () => {
+        const U = await import('/src/ui/UIManager.js');
+        const { state } = await import('/src/core/GameState.js');
+        const D = await import('/src/core/Director.js');
+        D.reset();
+        U.clearToastQueue();
+
+        // While the board is animating, nothing may appear over it.
+        state.gameState = 'MOVING';
+        U.toast('passed an HQ', '#fbbf24');
+        U.toast('claimed a bounty', '#4ade80');
+        const duringMove = document.getElementById('toast-box').children.length;
+        const queued = U.pendingToastCount();
+        // ...unless it is flagged urgent.
+        U.toast('shield absorbed it', '#22c55e', { urgent: true });
+        const urgentShown = document.getElementById('toast-box').children.length;
+
+        // Landing releases the queue.
+        state.gameState = 'ACKNOWLEDGE';
+        U.flushToasts();
+        await new Promise(r => setTimeout(r, 700));
+        const afterFlush = document.getElementById('toast-box').children.length;
+
+        const box = document.getElementById('toast-box').getBoundingClientRect();
+        const H = window.innerHeight;
+        return {
+            duringMove, queued, urgentShown, afterFlush,
+            queueEmptied: U.pendingToastCount(),
+            // The middle half of the screen is where the board is played.
+            top: Math.round(box.top), bottom: Math.round(box.bottom), H,
+            inMiddle: box.bottom > H * 0.28 && box.top < H * 0.72,
+        };
+    });
+    ok('toasts: nothing pops up over the board while it is moving',
+        rail.duringMove === 0 && rail.queued === 2, JSON.stringify(rail));
+    ok('toasts: an urgent one still gets through mid-move',
+        rail.urgentShown === 1, `${rail.urgentShown} shown`);
+    ok('toasts: the queue is released when the token lands',
+        rail.afterFlush > 0 && rail.queueEmptied === 0, JSON.stringify(rail));
+    ok('toasts: the rail is clear of the middle of the screen',
+        !rail.inMiddle, `rail spans ${rail.top}–${rail.bottom} of ${rail.H}`);
+    ok('toasts: at most two at a time',
+        rail.afterFlush <= 2, `${rail.afterFlush} stacked`);
+
+    // ---------------------------------------------------------------
+    // 5. The gate: the board stays visible, and items are unavailable.
+    // ---------------------------------------------------------------
+    const gate = await page.evaluate(async () => {
+        const { state } = await import('/src/core/GameState.js');
+        const GC = await import('/src/core/GameController.js');
+        const R  = await import('/src/engine/Renderer.js');
+        const D  = await import('/src/core/Director.js');
+        D.reset();
+        // The swap card is still up from the previous step and its overlay dims
+        // the whole board — which is exactly what this section is asserting the
+        // gate no longer does. Clear it first or the screenshot lies.
+        (await import('/src/ui/ModalManager.js')).closeAllModals();
+        state.gateOpen = false;
+        state.activePlayer = 0;
+        const p = state.players[0];
+        p.pos = 'ind_0'; p.prevPos = 'r16';
+        p.mesh.position.copy(R.getPos('ind_0'));
+        p.inv = ['shield'];
+        p.isBot = false;
+        GC.triggerGateChallenge(p);
+        await new Promise(r => setTimeout(r, 700));
+        const ov = document.getElementById('gate-overlay');
+        const cs = getComputedStyle(ov);
+        const before = p.inv.length;
+        GC.executeUseItem(0, 0);          // must be refused
+        return {
+            shown: cs.display !== 'none',
+            bg: cs.backgroundColor,
+            events: cs.pointerEvents,
+            uiHidden: getComputedStyle(document.getElementById('ui-layer')).display === 'none',
+            cam: state.cameraState,
+            // The card must not cover the middle of the screen either.
+            card: (r => ({ top: Math.round(r.top), bottom: Math.round(r.bottom) }))(
+                document.getElementById('gate-card').getBoundingClientRect()),
+            H: window.innerHeight,
+            invBefore: before, invAfter: p.inv.length,
+        };
+    });
+    ok('gate: the challenge is on screen', gate.shown);
+    ok('gate: the board is NOT blacked out behind it',
+        /rgba\(0, 0, 0, 0\)|transparent/.test(gate.bg), gate.bg);
+    ok('gate: the layer itself swallows no input', gate.events === 'none', gate.events);
+    ok('gate: the camera is pointed at the gate', gate.cam === 'GATE', gate.cam);
+    ok('gate: the card hugs an edge and leaves the middle clear',
+        gate.card.top > gate.H * 0.45 || gate.card.bottom < gate.H * 0.55,
+        `card ${gate.card.top}–${gate.card.bottom} of ${gate.H}`);
+    ok('gate: the item bag is unreachable', gate.uiHidden);
+    ok('gate: and using an item is refused outright',
+        gate.invAfter === gate.invBefore, `${gate.invBefore} → ${gate.invAfter} items`);
+    // The gate card and the toast rail are both anchored to an edge; they must
+    // not be anchored to the SAME one, or a notification lands on the roll button.
+    const railClash = await page.evaluate(() => {
+        const box = document.getElementById('toast-box').getBoundingClientRect();
+        const card = document.getElementById('gate-card').getBoundingClientRect();
+        return { overlap: box.bottom > card.top && box.top < card.bottom,
+                 box: [Math.round(box.top), Math.round(box.bottom)],
+                 card: [Math.round(card.top), Math.round(card.bottom)] };
+    });
+    ok('gate: the toast rail is not sitting on the gate card',
+        !railClash.overlap, JSON.stringify(railClash));
+    await page.screenshot({ path: path.join(__dirname, 'shot-gate.png') });
+
+    // The breach itself.
+    const breach = await page.evaluate(async () => {
+        const { state } = await import('/src/core/GameState.js');
+        const SP = await import('/src/engine/SetPieces.js');
+        const R  = await import('/src/engine/Renderer.js');
+        let peak = 0;
+        const count = () => { let n = 0; R.getScene().traverse(o => { if (o.isMesh) n++; }); return n; };
+        const base = count();
+        await new Promise(res => {
+            SP.gateBreach(R.getPos(state.players[0].pos), res);
+            const iv = setInterval(() => { peak = Math.max(peak, count()); }, 60);
+            setTimeout(() => clearInterval(iv), 2600);
+        });
+        await new Promise(r => setTimeout(r, 400));
+        return { base, peak, after: count(), cam: state.cameraState };
+    });
+    ok('gate: the breach actually puts shards on the board',
+        breach.peak > breach.base + 8, `${breach.base} → peak ${breach.peak}`);
+    ok('gate: and cleans every one of them up',
+        breach.after === breach.base, `${breach.base} → ${breach.after}`);
+
+    // ---------------------------------------------------------------
+    // 6. Every set piece must leave the scene graph where it found it.
+    // ---------------------------------------------------------------
+    const leak = await page.evaluate(async () => {
+        const { state } = await import('/src/core/GameState.js');
+        const SP = await import('/src/engine/SetPieces.js');
+        const R  = await import('/src/engine/Renderer.js');
+        const count = () => { let n = 0; R.getScene().traverse(o => { if (o.isMesh) n++; }); return n; };
+        const a = state.players[0], b = state.players[1];
+        const at = a.mesh.position.clone();
+        const base = count();
+        const run = fn => new Promise(res => fn(res));
+        await run(d => SP.magnetPull(a, b, 5, d));
+        await run(d => SP.hqPayout(a, 15, d));
+        await run(d => SP.mysteryUnbox(at, d));
+        await run(d => SP.anchorSpring(at, d));
+        await run(d => SP.duelFaceoff(a, b, d));
+        SP.coinPop(at, true); SP.finePop(at, true, true);
+        SP.trucePop(a.mesh.position.clone(), b.mesh.position.clone()); SP.shopGlow(at);
+        await new Promise(r => setTimeout(r, 2400));
+        SP.clearSetPieces();
+        return { base, after: count() };
+    });
+    ok('set pieces: nine of them in a row leave the scene graph unchanged',
+        leak.after === leak.base, `${leak.base} → ${leak.after} meshes`);
 
     ok('no page errors', errors.length === 0, errors.slice(0, 3).join(' / '));
 

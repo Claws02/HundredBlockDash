@@ -742,9 +742,47 @@ export function resetTurnAnnouncer() { _lastAnnouncedTurn = -1; }
 
 // ---- Toasts ----
 
-export function toast(msg, color) {
+// Toasts had two problems, and between them they made the board unwatchable
+// while anything was happening on it:
+//
+//   1. `#toast-box` sat at top:50%, left:50% — dead centre of the screen, which
+//      is exactly where the token, the dice and the tile you are moving toward
+//      all are. Up to five of them could stack there at once.
+//   2. Nothing stopped one appearing mid-move. Passing an HQ, claiming a bounty
+//      and gaining an ally all fire DURING the walk, so the board disappeared
+//      behind a black pill at the precise moment the player was trying to watch
+//      it.
+//
+// The box is now a rail on the active player's own edge, clear of the middle of
+// the screen (see the CSS), and anything that is not urgent WAITS while the
+// board is animating. Nothing is lost — the queue is flushed the moment the
+// token lands, which is when the player is looking for it anyway.
+
+const _toastQueue = [];
+const TOAST_MAX_QUEUE = 6;
+
+// States in which the board itself is the thing to look at.
+function _boardIsBusy() {
+    return state.gameState === 'MOVING' || state.gameState === 'ROLLING';
+}
+
+export function toast(msg, color, opts = {}) {
+    // `urgent` is for things the player must see AS they happen rather than
+    // after — currently only the shield absorbing a hit, which explains why a
+    // fine cost them nothing.
+    if (!opts.urgent && _boardIsBusy()) {
+        _toastQueue.push({ msg, color });
+        while (_toastQueue.length > TOAST_MAX_QUEUE) _toastQueue.shift();
+        return;
+    }
+    _emitToast(msg, color);
+}
+
+function _emitToast(msg, color) {
     const box = document.getElementById('toast-box');
-    while (box.children.length >= 5) box.removeChild(box.firstChild);
+    if (!box) return;
+    // Two at a time. Five stacked pills is not a notification, it is a wall.
+    while (box.children.length >= 2) box.removeChild(box.firstChild);
     const el = document.createElement('div');
     el.className = 'toast';
     el.textContent = msg;
@@ -753,6 +791,18 @@ export function toast(msg, color) {
     box.appendChild(el);
     setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, SCENE.TOAST);
 }
+
+// Release anything that was held back while the board was moving. Called when
+// the token lands and again at the top of every turn, so a queued line can
+// never be stranded by a scene that took an unusual exit.
+export function flushToasts() {
+    if (!_toastQueue.length) return;
+    const batch = _toastQueue.splice(0, _toastQueue.length);
+    batch.forEach((t, i) => setTimeout(() => _emitToast(t.msg, t.color), i * 220));
+}
+
+export function pendingToastCount() { return _toastQueue.length; }
+export function clearToastQueue() { _toastQueue.length = 0; }
 
 // ---- Space info card ----
 
