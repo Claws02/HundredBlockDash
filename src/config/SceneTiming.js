@@ -37,6 +37,14 @@ export const SCENE = {
     // Pass-through shop prompt gets its own beat so it doesn't collide with the
     // hop that triggered it.
     PASSTHROUGH:     320,
+    // A route has been chosen at a fork. The camera turns to face the chosen
+    // road and eases down from the junction's overhead shot BEFORE the token
+    // starts walking it. Without this the player set off down a road the camera
+    // had not reached yet, and landed before the view caught up.
+    JUNCTION_COMMIT: 620,
+    // The token has arrived and the camera is on it. This is the window in which
+    // you see WHERE you are, before anything is done to you.
+    LAND_ARRIVE:     500,
 
     // ── The payoff ───────────────────────────────────────────────────────────
     // THE important one. The result card must own the screen for this long

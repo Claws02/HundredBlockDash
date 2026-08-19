@@ -444,9 +444,21 @@ export function moveThroughGraph(player, stepsTotal) {
                     });
                     return;
                 }
-                // Normal advance to chosen node
+                // Normal advance onto the chosen road.
+                //
+                // This used to be one 0.35 s hop straight from the node before
+                // the fork to the first node of the chosen road — skipping the
+                // fork itself and covering up to 26 units (against ~10 for an
+                // ordinary step) in the same time. Combined with the camera
+                // still travelling down from the junction's overhead shot, the
+                // player was somewhere else before the view caught up, and the
+                // space they landed on resolved before they saw it.
+                //
+                // Now: the camera turns to face the chosen road and eases back
+                // onto the player FIRST, then the token walks to the fork, then
+                // down the road. Two legs, one board step.
                 stepsLeft--;
-                Renderer.animatePlayerHop(player, chosenId, () => {
+                _walkThroughJunction(player, nextId, chosenId, () => {
                     player.pos = chosenId;
                     _checkPassThroughShop(player, chosenId, stepsLeft, advance);
                 });
@@ -463,6 +475,26 @@ export function moveThroughGraph(player, stepsTotal) {
     }
 
     advance();
+}
+
+// Walk a token from wherever it is, through the invisible fork node, and out
+// onto the first node of the chosen road — with the camera arriving first.
+//
+// The fork is a real position on the ring even though nobody can stand on it,
+// so travelling through it is what makes a route choice look like a turn rather
+// than a cut. `player.pos` is deliberately NOT parked on the fork: no board tile
+// exists there, and anything that read the position mid-animation would find a
+// space that cannot resolve.
+function _walkThroughJunction(player, junctionId, chosenId, onDone) {
+    // Turn the camera down the chosen road and hand it back to FOLLOW. It eases
+    // from the junction's overhead shot to the walking shot during this beat.
+    Renderer.aimAlongRoad(junctionId, chosenId);
+    state.cameraState = 'FOLLOW';
+    Director.hold('JUNCTION_COMMIT', () => {
+        Renderer.animatePlayerHop(player, junctionId, () => {
+            Renderer.animatePlayerHop(player, chosenId, onDone, { faceToward: chosenId });
+        }, { faceToward: chosenId });
+    });
 }
 
 // Fires the `enter_district` contract event the first time a player steps off
@@ -670,50 +702,74 @@ export function resolveSpace(p) {
     if (!space) { finishTurn(); return; }
 
     state.gameState = 'ACKNOWLEDGE';
-    const msg = resolveSpaceEffect(p, space.type, space);
-    UIManager.updateUI();
-    if (msg === null) return;
 
+    // Landing is three beats, in this order, and the order is the whole point:
+    //
+    //   ARRIVE  — the token is down and the camera is on it. The tile names
+    //             itself. NOTHING has happened to the player yet.
+    //   RESOLVE — the effect fires: coins move, items are granted, the result
+    //             card appears.
+    //   RESULT  — the card owns the screen for its floor.
+    //
+    // resolveSpaceEffect() used to be called at the top of this function,
+    // before any of that: the coin counter moved, the HUD updated and the item
+    // landed in the bag while the token was still mid-hop and, after a junction,
+    // while the camera was still travelling. You were told what happened before
+    // you could see where you were.
     const spc = SPACE_META[space.type] || SPACE_META.coin;
-    const goodTypes = ['coin','coin_big','shortcut','cfwd','mystery','truce','gate_open','hq','finish'];
-    const badTypes  = ['lose','lose_big','trap','cbwd','magnet','player_trap','anchor_trap','duel'];
-    if (goodTypes.includes(space.type))  sfx('land_good');
-    else if (badTypes.includes(space.type)) sfx('land_bad');
-
-    // Hundred Block Dash spaces carry realm-themed names/copy.
-    const lbl       = state.selectedMap === 'hundred_block_dash' ? hbdSpaceLabel(p.pos, space.type) : null;
-    const ovr       = state.pendingResultOverride; state.pendingResultOverride = null;
-    const titleName = ovr ? ovr.title : (lbl ? lbl.name : (spc.n || space.type.toUpperCase()));
-    const descText  = lbl ? lbl.desc : (SPACE_DESCS[space.type] || '');
-    const iconChar  = ovr ? ovr.icon : (lbl ? lbl.icon : spc.ic);
+    const lbl = state.selectedMap === 'hundred_block_dash' ? hbdSpaceLabel(p.pos, space.type) : null;
+    const tileName = lbl ? lbl.name : (spc.n || space.type.toUpperCase());
+    const tileDesc = lbl ? lbl.desc : (SPACE_DESCS[space.type] || '');
     if (state.selectedMap === 'hundred_block_dash') Renderer.updateBiomeVisuals(typeof p.pos === 'number' ? p.pos : 0);
     else Renderer.updateBiomeVisuals(CITY_GRAPH[p.pos]?.district || 'ring');
 
-    // Beat: let the token visibly arrive, THEN say what the space did. The
-    // result then owns the screen for its full floor — nothing else may start.
-    Director.hold('LAND_SETTLE', () => {
+    // ARRIVE — name the tile you are standing on.
+    UIManager.showSpaceInfoCard(tileName, tileDesc);
+    Director.hold('LAND_ARRIVE', () => {
         if (state.gameState !== 'ACKNOWLEDGE') return;
-        UIManager.showSpaceInfoCard(titleName, descText);
-        // A full bag: the discard picker is the result card for this space.
-        const pick = state.pendingDropPick; state.pendingDropPick = null;
-        if (pick) {
-            ModalManager.openDropModal(p, pick, 0, 'finish_turn');
-            Director.begin('LAND_RESULT');
-            return;
-        }
-        // Owner tier: the card is this player's, the opponent gets the headline
-        // on their own edge — first line only, so it stays one glanceable strip.
-        ModalManager.showMessage(titleName, msg || 'Nothing happens.', iconChar, {
-            tier:   'owner',
-            ticker: `${p.name}: ${(msg || titleName).split('\n')[0]}`,
-        });
-        Director.begin('LAND_RESULT');
-        if (p.isBot) {
-            // No tap is coming, so this floor is the whole readable window.
-            Director.hold(space.type === 'boost' ? 'BOOST_RESULT' : 'BOT_RESULT', () => {
-                if (state.gameState === 'ACKNOWLEDGE') resolveMsgModal();
+
+        // RESOLVE — now do the thing.
+        const msg = resolveSpaceEffect(p, space.type, space);
+        UIManager.updateUI();
+        // null means the effect took the screen for itself (shop, duel, a
+        // cinematic) and will drive the rest of the turn.
+        if (msg === null) return;
+
+        const goodTypes = ['coin','coin_big','shortcut','cfwd','mystery','truce','gate_open','hq','finish'];
+        const badTypes  = ['lose','lose_big','trap','cbwd','magnet','player_trap','anchor_trap','duel'];
+        if (goodTypes.includes(space.type))  sfx('land_good');
+        else if (badTypes.includes(space.type)) sfx('land_bad');
+
+        // An item pickup renames the card after itself, so this has to be read
+        // after the effect has run.
+        const ovr       = state.pendingResultOverride; state.pendingResultOverride = null;
+        const titleName = ovr ? ovr.title : tileName;
+        const iconChar  = ovr ? ovr.icon : (lbl ? lbl.icon : spc.ic);
+
+        Director.hold('LAND_SETTLE', () => {
+            if (state.gameState !== 'ACKNOWLEDGE') return;
+            // A full bag: the discard picker is the result card for this space.
+            const pick = state.pendingDropPick; state.pendingDropPick = null;
+            if (pick) {
+                ModalManager.openDropModal(p, pick, 0, 'finish_turn');
+                Director.begin('LAND_RESULT');
+                return;
+            }
+            // Owner tier: the card is this player's, the opponent gets the
+            // headline on their own edge — first line only, so it stays one
+            // glanceable strip.
+            ModalManager.showMessage(titleName, msg || 'Nothing happens.', iconChar, {
+                tier:   'owner',
+                ticker: `${p.name}: ${(msg || titleName).split('\n')[0]}`,
             });
-        }
+            Director.begin('LAND_RESULT');
+            if (p.isBot) {
+                // No tap is coming, so this floor is the whole readable window.
+                Director.hold(space.type === 'boost' ? 'BOOST_RESULT' : 'BOT_RESULT', () => {
+                    if (state.gameState === 'ACKNOWLEDGE') resolveMsgModal();
+                });
+            }
+        });
     });
 }
 
@@ -776,12 +832,17 @@ export function resolveSpaceEffect(p, spaceType, space) {
             return '🌑 PULLED BACK! Dragged 10 spaces backward.';
         }
         case 'swap_space': {
+            // The single most dramatic thing on the board used to be delivered
+            // as two `position.copy()` calls and a toast: both tokens simply
+            // appeared somewhere else, which reads as a rendering glitch rather
+            // than an event. The state swaps here (so the rules stay consistent
+            // from this instant) but the MESHES are left where they are and
+            // handed to the cinematic, which flies them across itself.
             const tmp = p.pos; p.pos = opp.pos; opp.pos = tmp;
-            if (p.mesh) p.mesh.position.copy(Renderer.getPos(p.pos));
-            if (opp.mesh) opp.mesh.position.copy(Renderer.getPos(opp.pos));
-            sfx('swap'); haptic([50,30,50]);
             _checkContract(p, 'land_type', 'swap_space');
-            return `Positions swapped with ${opp.name}!`;
+            haptic([50, 30, 50]);
+            _playSwap(p, opp, `🛸 Abducted and re-filed — ${p.name} and ${opp.name} have traded places.`);
+            return null;   // the cinematic owns the screen and raises its own card
         }
         case 'anchor_trap': {
             const owner = space?.owner !== undefined ? state.players[space.owner] : null;
@@ -845,6 +906,31 @@ export function resolveSpaceEffect(p, spaceType, space) {
         }
         default: return '';
     }
+}
+
+// Run the abduction and raise the card when the saucer has gone. Shared by the
+// SWAP ZONE space and the Swap item, because they are the same event and should
+// not look like two different ones.
+//
+// It is a SHARED-tier card: a swap happens TO both players, so both need to
+// read the outcome, not just whoever triggered it.
+function _playSwap(p, opp, message) {
+    Renderer.playSwapCinematic(p, opp, () => {
+        // Belt and braces: whatever the animation did, the tokens end on their
+        // nodes. An interrupted cinematic must not leave the board lying.
+        if (p.mesh)   p.mesh.position.copy(Renderer.getPos(p.pos));
+        if (opp.mesh) opp.mesh.position.copy(Renderer.getPos(opp.pos));
+        Renderer.snapCameraToActive();
+        UIManager.updateUI();
+        if (state.gameState !== 'ACKNOWLEDGE') return;
+        ModalManager.showMessage('SWAP ZONE', message, '🛸', { tier: 'shared' });
+        Director.begin('LAND_RESULT');
+        if (p.isBot) {
+            Director.hold('BOT_RESULT', () => {
+                if (state.gameState === 'ACKNOWLEDGE') resolveMsgModal();
+            });
+        }
+    });
 }
 
 // ---- Forced movement helpers (graph-aware) ----
@@ -1452,10 +1538,30 @@ function _applyItemEffect(p, itemId, isBot, opp) {
     if (itemId === 'rocket')      { _doMove(p, 8); UIManager.updateUI(); ModalManager.closeAllModals(); }
     if (itemId === 'anchor')      { if (state.board[opp.pos]) { state.board[opp.pos].type = 'anchor_trap'; state.board[opp.pos].owner = p.id; Renderer.updateSingleTile(); UIManager.toast('⚓ Anchor placed!', '#f97316'); } }
     if (itemId === 'swap')        {
+        // The same event as the SWAP ZONE space, so the same set piece — a
+        // player should not have to learn two visual languages for one thing.
+        // The difference is what happens afterwards: this is used BEFORE the
+        // roll, so the turn hands back to PRE_ROLL rather than to a result card.
         const tmp = p.pos; p.pos = opp.pos; opp.pos = tmp;
-        if (p.mesh) p.mesh.position.copy(Renderer.getPos(p.pos));
-        if (opp.mesh) opp.mesh.position.copy(Renderer.getPos(opp.pos));
-        sfx('swap'); haptic([50,30,50]);
+        haptic([50, 30, 50]);
+        const resume = state.gameState;
+        state.gameState = 'ACKNOWLEDGE';     // no input while the saucer is up
+        UIManager.hideActionRows();
+        UIManager.hideSwipeZone();
+        ModalManager.closeAllModals();
+        Renderer.playSwapCinematic(p, opp, () => {
+            if (p.mesh)   p.mesh.position.copy(Renderer.getPos(p.pos));
+            if (opp.mesh) opp.mesh.position.copy(Renderer.getPos(opp.pos));
+            Renderer.snapCameraToActive();
+            state.gameState = resume;
+            UIManager.updateUI();
+            if (resume === 'PRE_ROLL') {
+                if (p.isBot) Director.wait(300, () => {
+                    if (state.gameState === 'PRE_ROLL') executeRoll(0.8 + Math.random() * 1.5);
+                });
+                else UIManager.showSwipeZone();
+            }
+        });
     }
     if (itemId === 'steal')       { const s = Math.min(10, opp.coins); loseCoins(opp, s); earnCoins(p, s); }
     if (itemId === 'custom_dice') {
