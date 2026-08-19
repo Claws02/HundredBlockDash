@@ -17,23 +17,24 @@ export const DISTRICT_NAMES = {
 
 export const DISTRICT_KEYS = ['fin', 'ba', 'shop', 'ind'];
 
-// Branch junction descriptions shown in the path-choice UI
+// Branch junction descriptions shown in the path-choice UI.
+// `short` is the version that has to fit inside an on-board arrow button.
 export const BRANCH_OPTIONS = {
     bp_a: [
-        { nodeId: 'r1',    label: 'Ring Road',          desc: 'Safe & consistent',         icon: '🛣️', district: 'ring', spaces: 5  },
-        { nodeId: 'fin_0', label: 'Financial District', desc: 'High risk, high reward',    icon: '💹', district: 'fin',  spaces: 10 },
+        { nodeId: 'r1',     label: 'Ring Road',           short: 'RING',       desc: 'Short lap · steady coins',   icon: '🛣️', district: 'ring', spaces: 5  },
+        { nodeId: 'fin_0',  label: 'Financial District',  short: 'FINANCIAL',  desc: 'Big money · big fines',      icon: '💹', district: 'fin',  spaces: 10 },
     ],
     bp_b: [
-        { nodeId: 'r6',   label: 'Ring Road',           desc: 'Safe & consistent',         icon: '🛣️', district: 'ring', spaces: 5  },
-        { nodeId: 'ba_0', label: 'Back Alley',          desc: 'Traps & shortcuts',         icon: '🏚️', district: 'ba',   spaces: 12 },
+        { nodeId: 'r6',     label: 'Ring Road',           short: 'RING',       desc: 'Short lap · steady coins',   icon: '🛣️', district: 'ring', spaces: 5  },
+        { nodeId: 'ba_0',   label: 'Back Alley',          short: 'BACK ALLEY', desc: 'Traps, duels & swaps',            icon: '🏚️', district: 'ba',   spaces: 12 },
     ],
     bp_c: [
-        { nodeId: 'r11',    label: 'Ring Road',          desc: 'Safe & consistent',         icon: '🛣️', district: 'ring', spaces: 5  },
-        { nodeId: 'shop_0', label: 'Shopping Promenade', desc: 'Coins & mystery spaces',    icon: '🛍️', district: 'shop', spaces: 10 },
+        { nodeId: 'r11',    label: 'Ring Road',           short: 'RING',       desc: 'Short lap · steady coins',   icon: '🛣️', district: 'ring', spaces: 5  },
+        { nodeId: 'shop_0', label: 'Shopping Promenade',  short: 'PROMENADE',  desc: 'Coins, mystery & the Mall',       icon: '🛍️', district: 'shop', spaces: 10 },
     ],
     bp_d: [
-        { nodeId: 'r16',   label: 'Ring Road',          desc: 'Safe & consistent',          icon: '🛣️', district: 'ring', spaces: 5 },
-        { nodeId: 'ind_0', label: 'Industrial Zone',    desc: 'Locked by The Gate 🔒',      icon: '⚙️', district: 'ind',  spaces: 8 },
+        { nodeId: 'r16',    label: 'Ring Road',           short: 'RING',       desc: 'Short lap · steady coins',   icon: '🛣️', district: 'ring', spaces: 5  },
+        { nodeId: 'ind_0',  label: 'Industrial Zone',     short: 'INDUSTRIAL', desc: 'Locked by The Gate 🔒', icon: '⚙️', district: 'ind',  spaces: 8  },
     ],
 };
 
@@ -136,27 +137,38 @@ export const DISTRICT_POOLS = {
     // The removed reds were replaced with disruption that costs no coins
     // (swap_space, cbwd) so the districts keep their character.
     // Current total: 6 red of 60 nodes.
+    //
+    // NOTHING IN THESE POOLS MAY MOVE A PLAYER ALONG THE TRACK. City Circuit is
+    // a lap map: the whole point of choosing a district is the run of spaces you
+    // signed up for, and a space that fires you 10 nodes down the road cancels
+    // that choice after you have already committed to it. 'shortcut' (+3..8),
+    // 'cfwd' (+10) and 'cbwd' (−10) are gone from every City pool for that
+    // reason. Movement now comes only from the die, from BOOST (which grants a
+    // real extra roll rather than teleporting), and from items a player chose to
+    // buy — all of which the player can see coming.
+    //
+    // 'swap_space' stays: it relocates BOTH players symmetrically and is the one
+    // effect on the board that the player behind actively wants, so it reads as
+    // an event rather than as lost progress.
 
     // 17 null nodes: r2, r4, r5, r6, r7, r8, r9, r10, r11, r12, r14–r20
     ring: [
         ...Array(5).fill('coin'), ...Array(3).fill('coin_big'),
         ...Array(1).fill('trap'), ...Array(1).fill('lose'),
-        ...Array(2).fill('mystery'), ...Array(1).fill('boost'),
-        ...Array(1).fill('truce'), ...Array(1).fill('shortcut'),
-        ...Array(1).fill('swap_space'), ...Array(1).fill('cbwd'),
+        ...Array(3).fill('mystery'), ...Array(2).fill('boost'),
+        ...Array(1).fill('truce'), ...Array(1).fill('swap_space'),
     ],
     // 8 null nodes: fin_0-fin_3, fin_5-fin_8
     fin: [
         ...Array(3).fill('coin_big'), ...Array(1).fill('lose_big'),
-        ...Array(1).fill('magnet'), ...Array(1).fill('duel'),
-        ...Array(1).fill('coin'), ...Array(1).fill('cbwd'),
+        ...Array(2).fill('magnet'),   ...Array(1).fill('duel'),
+        ...Array(1).fill('coin'),
     ],
     // 10 null nodes: ba_0-ba_4, ba_6-ba_10 — still the nastiest stretch, but
     // the nastiness is now positional rather than a coin tax.
     ba: [
-        ...Array(2).fill('trap'), ...Array(2).fill('magnet'),
-        ...Array(2).fill('shortcut'), ...Array(1).fill('duel'),
-        ...Array(2).fill('swap_space'), ...Array(1).fill('cbwd'),
+        ...Array(2).fill('trap'), ...Array(3).fill('magnet'),
+        ...Array(2).fill('duel'), ...Array(3).fill('swap_space'),
     ],
     // 8 null nodes: shop_0-shop_3, shop_5-shop_8
     shop: [
@@ -166,7 +178,7 @@ export const DISTRICT_POOLS = {
     // 5 null nodes: ind_1, ind_2, ind_4, ind_5, ind_6
     ind: [
         ...Array(1).fill('lose_big'), ...Array(1).fill('swap_space'),
-        ...Array(1).fill('cfwd'),     ...Array(1).fill('coin_big'), ...Array(1).fill('duel'),
+        ...Array(1).fill('boost'),    ...Array(1).fill('coin_big'), ...Array(1).fill('duel'),
     ],
 };
 

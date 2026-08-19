@@ -1597,3 +1597,219 @@ body.modal-open.tabletop-p2-turn #toast-box { top: 15%; }
     font-family: 'Nunito', system-ui, sans-serif; font-size: 11px; font-weight: 800;
     color: var(--gold); letter-spacing: .3px;
 }
+
+/* ============================================================
+   CITY CIRCUIT — junction arrows, bounty panel, opening briefing
+   ============================================================ */
+
+/* --- The BOUNTIES square in the action stack --- */
+.btn-action.bounty-btn {
+    background: linear-gradient(145deg, #14532d, #16a34a) !important;
+    border: none !important;
+    box-shadow: 0 4px 18px rgba(34,197,94,0.38), inset 0 1px 0 rgba(255,255,255,0.1) !important;
+}
+/* "BOUNTIES" is the longest label in the stack and has to fit an 86px square. */
+.btn-action.bounty-btn .ba-tx { font-size: 11px; letter-spacing: 0; }
+
+/* --- Junction arrows ---------------------------------------------------
+   Hung over the 3D board rather than covering it. Each button is centred on
+   its own road by JS every frame, so the transform here is the centring only
+   — the position comes from left/top. */
+#junction-layer { position: fixed; inset: 0; z-index: 60; pointer-events: none; }
+#junction-banner {
+    position: absolute; top: calc(var(--hud-h) + 18px); left: 50%; transform: translateX(-50%);
+    background: rgba(8,6,18,.86); border: 1px solid rgba(255,255,255,.22);
+    border-radius: 20px; padding: 7px 18px;
+    font-size: 16px; letter-spacing: 1.2px; color: #fff;
+    box-shadow: 0 8px 26px rgba(0,0,0,.6); white-space: nowrap;
+    pointer-events: none;
+}
+.tabletop-p2-turn #junction-banner {
+    top: auto; bottom: calc(var(--hud-h) + 18px);
+    transform: translateX(-50%) rotate(180deg);
+}
+.j-arrow {
+    position: absolute; transform: translate(-50%, -50%);
+    display: flex; align-items: center; gap: 9px;
+    min-width: 150px; max-width: 190px;
+    padding: 9px 14px 9px 10px; border-radius: 18px;
+    background: rgba(8,6,18,.9);
+    border: 2px solid rgba(255,255,255,.34);
+    color: #fff; text-align: left; cursor: pointer;
+    pointer-events: auto;
+    box-shadow: 0 10px 30px rgba(0,0,0,.62);
+    transition: transform .12s ease, box-shadow .12s ease;
+    animation: jPulse 1.9s ease-in-out infinite;
+}
+.j-arrow:active { transform: translate(-50%, -50%) scale(.95); }
+.tabletop-p2-turn .j-arrow { transform: translate(-50%, -50%) rotate(180deg); }
+.tabletop-p2-turn .j-arrow:active { transform: translate(-50%, -50%) rotate(180deg) scale(.95); }
+@keyframes jPulse {
+    0%, 100% { box-shadow: 0 10px 30px rgba(0,0,0,.62); }
+    50%      { box-shadow: 0 10px 30px rgba(0,0,0,.62), 0 0 0 6px rgba(255,255,255,.07); }
+}
+.j-head {
+    flex: 0 0 auto; font-size: 26px; line-height: 1;
+    display: inline-block; transform-origin: 50% 50%;
+    filter: drop-shadow(0 0 6px rgba(255,255,255,.45));
+}
+.j-label { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.j-name  { font-size: 14px; letter-spacing: .6px; line-height: 1.15; }
+.j-meta  { font-family: 'Nunito', system-ui, sans-serif; font-size: 10.5px; font-weight: 800; color: var(--gold); }
+.j-desc  { font-family: 'Nunito', system-ui, sans-serif; font-size: 10.5px; color: rgba(255,255,255,.7); line-height: 1.25; }
+/* District colours, so the arrow matches the ground it points at. */
+.j-arrow.j-ring { border-color: rgba(148,163,184,.85); }
+.j-arrow.j-fin  { border-color: rgba(74,222,128,.9);  }
+.j-arrow.j-ba   { border-color: rgba(168,85,247,.9);  }
+.j-arrow.j-shop { border-color: rgba(244,114,182,.9); }
+.j-arrow.j-ind  { border-color: rgba(251,146,60,.9);  }
+.j-arrow.j-locked { opacity: .72; }
+.j-arrow.j-locked .j-head { filter: none; opacity: .55; }
+
+#btn-junction-map {
+    position: absolute; left: 50%; bottom: calc(var(--hud-h) + 22px);
+    transform: translateX(-50%);
+    pointer-events: auto; cursor: pointer;
+    background: rgba(8,6,18,.86); color: rgba(255,255,255,.9);
+    border: 1px solid rgba(255,255,255,.28); border-radius: 22px;
+    padding: 10px 20px; font-size: 13px; letter-spacing: .8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.6);
+}
+#btn-junction-map:active { transform: translateX(-50%) scale(.96); }
+.tabletop-p2-turn #btn-junction-map {
+    bottom: auto; top: calc(var(--hud-h) + 22px);
+    transform: translateX(-50%) rotate(180deg);
+}
+.tabletop-p2-turn #btn-junction-map:active { transform: translateX(-50%) rotate(180deg) scale(.96); }
+
+/* --- Bounty panel ------------------------------------------------------ */
+#bounty-panel {
+    position: fixed; inset: 0; z-index: 170;
+    display: none; align-items: center; justify-content: center;
+    background: rgba(4,3,10,.82);
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+    padding: 16px;
+}
+.bounty-sheet {
+    width: 100%; max-width: 460px; max-height: 88vh;
+    display: flex; flex-direction: column; gap: 12px;
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 20px; padding: 18px 16px 16px;
+    box-shadow: 0 20px 60px rgba(0,0,0,.8);
+}
+.tabletop-p2-turn .bounty-sheet { transform: rotate(180deg); }
+.bounty-head { text-align: center; }
+.bounty-title { font-size: 22px; letter-spacing: 1.4px; color: #fff; }
+.bounty-sub {
+    font-family: 'Nunito', system-ui, sans-serif; font-size: 11.5px;
+    color: rgba(255,255,255,.6); margin-top: 4px; line-height: 1.4;
+}
+.bounty-list { display: flex; flex-direction: column; gap: 9px; overflow-y: auto; padding-right: 2px; }
+.bounty-empty {
+    font-family: 'Nunito', system-ui, sans-serif; font-size: 13px;
+    color: rgba(255,255,255,.55); text-align: center; padding: 24px 0;
+}
+.bounty-card {
+    display: flex; align-items: flex-start; gap: 10px;
+    background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.12);
+    border-radius: 14px; padding: 11px 12px;
+}
+.bq-icon { flex: 0 0 auto; font-size: 24px; line-height: 1.1; }
+.bq-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.bq-desc { font-size: 14px; letter-spacing: .4px; color: #fff; line-height: 1.2; }
+.bq-hint {
+    font-family: 'Nunito', system-ui, sans-serif; font-size: 11px; line-height: 1.35;
+    color: rgba(255,255,255,.58);
+}
+.bq-track { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+.bq-who {
+    font-family: 'Nunito', system-ui, sans-serif; font-size: 10px; font-weight: 800;
+    width: 58px; flex: 0 0 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.bq-bar { flex: 1 1 auto; height: 6px; border-radius: 3px; background: rgba(255,255,255,.12); overflow: hidden; }
+.bq-fill { display: block; height: 100%; border-radius: 3px; transition: width .3s ease; }
+.bq-num {
+    font-family: 'Nunito', system-ui, sans-serif; font-size: 10px; font-weight: 800;
+    color: rgba(255,255,255,.65); width: 30px; text-align: right; flex: 0 0 auto;
+}
+.bq-reward {
+    flex: 0 0 auto; font-size: 17px; color: #4ade80; letter-spacing: .5px;
+    display: flex; align-items: baseline; gap: 2px;
+}
+.bq-reward span { font-size: 11px; }
+#btn-close-bounties {
+    background: linear-gradient(150deg, #b37c0c, #f5c842); color: #1a0a00;
+    border: none; border-radius: 14px; padding: 13px; font-size: 15px; letter-spacing: 1px;
+    cursor: pointer; box-shadow: 0 6px 20px rgba(245,200,66,.4);
+}
+#btn-close-bounties:active { transform: scale(.97); }
+/* A counted bounty one step from paying out is worth noticing at a glance. */
+.contract-pill.contract-close {
+    border-color: rgba(74,222,128,.7);
+    box-shadow: 0 0 0 1px rgba(74,222,128,.25), 0 0 14px rgba(74,222,128,.25);
+}
+
+/* --- Opening city briefing --------------------------------------------- */
+#city-briefing {
+    position: fixed; inset: 0; z-index: 175;
+    display: none; align-items: center; justify-content: center;
+    background: rgba(4,3,10,.78);
+    backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px);
+    padding: 14px;
+}
+.cb-sheet {
+    width: 100%; max-width: 470px; max-height: 90vh; overflow-y: auto;
+    display: flex; flex-direction: column; gap: 10px;
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 20px; padding: 18px 16px 16px;
+    box-shadow: 0 20px 60px rgba(0,0,0,.8);
+}
+.cb-title { font-size: 24px; letter-spacing: 1.6px; color: #fff; text-align: center; }
+.cb-lead {
+    font-family: 'Nunito', system-ui, sans-serif; font-size: 12.5px; line-height: 1.45;
+    color: rgba(255,255,255,.72); text-align: center; margin-bottom: 2px;
+}
+.cb-paths { display: flex; flex-direction: column; gap: 7px; }
+.cb-path {
+    display: flex; align-items: center; gap: 10px;
+    background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.12);
+    border-radius: 13px; padding: 9px 11px;
+}
+.cb-ic { flex: 0 0 auto; font-size: 22px; }
+.cb-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.cb-name { font-size: 13.5px; letter-spacing: .4px; color: #fff; }
+.cb-desc { font-family: 'Nunito', system-ui, sans-serif; font-size: 11px; color: rgba(255,255,255,.62); line-height: 1.3; }
+.cb-hq   { font-family: 'Nunito', system-ui, sans-serif; font-size: 10.5px; color: var(--gold); line-height: 1.3; }
+.cb-len {
+    flex: 0 0 auto; font-size: 18px; color: rgba(255,255,255,.85);
+    width: 30px; text-align: right;
+}
+.cb-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+.cb-actions button {
+    border-radius: 14px; padding: 13px; font-size: 15px; letter-spacing: 1px; cursor: pointer;
+    border: 1px solid rgba(255,255,255,.28); background: rgba(255,255,255,.08); color: #fff;
+}
+.cb-actions button:active { transform: scale(.97); }
+.cb-actions .cb-go {
+    background: linear-gradient(150deg, #b37c0c, #f5c842); color: #1a0a00;
+    border: none; box-shadow: 0 6px 20px rgba(245,200,66,.4);
+}
+
+/* Briefing in tabletop: both players read it at once, so it is drawn twice with
+   the top copy turned. Two sheets have to share one screen, so everything in
+   them gets tighter. */
+#city-briefing.dual-mode { flex-direction: column; gap: 8px; padding: 8px 12px; }
+#city-briefing.dual-mode .cb-sheet,
+#city-briefing.dual-mode .dual-mirror {
+    max-height: 45vh; overflow-y: auto; padding: 11px 13px 11px; gap: 6px;
+}
+#city-briefing.dual-mode .cb-title { font-size: 17px; }
+#city-briefing.dual-mode .cb-lead  { font-size: 10.5px; }
+#city-briefing.dual-mode .cb-path  { padding: 5px 8px; gap: 7px; border-radius: 10px; }
+#city-briefing.dual-mode .cb-ic    { font-size: 16px; }
+#city-briefing.dual-mode .cb-name  { font-size: 11px; }
+#city-briefing.dual-mode .cb-desc  { font-size: 9.5px; }
+#city-briefing.dual-mode .cb-hq    { font-size: 9px; }
+#city-briefing.dual-mode .cb-len   { font-size: 14px; width: 24px; }
+#city-briefing.dual-mode .cb-actions { flex-direction: row; gap: 6px; }
+#city-briefing.dual-mode .cb-actions button { padding: 9px 8px; font-size: 11px; letter-spacing: .4px; flex: 1; }

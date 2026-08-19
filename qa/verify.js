@@ -54,12 +54,15 @@ const ok = (n, cond, detail) => (cond ? out.pass : out.fail).push(n + (detail ? 
             claim_ally:       () => C.checkContract(p, 'claim_ally'),
             open_gate:        () => C.checkContract(p, 'open_gate'),
             win_minigame:     () => C.checkContract(p, 'win_minigame'),
+            steal_ally:       () => C.checkContract(p, 'steal_ally'),
             // counted
             land_coin:        c => { for (let i = 0; i < c.param; i++) C.checkContract(p, 'land_coin'); },
             land_coin_big:    c => { for (let i = 0; i < c.param; i++) C.checkContract(p, 'land_coin_big'); },
             visit_shops:      c => { for (let i = 1; i <= c.param; i++) C.checkContract(p, 'visit_shops', null, i); },
             earn_coins_round: c => C.checkContract(p, 'earn_coins_round', null, c.param),
             win_minigames:    c => { for (let i = 1; i <= c.param; i++) C.checkContract(p, 'win_minigames', null, i); },
+            buy_item:         c => { for (let i = 1; i <= c.param; i++) C.checkContract(p, 'buy_item', null, i); },
+            visit_hq_any:     c => { for (let i = 1; i <= c.param; i++) C.checkContract(p, 'visit_hq_any', null, i); },
         };
 
         const rows = [];
@@ -96,17 +99,22 @@ const ok = (n, cond, detail) => (cond ? out.pass : out.fail).push(n + (detail ? 
     });
 
     const unclaimable = contractResult.rows.filter(r => !r.claimed);
-    ok('contracts: all 25 pool entries claimable', unclaimable.length === 0,
-       unclaimable.length ? unclaimable.map(r => `${r.id}/${r.type}${r.why ? '(' + r.why + ')' : ''}`).join(', ') : '25/25');
-    ok('contracts: counted card does not claim early', contractResult.earlyClaim === false);
-    ok('contracts: progress is per player (no cross-talk)', contractResult.crossTalk === false);
+    const poolN = contractResult.rows.length;
+    ok(`bounties: all ${poolN} pool entries claimable`, unclaimable.length === 0,
+       unclaimable.length ? unclaimable.map(r => `${r.id}/${r.type}${r.why ? '(' + r.why + ')' : ''}`).join(', ') : `${poolN}/${poolN}`);
+    ok('bounties: counted card does not claim early', contractResult.earlyClaim === false);
+    ok('bounties: progress is per player (no cross-talk)', contractResult.crossTalk === false);
     out.info.contracts = contractResult.rows;
 
     // ---------- Start a City Circuit game for the renderer / physics checks ----------
     await page.evaluate(() => window.__QA.startRun({ mode: '1p', difficulty: 'medium', map: 'city_circuit' }));
+    // 30s was too tight. This context renders at deviceScaleFactor 2 on software
+    // GL, and the City flyover is a fixed-duration animation driven by frame
+    // deltas capped at 0.1s — so on a slow enough renderer it takes far longer
+    // in wall clock than the ~9s it runs on a real device. Measured at ~24s here.
     await page.waitForFunction(() => {
         return window.__QA.snapshot().gameState !== 'INIT';
-    }, null, { timeout: 30000 });
+    }, null, { timeout: 75000 });
     await page.waitForTimeout(3000);
 
     // ---------- 1. Renderer leak ----------

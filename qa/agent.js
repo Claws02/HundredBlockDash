@@ -174,11 +174,31 @@ window.__QA = (function () {
             return 'GATE_WAIT';
         }
 
-        // 4. Branch / path choice
+        // 3b. City briefing (shown once, before the first roll)
+        if (visId('city-briefing')) {
+            // Take the map tour some of the time so that path gets exercised too.
+            if (Math.random() < 0.25 && vis(byId('btn-cb-tour'))) {
+                return tap(byId('btn-cb-tour'), 'briefing tour') && 'BRIEF_TOUR';
+            }
+            return tap(byId('btn-cb-start'), 'briefing start') && 'BRIEFING';
+        }
+
+        // 4. Branch / path choice. Ordinary junctions are arrows over the board;
+        // the Cabbie's teleport picker still uses the card overlay.
+        if (visId('junction-layer')) {
+            const arrows = [...byId('junction-arrows').querySelectorAll('[data-node]')];
+            if (arrows.length) {
+                if (Math.random() < 0.15 && vis(byId('btn-junction-map'))) {
+                    return tap(byId('btn-junction-map'), 'junction scout') && 'JUNCTION_MAP';
+                }
+                return tap(arrows[Math.floor(Math.random() * arrows.length)], 'junction arrow') && 'BRANCH';
+            }
+        }
         if (visId('branch-choice-overlay')) {
             const cards = [...byId('branch-cards').querySelectorAll('[data-node]')];
             if (cards.length) return tap(cards[Math.floor(Math.random() * cards.length)], 'branch') && 'BRANCH';
         }
+        if (visId('bounty-panel')) return tap(byId('btn-close-bounties'), 'close bounties') && 'BOUNTY_CLOSE';
 
         // 5. Modals
         if (visId('ally-encounter-modal')) {
@@ -248,6 +268,7 @@ window.__QA = (function () {
                 if (r < 0.05) { const m = document.querySelector(`[data-map="${pid}"]`); if (vis(m)) return tap(m, 'open map') && 'MAP_OPEN'; }
                 if (r < 0.14 && S.players[pid].inv.length) { const it = document.querySelector(`[data-items="${pid}"]`); if (vis(it)) return tap(it, 'open items') && 'ITEMS_OPEN'; }
                 if (r < 0.20) { const cb = document.querySelector(`[data-cabbie="${pid}"]`); if (vis(cb)) return tap(cb, 'cabbie') && 'CABBIE'; }
+                if (r < 0.25) { const bq = document.querySelector(`[data-bounties="${pid}"]`); if (vis(bq)) return tap(bq, 'open bounties') && 'BOUNTY_OPEN'; }
                 return tap(roll, 'roll') && 'ROLL';
             }
             return 'PRE_ROLL_NO_BTN';
@@ -291,7 +312,24 @@ window.__QA = (function () {
     }
 
     // ---------- menu navigation ----------
+    // The City briefing holds the match at gameState 'INIT' until somebody
+    // presses START — correct for a player, fatal for the many probes that call
+    // startRun and then wait on state without driving step(). The harness
+    // dismisses it automatically; `keepBriefing: true` opts out, which is what
+    // city.js (the probe that actually tests the briefing) passes.
+    function _autoDismissBriefing() {
+        const el = byId('city-briefing');
+        if (!el) return;
+        const iv = setInterval(() => {
+            if (getComputedStyle(el).display === 'none') return;
+            const go = byId('btn-cb-start');
+            if (go) { tap(go, 'auto-dismiss briefing'); clearInterval(iv); }
+        }, 150);
+        setTimeout(() => clearInterval(iv), 90000);
+    }
+
     function startRun(opts) {
+        if (!opts.keepBriefing) _autoDismissBriefing();
         const modeBtn = document.querySelector(`[data-mode="${opts.mode}"]`);
         tap(modeBtn, 'mode ' + opts.mode);
         if (opts.mode === '1p' && opts.difficulty) tap(document.querySelector(`[data-diff="${opts.difficulty}"]`), 'diff');

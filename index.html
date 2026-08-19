@@ -129,13 +129,48 @@
         <div class="sic-desc" id="sic-desc"></div>
     </div>
 
-    <!-- Branch Choice Overlay (outside modal system — no overlay dim) -->
+    <!-- Branch Choice Overlay (outside modal system — no overlay dim).
+         Used for the Cabbie's four-way teleport picker. Ordinary junctions use
+         the on-board arrows below instead. -->
     <div id="branch-choice-overlay" style="display:none;">
         <div class="branch-header">
             <div class="branch-title bfont" id="branch-title">CHOOSE YOUR PATH</div>
             <div class="branch-subtitle">Pick a direction to move</div>
         </div>
         <div id="branch-cards" class="branch-cards"></div>
+    </div>
+
+    <!-- Junction arrows: buttons hung over the 3D board at the two roads
+         leaving the junction. The board stays visible behind them. -->
+    <div id="junction-layer" style="display:none;">
+        <div id="junction-banner" class="bfont">CHOOSE YOUR ROAD</div>
+        <div id="junction-arrows"></div>
+        <button id="btn-junction-map" class="bfont">🗺️ SCOUT THE MAP FIRST</button>
+    </div>
+
+    <!-- Bounty panel -->
+    <div id="bounty-panel" style="display:none;">
+        <div class="bounty-sheet">
+            <div class="bounty-head">
+                <div class="bounty-title bfont">🎯 CITY BOUNTIES</div>
+                <div class="bounty-sub" id="bounty-sub">Complete these for bonus coins. Both players race for the same ones.</div>
+            </div>
+            <div id="bounty-list" class="bounty-list"></div>
+            <button id="btn-close-bounties" class="bfont">BACK TO THE GAME</button>
+        </div>
+    </div>
+
+    <!-- City briefing: the opening look at the board -->
+    <div id="city-briefing" style="display:none;">
+        <div class="cb-sheet" id="cb-sheet">
+            <div class="cb-title bfont">🏙️ CITY CIRCUIT</div>
+            <div class="cb-lead">One ring road, four districts. At every junction you pick which way to go.</div>
+            <div class="cb-paths" id="cb-paths"></div>
+            <div class="cb-actions">
+                <button id="btn-cb-tour" class="bfont">🗺️ SHOW ME THE MAP</button>
+                <button id="btn-cb-start" class="bfont cb-go">START THE MATCH</button>
+            </div>
+        </div>
     </div>
 
     <!-- HUD & Actions -->
@@ -182,12 +217,14 @@
             <button class="btn-action roll-btn bfont" data-roll="1"><span class="ba-ic">🎲</span><span class="ba-tx">ROLL</span></button>
             <button class="btn-action map-btn bfont" data-map="1"><span class="ba-ic">🗺️</span><span class="ba-tx">MAP</span></button>
             <button class="btn-action items-btn bfont" data-items="1"><span class="ba-ic">🎒</span><span class="ba-tx">ITEMS</span></button>
+            <button class="btn-action bounty-btn bfont" data-bounties="1"><span class="ba-ic">🎯</span><span class="ba-tx">BOUNTIES</span></button>
             <button class="btn-action cabbie-btn bfont" data-cabbie="1" style="display:none;"><span class="ba-ic">🚕</span><span class="ba-tx">CAB</span></button>
         </div>
         <div class="action-row" id="p1-actions">
             <button class="btn-action roll-btn bfont" data-roll="0"><span class="ba-ic">🎲</span><span class="ba-tx">ROLL</span></button>
             <button class="btn-action map-btn bfont" data-map="0"><span class="ba-ic">🗺️</span><span class="ba-tx">MAP</span></button>
             <button class="btn-action items-btn bfont" data-items="0"><span class="ba-ic">🎒</span><span class="ba-tx">ITEMS</span></button>
+            <button class="btn-action bounty-btn bfont" data-bounties="0"><span class="ba-ic">🎯</span><span class="ba-tx">BOUNTIES</span></button>
             <button class="btn-action cabbie-btn bfont" data-cabbie="0" style="display:none;"><span class="ba-ic">🚕</span><span class="ba-tx">CAB</span></button>
         </div>
         <div id="swipe-zone"><div class="swipe-hint bfont">👆 SWIPE UP<br>OR TAP ROLL</div></div>

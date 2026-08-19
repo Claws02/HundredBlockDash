@@ -99,6 +99,7 @@ export const state = {
             contractsClaimed: 0,
             alliesClaimed: 0,
             duelsWon: 0,
+            itemsBought: 0,
             shopsVisitedThisLap: 0,
             coinsEarnedThisRound: 0,
             consecutiveMgWins: 0,
@@ -119,6 +120,7 @@ export const state = {
             contractsClaimed: 0,
             alliesClaimed: 0,
             duelsWon: 0,
+            itemsBought: 0,
             shopsVisitedThisLap: 0,
             coinsEarnedThisRound: 0,
             consecutiveMgWins: 0,
@@ -150,6 +152,7 @@ export function resetPlayers() {
         p.contractsClaimed = 0;
         p.alliesClaimed = 0;
         p.duelsWon = 0;
+        p.itemsBought = 0;
         p.shopsVisitedThisLap = 0;
         p.coinsEarnedThisRound = 0;
         p.consecutiveMgWins = 0;

@@ -139,35 +139,49 @@ into the same slots every time, so the count is exact.
 | 💰 BIG COIN | 9 | 15.0% |
 | 🪙 COIN | 8 | 13.3% |
 | 🏪 ITEM SHOP | 6 | 10.0% |
-| 🎁 MYSTERY | 5 | 8.3% |
-| 🔄 SWAP ZONE | 4 | 6.7% |
-| ⚔️ DUEL | 4 | 6.7% |
+| 🎁 MYSTERY | 6 | 10.0% |
+| 🔄 SWAP ZONE | 5 | 8.3% |
+| ⚔️ DUEL | 5 | 8.3% |
+| 🧲 MAGNET | 5 | 8.3% |
 | 🏛️ DISTRICT HQ | 4 | 6.7% |
-| 🌀 SHORTCUT | 3 | 5.0% |
-| 🌑 PULLED BACK | 3 | 5.0% |
 | ⚠️ TRAP | 3 | 5.0% |
-| 🧲 MAGNET | 3 | 5.0% |
+| ⚡ BOOST | 3 | 5.0% |
 | 🔥 BIG FINE | 2 | 3.3% |
-| 🏁 START · 🕊️ TRUCE · ⚡ BOOST · 💸 FINE · 🔒 GATE · 🚀 LAUNCH | 1 each | 1.7% each |
+| 🏁 START · 🕊️ TRUCE · 💸 FINE · 🔒 GATE | 1 each | 1.7% each |
 
 **Red total: 6 of 60 — exactly 1 per 10.**
+
+> **No space on City Circuit moves you along the track.** SHORTCUT (+3–8),
+> LAUNCH (+10) and PULLED BACK (−10) were removed from every City pool in the
+> 2026-08 pass. City is the board where you *choose your route* — a twelve-space
+> Back Alley or a five-space Ring Road — and a tile that fires you ten nodes down
+> the road cancels that choice after you have already committed to it. Movement
+> now comes from the die, from BOOST (a real extra roll, not a teleport), and
+> from items a player deliberately bought. Their slots went to MYSTERY, MAGNET,
+> BOOST, DUEL and SWAP ZONE, which keeps each district's character without
+> touching anybody's position on the track.
+>
+> SWAP ZONE stays: it relocates *both* players symmetrically and is the one
+> effect the player behind actively wants, so it reads as an event rather than
+> as lost progress. The Anchor and Rocket items still move people — those are
+> purchases, made on purpose, with the cost known up front.
 
 > **Changed by this audit.** The old pools carried **13 red of 60 — one every 4.6
 > nodes**, nearly three times the HBD rate. That bites harder here than on HBD,
 > because City is a *lap* map: you pass the same tiles again on every circuit, so
 > a punishing tile is a recurring tax rather than a one-off. The 1-per-10 rule
 > now applies to both boards. The seven removed reds were replaced with
-> disruption that costs no coins (SWAP ZONE ×4, PULLED BACK ×3), so the Back
-> Alley is still the nastiest stretch — it just takes your *position* instead of
-> your purse.
+> disruption that costs no coins (SWAP ZONE, MAGNET, DUEL), so the Back Alley is
+> still the nastiest stretch — it just takes your *coins off you in a fight*
+> instead of taxing you for standing still.
 
 ### Per district
 
 | District | Character |
 |---|---|
-| **City Ring Road** (17) | The generous baseline: 8 coin tiles, one of most other things. 2 red. |
-| **Financial District** (8) | Big money, big risk: 3 BIG COIN and the one BIG FINE. 1 red. |
-| **Back Alley** (10) | Chaos: magnets, shortcuts, swaps and a duel. 2 red. |
+| **City Ring Road** (17) | The generous baseline: 8 coin tiles, 3 mysteries, 2 boosts. 2 red. |
+| **Financial District** (8) | Big money, big risk: 3 BIG COIN, 2 magnets, a BIG FINE. 1 red. |
+| **Back Alley** (10) | Chaos: 3 magnets, 3 swaps, 2 duels. 2 red. |
 | **Shopping Promenade** (8) | Safe and generous — mysteries and coins, **0 red**. |
 | **Industrial Zone** (5) | Small, behind the Gate, and high-variance. 1 red. |
 

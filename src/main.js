@@ -141,6 +141,14 @@ document.querySelectorAll('[data-items]').forEach(btn => {
     });
 });
 
+document.querySelectorAll('[data-bounties]').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const pid = parseInt(btn.dataset.bounties);
+        if (!GameController.isMyTurn(pid)) return;
+        UIManager.openBounties();
+    });
+});
+
 document.querySelectorAll('[data-cabbie]').forEach(btn => {
     btn.addEventListener('click', () => {
         const pid = parseInt(btn.dataset.cabbie);

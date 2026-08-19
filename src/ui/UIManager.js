@@ -7,11 +7,16 @@ import { state } from '../core/GameState.js';
 import { ITEMS, ALLIES, SPACE_META, SPACE_DESCS, DISTRICT_BIOMES, HQ_META,
          getActiveRealms, HBD_FINISH_BONUS, CITY_DEFAULT_ROUNDS,
          hbdSpaceLabel, getRealmForSpace } from '../config/GameConfig.js';
-import { CITY_GRAPH, ALL_NODES_ORDERED, BRANCH_OPTIONS, JUNCTION_IDS, DISTRICT_NAMES } from '../config/BoardGraph.js';
+import { CITY_GRAPH, ALL_NODES_ORDERED, BRANCH_OPTIONS, JUNCTION_IDS, DISTRICT_NAMES,
+         DISTRICT_KEYS } from '../config/BoardGraph.js';
 import { COUNTED_TYPES } from '../config/ContractPool.js';
 import { SCENE } from '../config/SceneTiming.js';
 import * as DualRead from './DualRead.js';
-import { getPos, getTileMeshes, setMapCameraTarget, mapCamera, onResize, getCamera } from '../engine/Renderer.js';
+import { getPos, getTileMeshes, setMapCameraTarget, mapCamera, onResize, getCamera,
+         clampMapTarget, worldToScreen, focusJunction, clearJunctionFocus } from '../engine/Renderer.js';
+
+// World units panned per pixel of drag on the map view.
+const MAP_DRAG_GAIN = 0.055;
 
 let _controller = null;
 const _coinTargets = [0, 0];
@@ -34,6 +39,8 @@ export function init(controller) {
     _wireMapEvents();
     _wireSwipeEvents();
     _wireBranchChoiceEvents();
+    _wireJunctionEvents();
+    _wirePanelEvents();
     _wireAllyModalEvents();
     window.addEventListener('resize', onResize);
 }
@@ -87,6 +94,10 @@ export function updateUI() {
         // on your own turn. (It used to be a dead control on HBD.)
         const mapBtn = document.querySelector(`[data-map="${i}"]`);
         if (mapBtn) mapBtn.style.display = '';
+
+        // Bounties are a City Circuit rule, so the button only exists there.
+        const bqBtn = document.querySelector(`[data-bounties="${i}"]`);
+        if (bqBtn) bqBtn.style.display = state.selectedMap === 'hundred_block_dash' ? 'none' : '';
 
         // Show Cabbie button if player has Cabbie ally and hasn't used it this round
         const cabbieBtn = document.querySelector(`[data-cabbie="${i}"]`);
@@ -177,19 +188,22 @@ export function updateContracts() {
         return;
     }
     strip.style.display = 'flex';
-    // Counted contracts track progress per player; show the active player's.
+    // Counted bounties track progress per player; the strip shows the active
+    // player's — the full both-player read lives in the 🎯 BOUNTIES panel.
     const pid = state.activePlayer;
     strip.innerHTML = state.activeContracts.map(c => {
         const counted  = COUNTED_TYPES.has(c.type);
         const needed   = counted ? Math.max(1, c.param || 1) : 1;
         const progress = counted ? ((c._prog && c._prog[pid]) || 0) : 0;
         const progStr  = needed > 1 ? ` (${Math.min(progress, needed)}/${needed})` : '';
-        return `<div class="contract-pill" title="${c.desc}">
+        const close    = counted && progress >= needed - 1 && needed > 1;
+        return `<div class="contract-pill${close ? ' contract-close' : ''}" title="${c.desc}${c.hint ? ' — ' + c.hint : ''}">
             <span class="contract-icon">${c.icon}</span>
             <span class="contract-text">${c.desc}${progStr}</span>
             <span class="contract-reward">+${c.reward}💰</span>
         </div>`;
     }).join('');
+    if (state.gameState === 'BOUNTIES') _renderBountyList();
 }
 
 // ---- Branch / Path Choice Overlay ----
@@ -254,6 +268,279 @@ function _wireBranchChoiceEvents() {
         } else {
             _controller.onBranchChosen(nodeId);
         }
+    });
+}
+
+// ---- Junction arrows -------------------------------------------------------
+//
+// The old junction was a full-screen card listing two options — which covered
+// the board at the exact moment the board's shape is the thing you need to
+// look at. The choice now happens ON the map: an arrow sits over each road
+// leaving the fork, pointing the way that road actually goes, with the district
+// name and its length on it. The camera lifts to put both roads in shot
+// (Renderer.focusJunction), and SCOUT THE MAP hands the player the full map
+// view and brings them straight back here afterwards.
+
+let _junction = null;   // { junctionId, fromNodeId, options, frame }
+
+export function showJunctionArrows(junctionId, fromNodeId, options) {
+    const layer = document.getElementById('junction-layer');
+    const box   = document.getElementById('junction-arrows');
+    if (!layer || !box) return;
+
+    _junction = { junctionId, fromNodeId, options, frame: null };
+
+    box.innerHTML = options.map(opt => {
+        const locked = /Locked/i.test(opt.desc || '');
+        return `<button class="j-arrow j-${opt.district || 'ring'}${locked ? ' j-locked' : ''}" data-node="${opt.nodeId}">
+            <span class="j-head">➤</span>
+            <span class="j-label">
+                <span class="j-name bfont">${opt.short || opt.label}</span>
+                <span class="j-meta">${opt.spaces ? `${opt.spaces} spaces` : ''}</span>
+                <span class="j-desc">${opt.desc || ''}</span>
+            </span>
+        </button>`;
+    }).join('');
+
+    document.getElementById('junction-banner').textContent =
+        `${state.players[state.activePlayer].name.toUpperCase()} — CHOOSE YOUR ROAD`;
+
+    state.cameraState = 'JUNCTION';
+    focusJunction(junctionId, fromNodeId);
+    layer.style.display = 'block';
+    applyOrientation();
+    _positionJunctionArrows();
+}
+
+export function hideJunctionArrows() {
+    const layer = document.getElementById('junction-layer');
+    if (layer) layer.style.display = 'none';
+    if (_junction && _junction.frame) cancelAnimationFrame(_junction.frame);
+    _junction = null;
+    clearJunctionFocus();
+}
+
+// True while a junction choice is waiting — the map view uses this to know it
+// has to come back here instead of returning to the roll screen.
+export function junctionPending() { return !!_junction; }
+
+function _positionJunctionArrows() {
+    if (!_junction) return;
+    _junction.frame = requestAnimationFrame(_positionJunctionArrows);
+    const layer = document.getElementById('junction-layer');
+    if (!layer || layer.style.display === 'none') return;
+
+    const W = window.innerWidth || 300, H = window.innerHeight || 500;
+    const flipped = _boardFlipped();
+    const jScreen = worldToScreen(getPos(_junction.junctionId));
+
+    const placed = [];
+    _junction.options.forEach(opt => {
+        const btn = layer.querySelector(`[data-node="${opt.nodeId}"]`);
+        if (!btn) return;
+        const pt = worldToScreen(getPos(_anchorNode(opt.nodeId)));
+        if (!pt || !jScreen) { btn.style.opacity = '0'; return; }
+        btn.style.opacity = '1';
+
+        // The board canvas is turned a half turn for Player 2 in tabletop mode,
+        // so a world point projected at (x, y) is actually drawn at (W−x, H−y).
+        // These buttons live outside that rotation and have to undo it, or the
+        // arrow labelling the Back Alley ends up sitting over the Ring Road.
+        const sx = flipped ? W - pt.x : pt.x;
+        const sy = flipped ? H - pt.y : pt.y;
+        const jx = flipped ? W - jScreen.x : jScreen.x;
+        const jy = flipped ? H - jScreen.y : jScreen.y;
+
+        // Point the arrowhead along the road, in screen space.
+        const ang = Math.atan2(sy - jy, sx - jx) * 180 / Math.PI;
+        btn.querySelector('.j-head').style.transform = `rotate(${ang}deg)`;
+
+        placed.push({
+            btn,
+            x: Math.max(100, Math.min(sx, W - 100)),
+            y: Math.max(100, Math.min(sy, H - 136)),
+        });
+    });
+
+    // The two roads leave the junction close together and only fan out further
+    // along, so anchoring three nodes in is usually enough — but on the two
+    // tightest forks the labels still touched. Push overlapping pairs apart
+    // along the line between them; the arrowheads still point the right way,
+    // which is what actually identifies each road.
+    if (placed.length === 2) {
+        const [a, b] = placed;
+        const MIN = 118;
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const d = Math.hypot(dx, dy);
+        if (d < MIN) {
+            const ux = d > 0.5 ? dx / d : 1, uy = d > 0.5 ? dy / d : 0;
+            const push = (MIN - d) / 2;
+            a.x -= ux * push; a.y -= uy * push;
+            b.x += ux * push; b.y += uy * push;
+        }
+    }
+    placed.forEach(p => {
+        p.btn.style.left = `${Math.max(100, Math.min(p.x, W - 100))}px`;
+        p.btn.style.top  = `${Math.max(100, Math.min(p.y, H - 136))}px`;
+    });
+}
+
+// Where to hang the arrow for a road: a few nodes in, not the very first one.
+// Adjacent to the fork the two roads are almost on top of each other; three
+// nodes down they have visibly diverged, which is the whole point of the arrow.
+function _anchorNode(nodeId) {
+    let cur = nodeId;
+    for (let i = 0; i < 3; i++) {
+        const nxt = CITY_GRAPH[cur]?.next?.[0];
+        if (!nxt || JUNCTION_IDS.has(nxt)) break;
+        cur = nxt;
+    }
+    return cur;
+}
+
+function _wireJunctionEvents() {
+    const layer = document.getElementById('junction-layer');
+    if (!layer) return;
+    layer.addEventListener('click', e => {
+        const btn = e.target.closest('[data-node]');
+        if (btn) {
+            const nodeId = btn.dataset.node;
+            hideJunctionArrows();
+            state.cameraState = 'FOLLOW';
+            _controller.onBranchChosen(nodeId);
+            return;
+        }
+        if (e.target.closest('#btn-junction-map')) {
+            // Keep the choice alive: the map is a look, not an answer.
+            layer.style.display = 'none';
+            openMap();
+        }
+    });
+}
+
+// ---- Bounty panel ----------------------------------------------------------
+//
+// The strip along the top can only ever show a truncated line per bounty, and
+// on a phone in tabletop mode it is upside down for one of the two players half
+// the time. The panel is the full read: what each bounty wants, how to go about
+// it, what it pays, and where BOTH players are on the counted ones — a bounty
+// is a race, so knowing your rival is one coin space from claiming it is half
+// the information.
+
+export function openBounties() {
+    const panel = document.getElementById('bounty-panel');
+    if (!panel) return;
+    _renderBountyList();
+    panel.style.display = 'flex';
+    state.gameState = 'BOUNTIES';
+    applyOrientation();
+}
+
+export function closeBounties() {
+    const panel = document.getElementById('bounty-panel');
+    if (panel) panel.style.display = 'none';
+    state.gameState = 'PRE_ROLL';
+    updateUI();
+}
+
+function _renderBountyList() {
+    const list = document.getElementById('bounty-list');
+    const sub  = document.getElementById('bounty-sub');
+    if (!list) return;
+    const cards = state.activeContracts || [];
+    if (state.selectedMap === 'hundred_block_dash' || cards.length === 0) {
+        list.innerHTML = `<div class="bounty-empty">No bounties on this board.</div>`;
+        if (sub) sub.textContent = 'Bounties are a City Circuit rule.';
+        return;
+    }
+    if (sub) sub.textContent = `${cards.length} live · first player to finish one takes the coins · a new bounty replaces it`;
+
+    list.innerHTML = cards.map(c => {
+        const counted = COUNTED_TYPES.has(c.type);
+        const need    = Math.max(1, c.param || 1);
+        const bars = counted ? state.players.map((p, i) => {
+            const got = Math.min((c._prog && c._prog[i]) || 0, need);
+            return `<div class="bq-track">
+                <span class="bq-who" style="color:${i === 0 ? '#ff6b6b' : '#6ba7ff'}">${p.name}</span>
+                <span class="bq-bar"><span class="bq-fill" style="width:${(got / need) * 100}%;background:${i === 0 ? '#ff6b6b' : '#6ba7ff'}"></span></span>
+                <span class="bq-num">${got}/${need}</span>
+            </div>`;
+        }).join('') : '';
+        return `<div class="bounty-card">
+            <div class="bq-icon">${c.icon}</div>
+            <div class="bq-body">
+                <div class="bq-desc bfont">${c.desc}</div>
+                ${c.hint ? `<div class="bq-hint">${c.hint}</div>` : ''}
+                ${bars}
+            </div>
+            <div class="bq-reward bfont">+${c.reward}<span>💰</span></div>
+        </div>`;
+    }).join('');
+}
+
+// ---- City briefing ---------------------------------------------------------
+//
+// Shown once, after the opening flyover, before the first roll. City Circuit is
+// the only board where the player makes a routing decision, and until now
+// nothing told them that before the first junction sprang one on them.
+
+let _briefingOpen = false;
+let _briefingDone = null;
+
+export function showCityBriefing(onDone) {
+    const el = document.getElementById('city-briefing');
+    if (!el || state.selectedMap === 'hundred_block_dash') { if (onDone) onDone(); return; }
+    _briefingOpen = true;
+    _briefingDone = onDone || null;
+
+    // One card per road you can actually choose, in lap order, so the briefing
+    // reads in the same order the junctions will come at you.
+    const rows = [
+        { icon: '🛣️', name: 'Ring Road', spaces: 20,
+          desc: 'The short way round. Steady coins, one Truce, few surprises.' },
+        ...DISTRICT_KEYS.map(k => {
+            const opt = Object.values(BRANCH_OPTIONS).flat().find(o => o.district === k);
+            return {
+                icon: opt?.icon || '⬤',
+                name: DISTRICT_NAMES[k] || k,
+                spaces: opt?.spaces || 0,
+                desc: opt?.desc || '',
+                hq: HQ_META[k]?.name,
+            };
+        }),
+    ];
+    document.getElementById('cb-paths').innerHTML = rows.map(r => `
+        <div class="cb-path">
+            <span class="cb-ic">${r.icon}</span>
+            <span class="cb-body">
+                <span class="cb-name bfont">${r.name}</span>
+                <span class="cb-desc">${r.desc}</span>
+                ${r.hq ? `<span class="cb-hq">🏛️ ${r.hq} at the far end — coins for passing it</span>` : ''}
+            </span>
+            <span class="cb-len bfont">${r.spaces}</span>
+        </div>`).join('');
+
+    el.style.display = 'flex';
+    // Both players are about to play this board, so in tabletop mode the card
+    // is drawn twice, the top copy turned to face Player 2.
+    DualRead.present(document.getElementById('cb-sheet'), { tier: 'shared' });
+}
+
+function _closeBriefing() {
+    const el = document.getElementById('city-briefing');
+    DualRead.unmirror(document.getElementById('cb-sheet'));
+    if (el) el.style.display = 'none';
+    _briefingOpen = false;
+    const done = _briefingDone; _briefingDone = null;
+    if (done) done();
+}
+
+function _wirePanelEvents() {
+    document.getElementById('btn-close-bounties')?.addEventListener('click', () => closeBounties());
+    document.getElementById('btn-cb-start')?.addEventListener('click', () => _closeBriefing());
+    document.getElementById('btn-cb-tour')?.addEventListener('click', () => {
+        document.getElementById('city-briefing').style.display = 'none';
+        openMap();
     });
 }
 
@@ -474,6 +761,26 @@ export function closeMap() {
     mapCamera.dragging = false;
     document.getElementById('map-ui').style.display    = 'none';
     document.getElementById('map-tooltip').style.display = 'none';
+
+    // The map can be opened FROM a junction choice, and from the opening
+    // briefing. Neither of those is the roll screen, so closing the map has to
+    // return to whatever asked for it rather than assuming it was a scout
+    // between rolls — which used to drop the player straight into PRE_ROLL with
+    // an unanswered junction still pending behind it.
+    if (_junction) {
+        document.getElementById('junction-layer').style.display = 'block';
+        state.gameState   = 'MOVING';
+        state.cameraState = 'JUNCTION';
+        applyOrientation();
+        return;
+    }
+    if (_briefingOpen) {
+        document.getElementById('city-briefing').style.display = 'flex';
+        state.gameState   = 'INIT';
+        state.cameraState = 'INIT';
+        return;
+    }
+
     document.getElementById('ui-layer').style.display  = 'block';
     state.gameState  = 'PRE_ROLL';
     state.cameraState = 'FOLLOW';
@@ -574,8 +881,13 @@ function _wireMapEvents() {
         const f  = _boardFlipped() ? -1 : 1;
         const dx = (e.clientX - mapCamera.dragStart.x) * f;
         const dy = (e.clientY - mapCamera.dragStart.y) * f;
-        mapCamera.targetPos.copy(mapCamera.dragCamStart).add(new THREE.Vector3(-dx * 0.10, 0, -dy * 0.10));
-        mapCamera.targetLook.copy(mapCamera.dragLookStart).add(new THREE.Vector3(-dx * 0.10, 0, -dy * 0.10));
+        // 0.10 world units per pixel meant a single thumb swipe on a phone threw
+        // the view most of the way across a 116-unit board. MAP_DRAG_GAIN keeps
+        // a swipe to about a district, and clampMapTarget stops the board being
+        // flung off screen entirely.
+        mapCamera.targetPos.copy(mapCamera.dragCamStart).add(new THREE.Vector3(-dx * MAP_DRAG_GAIN, 0, -dy * MAP_DRAG_GAIN));
+        mapCamera.targetLook.copy(mapCamera.dragLookStart).add(new THREE.Vector3(-dx * MAP_DRAG_GAIN, 0, -dy * MAP_DRAG_GAIN));
+        clampMapTarget();
     }, { passive: false });
 
     window.addEventListener('pointerup', e => {

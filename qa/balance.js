@@ -143,6 +143,18 @@ const LOSING = ['lose', 'lose_big', 'trap', 'player_trap'];
         return cur;
     };
 
+    // A forced move RESOLVES the space it lands on. Blocks 18 and 20 are the
+    // landing spots for the two tests below, and on a randomly generated board
+    // either can be a shop — which opens a modal and takes the Director for
+    // itself, so the next test's card never gets a beat to appear in. Neutralise
+    // both first: this section is about the forced-move notifications, not about
+    // whatever the board happened to put at the other end.
+    await page.evaluate(async () => {
+        const { state } = await import('/src/core/GameState.js');
+        state.board[18] = { type: 'start' };
+        state.board[20] = { type: 'start' };
+    });
+
     // ── B1. launch forward 10 ────────────────────────────────────────────────
     await land('cfwd', 8);
     await page.waitForTimeout(900);            // LAND_SETTLE floor is 420 ms
