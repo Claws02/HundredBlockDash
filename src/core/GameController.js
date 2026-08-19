@@ -245,7 +245,21 @@ export function startGame() {
             if (state.selectedMap !== 'hundred_block_dash') {
                 _scheduleAllySpawn(1);
                 initContracts();
-                begin();
+                // City Circuit is the only board where the player routes
+                // themselves. Show them the shape of it — and offer the map —
+                // before the first junction springs the decision on them.
+                // A rematch has already seen it.
+                if (_skipStory) { _skipStory = false; begin(); }
+                else {
+                    document.getElementById('ui-layer').style.display = 'none';
+                    state.cameraState = 'INIT';
+                    UIManager.showCityBriefing(() => {
+                        document.getElementById('ui-layer').style.display = 'block';
+                        state.cameraState = 'FOLLOW';
+                        Renderer.snapCameraToActive();
+                        begin();
+                    });
+                }
             } else if (_skipStory) {
                 _skipStory = false;
                 begin();
@@ -269,6 +283,22 @@ export function isMyTurn(pIdx) {
 
 export function startPreRoll() {
     state.gameState = 'PRE_ROLL';
+    // Safety net. Every full-screen scene parks the camera in its own mode and
+    // is responsible for handing it back — and the ally minigame did not, so a
+    // single ally encounter left cameraState stuck on 'FLYOVER' and the follow
+    // camera never ran again for the rest of the match. Play cannot begin in a
+    // camera mode that isn't following anybody, so assert that here rather than
+    // trusting every scene to remember.
+    if (state.cameraState !== 'FOLLOW') {
+        state.cameraState = 'FOLLOW';
+        Renderer.snapCameraToActive();
+    }
+    // Same argument for the HUD. Every full-screen scene hides #ui-layer and is
+    // supposed to put it back; a 300s autoplay caught one run sitting in
+    // PRE_ROLL with the whole control layer still hidden and no way to roll.
+    // Whatever swallowed the restore, play cannot begin without the controls.
+    const uiLayer = document.getElementById('ui-layer');
+    if (uiLayer && uiLayer.style.display === 'none') uiLayer.style.display = 'block';
     UIManager.applyOrientation();
     state.rollAgainPending = false;
     state.rollAgainSamePlayer = false;
@@ -499,11 +529,17 @@ function _offerBranchChoice(junctionId, onChosen) {
     }
 
     _branchChoiceCallback = onChosen;
-    UIManager.showBranchChoice(displayOptions);
+    // Arrows over the board, not a card on top of it — the player is choosing a
+    // direction, so let them see the directions.
+    UIManager.showJunctionArrows(junctionId, p.pos, displayOptions);
 }
 
 export function onBranchChosen(nodeId) {
     UIManager.hideBranchChoice();
+    UIManager.hideJunctionArrows();
+    // hideJunctionArrows drops the junction focus, so the camera must be handed
+    // back to a mode that actually drives it, or it freezes mid-fork.
+    state.cameraState = 'FOLLOW';
     if (_branchChoiceCallback) { const cb = _branchChoiceCallback; _branchChoiceCallback = null; cb(nodeId); }
 }
 
@@ -671,6 +707,7 @@ export function resolveSpaceEffect(p, spaceType, space) {
             const pick = ids[Math.floor(Math.random() * ids.length)];
             const it   = ITEMS[pick];
             const took = tryGrantItem(p, pick);
+            _checkContract(p, 'land_type', 'mystery');
             // Receiving an item is its own moment — show what it is and what it
             // does, under the item's own name, and make the player confirm it.
             state.pendingResultOverride = { title: `YOU GOT: ${it.name.toUpperCase()}`, icon: it.icon };
@@ -706,6 +743,7 @@ export function resolveSpaceEffect(p, spaceType, space) {
             if (p.mesh) p.mesh.position.copy(Renderer.getPos(p.pos));
             if (opp.mesh) opp.mesh.position.copy(Renderer.getPos(opp.pos));
             sfx('swap'); haptic([50,30,50]);
+            _checkContract(p, 'land_type', 'swap_space');
             return `Positions swapped with ${opp.name}!`;
         }
         case 'anchor_trap': {
@@ -764,6 +802,7 @@ export function resolveSpaceEffect(p, spaceType, space) {
             return `${hqInfo.icon} ${hqInfo.name}! +${bonus} coins${isGM ? ' · Grand Mall opens!' : ''}`;
         }
         case 'duel': {
+            _checkContract(p, 'land_type', 'duel');
             if (p.isBot) { _startDuel(p, Bot.duelBet(p, opp)); return null; }
             Director.hold('DUEL_OPEN', () => _openDuelModal(p)); return null;
         }
@@ -1250,6 +1289,8 @@ export function buyItem(itemId, cost) {
         return;
     }
     p.coins -= cost; p.inv.push(itemId);
+    p.itemsBought = (p.itemsBought || 0) + 1;
+    _checkContract(p, 'buy_item', null, p.itemsBought);
     sfx('buy'); UIManager.toast(`Bought ${ITEMS[itemId].name}!`, '#a855f7');
     UIManager.updateUI(); openShop(state.pendingShopDistrict, state.pendingShopDiscount);
 }
@@ -1326,6 +1367,10 @@ function _afterDropReturn(p) {
     const ret = state.pendingReturnState; state.pendingReturnState = null;
     if (state.pendingShopAfterDrop && state.pendingBuyCost !== null) {
         p.coins -= state.pendingBuyCost; state.pendingBuyCost = null; state.pendingShopAfterDrop = false;
+        // A full-bag purchase completes HERE, not in buyItem — the bounty has to
+        // be credited on this path too or buying with three items held never counts.
+        p.itemsBought = (p.itemsBought || 0) + 1;
+        _checkContract(p, 'buy_item', null, p.itemsBought);
         // Going back to the shop must not lose "we are mid-move"; the rest of
         // the hop is resumed when the shop is finally closed.
         if (ret === 'pass_through_done') state.pendingReturnState = 'pass_through_done';
@@ -1401,6 +1446,11 @@ function _onDistrictHQReached(p, district) {
     earnCoins(p, bonus);
     p.districtHQsThisLoop.add(district);
     _checkContract(p, 'visit_hq', district);
+    // "Reach 2 different District HQs" counts DISTINCT districts, so send the
+    // running total of distinct HQs rather than ticking by one — otherwise two
+    // trips through the same district would claim it.
+    _checkContract(p, 'visit_hq_any', null,
+        DISTRICT_KEYS.filter(d => (p.districtsVisited[d] || 0) > 0).length);
     // Check for full circuit
     if (p.districtHQsThisLoop.size >= 4) {
         const circuitIdx = Math.min(p.fullCircuitsCompleted, FULL_CIRCUIT_BONUSES.length - 1);
@@ -1484,6 +1534,14 @@ function _startAllyMinigame(player, allyType, isSteal, stealCtx, onDone) {
     state.mgContext = isSteal ? 'ally_steal' : 'ally_claim';
     MinigameManager.trigger((winnerId) => {
         state.mgContext = null;
+        // endMinigame() hands the camera over in 'FLYOVER' and expects whoever
+        // asked for the minigame to put it back. The board-minigame handler does
+        // that through startPostMinigameFlyover; this one never did, so one ally
+        // encounter froze the camera where the minigame left it — it stopped
+        // following the players for the rest of the match. The turn carries on
+        // from here mid-move, so it has to be restored now, not at the next roll.
+        state.cameraState = 'FOLLOW';
+        Renderer.snapCameraToActive();
         const won = winnerId === player.id;
         if (won) {
             if (isSteal && stealCtx) {
@@ -1498,6 +1556,7 @@ function _startAllyMinigame(player, allyType, isSteal, stealCtx, onDone) {
                     stolen.mesh = null;
                 }
                 _grantAlly(player, stolen.type, stolen.turnsRemaining, stolen.shieldCharges);
+                _checkContract(player, 'steal_ally');
                 UIManager.toast(`${player.name} stole ${ALLIES[allyType]?.icon} ${ALLIES[allyType]?.name}!`, '#ef4444');
             } else {
                 // Claim new ally from map

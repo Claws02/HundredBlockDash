@@ -151,6 +151,23 @@ async function boot(page, map) {
         if (p.mesh) p.mesh.position.copy(R.getPos(p.pos));
         p.coins = 50;
         p.districtsVisited[hq.district] = 0;
+        // Neutralise everything on the walk except the HQ itself. This claim is
+        // about the pass-through payment, and the tile the walk happens to END
+        // on is whatever the district pool put there — when the pools changed,
+        // this landed on a TRAP and the assertion read 50→60 instead of 50→65.
+        // 'start' is the one type that prints a line and touches nothing.
+        {
+            const CG = (await import('/src/config/BoardGraph.js')).CITY_GRAPH;
+            const J  = (await import('/src/config/BoardGraph.js')).JUNCTION_IDS;
+            let cur = hq.startId;
+            for (let i = 0; i < 5; i++) {
+                let nxt = CG[cur]?.next?.[0];
+                if (nxt && J.has(nxt)) nxt = CG[nxt]?.next?.[0];
+                if (!nxt) break;
+                if (nxt !== hq.hqId && state.board[nxt]) state.board[nxt] = { type: 'start' };
+                cur = nxt;
+            }
+        }
         const before = p.coins;
         // Branch prompts are a human-only overlay; flag the mover as a bot so it
         // picks a route itself and the move actually completes.

@@ -124,7 +124,8 @@ async function visibleOverlays(page) {
         const ids = ['splash', 'char-select', 'map-select', 'win-screen', 'modal-overlay', 'msg-modal',
             'shop-modal', 'shop-offer-modal', 'drop-modal', 'use-modal', 'duel-modal', 'pass-modal',
             'custom-dice-modal', 'gate-overlay', 'minigame-layer', 'mg-intro-overlay', 'map-ui',
-            'branch-choice-overlay', 'ally-encounter-modal', 'ally-steal-modal', 'hbd-story-overlay',
+            'branch-choice-overlay', 'junction-layer', 'bounty-panel', 'city-briefing',
+            'ally-encounter-modal', 'ally-steal-modal', 'hbd-story-overlay',
             'ui-layer', 'p1-actions', 'p2-actions'];
         const outp = {};
         ids.forEach(id => {

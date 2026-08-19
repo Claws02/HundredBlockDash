@@ -654,6 +654,8 @@ export function init(container) {
     } else {
         buildNodePositions();
     }
+    _measureBoardExtent();
+    resetCameraSmoothing();
 
     scene = new THREE.Scene();
     scene.fog = new THREE.FogExp2(isHBD ? 0x0f380f : 0xa8d4f0, isHBD ? 0.005 : 0.003);
@@ -1272,7 +1274,11 @@ export function startFlyover(onComplete) {
 
 export function startPostMinigameFlyover(onComplete) {
     if (state.selectedMap !== 'hundred_block_dash' || !boardCurve) {
-        if (onComplete) onComplete();
+        // City has no reverse sweep, so hand the camera straight back — but put
+        // it where it belongs first. Returning it in FOLLOW while it is still
+        // parked at whatever the minigame left behind meant a long swooping
+        // drift across the city on every single minigame result.
+        if (onComplete) { snapCameraToActive(); onComplete(); }
         return;
     }
     const rearPos = Math.min(...state.players
@@ -1296,6 +1302,108 @@ export function startPostMinigameFlyover(onComplete) {
     });
 }
 
+// ============================================================
+// CAMERA
+// ============================================================
+//
+// Every camera lerp in here used to be a fixed per-frame fraction — position at
+// 0.055, rotation at 0.07, map at 0.10. A per-frame fraction makes the camera's
+// speed a function of the display's refresh rate: on the 120 Hz phones this is
+// actually played on it converged twice as fast as it did in testing, and on a
+// dropped frame it lurched. _damp() restates the same numbers as a half-life the
+// frame rate cannot change, so the feel is identical at 30, 60 and 144 Hz.
+function _damp(perFrameAt60, dt) {
+    return 1 - Math.pow(1 - perFrameAt60, Math.min(dt, 0.1) * 60);
+}
+
+// City Circuit framing. Sits further back and higher than the old 14/22 so a
+// whole corner of the ring is in shot — the closer the camera, the more a small
+// change of heading swings the view.
+const CAM = {
+    city: { back: 19, up: 26, lead: 7 },
+    hbd:  { back: 14, up: 22, lead: 10 },
+};
+
+// Beyond this much ground to make up in one frame, the follow camera cuts
+// rather than eases. One hop moves the target ~10 units; only a teleport or a
+// change of turn across the board exceeds this.
+const CAM_CUT = 40;
+
+// The camera's own heading, smoothed. This is the single biggest cause of the
+// touchiness: the old code recomputed the heading every frame as
+// (mesh position − previous NODE position). While a token is mid-hop the mesh is
+// moving, so that vector swung through the whole arc of every jump and the
+// camera swung with it. Worse, adjacent nodes on a 32-unit ring are ~18° apart
+// and district entries much more, so each landing snapped the view to a new
+// bearing. The heading now comes off the board graph — constant for a whole hop
+// — and is itself eased, so a corner is turned through rather than cut to.
+const _camFwd     = new THREE.Vector3(0, 0, -1);
+let   _camFwdInit = false;
+const _tmpGround  = new THREE.Vector3();
+const _tmpHead    = new THREE.Vector3();
+
+export function resetCameraSmoothing() { _camFwdInit = false; }
+
+// Which way is this player facing, per the board itself?
+function _rawHeading(p) {
+    if (state.selectedMap === 'hundred_block_dash' && boardCurve && typeof p.pos === 'number') {
+        const t = Math.max(0.001, Math.min(p.pos / _hbdMax, 0.999));
+        return _tmpHead.copy(boardCurve.getTangent(t)).setY(0).normalize();
+    }
+    // City: ask the graph where this node points. Resolve through the invisible
+    // junction nodes so the heading never aims at a node nobody can stand on.
+    let nid = CITY_GRAPH[p.pos]?.next?.[0];
+    if (nid && JUNCTION_IDS.has(nid)) nid = CITY_GRAPH[nid]?.next?.[0];
+    if (!nid) return null;
+    _tmpHead.copy(getPos(nid)).sub(getPos(p.pos)).setY(0);
+    return _tmpHead.lengthSq() > 1e-6 ? _tmpHead.normalize() : null;
+}
+
+// Where the follow camera wants to be, and what it wants to look at, for the
+// heading currently held in _camFwd. Both the per-frame follow and the hard snap
+// go through this, so resuming play after a full-screen scene lands on exactly
+// the pose the loop would have eased to — no jump on the first frame back.
+function _followPose(p) {
+    const isHBD = state.selectedMap === 'hundred_block_dash';
+    const f = isHBD ? CAM.hbd : CAM.city;
+    // Flattened: the hop animation bobs the token 2.5 units into the air, and
+    // reading its live y made the camera bob with it on every single move.
+    const ground = _tmpGround.set(p.mesh.position.x, 0, p.mesh.position.z);
+    const pos  = ground.clone().addScaledVector(_camFwd, -f.back);
+    pos.y = f.up;
+    const look = ground.clone().addScaledVector(_camFwd, f.lead);
+    look.y = 1.2;
+    return { pos, look };
+}
+
+// ---- Junction camera ----
+//
+// A junction used to be presented as a full-screen card, which meant the one
+// moment in the match where the board's shape actually matters was the one
+// moment you couldn't see it. The choice now happens over the board, so the
+// camera has to put both roads on screen: it lifts to 44 units and pulls back
+// along the road the player arrived on, centred on the fork itself.
+const junctionCam = {
+    pos:    new THREE.Vector3(),
+    look:   new THREE.Vector3(),
+    active: false,
+};
+
+export function focusJunction(junctionId, fromNodeId) {
+    const j    = getPos(junctionId).clone().setY(0);
+    const from = getPos(fromNodeId).clone().setY(0);
+    const fwd  = j.clone().sub(from);
+    if (fwd.lengthSq() < 1e-6) fwd.set(0, 0, -1); else fwd.normalize();
+    // High and well back: both roads and a few nodes of each have to be in shot
+    // or the arrows are pointing at things the player cannot see.
+    junctionCam.look.copy(j).addScaledVector(fwd, 12);
+    junctionCam.pos.copy(j).addScaledVector(fwd, -34);
+    junctionCam.pos.y = 58;
+    junctionCam.active = true;
+}
+
+export function clearJunctionFocus() { junctionCam.active = false; }
+
 // ---- Map camera ----
 
 const mapCam = {
@@ -1307,6 +1415,40 @@ const mapCam = {
     dragLookStart: new THREE.Vector3(),
 };
 export const mapCamera = mapCam;
+
+// How far off the board the map view may be dragged. Measured from the real
+// layout rather than hardcoded, because HBD is a long ribbon and City is a disc.
+// Without this the map could be flung into empty ground with the board nowhere
+// on screen and no way back but the slider — which read as the drag being broken.
+let _panBounds = { cx: 0, cz: 0, r: 120 };
+
+function _measureBoardExtent() {
+    const pts = state.selectedMap === 'hundred_block_dash'
+        ? hbdPositions
+        : [...nodePositions.values()];
+    if (!pts.length) { _panBounds = { cx: 0, cz: 0, r: 120 }; return; }
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    pts.forEach(p => {
+        if (!p) return;
+        minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+        minZ = Math.min(minZ, p.z); maxZ = Math.max(maxZ, p.z);
+    });
+    const cx = (minX + maxX) / 2, cz = (minZ + maxZ) / 2;
+    const r  = Math.max(maxX - minX, maxZ - minZ) / 2 + 26;  // a little slack past the edge
+    _panBounds = { cx, cz, r };
+}
+
+// Pull the map target back inside the board's own footprint.
+export function clampMapTarget() {
+    const dx = mapCam.targetLook.x - _panBounds.cx;
+    const dz = mapCam.targetLook.z - _panBounds.cz;
+    const d  = Math.hypot(dx, dz);
+    if (d <= _panBounds.r || d === 0) return;
+    const pull = 1 - _panBounds.r / d;
+    const ox = dx * pull, oz = dz * pull;
+    mapCam.targetLook.x -= ox; mapCam.targetLook.z -= oz;
+    mapCam.targetPos.x  -= ox; mapCam.targetPos.z  -= oz;
+}
 
 export function setMapCameraTarget(nodeId, offsetY = 50, offsetZ = 30) {
     // getPos() already resolves both address spaces: a string is a City node id,
@@ -1327,23 +1469,22 @@ export function setMapCameraTarget(nodeId, offsetY = 50, offsetZ = 30) {
 export function snapCameraToActive() {
     const p = state.players[state.activePlayer];
     if (!p || !p.mesh || !camera) return;
-    const currPt = p.mesh.position;
-    let fwd;
-    if (state.selectedMap === 'hundred_block_dash' && boardCurve && typeof p.pos === 'number') {
-        const t = Math.max(0.001, Math.min(p.pos / _hbdMax, 0.999));
-        fwd = boardCurve.getTangent(t).clone().normalize();
-    } else {
-        const prevPt = getPos(p.prevPos || p.pos);
-        fwd = new THREE.Vector3().subVectors(currPt, prevPt).normalize();
-        if (fwd.lengthSq() < 0.001) fwd.set(0, 0, -1);
-    }
-    const camTgt = currPt.clone().addScaledVector(fwd, -14).add(new THREE.Vector3(0, 22, 0));
-    if (isNaN(camTgt.x)) return;
-    camera.position.copy(camTgt);
-    const lookTarget = state.selectedMap === 'hundred_block_dash'
-        ? currPt.clone().addScaledVector(fwd, 10)
-        : currPt.clone().add(new THREE.Vector3(0, 1, 0));
-    camera.lookAt(lookTarget);
+    const raw = _rawHeading(p);
+    if (raw) { _camFwd.copy(raw); _camFwdInit = true; }
+    const { pos, look } = _followPose(p);
+    if (isNaN(pos.x)) return;
+    camera.position.copy(pos);
+    camera.lookAt(look);
+}
+
+// Project a world point to viewport pixels. Returns null when the point is
+// behind the camera. Used to hang the junction arrows over the board itself.
+export function worldToScreen(worldPos) {
+    if (!camera) return null;
+    const v = worldPos.clone().project(camera);
+    if (v.z > 1) return null;
+    const W = window.innerWidth || 300, H = window.innerHeight || 500;
+    return { x: (v.x * 0.5 + 0.5) * W, y: (-v.y * 0.5 + 0.5) * H };
 }
 
 export function getDiceGroup() { return diceGrp; }
@@ -1415,32 +1556,46 @@ function _loop() {
     const cs = state.cameraState;
     if (cs === 'FOLLOW') {
         const p = state.players[state.activePlayer];
-        if (p?.mesh?.position) {
-            const currPt = p.mesh.position;
-            let fwd;
-            if (state.selectedMap === 'hundred_block_dash' && boardCurve && typeof p.pos === 'number') {
-                const t = Math.max(0.001, Math.min(p.pos / _hbdMax, 0.999));
-                fwd = boardCurve.getTangent(t).clone().normalize();
-            } else {
-                const prevPt = getPos(p.prevPos || p.pos);
-                fwd = new THREE.Vector3().subVectors(currPt, prevPt).normalize();
-                if (fwd.lengthSq() < 0.001) fwd.set(0, 0, -1);
+        if (p?.mesh?.position && camera) {
+            const raw = _rawHeading(p);
+            if (raw) {
+                if (!_camFwdInit) { _camFwd.copy(raw); _camFwdInit = true; }
+                else { _camFwd.lerp(raw, _damp(0.055, dt)); if (_camFwd.lengthSq() > 1e-6) _camFwd.normalize(); }
             }
-            const camOffset = -14;
-            const camTgt = currPt.clone().addScaledVector(fwd, camOffset).add(new THREE.Vector3(0, 22, 0));
-            if (!isNaN(camTgt.x)) camera.position.lerp(camTgt, 0.055);
+            const { pos, look } = _followPose(p);
+            if (!isNaN(pos.x)) {
+                // Tokens do not only hop. A Swap space, a Rocket, an Anchor, the
+                // Cabbie and a change of turn can all put the target on the far
+                // side of the city in one frame, and easing across that is a long
+                // disorienting drift whose first frames lurch. Past a distance no
+                // ordinary hop can produce, cut instead — including the heading,
+                // so the camera arrives already facing the right way.
+                if (camera.position.distanceTo(pos) > CAM_CUT) {
+                    if (raw) _camFwd.copy(raw);
+                    const snapped = _followPose(p);
+                    camera.position.copy(snapped.pos);
+                    camera.lookAt(snapped.look);
+                    look.copy(snapped.look);
+                } else {
+                    camera.position.lerp(pos, _damp(0.07, dt));
+                }
+            }
             _camHelper.position.copy(camera.position);
-            const lookTarget = state.selectedMap === 'hundred_block_dash'
-                ? currPt.clone().addScaledVector(fwd, 10)
-                : currPt.clone().add(new THREE.Vector3(0, 1, 0));
-            _camHelper.lookAt(lookTarget);
-            camera.quaternion.slerp(_camHelper.quaternion, 0.07);
+            _camHelper.lookAt(look);
+            camera.quaternion.slerp(_camHelper.quaternion, _damp(0.09, dt));
         }
     } else if (cs === 'MAP') {
-        camera.position.lerp(mapCam.targetPos, 0.1);
+        const k = _damp(0.10, dt);
+        camera.position.lerp(mapCam.targetPos, k);
         _camHelper.position.copy(camera.position);
         _camHelper.lookAt(mapCam.targetLook);
-        camera.quaternion.slerp(_camHelper.quaternion, 0.1);
+        camera.quaternion.slerp(_camHelper.quaternion, k);
+    } else if (cs === 'JUNCTION' && junctionCam.active) {
+        const k = _damp(0.085, dt);
+        camera.position.lerp(junctionCam.pos, k);
+        _camHelper.position.copy(camera.position);
+        _camHelper.lookAt(junctionCam.look);
+        camera.quaternion.slerp(_camHelper.quaternion, k);
     }
 
     if (renderer && scene && camera) renderer.render(scene, camera);

@@ -25,13 +25,14 @@ cd qa
 
 | Command | What it does | Runtime |
 |---|---|---|
-| `node verify.js` | Assertion suite: all 25 contracts claimable, counter regression guards, dice settle watchdog, no errors. **Deterministic — use this as the CI gate.** | ~3 min |
+| `node verify.js` | Assertion suite: every bounty in the pool claimable by its real emitter, counter regression guards, dice settle watchdog, no errors. **Deterministic — use this as the CI gate.** | ~4 min |
 | `node verify2.js city_circuit 6` | Starts a real match: scene-graph leak census across 12 tile redraws, measured turn pacing, plays through to the win screen. | ≤25 min |
 | `node verify2.js hundred_block_dash` | Same, on the 50-block linear map. | ≤25 min |
 | `node arcade.js` | Launches every registered minigame from the arcade, plays each with synthetic input in **both** halves, checks each resolves and cleans up. Budget is 90s/game, or the game's own `MG_WATCHDOG_MS` where it declares a longer one. | ~20 min |
 | `node earlytap.js` | Hammers both halves from frame 0 after GO on every game — catches state-not-ready races (found QA-016). | ~8 min |
 | `node botcheck.js 65` | Drives each game's bot branch at easy and hard with **no human input at all**. Flags games that only end when a human plays, and bots that lose every hard run. | ~30 min |
 | `node arcadecoins.js` | Plays four arcade rounds and asserts **nothing the board reads moved** — no coins, no lifetime earnings, no match win count — while the arcade's own round tally did. Also checks a real match minigame still pays. | ~2 min |
+| `node city.js` | The City Circuit audit: the opening briefing and its map tour, junction **arrows over the board** (labelled, separated, correct through the tabletop half turn, and returning from a map scout with the choice still open), zero track-moving spaces in the pools *and* on a live board, the bounty panel, and a sampled camera trace — position **and aim**. | ~4 min |
 | `node mapp2.js` | The map from **Player 2's** end in tabletop: touching a block selects that block, the tooltip faces them and keeps its offset, and dragging pushes the board the way the finger moves. `mapinfo.js` only ever plays P1, which is how the inverted raycast survived. | ~2 min |
 | `node treeclimb.js` | Reads the lit leaf off the canvas over a 16-branch climb: the sides must not strictly alternate, must never run three deep, and a wrong grab must drop you to the last branch on that side. | ~1 min |
 | `node memorymatch.js` | Left alone for 14 s nothing turns itself over; then plays it out (memoryless P1 vs the real bot) to prove a clockless board still empties. | ~2 min |
@@ -61,6 +62,26 @@ cd qa
 > passing input probe proves nothing unless something in it *fails* when the
 > input stops, and the sweep now taps both halves, because a turn-based game
 > needs both players to act.
+
+> **A camera probe that only watches the camera's POSITION proves nothing.**
+> The touchiness players reported lived in the *aim*: the follow camera read its
+> heading off the token's live mesh position every frame, so the heading swung
+> through the arc of every hop and snapped at every change of node. The position
+> barely moved while it did that — a distance-per-frame probe sailed straight
+> past it and passed on the buggy build. `city.js` samples the camera's world
+> direction as well, and that is the number that moves: 1.43° → 0.51° at the
+> 95th percentile, 6.05° → 2.61° worst case. Sample dt too and normalise to a
+> 60 Hz frame, or a frame-rate-independent damp looks like a lurch on a slow
+> renderer and the probe flags the fix as the bug.
+
+> **Two probes had latent isolation bugs that only surfaced when the City pools
+> changed.** `rules.js` asserted an exact coin delta for walking past an HQ while
+> *landing on whatever the pool put at the far end* — the new pools put a TRAP
+> there and it read 50→60 instead of 50→65. `balance.js` let its forced-move
+> tests land on a block that turned out to be a shop, which opened a modal and
+> took the Director, so the next test's card never appeared. Neither was a
+> product regression. Both now blank the squares they are not testing. If a probe
+> asserts on a number, it has to own every input to that number.
 
 Override the target with `QA_BASE=http://host:port/index.html`. `arcade.js`,
 `earlytap.js` and `botcheck.js` also accept `QA_ONLY=game1,game2` to sweep a
@@ -99,10 +120,16 @@ violations) and a `shot-<name>.png` screenshot.
   registry, so they pick it up automatically. `botcheck.js` needs its `MODS` map
   updated with the key → filename pair (it imports modules directly to reach the
   bot branch).
-- **New contract type:** add its emitter to the `emit` map in `verify.js`. If you
-  add a contract to the pool without an emitter, `verify.js` fails with
+- **New bounty type:** add its emitter to the `emit` map in `verify.js`. If you
+  add a bounty to the pool without an emitter, `verify.js` fails with
   `NO EMITTER MAPPED` — which is exactly the bug (QA-001) that motivated this
-  suite. Do not delete that check.
+  suite. Do not delete that check. It will not, however, catch a bounty that asks
+  for something that no longer exists in the game (a `use_item` bounty naming an
+  item the shops stopped selling); `city.js` cross-checks those against `ITEMS`.
+- **New full-screen scene on City:** the harness dismisses the opening briefing
+  automatically from `startRun`, because that screen holds `gameState` at `INIT`
+  until somebody presses START and most probes wait on state without driving
+  `step()`. Pass `keepBriefing: true` if your probe is testing that screen.
 
 ## Known limitations
 

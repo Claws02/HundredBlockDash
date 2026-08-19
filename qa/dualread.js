@@ -62,6 +62,26 @@ const land = (page, type, at, who = 0) => page.evaluate(async ({ type, at, who }
     GC.resolveSpace(p);
 }, { type, at, who });
 
+// The result card is raised on the Director's LAND_SETTLE beat, and how long
+// that takes in wall clock depends on how fast this container is rendering. A
+// fixed 1000 ms wait after land() was close enough to the floor that adding a
+// few milliseconds of per-frame work anywhere in the engine made this probe
+// fail — with the card correct and simply not up yet. Poll for the card.
+const waitForCard = async (page, title) => {
+    const until = Date.now() + 8000;
+    while (Date.now() < until) {
+        const got = await page.evaluate(t => {
+            const m = document.getElementById('msg-modal');
+            const shown = m && getComputedStyle(m).display !== 'none';
+            const cur = (document.getElementById('msg-title') || {}).innerText || '';
+            return !!shown && (!t || cur.toUpperCase().includes(t.toUpperCase()));
+        }, title || null);
+        if (got) { await page.waitForTimeout(160); return true; }
+        await page.waitForTimeout(120);
+    }
+    return false;
+};
+
 const readCards = page => page.evaluate(() => {
     const ov = document.getElementById('modal-overlay');
     const real = document.getElementById('msg-modal');
@@ -112,7 +132,7 @@ const readCards = page => page.evaluate(() => {
 
     // ---- OWNER tier: space result ----
     await land(page, 'coin', 6, 0);
-    await page.waitForTimeout(1000);
+    await waitForCard(page, 'COIN');
     const owner = await readCards(page);
     ok('owner: the turn-taker gets one full-size card', owner.realShown && !owner.mirrorShown,
        `real=${owner.realShown} mirror=${owner.mirrorShown} "${owner.realText}"`);
@@ -143,7 +163,7 @@ const readCards = page => page.evaluate(() => {
     await page.evaluate(async () => (await import('/src/core/GameController.js')).resolveMsgModal());
     await page.waitForTimeout(1200);
     await land(page, 'coin_big', 9, 1);
-    await page.waitForTimeout(1000);
+    await waitForCard(page, 'BIG COIN');
     const owner2 = await readCards(page);
     ok('owner: with P2 acting the strip moves to P1\'s edge and stops rotating',
        owner2.tickerShown && !isHalfTurn(owner2.tickerRot),
