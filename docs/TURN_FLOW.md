@@ -341,113 +341,133 @@ raises a result card, the item hands back to `PRE_ROLL` with the roll still owed
 
 ---
 
-## 7. Set pieces worth building next — suggestions only
+## 7. The set pieces
 
-Ranked by *how often you see it × how much the current version undersells it*.
-None of these are implemented.
+All of these live in `src/engine/SetPieces.js`, outside the renderer, because
+they are content rather than engine — adding another should not mean touching
+the render loop. Each one takes the camera by parking `state.cameraState` on
+`CINEMATIC` (a mode the loop deliberately does not drive), and
+`SetPieces.clearSetPieces()` restores the board from any of them mid-flight.
 
-### Tier 1 — the ones that pay back most
+**The effect is applied to game state BEFORE the animation starts.** The
+animation is a retelling, never the source of truth — so an interrupted set
+piece can never cost anybody a coin or a position.
 
-**⚡ BOOST — the launch pad.** You currently get a toast and another roll. It is
-one of the best things on the board and it looks like nothing. Suggestion: the
-tile flips up into a ramp under the token, the camera drops to ground level
-behind them, and the token is fired forward with a speed-line blur — landing
-back on the same tile as the dice respawn. ~1.6 s. Cheap, because it is one
-animation and no travel.
+| Space | What happens | Budget |
+|---|---|---:|
+| 🛸 **SWAP ZONE** | The abduction, §6. | 5.85 s |
+| 🔒 **THE GATE** | The gate shatters into shards and the camera passes through the gap. | 2.2 s |
+| 🏛️ **DISTRICT HQ** | First visit only: a shaft of light out of the HQ, coins spiralling down out of it, camera craning up. A revisit is worth a third as much and gets a plain coin spray. | 1.9 s |
+| 🧲 **MAGNET** | A field snaps on between the two tokens and coins physically fly out of the victim's tile into the thief's. | 1.6 s |
+| 🎁 **MYSTERY** | A ribboned crate drops out of the sky, thuds, and the lid blows off in a burst — then the item card. | 1.5 s |
+| ⚓ **ANCHOR** | The anchor falls from off-screen, thuds into the tile and digs in — *before* the drag, so it is clear why you are about to travel backwards. | 1.4 s |
+| ⚔️ **DUEL** | Crossed sparks over the midpoint between the two tokens, low two-shot, then the bet picker. Free: the minigame follows either way. | 1.4 s |
+| 🕊️ **TRUCE** | A dove crosses between the two tokens as both counters tick up. | 1.0 s |
+| 💸 **FINE / TRAP** | A red seal slams onto the tile and coins fall *through* the ground. A shielded hit still gets the seal but drops no coins. | 0.6 s |
+| 🪙 **COIN / BIG COIN** | Coins pop out of the tile and arc away. | 0.55 s |
+| 🏪 **SHOP** | The shopfront lights up before the modal, so the modal reads as being inside it. | 0.5 s |
 
-**⚔️ DUEL — the face-off.** The bet picker appears with no staging at all.
-Suggestion: the camera swings to a low two-shot with both tokens facing each
-other across the tile, coins piling up between them as the bet is chosen, and
-whips into the minigame on confirm. This one is nearly free: the minigame
-already follows, so the cinematic is pure lead-in and can be skipped by a tap.
+**⚡ BOOST deliberately has none.** It fires often and already chains straight
+into another roll; a launch cinematic there would be the third thing in a row
+demanding attention on a turn that is not over yet.
 
-**🏛️ DISTRICT HQ — the payout.** The single biggest coin event in the game
-(+15 first visit) is a toast. Suggestion: the camera cranes up to take in the HQ
-building as coins spiral out of it and stream into the HUD counter. Reuse the
-existing coin-particle system, aimed at the counter it already targets. ~1.8 s.
+### The rule
 
-### Tier 2 — good, more work
-
-**🧲 MAGNET — the pull.** Coins should visibly *leave* the opponent's counter and
-fly across the board into yours, with a magnet field warping between the two
-tokens. The satisfying part is watching the other player's number go down.
-
-**🔒 THE GATE — the breach.** The gate has a whole overlay already, but the moment
-it opens is a modal. Suggestion: cut to the gate itself, have it shatter or grind
-open, and let the camera pass *through* it as the banked steps resume. This is
-the only permanent change to the board in a match; it deserves to be seen once.
-
-**⚓ ANCHOR — the trap springing.** An anchor should thud down from off-screen and
-drag the token back along the road it came from, rather than the token simply
-appearing five spaces earlier. This one also fixes a comprehension problem: it
-is currently hard to tell *why* you moved backwards.
-
-**🎁 MYSTERY — the unboxing.** A crate lands on the tile and cracks open with the
-item rising out of it, then the card. The item card already exists, so this is
-a 1.2 s lead-in.
-
-### Tier 3 — flavour, cheap to add
-
-- **🪙 / 💰 COIN** — coins pop out of the tile and arc into the counter rather
-  than the number simply changing. This one fires constantly, so it must stay
-  under ~0.6 s and must never gate the turn.
-- **💸 FINE** — the tile stamps a red seal, the token flinches, coins fall out
-  and sink through the ground.
-- **🕊️ TRUCE** — a dove crosses between the two tokens and both counters tick up
-  together. The only shared-good event on the board and it should feel like one.
-- **🏪 SHOP** — the shopfront lights up and the camera pushes in to the door
-  before the modal, so the modal reads as being *inside* it.
-
-### The rule I would apply to all of them
-
-**Frequency sets the budget.** A tile you land on once a match can afford six
-seconds; one you land on every third turn cannot afford one. Concretely:
+**Frequency sets the budget.**
 
 | How often | Budget | Must be skippable? |
 |---|---|---|
 | Once or twice a match (Gate, Swap, HQ first visit) | up to 6 s | no |
-| A few times a match (Duel, Mystery, Magnet, Boost) | 1.2–2 s | yes, on tap |
-| Constantly (Coin, Fine) | under 0.6 s | must never gate the turn at all |
+| A few times a match (Duel, Mystery, Magnet, Anchor) | 1.2–2 s | yes, on tap |
+| Constantly (Coin, Fine, Truce, Shop) | under 0.6 s | must never gate the turn at all |
 
-And every one of them goes through the Director with a named floor in
-`SceneTiming.js`. A set piece paced with a bare `setTimeout` cannot be cancelled
-on rematch, cannot be measured by `qa/scenes.js`, and will eventually overlap
-something.
+The bottom row is the important one: those four are fire-and-forget. They play
+*alongside* the turn rather than holding it up, take no camera, and are not
+waited on. Everything above them goes through `_playSetPiece`, which owns the
+screen, hands the camera back and raises the card.
 
 ---
 
-## 8. Verified
+## 8. Notifications
 
-`qa/pacing.js` — **19/19**. It asserts order, not appearance:
+Toasts had two problems and between them they made the board unwatchable:
 
-- the tile names itself **before** the coins move (585 ms gap; it was 0 ms);
-- the token's closest approach to the fork node is 0.51 units, i.e. it goes
-  through it (it was 8.35 — it cut the corner);
-- the camera is 34.6 units from the token when the walk begins (it was 48.2);
-- the saucer appears, the beam lights, the camera moves 238 units with it, a
-  token is carried out of sight, both end on each other's nodes, the card is
-  raised, the camera is handed back, and both tokens are left visible at full
-  scale;
-- `endSwapCinematic()` recovers a deliberately corrupted state.
+1. `#toast-box` sat at `top: 50%; left: 50%` — **dead centre of the screen**,
+   which is exactly where the token, the dice and the tile being moved toward
+   all are. Up to five could stack there at once.
+2. Nothing stopped one appearing mid-move. Passing an HQ, claiming a bounty and
+   gaining an ally all fire *during* the walk, so the board vanished behind a
+   black pill at the precise moment the player was trying to watch it.
 
-**Regression-proofed.** Reverting both fixes in place makes four of those
-assertions fail and restoring them makes all nineteen pass.
+Three changes:
 
-One assertion is weaker than it looks and is labelled as such in the file: the
-ground-speed bound does **not** catch the teleport. Under software GL the frame
-delta is capped, so a short-duration animation is stretched in wall clock and
-measures *slower*; reverting the fix makes that number go **down**. The
-fork-proximity check is the one that does the work.
+- **The rail moved to the active player's own edge** (bottom, or the top in
+  tabletop on Player 2's turn), out of the middle half of the screen entirely.
+  It steps aside again for a modal, and moves to the opposite edge during the
+  gate scene, where the gate card owns the bottom.
+- **Anything not urgent WAITS while the board is animating.** Toasts raised
+  during `MOVING` or `ROLLING` are queued and released the moment the token
+  lands — which is when the player is looking for them anyway. Nothing is lost;
+  the queue is also flushed at the top of every turn so a line cannot be
+  stranded by a scene that took an unusual exit.
+- **Two at a time, not five**, at a smaller size.
 
-## 9. Not verified
+`toast(msg, colour, { urgent: true })` bypasses the queue. That is for things
+you must see *as* they happen rather than after — currently a shield absorbing
+a hit (which explains why a fine cost you nothing) and the gate breaking.
 
-- **The feel of the new floors.** `JUNCTION_COMMIT` at 620 ms and `LAND_ARRIVE`
-  at 500 ms add roughly a second to every turn that goes through a fork. That is
-  the right trade on paper; whether a match now feels stately or slow is a
-  play question.
-- **The swap cinematic's length.** 5.85 s nominal. In this container it measures
-  about twice that, because the animation clock is capped per frame and the
-  renderer is slow — the real figure needs a real device.
-- **Whether the side-on camera clears scenery everywhere.** It is aimed at the
-  middle of the board, which is open on both maps, but it has only been checked
-  on the ring.
+---
+
+## 9. The gate
+
+The gate overlay was `rgba(0, 0, 0, .95)` across the whole screen: **you rolled
+to break through a gate you could not see.** It is now a transparent layer with
+a compact card on the active player's edge, and the camera is put on the gate
+itself (`Renderer.focusOnGate`) for the duration.
+
+`#ui-layer` stays hidden for the whole gate scene, which is what makes items,
+the map and the ordinary roll unavailable there — the only control on screen is
+the gate's own button. `executeUseItem` also refuses outright while
+`gameState === 'GATE'`, so that guarantee does not depend on a display property.
+The card says so out loud: *"No items at the gate — the roll is all you have."*
+
+---
+
+## 10. Verified
+
+`qa/pacing.js` — **35/35**, zero page errors.
+
+- **Order**: the tile names itself 585 ms before the coins move; the effect
+  fires before the result card; the effect still actually fires.
+- **Junction**: closest approach to the fork node 0.51 units (it goes through
+  it); the camera is 34.6 units from the token when the walk starts.
+- **Swap**: saucer, beam, 235 units of camera travel, a token carried out of
+  sight, both ending on each other's nodes, the card raised, the camera handed
+  back, both tokens visible at full scale — and a deliberately corrupted state
+  recovered by `endSwapCinematic()`.
+- **Toasts**: nothing shown during `MOVING`, two queued, an urgent one still
+  gets through, the queue released on landing, the rail measured clear of the
+  middle half of the screen, at most two stacked.
+- **Gate**: shown, background `rgba(0,0,0,0)` (not blacked out), the layer takes
+  no pointer events, `cameraState === 'GATE'`, the card hugs an edge, the bag is
+  unreachable, `executeUseItem` refuses, and the toast rail does not overlap the
+  card.
+- **Breach**: shards appear (753 → 768 meshes) and every one is cleaned up.
+- **Cleanup**: nine set pieces run back to back leave the scene graph at exactly
+  753 meshes.
+
+**Regression-proofed.** Reverting the junction and ordering fixes in place makes
+four assertions fail; restoring them makes all of them pass.
+
+## 11. Not verified
+
+- **The feel of eleven set pieces in one match.** Each is inside its budget on
+  paper, but whether a City match now has too many things stopping to be looked
+  at is a play question. The four cheap ones do not gate the turn, so the honest
+  risk is the middle tier — Duel, Mystery, Magnet, Anchor — stacking up.
+- **The gate camera on every approach.** It frames from the direction of travel,
+  which is right on the Industrial Zone entrance and on HBD's Rift; it has only
+  been checked on the City gate.
+- **Set-piece timings on real hardware.** The animation clock is capped per
+  frame, so everything here measures roughly twice its nominal length in this
+  container.

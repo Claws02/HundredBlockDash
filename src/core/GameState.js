@@ -54,6 +54,9 @@ export const state = {
     // resolveSpace — opening the picker directly would just have it painted
     // over by the result card, which lands a beat later.
     pendingDropPick:       null,
+    // Where a mystery crate should land, set when the item is granted and
+    // consumed by the reveal. The item is already in the bag by then.
+    pendingUnbox:          null,
 
     // Duel
     pendingDuelBet:        0,
@@ -171,6 +174,7 @@ export function resetPlayers() {
     state.mgBag              = [];   // a fresh match deals a fresh bag
     state.mgLastType         = '';
     state.pendingDropPick    = null;
+    state.pendingUnbox       = null;
     state.allyOnMap          = null;
     state.allySpawnCountdown = 0;
     state.activeContracts    = [];

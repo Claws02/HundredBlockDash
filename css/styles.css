@@ -53,9 +53,17 @@ body, html {
     opacity: 0; pointer-events: none; transition: opacity .3s ease;
 }
 #modal-overlay.act { opacity: 1; pointer-events: auto; }
+/* The toast rail. This used to sit at top:50%/left:50% — dead centre, exactly
+   where the token, the dice and the tile being moved toward all are — and it
+   could stack five deep. It now hugs the ACTIVE player's own edge and leaves
+   the middle of the screen alone, which is the part of the screen the game is
+   actually being played on. */
 #toast-box {
-    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-    z-index: 300; display: flex; flex-direction: column; align-items: center; gap: 7px; pointer-events: none;
+    position: fixed; left: 50%; bottom: calc(var(--hud-h) + 10px); top: auto;
+    transform: translateX(-50%);
+    z-index: 300; display: flex; flex-direction: column-reverse; align-items: center;
+    gap: 6px; pointer-events: none;
+    max-width: min(92vw, 360px);
 }
 
 .bfont { font-family: 'Bebas Neue', 'Arial Narrow', 'Oswald', Impact, system-ui, sans-serif; }
@@ -113,7 +121,12 @@ body, html {
 
 /* Tabletop mode: flip center UI and the 3D canvas when P2 is the active player */
 .tabletop-p2-turn #game-container canvas { transform: rotate(180deg); }
-.tabletop-p2-turn #toast-box { transform: translate(-50%, -50%) rotate(180deg); }
+/* Tabletop, Player 2's turn: the rail moves to THEIR edge and faces them. */
+.tabletop-p2-turn #toast-box {
+    bottom: auto; top: calc(var(--hud-h) + 10px);
+    transform: translateX(-50%) rotate(180deg);
+    flex-direction: column-reverse;
+}
 /* .modal-box, #mg-page-info and #mg-page-hold are rotated through the
    --card-rot custom property instead (see the DUAL READ block at the end of
    this file), so the turn-flip and the manual ⟳ flip can compose. */
@@ -254,18 +267,50 @@ body, html {
 
 .inv-full-note { background: rgba(245,158,11,0.18); border: 1px solid rgba(245,158,11,0.5); color: #fbbf24; border-radius: 10px; padding: 8px 14px; font-size: 13px; font-family: 'Nunito'; font-weight: 700; margin-bottom: 8px; text-align: center; }
 
-/* Gate */
+/* Gate.
+   This was `background: rgba(0,0,0,.95)` across the whole screen — you rolled
+   to break through a gate you could not see, and the one permanent change to
+   the board in a match happened behind a black panel. It is now a transparent
+   layer with a compact card on the ACTIVE player's own edge, so the gate itself
+   (which the camera is pointed at) stays on screen the whole time.
+   `#ui-layer` stays hidden throughout, which is what keeps items and the ordinary
+   roll unavailable at the gate — the only control here is the gate's own. */
 #gate-overlay {
-    position: fixed; inset: 0; z-index: 180; background: rgba(0,0,0,.95);
-    display: none; flex-direction: column; align-items: center; justify-content: center; gap: 14px; color: #fff; text-align: center; padding: 24px;
+    position: fixed; inset: 0; z-index: 180; background: transparent;
+    display: none; flex-direction: column; align-items: center;
+    justify-content: flex-end; gap: 8px; color: #fff; text-align: center;
+    padding: 18px 16px calc(var(--hud-h) + 16px);
+    pointer-events: none;
 }
-.gate-title { font-size: 62px; color: #f59e0b; letter-spacing: 4px; text-shadow: 0 0 30px rgba(245,158,11,.8); }
-.gate-sub { font-size: 17px; color: rgba(255,255,255,.75); max-width: 82%; line-height: 1.4; font-family: 'Nunito'; }
-.gate-roll-btn { font-size: 32px; padding: 16px 52px; border-radius: 18px; border: none; background: linear-gradient(135deg, #b45309, #f59e0b); color: #000; cursor: pointer; box-shadow: 0 6px 24px rgba(245,158,11,.6); margin-top: 8px; }
+/* Everything inside the card takes input; the layer itself does not, so the
+   board behind it is never swallowed. */
+#gate-overlay > * { pointer-events: auto; }
+.tabletop-p2-turn #gate-overlay {
+    justify-content: flex-start;
+    padding: calc(var(--hud-h) + 16px) 16px 18px;
+}
+.gate-card {
+    width: 100%; max-width: 400px;
+    display: flex; flex-direction: column; align-items: center; gap: 7px;
+    background: rgba(8, 6, 18, .93);
+    border: 1.5px solid rgba(245, 158, 11, .55);
+    border-radius: 20px; padding: 14px 16px 16px;
+    box-shadow: 0 14px 44px rgba(0,0,0,.7), 0 0 30px -10px rgba(245,158,11,.55);
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+}
+.gate-icon { font-size: 30px; line-height: 1; }
+.gate-title { font-size: 34px; color: #f59e0b; letter-spacing: 3px; text-shadow: 0 0 22px rgba(245,158,11,.7); line-height: 1; }
+.gate-sub { font-size: 12.5px; color: rgba(255,255,255,.75); line-height: 1.35; font-family: 'Nunito'; }
+.gate-noitems {
+    font-family: 'Nunito', system-ui, sans-serif; font-size: 10.5px; letter-spacing: .3px;
+    color: rgba(255,255,255,.45);
+}
+.gate-roll-btn { font-size: 22px; padding: 11px 34px; border-radius: 14px; border: none; background: linear-gradient(135deg, #b45309, #f59e0b); color: #000; cursor: pointer; box-shadow: 0 5px 18px rgba(245,158,11,.5); width: 100%; }
 .gate-roll-btn:disabled { filter: grayscale(1); opacity: .45; cursor: not-allowed; }
-.gate-result { font-size: 40px; min-height: 50px; color: var(--gold); }
-.gate-sum { font-size: 26px; color: rgba(255,255,255,.55); }
-.gate-open-banner { font-size: 36px; color: #4ade80; text-shadow: 0 0 20px #4ade80; display: none; }
+.gate-result { font-size: 26px; min-height: 0; color: var(--gold); line-height: 1.1; }
+.gate-sum { font-size: 15px; color: rgba(255,255,255,.55); }
+.gate-open-banner { font-size: 20px; color: #4ade80; text-shadow: 0 0 16px #4ade80; display: none; line-height: 1.2; }
+#gate-overlay .btn-close { width: 100%; }
 
 /* Minigame Intro & Orientation */
 #mg-intro-overlay { position: fixed; inset: 0; z-index: 250; background: rgba(0,0,0,.97); display: none; flex-direction: column; align-items: center; justify-content: center; color: #fff; text-align: center; padding: 20px; }
@@ -1006,8 +1051,11 @@ body { overscroll-behavior: none; -webkit-overflow-scrolling: auto; }
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
     box-shadow: 0 10px 36px rgba(0,0,0,0.65), 0 0 24px rgba(0,0,0,0.3) !important;
-    font-size: 20px !important;
-    padding: 10px 22px !important;
+    font-size: 15px !important;
+    padding: 7px 16px !important;
+    max-width: 100%;
+    white-space: normal !important;
+    text-align: center; line-height: 1.25;
     letter-spacing: 0.5px;
     border-width: 1.5px !important;
 }
@@ -1550,9 +1598,15 @@ body.reduce-motion .hbd-story-crown, body.reduce-motion #realm-banner { animatio
 /* A toast is pinned to the centre of the screen, which is where a card sits;
    they were overlapping and neither was readable. While a card is up, the
    toast moves to the edge nearest whoever is being addressed. */
-#toast-box { transition: top .25s ease, transform .25s ease; }
-body.modal-open #toast-box { top: 85%; }
-body.modal-open.tabletop-p2-turn #toast-box { top: 15%; }
+#toast-box { transition: bottom .25s ease, top .25s ease, transform .25s ease; }
+/* A modal owns the lower half of the screen, so the rail steps aside rather
+   than sitting under it. */
+body.modal-open #toast-box { bottom: calc(var(--hud-h) + 4px); }
+/* The gate card is anchored to the same edge as the rail and would sit on top
+   of its ROLL button. The gate scene hides #ui-layer, so the opposite edge is
+   empty — send the rail there for the duration. */
+body.gate-scene #toast-box { bottom: auto; top: calc(var(--hud-h) + 10px); }
+body.gate-scene.tabletop-p2-turn #toast-box { top: auto; bottom: calc(var(--hud-h) + 10px); }
 
 /* ══════════════════════════════════════════════════════════════════════════
    POST-MINIGAME SCOREBOARD

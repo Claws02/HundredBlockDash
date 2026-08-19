@@ -1587,6 +1587,16 @@ export function endSwapCinematic() {
     }
 }
 
+// Hand the camera back after any set piece that parked it on 'CINEMATIC'.
+// Snapping rather than easing: the shot could be anywhere on the board, and
+// easing back across it is a long drift with nothing happening in it.
+export function endCinematic() {
+    if (state.cameraState !== 'CINEMATIC') return;
+    state.cameraState = 'FOLLOW';
+    resetCameraSmoothing();
+    snapCameraToActive();
+}
+
 // Total run time, so the caller can size its beat from the animation rather
 // than guessing a number that then drifts out of sync with it.
 export function swapCinematicMs() {
@@ -1735,6 +1745,31 @@ function _followPose(p) {
     const look = ground.clone().addScaledVector(_camFwd, f.lead);
     look.y = 1.2;
     return { pos, look };
+}
+
+// ---- Gate camera ----
+//
+// The gate scene used to be a full-screen black panel, so where the camera was
+// pointing did not matter. Now that the card is transparent, it does: this
+// frames the player and the gate they are standing at, low enough that the
+// structure itself fills the shot rather than being a tile seen from above.
+const gateCam = { pos: new THREE.Vector3(), look: new THREE.Vector3(), active: false };
+
+export function focusOnGate(player) {
+    if (!player || !player.mesh || !camera) return;
+    const at = player.mesh.position.clone().setY(0);
+    // Look at it from the side the player came from, so their token is in shot.
+    const back = _rawHeading(player);
+    const dir = back && back.lengthSq() > 0.1 ? back.clone() : new THREE.Vector3(0, 0, -1);
+    gateCam.look.copy(at).setY(2.2);
+    gateCam.pos.copy(at).addScaledVector(dir, -15).setY(11);
+    gateCam.active = true;
+    state.cameraState = 'GATE';
+}
+
+export function clearGateFocus() {
+    gateCam.active = false;
+    if (state.cameraState === 'GATE') state.cameraState = 'FOLLOW';
 }
 
 // ---- Junction camera ----
@@ -1987,6 +2022,12 @@ function _loop() {
         camera.position.lerp(mapCam.targetPos, k);
         _camHelper.position.copy(camera.position);
         _camHelper.lookAt(mapCam.targetLook);
+        camera.quaternion.slerp(_camHelper.quaternion, k);
+    } else if (cs === 'GATE' && gateCam.active) {
+        const k = _damp(0.075, dt);
+        camera.position.lerp(gateCam.pos, k);
+        _camHelper.position.copy(camera.position);
+        _camHelper.lookAt(gateCam.look);
         camera.quaternion.slerp(_camHelper.quaternion, k);
     } else if (cs === 'JUNCTION' && junctionCam.active) {
         const k = _damp(0.085, dt);

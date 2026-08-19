@@ -23,6 +23,7 @@ import * as Director from './Director.js';
 import { SCENE, BOT_THINK } from '../config/SceneTiming.js';
 import { sfx, haptic } from '../engine/AudioManager.js';
 import * as Renderer from '../engine/Renderer.js';
+import * as SetPieces from '../engine/SetPieces.js';
 import * as Physics from '../engine/Physics.js';
 import * as UIManager from '../ui/UIManager.js';
 import * as ModalManager from '../ui/ModalManager.js';
@@ -337,6 +338,7 @@ export function startPreRoll() {
     // to miss coming back from a minigame. Only fires when the turn actually
     // changed hands, so a BOOST re-roll does not re-announce the same player.
     UIManager.announceTurnIfChanged(state.activePlayer);
+    UIManager.flushToasts();     // nothing queued mid-move may be stranded
     state.rollAgainPending = false;
     state.rollAgainSamePlayer = false;
     UIManager.updateUI();
@@ -723,7 +725,11 @@ export function resolveSpace(p) {
     if (state.selectedMap === 'hundred_block_dash') Renderer.updateBiomeVisuals(typeof p.pos === 'number' ? p.pos : 0);
     else Renderer.updateBiomeVisuals(CITY_GRAPH[p.pos]?.district || 'ring');
 
-    // ARRIVE — name the tile you are standing on.
+    // ARRIVE — name the tile you are standing on, and release anything that was
+    // held back while the board was moving. Passing an HQ, claiming a bounty and
+    // gaining an ally all fire mid-walk; they now arrive here, where the player
+    // is looking, instead of over the top of the token they were watching.
+    UIManager.flushToasts();
     UIManager.showSpaceInfoCard(tileName, tileDesc);
     Director.hold('LAND_ARRIVE', () => {
         if (state.gameState !== 'ACKNOWLEDGE') return;
@@ -746,7 +752,11 @@ export function resolveSpace(p) {
         const titleName = ovr ? ovr.title : tileName;
         const iconChar  = ovr ? ovr.icon : (lbl ? lbl.icon : spc.ic);
 
-        Director.hold('LAND_SETTLE', () => {
+        // A mystery crate lands and cracks open before the item names itself.
+        // The item is already in the bag by now — this is the reveal, not the
+        // grant, so an interrupted animation cannot cost anybody anything.
+        const unboxAt = state.pendingUnbox; state.pendingUnbox = null;
+        const thenShow = () => Director.hold('LAND_SETTLE', () => {
             if (state.gameState !== 'ACKNOWLEDGE') return;
             // A full bag: the discard picker is the result card for this space.
             const pick = state.pendingDropPick; state.pendingDropPick = null;
@@ -770,6 +780,8 @@ export function resolveSpace(p) {
                 });
             }
         });
+        if (unboxAt) SetPieces.mysteryUnbox(unboxAt, () => { Renderer.endCinematic(); thenShow(); });
+        else thenShow();
     });
 }
 
@@ -783,24 +795,29 @@ export function resolveSpaceEffect(p, spaceType, space) {
         case 'coin': {
             const bonus = _allyPassive(p, 'coin_bonus');
             earnCoins(p, 3 + bonus);
+            SetPieces.coinPop(Renderer.getPos(p.pos), false);
             _checkContract(p, 'land_coin'); _checkContract(p, 'land_type', 'coin');
             return `+${3+bonus} coins!${bonus ? ' (Vendor +'+bonus+')' : ''}`;
         }
         case 'coin_big': {
             const bonus = _allyPassive(p, 'coin_bonus');
             earnCoins(p, 8 + bonus);
+            SetPieces.coinPop(Renderer.getPos(p.pos), true);
             _checkContract(p, 'land_coin_big'); _checkContract(p, 'land_type', 'coin_big');
             return `+${8+bonus} coins!${bonus ? ' (Vendor +'+bonus+')' : ''}`;
         }
-        case 'lose':     { const l = loseCoins(p, FINE_AMOUNT);     return l === 0 ? '🛡️ Shielded!' : `-${l} coins!`; }
-        case 'lose_big': { const l = loseCoins(p, BIG_FINE_AMOUNT); return l === 0 ? '🛡️ Shielded!' : `-${l} coins!`; }
-        case 'trap':     { const l = loseCoins(p, TRAP_AMOUNT);     return l === 0 ? '🛡️ Shielded!' : `-${l} coins!`; }
+        // A shield turning a fine into nothing is a good moment too; the seal
+        // still stamps, but no coins fall out of it.
+        case 'lose':     { const l = loseCoins(p, FINE_AMOUNT);     SetPieces.finePop(Renderer.getPos(p.pos), false, l > 0); return l === 0 ? '🛡️ Shielded!' : `-${l} coins!`; }
+        case 'lose_big': { const l = loseCoins(p, BIG_FINE_AMOUNT); SetPieces.finePop(Renderer.getPos(p.pos), true,  l > 0); return l === 0 ? '🛡️ Shielded!' : `-${l} coins!`; }
+        case 'trap':     { const l = loseCoins(p, TRAP_AMOUNT);     SetPieces.finePop(Renderer.getPos(p.pos), false, l > 0); return l === 0 ? '🛡️ Shielded!' : `-${l} coins!`; }
         case 'mystery': {
             const ids  = Object.keys(ITEMS);
             const pick = ids[Math.floor(Math.random() * ids.length)];
             const it   = ITEMS[pick];
             const took = tryGrantItem(p, pick);
             _checkContract(p, 'land_type', 'mystery');
+            state.pendingUnbox = Renderer.getPos(p.pos).clone();
             // Receiving an item is its own moment — show what it is and what it
             // does, under the item's own name, and make the player confirm it.
             state.pendingResultOverride = { title: `YOU GOT: ${it.name.toUpperCase()}`, icon: it.icon };
@@ -848,7 +865,12 @@ export function resolveSpaceEffect(p, spaceType, space) {
             const owner = space?.owner !== undefined ? state.players[space.owner] : null;
             if (owner && owner.id !== p.id) {
                 state.pendingForcedMove = -5;
-                return `⚓ ${owner.name}'s Anchor! Dragged back 5 spaces.`;
+                // Springing it BEFORE the drag is the point: without this the
+                // token simply appears five spaces earlier and it is genuinely
+                // hard to tell why you moved backwards.
+                _playSetPiece(done => SetPieces.anchorSpring(Renderer.getPos(p.pos), done),
+                              '⚓ ANCHOR', `${owner.name}'s Anchor caught you — dragged back 5 spaces.`, p, 'owner');
+                return null;
             }
             return 'Your own Anchor.';
         }
@@ -856,10 +878,18 @@ export function resolveSpaceEffect(p, spaceType, space) {
             const stolen = Math.min(5, opp.coins);
             loseCoins(opp, stolen); earnCoins(p, stolen);
             _checkContract(p, 'land_type', 'magnet');
-            return `Stole ${stolen} coins from ${opp.name}!`;
+            // The satisfying half of a magnet is watching the OTHER number go
+            // down, so the coins have to be seen leaving them.
+            if (stolen > 0) {
+                _playSetPiece(done => SetPieces.magnetPull(p, opp, stolen, done),
+                              'MAGNET', `🧲 Pulled ${stolen} coins straight out of ${opp.name}'s pocket.`, p, 'owner');
+                return null;
+            }
+            return `${opp.name} had nothing left to take.`;
         }
         case 'truce': {
             earnCoins(state.players[0], 5); earnCoins(state.players[1], 5);
+            SetPieces.trucePop(Renderer.getPos(state.players[0].pos), Renderer.getPos(state.players[1].pos));
             _checkContract(p, 'land_type', 'truce');
             return 'Both players gain 5 coins!';
         }
@@ -881,11 +911,13 @@ export function resolveSpaceEffect(p, spaceType, space) {
         case 'shop': {
             _noteShopVisit(p);
             if (state.selectedMap === 'hundred_block_dash') {
-                Director.hold('SHOP_OPEN', () => openShop(hbdShopKey(p.pos), 1.0)); return null;
+                SetPieces.shopGlow(Renderer.getPos(p.pos));
+            Director.hold('SHOP_OPEN', () => openShop(hbdShopKey(p.pos), 1.0)); return null;
             }
             const gNode   = CITY_GRAPH[p.pos];
             const distKey = gNode?.shopDistrict || 'ring';
             const disc    = distKey === 'ba' ? BA_DISCOUNT : 1.0;
+            SetPieces.shopGlow(Renderer.getPos(p.pos));
             Director.hold('SHOP_OPEN', () => openShop(distKey, disc)); return null;
         }
         case 'hq': {
@@ -901,11 +933,47 @@ export function resolveSpaceEffect(p, spaceType, space) {
         }
         case 'duel': {
             _checkContract(p, 'land_type', 'duel');
-            if (p.isBot) { _startDuel(p, Bot.duelBet(p, opp)); return null; }
-            Director.hold('DUEL_OPEN', () => _openDuelModal(p)); return null;
+            // Stage it. The bet picker used to appear with no lead-in at all,
+            // which made the biggest voluntary risk on the board feel like a
+            // form. This costs nothing: the minigame follows either way.
+            SetPieces.duelFaceoff(p, opp, () => {
+                Renderer.endCinematic();
+                if (state.gameState !== 'ACKNOWLEDGE') return;
+                if (p.isBot) _startDuel(p, Bot.duelBet(p, opp));
+                else Director.hold('DUEL_OPEN', () => _openDuelModal(p));
+            });
+            return null;
         }
         default: return '';
     }
+}
+
+// Play a set piece that OWNS the screen, then raise its card. The caller has
+// already applied the effect to the game state, so the rules are consistent from
+// the moment the animation starts — the animation is a retelling, never the
+// source of truth. Whatever happens, the camera comes back and the turn carries
+// on from the card.
+//
+// `run(done)` is the animation; `done` must be called exactly once.
+function _playSetPiece(run, title, message, p, tier) {
+    let finished = false;
+    const finish = () => {
+        if (finished) return;
+        finished = true;
+        SetPieces.clearSetPieces();
+        Renderer.endCinematic();
+        UIManager.updateUI();
+        if (state.gameState !== 'ACKNOWLEDGE') return;
+        ModalManager.showMessage(title, message, '', { tier: tier || 'owner',
+            ticker: `${p.name}: ${message.split('\n')[0]}` });
+        Director.begin('LAND_RESULT');
+        if (p.isBot) {
+            Director.hold('BOT_RESULT', () => {
+                if (state.gameState === 'ACKNOWLEDGE') resolveMsgModal();
+            });
+        }
+    };
+    try { run(finish); } catch (e) { console.error('[SetPiece] failed:', e); finish(); }
 }
 
 // Run the abduction and raise the card when the saucer has gone. Shared by the
@@ -1181,7 +1249,15 @@ export function triggerGateChallenge(p) {
     // show Player 1 their own roll upside-down. Orient to the roller explicitly.
     UIManager.orientTo(p.id);
     Physics.clearDice(Renderer.getDiceGroup());
+    // #ui-layer stays hidden for the whole gate scene. That is what makes items,
+    // the map and the ordinary roll unavailable here: the only control on screen
+    // is the gate's own button, and the gate is a straight test of the dice.
     document.getElementById('ui-layer').style.display = 'none';
+    // Put the camera on the gate. The overlay used to be an opaque black panel
+    // over the entire screen, so the player rolled to break through a gate they
+    // could not see; the card is now transparent and this is what makes that
+    // worth doing.
+    Renderer.focusOnGate(p);
     const isHBD = state.selectedMap === 'hundred_block_dash';
     const gateTitleEl = document.getElementById('gate-title');
     if (gateTitleEl) gateTitleEl.textContent = isHBD ? 'THE RIFT' : 'THE GATE';
@@ -1198,6 +1274,9 @@ export function triggerGateChallenge(p) {
     const overlay = document.getElementById('gate-overlay');
     overlay.style.display = 'flex';
     overlay.dataset.pid = p.id;
+    // The gate card lives on the same edge as the toast rail; this moves the
+    // rail to the opposite (empty) edge for the duration.
+    document.body.classList.add('gate-scene');
     if (p.isBot) Director.wait(BOT_THINK.GATE_ROLL, () => { if (state.gameState === 'GATE') rollGate(); });
 }
 
@@ -1247,13 +1326,19 @@ export function resolveGateRoll() {
         setTimeout(() => { document.getElementById('gate-sum').textContent = `Total: ${total}  (need ≥ ${gateThreshold(state.selectedMap)})`; }, faceValues.length*500+300);
         setTimeout(() => {
             if (succeeded) {
-                state.gateOpen = true; sfx('gate_open');
+                state.gateOpen = true;
+                // The breach. This is the only permanent change to the board in
+                // a whole match, and it used to be a line of text on a card. The
+                // gate shatters and the camera passes through the gap it leaves.
+                SetPieces.gateBreach(Renderer.getPos(p.pos), () => {
+                    Renderer.updateSingleTile();
+                    if (state.gameState === 'GATE') Renderer.focusOnGate(p);
+                });
                 document.getElementById('gate-result').textContent = '🔓 INDUSTRIAL ZONE OPEN!';
                 document.getElementById('gate-result').style.color = '#4ade80';
                 document.getElementById('gate-open-banner').style.display = 'block';
                 document.getElementById('gate-continue-btn').textContent = 'ENTER ZONE';
-                UIManager.toast(`${p.name} BREAKS THROUGH! Score: ${total}`, '#4ade80');
-                Renderer.updateSingleTile();
+                UIManager.toast(`${p.name} BREAKS THROUGH! Score: ${total}`, '#4ade80', { urgent: true });
                 _checkContract(p, 'open_gate');
             } else {
                 document.getElementById('gate-result').textContent = `❌ FAILED (${total})`;
@@ -1270,8 +1355,11 @@ export function resolveGateRoll() {
 
 export function closeGate() {
     document.getElementById('gate-overlay').style.display = 'none';
+    document.body.classList.remove('gate-scene');
     document.getElementById('ui-layer').style.display = 'block';
     Physics.clearDice(Renderer.getDiceGroup());
+    SetPieces.clearSetPieces();
+    Renderer.clearGateFocus();
     state.cameraState = 'FOLLOW';
     const pid = parseInt(document.getElementById('gate-overlay').dataset.pid);
     const p   = state.players[pid];
@@ -1517,6 +1605,10 @@ function _afterDropReturn(p) {
 
 export function executeUseItem(pid, itemIdx) {
     if (pid !== state.activePlayer) return;
+    // No items at the gate. #ui-layer is hidden for the whole gate scene so the
+    // bag is unreachable anyway, but the gate is meant to be a straight test of
+    // the dice and that should not depend on a display property.
+    if (state.gameState === 'GATE') { UIManager.toast('No items at the gate.', '#ef4444', { urgent: true }); return; }
     const p = state.players[pid], opp = state.players[(pid+1)%2];
     const itemId = p.inv[itemIdx]; p.inv.splice(itemIdx, 1);
     UIManager.toast(`Used ${ITEMS[itemId].name}!`, '#f5c842'); sfx('buy');
@@ -1592,6 +1684,11 @@ function _onDistrictHQReached(p, district) {
     const visits = p.districtsVisited[district];
     const bonus  = visits === 1 ? DISTRICT_HQ_FIRST_BONUS : DISTRICT_HQ_REVISIT_BONUS;
     earnCoins(p, bonus);
+    // The single biggest coin event in the game. A first visit gets the crane
+    // shot; a revisit is worth a third as much and gets a coin spray instead —
+    // frequency sets the budget, and you can pass the same HQ every lap.
+    if (visits === 1 && p.mesh) SetPieces.hqPayout(p, bonus, () => Renderer.endCinematic());
+    else if (p.mesh) SetPieces.coinPop(p.mesh.position.clone(), true);
     p.districtHQsThisLoop.add(district);
     _checkContract(p, 'visit_hq', district);
     // "Reach 2 different District HQs" counts DISTINCT districts, so send the
