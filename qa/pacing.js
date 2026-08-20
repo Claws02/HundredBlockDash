@@ -650,6 +650,74 @@ const GL = ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=swiftshader',
         breach.after === breach.base, `${breach.base} → ${breach.after}`);
 
     // ---------------------------------------------------------------
+    // 5b. Failing the gate leaves you AT the gate.
+    //
+    // Reported: "the district with the gate did cause a glitch, I was stuck at
+    // the gate, then the next round I was at the junction and was able to roll
+    // and move along." Failing the City gate teleported the player to 'bp_d' —
+    // a junction, which has no board tile — and startPreRoll only ever checked
+    // the HBD gate, so the next turn was an ordinary roll and the gate was
+    // simply forgotten. The card said "try again next turn"; nothing did.
+    // ---------------------------------------------------------------
+    const held = await page.evaluate(async () => {
+        const { state } = await import('/src/core/GameState.js');
+        const GC = await import('/src/core/GameController.js');
+        const M  = await import('/src/ui/ModalManager.js');
+        const D  = await import('/src/core/Director.js');
+        const R  = await import('/src/engine/Renderer.js');
+        D.reset(); R.getActiveAnims().length = 0; M.closeAllModals();
+        state.gateOpen = false;
+        state.activePlayer = 0;
+        const p = state.players[0];
+        p.isBot = false;
+        p.pos = 'ind_0'; p.mesh.position.copy(R.getPos('ind_0'));
+        // Drive closeGate() down the failure branch directly: the dice roll is
+        // random, and this is about where the player ends up, not the odds.
+        document.getElementById('gate-overlay').dataset.pid = '0';
+        GC.closeGate();
+        await new Promise(r => setTimeout(r, 500));
+        const G = window.CITY_GRAPH_REF;
+        return {
+            pos: p.pos,
+            onJunction: !!(G[p.pos] && G[p.pos].isJunction),
+            hasTile: !!state.board[p.pos],
+        };
+    });
+    ok('gate: failing it leaves you standing at the gate',
+        held.pos === 'ind_0', `ended on ${held.pos}`);
+    ok('gate: and never on a junction, which has no tile to stand on',
+        !held.onJunction && held.hasTile, JSON.stringify(held));
+
+    // Now take the next turn. It must be the gate again, not a free roll.
+    const retry = await page.evaluate(async () => {
+        const { state } = await import('/src/core/GameState.js');
+        const GC = await import('/src/core/GameController.js');
+        const M  = await import('/src/ui/ModalManager.js');
+        M.closeAllModals();
+        state.gameState = 'ACKNOWLEDGE';
+        GC.startPreRoll();
+        await new Promise(r => setTimeout(r, 600));
+        const ov = document.getElementById('gate-overlay');
+        return {
+            gs: state.gameState,
+            gateUp: !!ov && getComputedStyle(ov).display !== 'none',
+            rollBtn: (() => { const b = document.getElementById('gate-roll-btn'); return !!b && !b.disabled; })(),
+        };
+    });
+    ok('gate: the next turn puts you back at the gate, as the card promised',
+        retry.gateUp && retry.gs === 'GATE', JSON.stringify(retry));
+    ok('gate: with a live roll button, so the retry is actually playable',
+        retry.rollBtn, JSON.stringify(retry));
+
+    await page.evaluate(async () => {
+        const { state } = await import('/src/core/GameState.js');
+        const GC = await import('/src/core/GameController.js');
+        state.gateOpen = true;
+        GC.closeGate();
+    });
+    await page.waitForTimeout(600);
+
+    // ---------------------------------------------------------------
     // 6. The duel must never be a dead end.
     //
     // Reported: "when I land on a duel, if I have zero coins I cannot do

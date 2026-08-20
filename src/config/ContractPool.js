@@ -53,8 +53,8 @@ export const CONTRACT_POOL = [
     { id: 'c08', icon: '🏆',  desc: 'Win 2 minigames in a row',      reward: 20, type: 'win_minigames',  param: 2,     hint: 'Back-to-back. A loss resets the streak.' },
     { id: 'c13', icon: '⚔️',  desc: 'Win a Duel',                   reward: 16, type: 'duel_win',       param: null,  hint: 'Land on a Duel tile and take the bet.' },
     { id: 'c28', icon: '⚔️',  desc: 'Land on a Duel space',         reward: 11, type: 'land_type',      param: 'duel',       hint: 'Every district has one. You do not have to win it.' },
-    { id: 'c14', icon: '🤝',  desc: 'Claim an Ally',                reward: 14, type: 'claim_ally',     param: null,  hint: 'Allies appear on the board — land on one and beat the minigame.' },
-    { id: 'c29', icon: '🥷',  desc: 'Steal an Ally from your rival', reward: 20, type: 'steal_ally',     param: null,  hint: 'Land on the same space as an opponent who has one.' },
+    { id: 'c14', icon: '🤝',  desc: 'Claim a Buddy',               reward: 14, type: 'claim_ally',     param: null,  hint: 'Buddies appear on the board — land on one and beat the minigame.' },
+    { id: 'c29', icon: '🥷',  desc: 'Steal a Buddy from your rival', reward: 20, type: 'steal_ally',     param: null,  hint: 'Pass or land on a rival who is holding one, then win the minigame.' },
     { id: 'c24', icon: '🔒',  desc: 'Break through the Gate',       reward: 18, type: 'open_gate',      param: null,  hint: 'Roll 20 or more at the Gate. Double Die helps.' },
 
     // ---- Economy ---------------------------------------------------------

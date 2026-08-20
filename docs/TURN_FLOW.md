@@ -81,6 +81,8 @@ place a turn can go somewhere else.
         │ is it a shop, with steps left?         │            │
         │   → ⏱ PASSTHROUGH 320 ms, offer to     │            │
         │     stop in; resume the hop after      │            │
+        │ is the rival here holding a Buddy?     │            │
+        │   → offer the steal, resume after      │            │
         │ is it an HQ, with steps left?          │            │
         │   → pays the pass-through bonus, toast │            │
         │ is it the Gate, and closed?            │            │
@@ -91,8 +93,8 @@ place a turn can go somewhere else.
                         _onLand()
                             │
         ┌───────────────────┴───────────────────┐
-        │ opponent on this node with an ally?   │  → ally STEAL minigame
-        │ an ally is waiting on this node?      │  → ally CLAIM minigame
+        │ rival on this node holding a Buddy?   │  → Buddy STEAL minigame
+        │ a Buddy is waiting on this node?      │  → Buddy CLAIM minigame
         └───────────────────┬───────────────────┘
                             ▼
                       resolveSpace()                       ── state: ACKNOWLEDGE
@@ -242,6 +244,7 @@ turn; do not raise a card."* Four do:
 |---|---|
 | `shop` | `⏱ SHOP_OPEN` 400 ms, then the shop modal. Closing it ends the turn. |
 | `duel` | +3 coin ante, faceoff, `⏱ DUEL_OPEN` 450 ms, then the bet picker → a minigame. If the *opponent* has nothing to stake there is no wager to set, so the picker shows a CONTINUE instead of five disabled buttons. |
+| passing a rival who holds a Buddy | Suspends the move, offers the steal, and resumes the remaining steps whichever way it goes. See `docs/BUDDIES.md` §4. |
 | `swap_space` | §6, the abduction. Raises its own SHARED-tier card when the saucer has gone. |
 | `mystery` with a full bag | Hands the beat to the discard picker, which names the item itself. |
 
@@ -262,8 +265,9 @@ special cases.
 | **Pass-through shop** | mid-move | the move, after the shop closes |
 | **Pass-through HQ** | mid-move | the move, immediately (toast only) |
 | **The Gate, closed** | mid-move | banks the remaining steps; a successful roll spends them, a failed one forfeits them |
-| **Ally on your node** | after the last step, before `resolveSpace` | `resolveSpace` |
-| **Opponent's ally on your node** | same | `resolveSpace` |
+| **Buddy on your node** | after the last step, before `resolveSpace` | `resolveSpace` |
+| **Rival holding a Buddy, landed on** | same | `resolveSpace` |
+| **Rival holding a Buddy, passed** | mid-move, steps still owed | the remaining steps |
 | **BOOST** | at `finishTurn` | `proceedTurn` for the *same* player; `totalTurns` is not incremented, so the minigame cadence is not skewed |
 | **Forced move** (Rocket, Anchor, a −5) | at `resolveMsgModal` | moves, then resolves the new space — recursion, and it is the only place a turn can chain |
 | **Round-end minigame** | at `finishTurn`, every N turns | `proceedTurn` for the winner |
@@ -274,7 +278,7 @@ special cases.
 ```
                         finishTurn()
                             │
-        totalTurns++ · ally clocks tick · history sampled
+        totalTurns++ · Buddy clocks tick · history sampled
                             │
         ┌───────────────────┴───────────────────┐
         │ BOOST pending? → same player rolls    │
@@ -362,7 +366,7 @@ piece can never cost anybody a coin or a position.
 | 🎁 **MYSTERY** | A ribboned crate drops out of the sky, thuds, and the lid blows off in a burst — then the item card. | 1.5 s |
 | ⚓ **ANCHOR** | The anchor falls from off-screen, thuds into the tile and digs in — *before* the drag, so it is clear why you are about to travel backwards. | 1.4 s |
 | ⚔️ **DUEL** | Crossed sparks over the midpoint between the two tokens, low two-shot, then the bet picker. Free: the minigame follows either way. | 1.4 s |
-| 🤝 **ALLY ARRIVAL** | The camera swoops to the tile the ally landed on, a beacon pulses under it, and a card names it — **and waits for a press**. See §5. | 1.3 s + a tap |
+| 🤝 **BUDDY ARRIVAL** | The camera swoops to the tile the Buddy landed on, a beacon pulses under it, and the round report names them — **and waits for a press**. See §5. | 1.3 s + a tap |
 | 🕊️ **TRUCE** | A dove crosses between the two tokens as both counters tick up. | 1.0 s |
 | 💸 **FINE / TRAP** | A red seal slams onto the tile and coins fall *through* the ground. A shielded hit still gets the seal but drops no coins. | 0.6 s |
 | 🪙 **COIN / BIG COIN** | Coins pop out of the tile and arc away. | 0.55 s |
@@ -372,30 +376,38 @@ piece can never cost anybody a coin or a position.
 into another roll; a launch cinematic there would be the third thing in a row
 demanding attention on a turn that is not over yet.
 
-### The ally arrival is the one that WAITS
+### The buddy report is the one that WAITS
 
 Every other set piece runs on a clock. This one stops until somebody presses it,
 and the reason is a scheduling collision rather than a taste call.
 
-An ally spawns in `_onRoundEnd()` — which is called from `maybeTriggerMinigame()`
+A buddy spawns in `_onRoundEnd()` — which is called from `maybeTriggerMinigame()`
 **immediately before** `PRE_MINIGAME` hands the screen to the minigame. The
 announcement was a toast, so it appeared and was covered 1.1 s later. The player
-was told an ally existed, never saw where, and could not go and look because the
+was told a buddy existed, never saw where, and could not go and look because the
 board had gone.
 
 So `spawnAlly()` no longer announces anything. It sets `state.pendingAllyReveal`,
 and `maybeTriggerMinigame()` runs `_afterAllyReveal()` before the hand-off: the
-camera swoops to the tile, a beacon pulses under it, and a SHARED-tier card names
-the ally, says what it does and says where it is. Both players are about to race
-for the same ally, so both need it — and the minigame does not start until
-somebody presses GOT IT.
+camera swoops to the tile, a beacon pulses under it, and a SHARED-tier card
+reports the buddy situation. Both players are about to race for the same buddy,
+so both need it — and the minigame does not start until somebody presses GOT IT.
 
 The card sits on the active player's edge over a barely-dimmed board, and the
-reveal camera aims *below* the ally so the tile lands in the upper half of the
+reveal camera aims *below* the buddy so the tile lands in the upper half of the
 frame, clear of the card. A centred card over a blurred board would show you the
-card instead of the thing it is about.
+card instead of the thing it is about. `body.buddy-report` moves the toast rail
+to the opposite edge while it is up, because round-end toasts fire in the same
+beat and the report hugs the edge the rail normally sits on.
 
-**One exception:** the final round. An ally landing then can never be claimed, so
+**It runs every round, not just on arrival.** The first version fired on the one
+round a buddy spawned, so after that a buddy could sit on the board for the rest
+of the match with nothing on screen saying so, and a held buddy could expire with
+no warning. The report now covers who is on the board, where, how many rounds
+before they leave, and what each player is holding with the clock on it. Full
+detail in `docs/BUDDIES.md`.
+
+**One exception:** the final round. A buddy landing then can never be claimed, so
 the reveal is skipped and the marker cleared rather than stopping the match to
 announce something nobody can use.
 
@@ -424,7 +436,7 @@ Toasts had two problems and between them they made the board unwatchable:
    which is exactly where the token, the dice and the tile being moved toward
    all are. Up to five could stack there at once.
 2. Nothing stopped one appearing mid-move. Passing an HQ, claiming a bounty and
-   gaining an ally all fire *during* the walk, so the board vanished behind a
+   gaining a buddy all fire *during* the walk, so the board vanished behind a
    black pill at the precise moment the player was trying to watch it.
 
 Three changes:
@@ -450,7 +462,7 @@ that are worthless after the fact rather than merely late:
 | **Shield / Bodyguard absorbed it** | It explains why a fine cost nothing. |
 | **The gate breaking** | It is the cue for the set piece already playing. |
 
-Everything else — HQ pass-through bonuses, bounty claims, ally arrivals, item
+Everything else — HQ pass-through bonuses, bounty claims, buddy arrivals, item
 pickups — waits. Those are all *reports*, and a report is just as true a second
 later.
 

@@ -1,12 +1,12 @@
 import { state, resetPlayers } from './GameState.js';
 import {
     gateThreshold, GATE_NUM_DICE, FINE_AMOUNT, BIG_FINE_AMOUNT, TRAP_AMOUNT, DUEL_STAKE,
-    MAX_INV, MAX_ALLIES, ALLY_TURNS, ALLY_SPAWN_DELAY_TURNS,
+    MAX_INV, MAX_ALLIES, ALLY_TURNS, ALLY_SPAWN_DELAY_TURNS, BUDDY_MAP_ROUNDS,
     MINIGAME_EVERY_N_TURNS, ITEMS, SPACE_META, SPACE_DESCS,
     DISTRICT_HQ_FIRST_BONUS, DISTRICT_HQ_REVISIT_BONUS,
     FULL_CIRCUIT_BONUSES,
     ALLIES, BA_DISCOUNT, GRAND_MALL_DISCOUNT,
-    ALL_CHAR_TYPES, HQ_META, CHAR_ICONS,
+    ALL_CHAR_TYPES, HQ_META, CHAR_ICONS, CHAR_NAMES,
     CITY_LENGTHS, CITY_DEFAULT_ROUNDS, HBD_LENGTHS,
     buildHbdConfig, setHbdRealmCount, HBD_DEFAULT_CONFIG, HBD_FINISH_BONUS,
     hbdSpaceLabel, hbdShopKey, getRealmForSpace,
@@ -63,6 +63,10 @@ function _paintCharPortraits(playerIdx) {
     const types = cards.map(c => c.dataset.char);
     const shots = Renderer.renderCharacterPortraits(types, state.players[playerIdx].color);
     cards.forEach(c => {
+        // Names come from CHAR_NAMES so the picker, the board and the docs can
+        // never drift apart the way the hardcoded markup did.
+        const nameEl = c.querySelector('.char-name');
+        if (nameEl && CHAR_NAMES[c.dataset.char]) nameEl.textContent = CHAR_NAMES[c.dataset.char];
         const url = shots[c.dataset.char];
         // No WebGL, or a context we could not get: the emoji stays. A picker
         // that renders nothing is worse than one that renders the old thing.
@@ -314,7 +318,31 @@ export function isMyTurn(pIdx) {
     return state.gameState === 'PRE_ROLL' && state.activePlayer === pIdx && !state.players[pIdx].isBot;
 }
 
+// Is this player standing in front of a gate that is still shut? Both maps have
+// one; they just express it differently — HBD by track index, City by node id.
+function _atClosedGate(p) {
+    if (state.gateOpen) return false;
+    return state.selectedMap === 'hundred_block_dash'
+        ? p.pos === (state.hbd || HBD_DEFAULT_CONFIG).gatePos
+        : p.pos === 'ind_0';
+}
+
 export function startPreRoll() {
+    // A player parked at a shut gate does not get an ordinary turn — they get
+    // the gate. This lived in proceedTurn() and covered ONLY Hundred Block Dash,
+    // so in City a failed gate roll left the player with a normal roll the next
+    // turn and the gate simply forgotten. It also sat BEFORE the pass-the-device
+    // prompt, which meant in pass-and-play the gate scene was raised for the
+    // player who hadn't picked the phone up yet. Here it is after the handoff
+    // and on both maps.
+    {
+        const gp = state.players[state.activePlayer];
+        if (gp && _atClosedGate(gp)) {
+            _gateFromTurnStart = true;
+            triggerGateChallenge(gp);
+            return;
+        }
+    }
     state.gameState = 'PRE_ROLL';
     // Safety net. Every full-screen scene parks the camera in its own mode and
     // is responsible for handing it back — and the ally minigame did not, so a
@@ -442,6 +470,8 @@ export function moveThroughGraph(player, stepsTotal) {
 
         // About to step into a junction?
         if (JUNCTION_IDS.has(nextId)) {
+            // stepsLeft counts the step INTO the fork, so it is exactly how many
+            // more tiles this roll covers once the road is chosen.
             _offerBranchChoice(nextId, (chosenId) => {
                 _noteDistrictEntry(player, chosenId);
                 // If entering Industrial and gate is closed
@@ -471,7 +501,7 @@ export function moveThroughGraph(player, stepsTotal) {
                     player.pos = chosenId;
                     _checkPassThroughShop(player, chosenId, stepsLeft, advance);
                 });
-            });
+            }, stepsLeft);
             return;
         }
 
@@ -542,25 +572,49 @@ function _checkPassThroughShop(player, nodeId, stepsLeft, continueMove) {
         }
     }
 
-    if (stepsLeft > 0 && b?.type === 'shop') {
-        if (player.isBot) {
-            if (Bot.shopPassThrough()) {
+    const thenShop = () => {
+        if (stepsLeft > 0 && b?.type === 'shop') {
+            if (player.isBot) {
+                if (Bot.shopPassThrough()) {
+                    state.gameState = 'SHOP';
+                    _noteShopVisit(player);
+                    setTimeout(() => {
+                        if (state.gameState !== 'SHOP') return;
+                        _botShop(player);
+                        Director.wait(BOT_THINK.SHOP, () => { state.gameState = 'MOVING'; continueMove(); });
+                    }, 400);
+                } else setTimeout(continueMove, 300);
+            } else {
+                _passThroughResumeHop = continueMove;
                 state.gameState = 'SHOP';
-                _noteShopVisit(player);
-                setTimeout(() => {
-                    if (state.gameState !== 'SHOP') return;
-                    _botShop(player);
-                    Director.wait(BOT_THINK.SHOP, () => { state.gameState = 'MOVING'; continueMove(); });
-                }, 400);
-            } else setTimeout(continueMove, 300);
+                ModalManager.showModal('shop-offer-modal');
+            }
         } else {
-            _passThroughResumeHop = continueMove;
-            state.gameState = 'SHOP';
-            ModalManager.showModal('shop-offer-modal');
+            continueMove();
         }
-    } else {
-        continueMove();
+    };
+
+    // Brushing past a rival is enough to go for their buddy. This used to need
+    // an exact landing on their square — one node out of sixty, on the one turn
+    // they happened to be holding something, which meant the steal existed on
+    // paper and almost never in a match. Passing them is the same encounter and
+    // happens often enough to be a real threat, which is what makes holding a
+    // buddy a position worth defending.
+    const opp = state.players[(player.id + 1) % 2];
+    if (stepsLeft > 0 && state.selectedMap !== 'hundred_block_dash'
+        && opp.pos === nodeId && opp.allies.length > 0) {
+        state.gameState = 'ACKNOWLEDGE';
+        const resume = () => { state.gameState = 'MOVING'; thenShop(); };
+        if (player.isBot) {
+            if (Bot.shouldAttemptAllySteal()) { _startAllySteal(player, opp, Bot.allyStealIndex(opp), resume); return; }
+            resume(); return;
+        }
+        UIManager.toast(`🥷 You brushed past ${opp.name} — go for a Buddy?`, '#f97316', { urgent: true });
+        _offerAllySteal(player, opp, resume);
+        return;
     }
+
+    thenShop();
 }
 
 function _onLand(player) {
@@ -587,7 +641,7 @@ function _onLand(player) {
 // BRANCH CHOICE
 // ============================================================
 
-function _offerBranchChoice(junctionId, onChosen) {
+function _offerBranchChoice(junctionId, onChosen, stepsLeft) {
     const options = BRANCH_OPTIONS[junctionId];
     if (!options) { onChosen(CITY_GRAPH[junctionId].next[0]); return; }
 
@@ -609,7 +663,7 @@ function _offerBranchChoice(junctionId, onChosen) {
     _branchChoiceCallback = onChosen;
     // Arrows over the board, not a card on top of it — the player is choosing a
     // direction, so let them see the directions.
-    UIManager.showJunctionArrows(junctionId, p.pos, displayOptions);
+    UIManager.showJunctionArrows(junctionId, p.pos, displayOptions, stepsLeft);
 }
 
 export function onBranchChosen(nodeId) {
@@ -871,6 +925,12 @@ export function resolveSpaceEffect(p, spaceType, space) {
         case 'anchor_trap': {
             const owner = space?.owner !== undefined ? state.players[space.owner] : null;
             if (owner && owner.id !== p.id) {
+                // The Bodyguard says it blocks hits. It used to live entirely
+                // inside loseCoins(), so it stopped every fine and did nothing
+                // about the one board effect people most expect a bodyguard to
+                // handle: being dragged backwards. Spending a charge here is
+                // what makes the card honest.
+                if (_spendBodyguard(p, 'Anchor')) return `🦺 Bodyguard holds you steady — the Anchor slides off.`;
                 state.pendingForcedMove = -5;
                 // Springing it BEFORE the drag is the point: without this the
                 // token simply appears five spaces earlier and it is genuinely
@@ -1169,14 +1229,22 @@ export function maybeTriggerMinigame() {
     }
 }
 
-// If an ally arrived at the close of this round, show the player where it is
-// and WAIT for them to press through before handing the screen to the minigame.
-// Both of them are about to race for it, so it is a shared card.
+// The buddy report. Once per round, before the minigame takes the screen, say
+// what the buddy situation is and WAIT for a press.
+//
+// This started as an arrival-only card: it fired on the one round a buddy
+// spawned and never again, so a buddy could sit on the board for the rest of
+// the match with nobody reminded it was there, and a buddy at your side could
+// expire without warning. Now it reports every round there is anything to
+// report — who is on the board, where, how many rounds before they leave, and
+// what each player is holding with the turns left on it. Both players are about
+// to race for the same buddy, so it is a shared card.
 function _afterAllyReveal(then) {
     const reveal = state.pendingAllyReveal; state.pendingAllyReveal = null;
-    if (!reveal) { then(); return; }
-    const ally = ALLIES[reveal.allyType];
-    if (!ally) { then(); return; }
+    const rep    = buddyReport();
+    state.pendingBuddyDeparture = null;
+    const anythingToSay = rep.onMap || rep.departed || rep.held.some(h => h.buddies.length);
+    if (!anythingToSay) { then(); return; }
 
     const resume = () => {
         SetPieces.clearSetPieces();
@@ -1184,9 +1252,10 @@ function _afterAllyReveal(then) {
         then();
     };
     // The camera swoops to the tile under the card, so "near the Back Alley" is
-    // backed by actually seeing it.
-    SetPieces.allyArrival(Renderer.getPos(reveal.nodeId), () => {});
-    UIManager.showAllyArrival(ally, `Waiting near the ${reveal.hint}.`, resume);
+    // backed by actually seeing it. Only for a NEW arrival — flying to the same
+    // tile every round for a buddy nobody has claimed is noise.
+    if (reveal) SetPieces.allyArrival(Renderer.getPos(reveal.nodeId), () => {});
+    UIManager.showBuddyReport(rep, !!reveal, resume);
 }
 
 function _resolveMinigameResult(winnerId) {
@@ -1220,6 +1289,11 @@ function _resolveMinigameResult(winnerId) {
     state.players.forEach(p => { p.coinsEarnedThisRound = 0; p.shopsVisitedThisLap = 0; p.cabbieUsedThisRound = false; });
 }
 
+// Exported because it is a real lifecycle step — round-end interest, the buddy
+// expiry clock and the next spawn all hang off it — and the buddy probe needs to
+// advance rounds without playing four minigames to get there.
+export function onRoundEnd() { _onRoundEnd(); }
+
 function _onRoundEnd() {
     // Round-total contract (c25) — checked before _resolveMinigameResult clears
     // the per-round tally.
@@ -1232,6 +1306,21 @@ function _onRoundEnd() {
             if (interest > 0) { earnCoins(p, interest); UIManager.toast(`💼 Banker: +${interest} coins interest!`, '#fbbf24'); }
         }
     });
+    // A buddy left waiting on the board runs out of patience. Without this the
+    // board buddy was permanent — nothing ever cleared an unclaimed one — so
+    // "how long until it leaves" had no answer and ignoring it cost nothing.
+    if (state.allyOnMap) {
+        state.allyOnMap.roundsLeft = (state.allyOnMap.roundsLeft ?? BUDDY_MAP_ROUNDS) - 1;
+        if (state.allyOnMap.roundsLeft <= 0) {
+            const gone = ALLIES[state.allyOnMap.allyType];
+            Renderer.removeAllyMarker();
+            state.allyOnMap = null;
+            state.pendingAllyReveal = null;
+            state.pendingBuddyDeparture = gone ? `${gone.icon} ${gone.name}` : null;
+            _scheduleAllySpawn(ALLY_SPAWN_DELAY_TURNS);
+        }
+    }
+
     // Maybe spawn ally
     if (state.allySpawnCountdown > 0) {
         state.allySpawnCountdown--;
@@ -1241,28 +1330,38 @@ function _onRoundEnd() {
     }
 }
 
+// Everything the round report needs to say, gathered in one place so the card
+// and the QA probes read the same numbers.
+export function buddyReport() {
+    const onMap = state.allyOnMap ? {
+        type:       state.allyOnMap.allyType,
+        nodeId:     state.allyOnMap.nodeId,
+        roundsLeft: state.allyOnMap.roundsLeft ?? BUDDY_MAP_ROUNDS,
+        where:      DISTRICT_NAMES[CITY_GRAPH[state.allyOnMap.nodeId]?.district] || 'the city',
+        isNew:      !!state.pendingAllyReveal,
+    } : null;
+    return {
+        onMap,
+        departed: state.pendingBuddyDeparture || null,
+        held: state.players.map(p => ({
+            name: p.name,
+            buddies: p.allies.map(a => ({
+                type: a.type,
+                turnsLeft: a.turnsRemaining,
+                charges: ALLIES[a.type]?.shieldCharges ? a.shieldCharges : null,
+            })),
+        })),
+    };
+}
+
 export function proceedTurn() {
     UIManager.hideActionRows();
     UIManager.applyOrientation();
     const p = state.players[state.activePlayer];
 
-    if (state.selectedMap === 'hundred_block_dash') {
-        Renderer.updateBiomeVisuals(typeof p.pos === 'number' ? p.pos : 0);
-        // Gate check at the start of turn (player parked on gate)
-        if (!state.gateOpen && p.pos === (state.hbd || HBD_DEFAULT_CONFIG).gatePos) {
-            _gateFromTurnStart = true;
-            triggerGateChallenge(p); return;
-        }
-        if (state.playStyle === 'pass' && state.totalTurns > 0 && !state.rollAgainSamePlayer) {
-            state.gameState = 'PASS_PROMPT';
-            ModalManager.showPassModal(`Pass the device to ${p.name}.`, false);
-        } else {
-            state.rollAgainSamePlayer = false;
-            startPreRoll();
-        }
-        return;
-    }
-
+    // The gate check used to live here, ahead of the pass prompt and on the HBD
+    // branch only. It is now the first thing startPreRoll() does, for both maps
+    // and after the device has changed hands.
     if (state.selectedMap === 'hundred_block_dash') Renderer.updateBiomeVisuals(typeof p.pos === 'number' ? p.pos : 0);
     else Renderer.updateBiomeVisuals(CITY_GRAPH[p.pos]?.district || 'ring');
     if (state.playStyle === 'pass' && state.totalTurns > 0 && !state.rollAgainSamePlayer) {
@@ -1444,15 +1543,23 @@ export function closeGate() {
             return;
         }
     } else {
-        // Failed the roll — the banked steps are forfeit either way.
+        // Failed the roll — the banked steps are forfeit either way, and the
+        // player stays where they are: at the door.
+        //
+        // City used to teleport them to 'bp_d' here. bp_d is a JUNCTION — a fork
+        // with no board tile, which nothing else in the game ever parks a token
+        // on (see _walkThroughJunction). Two things went wrong from there. The
+        // card said "try again next turn", but the player was no longer at the
+        // gate and startPreRoll had no City gate check, so next turn was an
+        // ordinary roll. And moveThroughGraph only offers a branch choice when
+        // the NEXT node is a junction, so standing ON one meant taking next[0]
+        // — the ring — with no choice offered at all. That is the reported
+        // "stuck at the gate, then next round I was at the junction and could
+        // just roll and move along."
         _pendingStepsAfterGate = 0;
-        ModalManager.showMessage('🔒 GATE HOLDS', `${p.name} couldn't break through. Try again next turn!`, '🔒', { tier: 'shared' });
-        if (state.selectedMap !== 'hundred_block_dash') {
-            // City Circuit: push player back out of Industrial
-            p.pos = 'bp_d';
-            if (p.mesh) p.mesh.position.copy(Renderer.getPos('bp_d'));
-            Renderer.snapCameraToActive();
-        }
+        ModalManager.showMessage('🔒 GATE HOLDS',
+            `${p.name} couldn't break through. You hold your ground at the gate — roll again next turn.`,
+            '🔒', { tier: 'shared' });
     }
     if (p.isBot) Director.hold('BOT_RESULT', () => { if (state.gameState === 'ACKNOWLEDGE') resolveMsgModal(); });
 }
@@ -1770,7 +1877,7 @@ export function spawnAlly() {
     const candidates = realNodes.filter(id => !occupied.has(id) && state.board[id]?.type !== 'gate');
     const nodeId = candidates[Math.floor(Math.random() * candidates.length)] || realNodes[0];
 
-    state.allyOnMap = { nodeId, allyType };
+    state.allyOnMap = { nodeId, allyType, roundsLeft: BUDDY_MAP_ROUNDS };
     Renderer.placeAllyMarker(nodeId, allyType);
 
     const ally   = ALLIES[allyType];
@@ -1857,7 +1964,7 @@ function _startAllyMinigame(player, allyType, isSteal, stealCtx, onDone) {
                 _checkContract(player, 'claim_ally');
             }
         } else {
-            UIManager.toast(isSteal ? `${ALLIES[allyType]?.icon} Steal failed!` : `${ALLIES[allyType]?.icon} Ally minigame lost!`, '#ef4444');
+            UIManager.toast(isSteal ? `${ALLIES[allyType]?.icon} Steal failed!` : `${ALLIES[allyType]?.icon} They stayed put — Buddy not claimed.`, '#ef4444');
         }
         UIManager.updateUI();
         if (onDone) setTimeout(onDone, 400);
@@ -1908,13 +2015,15 @@ export function activateCabbie(playerIdx) {
     if (p.isBot) { activateCabbie_bot(p); return; }
     UIManager.showCabbieJunctionPicker((junctionId) => {
         p.cabbieUsedThisRound = true;
-        p.pos = junctionId;
-        // Move to first ring road node after junction
-        const firstNode = CITY_GRAPH[junctionId]?.next?.[0];
-        if (firstNode && !JUNCTION_IDS.has(firstNode)) {
-            Renderer.animatePlayerHop(p, firstNode, () => { p.pos = firstNode; UIManager.updateUI(); });
-        } else {
+        // Land on the first real node past the fork, never on the fork itself.
+        // This used to set p.pos = junctionId and only correct it in the hop's
+        // callback; a junction has no board tile, so anything reading the
+        // position during the hop found a space that cannot resolve.
+        const firstNode = CITY_GRAPH[junctionId]?.next?.find(n => !JUNCTION_IDS.has(n));
+        if (firstNode) {
             if (p.mesh) p.mesh.position.copy(Renderer.getPos(junctionId));
+            p.pos = firstNode;
+            Renderer.animatePlayerHop(p, firstNode, () => UIManager.updateUI());
         }
         UIManager.toast(`🚕 Cabbie: teleported to ${junctionId.replace('bp_','Junction ').toUpperCase()}!`, '#fbbf24');
         UIManager.updateUI();
@@ -1924,12 +2033,27 @@ export function activateCabbie(playerIdx) {
 function activateCabbie_bot(p) {
     const pick = Bot.cabbieJunction(p);
     p.cabbieUsedThisRound = true;
-    const firstNode = CITY_GRAPH[pick]?.next?.[0];
+    const firstNode = CITY_GRAPH[pick]?.next?.find(n => !JUNCTION_IDS.has(n));
     if (firstNode) { p.pos = firstNode; if (p.mesh) p.mesh.position.copy(Renderer.getPos(firstNode)); }
     UIManager.toast(`${p.name}'s Cabbie teleports them!`, '#fbbf24');
 }
 
-// Ally passive effect checks
+// Spend one Bodyguard charge, if there is one, and report whether it fired.
+// loseCoins() has its own copy of this for coin damage; this is the hook for
+// board effects that never touch a coin counter.
+function _spendBodyguard(p, whatFor) {
+    const idx = p.allies.findIndex(a => a.type === 'bodyguard' && a.shieldCharges > 0);
+    if (idx < 0) return false;
+    p.allies[idx].shieldCharges--;
+    sfx('shield');
+    UIManager.toast(`🦺 Bodyguard blocks the ${whatFor}! (${p.allies[idx].shieldCharges} left)`, '#22c55e');
+    _checkContract(p, 'block_space');
+    if (p.allies[idx].shieldCharges <= 0) expireAlly(p, idx);
+    UIManager.updateUI();
+    return true;
+}
+
+// Buddy passive effect checks
 function _allyPassive(player, powerType) {
     if (state.selectedMap === 'hundred_block_dash') return 0;
     const idx = player.allies.findIndex(a => ALLIES[a.type]?.powerType === powerType);

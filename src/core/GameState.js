@@ -76,13 +76,16 @@ export const state = {
     minigameTimeout:     null,
     mgContext:           null, // 'duel' | 'ally_claim' | 'ally_steal' | null
 
-    // Ally on map
-    allyOnMap:           null,  // { nodeId, allyType } | null
-    allySpawnCountdown:  0,     // turns until next ally spawns (0 = spawn now)
-    // Set when an ally lands on the board at the close of a round; consumed by
+    // Buddy on map (called "ally" in code; every player-facing string says Buddy)
+    allyOnMap:           null,  // { nodeId, allyType, roundsLeft } | null
+    allySpawnCountdown:  0,     // turns until next buddy spawns (0 = spawn now)
+    // Set when a buddy lands on the board at the close of a round; consumed by
     // maybeTriggerMinigame(), which waits for the player to press through the
-    // arrival card before the minigame takes the screen.
+    // round report before the minigame takes the screen.
     pendingAllyReveal:   null,
+    // Set when an unclaimed board buddy runs out of rounds, so the same report
+    // can say they left rather than having them silently disappear.
+    pendingBuddyDeparture: null,
 
     // City contracts
     activeContracts:     [],    // up to CONTRACT_COUNT active contracts
@@ -182,6 +185,7 @@ export function resetPlayers() {
     state.allyOnMap          = null;
     state.allySpawnCountdown = 0;
     state.pendingAllyReveal  = null;
+    state.pendingBuddyDeparture = null;
     state.activeContracts    = [];
     state.contractPool       = [];
     state.investorUsedThisRound = [false, false];

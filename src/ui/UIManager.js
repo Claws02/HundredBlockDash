@@ -107,6 +107,8 @@ export function updateUI() {
         }
     });
 
+    updateShieldMarker();
+
     if (state.gameState === 'PRE_ROLL' || state.gameState === 'ACKNOWLEDGE') {
         updateContracts();
     }
@@ -145,6 +147,41 @@ export function applyOrientation() {
 export function orientTo(playerIdx) {
     if (state.playStyle !== 'tabletop') return;
     document.body.classList.toggle('tabletop-p2-turn', playerIdx === 1);
+}
+
+// ---- Shield marker -----------------------------------------------------------
+//
+// A Shield is bought and used a turn or more before the hit it stops, and
+// nothing on screen said you were still carrying an active one: `_shielded` is
+// a flag, and the item leaves the bag the instant it is used, so the ITEMS
+// count drops and the bag looks empty. Players re-bought shields they already
+// had up, and were surprised when a fine did nothing.
+//
+// Bottom-left corner, out of the way of the action buttons (which live on the
+// right half) and the toast rail (centred). It belongs to the ACTIVE player, so
+// in tabletop it flips with everything else.
+export function updateShieldMarker() {
+    const el = document.getElementById('shield-marker');
+    if (!el) return;
+    const p = state.players[state.activePlayer];
+    // It lives outside #ui-layer (like the toast rail), so it has to respect the
+    // same hide: a minigame, the gate and the win screen all take the whole
+    // screen and hide the HUD, and a badge floating over them is a bug.
+    const uiLayer = document.getElementById('ui-layer');
+    const hudUp = !!uiLayer && getComputedStyle(uiLayer).display !== 'none';
+    // The Bodyguard buddy is the same idea with a charge count, and hiding it
+    // here while showing the item would be arbitrary. Item shield first — it is
+    // the one with no other readout anywhere.
+    const bg = p && p.allies ? p.allies.find(a => a.type === 'bodyguard' && a.shieldCharges > 0) : null;
+    const on = hudUp && !!(p && (p._shielded || bg));
+    el.style.display = on ? '' : 'none';
+    if (!on) return;
+    const tx = document.getElementById('shield-marker-tx');
+    if (tx) {
+        tx.textContent = p._shielded
+            ? (bg ? `SHIELD UP · ${bg.shieldCharges} MORE` : 'SHIELD UP')
+            : `BODYGUARD · ${bg.shieldCharges}`;
+    }
 }
 
 function _updateAllySlots(playerIdx, p) {
@@ -283,7 +320,7 @@ function _wireBranchChoiceEvents() {
 
 let _junction = null;   // { junctionId, fromNodeId, options, frame }
 
-export function showJunctionArrows(junctionId, fromNodeId, options) {
+export function showJunctionArrows(junctionId, fromNodeId, options, stepsLeft) {
     const layer = document.getElementById('junction-layer');
     const box   = document.getElementById('junction-arrows');
     if (!layer || !box) return;
@@ -304,6 +341,23 @@ export function showJunctionArrows(junctionId, fromNodeId, options) {
 
     document.getElementById('junction-banner').textContent =
         `${state.players[state.activePlayer].name.toUpperCase()} — CHOOSE YOUR ROAD`;
+
+    // How far the roll still carries you. A fork is a choice about which run of
+    // tiles to spend the REST of the roll on, and that number was nowhere on
+    // screen: the player had to remember the die and subtract the steps already
+    // walked, at the one moment the game asks them to plan.
+    const stepsEl = document.getElementById('junction-steps');
+    if (stepsEl) {
+        const n = Number(stepsLeft);
+        if (Number.isFinite(n) && n > 0) {
+            document.getElementById('junction-steps-num').textContent = String(n);
+            document.getElementById('junction-steps-cap').textContent =
+                n === 1 ? 'SPACE LEFT' : 'SPACES LEFT';
+            stepsEl.style.display = '';
+        } else {
+            stepsEl.style.display = 'none';
+        }
+    }
 
     state.cameraState = 'JUNCTION';
     focusJunction(junctionId, fromNodeId);
@@ -418,34 +472,85 @@ function _wireJunctionEvents() {
     });
 }
 
-// ---- Ally arrival ----------------------------------------------------------
+// ---- Buddy report ----------------------------------------------------------
 //
-// An ally spawns at the END of a round — which is the same moment the minigame
+// A buddy spawns at the END of a round — which is the same moment the minigame
 // takes the whole screen. The announcement was a toast, so it was covered 1.1 s
-// later and the player never saw *where* the ally had landed, and could not go
-// and look because the board was gone. Both players are about to race for it,
-// so this is a SHARED card: drawn twice in tabletop, and the hand-off to the
-// minigame waits until somebody presses it.
+// later and the player never saw *where* the buddy had landed, and could not go
+// and look because the board was gone. That became a card; this is the card
+// grown into a per-round report.
+//
+// The arrival-only version fired on exactly one round per buddy. After that a
+// buddy could sit on the board for the rest of a match with nothing on screen
+// saying so, and a buddy at your side could expire with no warning at all. Now
+// every round says: who is out there, where, how many rounds before they give
+// up waiting, and what each player is holding with the clock on it.
+//
+// Both players are about to race for the same buddy, so it is a SHARED card:
+// drawn twice in tabletop, and the hand-off to the minigame waits for a press.
 
 let _allyArrivalCb = null;
 
-export function showAllyArrival(ally, whereText, onDone) {
+export function showBuddyReport(rep, isNew, onDone) {
     const el = document.getElementById('ally-arrival');
-    if (!el || !ally) { if (onDone) onDone(); return; }
+    if (!el || !rep) { if (onDone) onDone(); return; }
     _allyArrivalCb = onDone || null;
 
-    document.getElementById('aa-icon').textContent  = ally.icon || '🤝';
-    document.getElementById('aa-name').textContent  = (ally.name || 'AN ALLY').toUpperCase();
-    document.getElementById('aa-power').textContent = ally.desc || '';
-    document.getElementById('aa-where').textContent = whereText || '';
+    const set = (id, txt) => { const n = document.getElementById(id); if (n) n.textContent = txt; };
+    const show = (id, on) => { const n = document.getElementById(id); if (n) n.style.display = on ? '' : 'none'; };
+
+    const b = rep.onMap ? ALLIES[rep.onMap.type] : null;
+    if (b) {
+        set('aa-tag', isNew ? 'A NEW BUDDY IS ON THE BOARD' : 'BUDDY STILL UP FOR GRABS');
+        set('aa-icon', b.icon || '🤝');
+        set('aa-name', (b.name || 'A BUDDY').toUpperCase());
+        set('aa-power', b.desc || '');
+        set('aa-where', `Waiting near the ${rep.onMap.where}.`);
+        const r = rep.onMap.roundsLeft;
+        set('aa-clock', r <= 1 ? 'Leaves at the end of this round — last chance.'
+                               : `Leaves in ${r} rounds if nobody claims them.`);
+        set('aa-race', 'First one to reach them and win the minigame keeps them.');
+        show('aa-icon', true); show('aa-name', true); show('aa-power', true);
+        show('aa-where', true); show('aa-clock', true); show('aa-race', true);
+    } else {
+        // No buddy out there. The card still has a job: the held list, and
+        // saying that somebody walked off rather than leaving it a mystery.
+        set('aa-tag', 'BUDDY REPORT');
+        set('aa-icon', '🤝');
+        set('aa-name', rep.departed ? 'BUDDY MOVED ON' : 'NO BUDDY ON THE BOARD');
+        set('aa-power', rep.departed ? `${rep.departed} got tired of waiting and left.` : '');
+        set('aa-race', 'A new one turns up soon.');
+        show('aa-power', !!rep.departed);
+        show('aa-where', false); show('aa-clock', false); show('aa-race', true);
+    }
+
+    // Who is holding what, and for how much longer. This is the half that was
+    // never shown anywhere except a two-character badge in the HUD.
+    const heldEl = document.getElementById('aa-held');
+    if (heldEl) {
+        const rows = rep.held.map(h => {
+            if (!h.buddies.length) return '';
+            const chips = h.buddies.map(x => {
+                const d = ALLIES[x.type] || {};
+                const charge = x.charges !== null && x.charges !== undefined ? ` · ${x.charges} blocks` : '';
+                return `<span class="aa-chip">${d.icon || '?'} ${d.name || x.type}`
+                     + `<b>${x.turnsLeft} turn${x.turnsLeft === 1 ? '' : 's'}${charge}</b></span>`;
+            }).join('');
+            return `<div class="aa-held-row"><span class="aa-held-who">${h.name}</span>${chips}</div>`;
+        }).join('');
+        heldEl.innerHTML = rows;
+        heldEl.style.display = rows ? '' : 'none';
+    }
 
     el.style.display = 'flex';
+    document.body.classList.add('buddy-report');   // moves the toast rail off the card
     DualRead.present(document.getElementById('aa-card'), { tier: 'shared' });
 }
 
 function _closeAllyArrival() {
     const el = document.getElementById('ally-arrival');
     DualRead.unmirror(document.getElementById('aa-card'));
+    document.body.classList.remove('buddy-report');
     if (el) el.style.display = 'none';
     const cb = _allyArrivalCb; _allyArrivalCb = null;
     if (cb) cb();
@@ -592,11 +697,11 @@ export function showAllyEncounterModal(ally, playerAllies, callback) {
     const descEl   = document.getElementById('ally-enc-desc');
     const slotsEl  = document.getElementById('ally-enc-slots');
     if (iconEl)  iconEl.textContent  = ally?.icon  || '?';
-    if (nameEl)  nameEl.textContent  = ally?.name  || 'Ally';
+    if (nameEl)  nameEl.textContent  = ally?.name  || 'Buddy';
     if (descEl)  descEl.textContent  = ally?.desc  || '';
     if (slotsEl) slotsEl.textContent = slotsLeft > 0
-        ? `You have ${slotsLeft} ally slot${slotsLeft !== 1 ? 's' : ''} available.`
-        : 'Your ally slots are full — an old ally will be replaced.';
+        ? `You have ${slotsLeft} Buddy slot${slotsLeft !== 1 ? 's' : ''} free.`
+        : 'Your Buddy slots are full — your oldest Buddy will be replaced.';
     document.querySelectorAll('.modal-box').forEach(b => b.style.display = 'none');
     modal.style.display = 'block';
     document.getElementById('modal-overlay').classList.add('act');
@@ -610,7 +715,7 @@ export function showAllyStealModal(target, callback) {
     if (!modal) return;
     const pnameEl = document.getElementById('ally-steal-pname');
     const listEl  = document.getElementById('ally-steal-list');
-    if (pnameEl) pnameEl.textContent = `Choose which of ${target.name}'s allies to target:`;
+    if (pnameEl) pnameEl.textContent = `Choose which of ${target.name}'s Buddies to go after:`;
     if (listEl) {
         listEl.innerHTML = target.allies.map((a, idx) => {
             const info = ALLIES[a.type] || {};

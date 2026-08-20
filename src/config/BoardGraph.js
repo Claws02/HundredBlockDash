@@ -168,7 +168,8 @@ export const DISTRICT_POOLS = {
     // the nastiness is now positional rather than a coin tax.
     ba: [
         ...Array(2).fill('trap'), ...Array(3).fill('magnet'),
-        ...Array(2).fill('duel'), ...Array(3).fill('swap_space'),
+        ...Array(1).fill('duel'), ...Array(3).fill('swap_space'),
+        ...Array(1).fill('mystery'),
     ],
     // 8 null nodes: shop_0-shop_3, shop_5-shop_8
     shop: [
@@ -176,11 +177,21 @@ export const DISTRICT_POOLS = {
         ...Array(2).fill('coin_big'), ...Array(1).fill('duel'),
     ],
     // 5 null nodes: ind_1, ind_2, ind_4, ind_5, ind_6
+    // Industrial is the district you spent a gate roll to get into, so it pays
+    // rather than picking a fight — the duel that used to sit here moved out.
     ind: [
         ...Array(1).fill('lose_big'), ...Array(1).fill('swap_space'),
-        ...Array(1).fill('boost'),    ...Array(1).fill('coin_big'), ...Array(1).fill('duel'),
+        ...Array(1).fill('boost'),    ...Array(1).fill('coin_big'), ...Array(1).fill('coin'),
     ],
 };
+
+// DUEL COUNT: 3 of 60 nodes (fin 1, ba 1, shop 1), down from 5.
+// A duel is the longest voluntary detour on the board — ante, faceoff, bet
+// picker, a whole minigame, then a result card. At 5 tiles it turned up often
+// enough that a lap could be two of them, and the set piece stopped reading as
+// an event. One per district that has a reason to want one: Wall Street bets,
+// the Back Alley picks fights, the Promenade has the crowd for it. Industrial,
+// which you paid a gate roll to enter, pays out instead.
 
 // Flat ordered list used for camera path and map slider
 export const ALL_NODES_ORDERED = [

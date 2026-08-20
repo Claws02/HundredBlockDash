@@ -128,31 +128,42 @@ export const BA_DISCOUNT = 0.75;   // 25% off in Back Alley
 export const GRAND_MALL_DISCOUNT = 0.5; // 50% off at Grand Mall HQ
 
 // ============================================================
-// ALLIES
+// BUDDIES
+//
+// Called "allies" throughout the code — state keys, DOM ids and the ALLIES map
+// keep that name because renaming them buys the player nothing and would break
+// every probe that reads them. Everything a PLAYER reads says Buddy.
+//
+// Each `desc` is a contract with the player. The audit that produced this pass
+// found one that wasn't kept: the Bodyguard promised to absorb "negative space
+// effects" but only ever fired inside loseCoins(), so it stopped fines, traps
+// and magnets and did nothing at all about an Anchor dragging you back five
+// spaces — the one board effect people most expect a bodyguard to handle. That
+// is now a charge it can spend (see resolveSpaceEffect, case 'anchor_trap').
 // ============================================================
 export const ALLIES = {
     cabbie:    {
         icon: '🚕', name: 'The Cabbie',
         powerType: 'active',
-        desc: 'Once per round, teleport to any junction on the map.',
+        desc: 'Once per round, ride to any junction — change districts for free.',
         turns: ALLY_TURNS,
     },
     vendor:    {
         icon: '🌮', name: 'Street Vendor',
         powerType: 'coin_bonus',
-        desc: '+2 extra coins whenever you land on a coin space.',
+        desc: '+2 extra coins every time you land on a coin space.',
         turns: ALLY_TURNS,
     },
     banker:    {
         icon: '💼', name: 'The Banker',
         powerType: 'interest',
-        desc: 'Earn 1 bonus coin per 10 coins you hold at each round end.',
+        desc: 'At each round end, collect 1 coin for every 10 you are holding.',
         turns: ALLY_TURNS,
     },
     bodyguard: {
         icon: '🦺', name: 'The Bodyguard',
         powerType: 'shield_all',
-        desc: 'Automatically absorbs your next 3 negative space effects.',
+        desc: 'Blocks your next 3 hits — coin losses and Anchor traps alike.',
         turns: ALLY_TURNS,
         shieldCharges: 3,
     },
@@ -164,12 +175,29 @@ export const ALLIES = {
     },
 };
 
+// A buddy waiting on the board used to wait forever: spawnAlly() only ran when
+// the board was empty, and nothing ever cleared an unclaimed one. "How long
+// until it goes away" had no answer because the answer was "never". It now
+// leaves after this many ROUNDS unclaimed, which is what makes the round report
+// worth reading and what makes ignoring a buddy an actual decision.
+export const BUDDY_MAP_ROUNDS         = 3;
+
 // All character types (original 4 + 5 ally characters)
 export const ALL_CHAR_TYPES = ['slime', 'ghost', 'boxy', 'bunny', 'cabbie', 'vendor', 'banker', 'bodyguard', 'investor'];
 
 export const CHAR_ICONS = {
     slime:     '💧', ghost:     '👻', boxy:      '🧊', bunny:     '🐰',
     cabbie:    '🚕', vendor:    '🌮', banker:    '💼', bodyguard: '🦺', investor:  '📈',
+};
+
+// Display names. The ids stay slime/ghost/boxy/bunny — saves, probes and every
+// charType comparison read those — but the four starters were bare nouns
+// ("Slime", "Boxy") sitting next to five buddies with proper names, so the cast
+// read as four placeholders and five characters. These are names.
+export const CHAR_NAMES = {
+    slime:     'Bloop',   ghost:     'Spook',    boxy:      'Crate',
+    bunny:     'Thumper', cabbie:    'Cabbie',   vendor:    'Vendor',
+    banker:    'Banker',  bodyguard: 'Bodyguard', investor: 'Investor',
 };
 
 // Characters are purely cosmetic — they carry no gameplay abilities.
