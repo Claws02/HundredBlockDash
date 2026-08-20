@@ -155,6 +155,22 @@
         <button id="btn-junction-map" class="bfont">🗺️ SCOUT THE MAP FIRST</button>
     </div>
 
+    <!-- Ally arrival. An ally spawns at the END of a round, which is the same
+         moment the minigame takes the screen — so the announcement used to be a
+         toast that was covered 1.1s later and the player never saw where the
+         ally had landed. This holds the hand-off until somebody presses it. -->
+    <div id="ally-arrival" style="display:none;">
+        <div class="aa-card" id="aa-card">
+            <div class="aa-tag bfont">A NEW ALLY IS ON THE BOARD</div>
+            <div class="aa-icon" id="aa-icon">🦺</div>
+            <div class="aa-name bfont" id="aa-name">THE BODYGUARD</div>
+            <div class="aa-power" id="aa-power"></div>
+            <div class="aa-where" id="aa-where"></div>
+            <div class="aa-race">First one to reach it and win the minigame keeps it.</div>
+            <button class="btn-close primary bfont" id="btn-ally-arrival">GOT IT</button>
+        </div>
+    </div>
+
     <!-- Bounty panel -->
     <div id="bounty-panel" style="display:none;">
         <div class="bounty-sheet">

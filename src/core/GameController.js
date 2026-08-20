@@ -1136,6 +1136,11 @@ export function maybeTriggerMinigame() {
             state.currentRound++;
             _onRoundEnd();
             if (state.currentRound >= _cityRounds()) {
+                // Last round: an ally that just landed can never be claimed, so
+                // do not stop the match to announce it.
+                state.pendingAllyReveal = null;
+                Renderer.removeAllyMarker();
+                state.allyOnMap = null;
                 // Beat: the board is allowed to breathe before the minigame
                 // takes the screen. Without this the payoff for the turn that
                 // just happened is cut off mid-read.
@@ -1146,12 +1151,34 @@ export function maybeTriggerMinigame() {
                 return;
             }
         }
-        UIManager.announceMinigameIncoming();
-        Director.hold('PRE_MINIGAME', () =>
-            MinigameManager.trigger((winnerId) => _resolveMinigameResult(winnerId)));
+        _afterAllyReveal(() => {
+            UIManager.announceMinigameIncoming();
+            Director.hold('PRE_MINIGAME', () =>
+                MinigameManager.trigger((winnerId) => _resolveMinigameResult(winnerId)));
+        });
     } else {
         Director.hold('TURN_HANDOFF', proceedTurn);
     }
+}
+
+// If an ally arrived at the close of this round, show the player where it is
+// and WAIT for them to press through before handing the screen to the minigame.
+// Both of them are about to race for it, so it is a shared card.
+function _afterAllyReveal(then) {
+    const reveal = state.pendingAllyReveal; state.pendingAllyReveal = null;
+    if (!reveal) { then(); return; }
+    const ally = ALLIES[reveal.allyType];
+    if (!ally) { then(); return; }
+
+    const resume = () => {
+        SetPieces.clearSetPieces();
+        Renderer.endCinematic();
+        then();
+    };
+    // The camera swoops to the tile under the card, so "near the Back Alley" is
+    // backed by actually seeing it.
+    SetPieces.allyArrival(Renderer.getPos(reveal.nodeId), () => {});
+    UIManager.showAllyArrival(ally, `Waiting near the ${reveal.hint}.`, resume);
 }
 
 function _resolveMinigameResult(winnerId) {
@@ -1741,8 +1768,11 @@ export function spawnAlly() {
     const ally   = ALLIES[allyType];
     const gNode  = CITY_GRAPH[nodeId];
     const hint   = gNode ? DISTRICT_NAMES[gNode.district] || 'the city' : 'the city';
-    UIManager.toast(`${ally.icon} ${ally.name} has appeared near ${hint}!`, '#fbbf24');
-    sfx('land_good');
+    // The announcement is NOT a toast. An ally spawns at the end of a round,
+    // which is the same moment the minigame takes the screen — a toast here was
+    // covered 1.1 s later and the player never saw where the ally landed, with
+    // no way to go and look. maybeTriggerMinigame() waits on this.
+    state.pendingAllyReveal = { nodeId, allyType, hint };
 }
 
 function _offerAllyEncounter(player, onDone) {

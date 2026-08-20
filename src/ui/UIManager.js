@@ -418,6 +418,41 @@ function _wireJunctionEvents() {
     });
 }
 
+// ---- Ally arrival ----------------------------------------------------------
+//
+// An ally spawns at the END of a round — which is the same moment the minigame
+// takes the whole screen. The announcement was a toast, so it was covered 1.1 s
+// later and the player never saw *where* the ally had landed, and could not go
+// and look because the board was gone. Both players are about to race for it,
+// so this is a SHARED card: drawn twice in tabletop, and the hand-off to the
+// minigame waits until somebody presses it.
+
+let _allyArrivalCb = null;
+
+export function showAllyArrival(ally, whereText, onDone) {
+    const el = document.getElementById('ally-arrival');
+    if (!el || !ally) { if (onDone) onDone(); return; }
+    _allyArrivalCb = onDone || null;
+
+    document.getElementById('aa-icon').textContent  = ally.icon || '🤝';
+    document.getElementById('aa-name').textContent  = (ally.name || 'AN ALLY').toUpperCase();
+    document.getElementById('aa-power').textContent = ally.desc || '';
+    document.getElementById('aa-where').textContent = whereText || '';
+
+    el.style.display = 'flex';
+    DualRead.present(document.getElementById('aa-card'), { tier: 'shared' });
+}
+
+function _closeAllyArrival() {
+    const el = document.getElementById('ally-arrival');
+    DualRead.unmirror(document.getElementById('aa-card'));
+    if (el) el.style.display = 'none';
+    const cb = _allyArrivalCb; _allyArrivalCb = null;
+    if (cb) cb();
+}
+
+export function allyArrivalPending() { return !!_allyArrivalCb; }
+
 // ---- Bounty panel ----------------------------------------------------------
 //
 // The strip along the top can only ever show a truncated line per bounty, and
@@ -536,6 +571,7 @@ function _closeBriefing() {
 }
 
 function _wirePanelEvents() {
+    document.getElementById('btn-ally-arrival')?.addEventListener('click', () => _closeAllyArrival());
     document.getElementById('btn-close-bounties')?.addEventListener('click', () => closeBounties());
     document.getElementById('btn-cb-start')?.addEventListener('click', () => _closeBriefing());
     document.getElementById('btn-cb-tour')?.addEventListener('click', () => {

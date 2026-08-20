@@ -174,6 +174,12 @@ window.__QA = (function () {
             return 'GATE_WAIT';
         }
 
+        // 3a. Ally arrival — holds the minigame hand-off until pressed.
+        if (visId('ally-arrival')) {
+            const b = byId('btn-ally-arrival');
+            if (b) return tap(b, 'ally arrival') && 'ALLY_ARRIVAL';
+        }
+
         // 3b. City briefing (shown once, before the first roll)
         if (visId('city-briefing')) {
             // Take the map tour some of the time so that path gets exercised too.

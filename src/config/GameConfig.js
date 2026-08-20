@@ -153,7 +153,7 @@ export const ALLIES = {
     investor:  {
         icon: '📈', name: 'The Investor',
         powerType: 'contract_x2',
-        desc: 'The first City Contract you claim each round pays double.',
+        desc: 'The first Bounty you claim each round pays double.',
         turns: ALLY_TURNS,
     },
 };
