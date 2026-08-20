@@ -29,7 +29,11 @@ export function loseCoins(p, amount) {
         checkContract(p, 'block_space');
         return 0;
     }
-    if (p._shielded) { p._shielded = false; sfx('shield'); checkContract(p, 'block_space'); return 0; }
+    if (p._shielded) {
+        p._shielded = false; sfx('shield'); checkContract(p, 'block_space');
+        UIManager.updateShieldMarker();   // the badge comes down the moment it is spent
+        return 0;
+    }
     const lost = Math.min(p.coins, amount);
     p.coins -= lost;
     UIManager.animateCoinDisplay(p.id, p.coins);

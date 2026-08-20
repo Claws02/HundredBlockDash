@@ -66,10 +66,10 @@
         <div class="screen-content">
             <div class="m-title bfont" id="cs-title" style="color:var(--p1)">PLAYER 1: CHOOSE CHARACTER</div>
             <div class="char-grid char-grid-3col">
-                <div class="char-card sel" data-char="slime"><span class="char-icon">💧</span><span class="char-name">Slime</span></div>
-                <div class="char-card" data-char="ghost"><span class="char-icon">👻</span><span class="char-name">Ghost</span></div>
-                <div class="char-card" data-char="boxy"><span class="char-icon">🧊</span><span class="char-name">Boxy</span></div>
-                <div class="char-card" data-char="bunny"><span class="char-icon">🐰</span><span class="char-name">Bunny</span></div>
+                <div class="char-card sel" data-char="slime"><span class="char-icon">💧</span><span class="char-name">Bloop</span></div>
+                <div class="char-card" data-char="ghost"><span class="char-icon">👻</span><span class="char-name">Spook</span></div>
+                <div class="char-card" data-char="boxy"><span class="char-icon">🧊</span><span class="char-name">Crate</span></div>
+                <div class="char-card" data-char="bunny"><span class="char-icon">🐰</span><span class="char-name">Thumper</span></div>
                 <div class="char-card" data-char="cabbie"><span class="char-icon">🚕</span><span class="char-name">Cabbie</span></div>
                 <div class="char-card" data-char="vendor"><span class="char-icon">🌮</span><span class="char-name">Vendor</span></div>
                 <div class="char-card" data-char="banker"><span class="char-icon">💼</span><span class="char-name">Banker</span></div>
@@ -151,22 +151,34 @@
          leaving the junction. The board stays visible behind them. -->
     <div id="junction-layer" style="display:none;">
         <div id="junction-banner" class="bfont">CHOOSE YOUR ROAD</div>
+        <!-- How far the roll still carries you. The whole point of a fork is
+             picking which run of tiles to spend the rest of the roll on, and
+             the number was nowhere on screen — you had to remember what you
+             rolled and subtract the steps already walked. -->
+        <div id="junction-steps">
+            <span class="js-num bfont" id="junction-steps-num">4</span>
+            <span class="js-cap bfont" id="junction-steps-cap">SPACES LEFT</span>
+        </div>
         <div id="junction-arrows"></div>
         <button id="btn-junction-map" class="bfont">🗺️ SCOUT THE MAP FIRST</button>
     </div>
 
-    <!-- Ally arrival. An ally spawns at the END of a round, which is the same
-         moment the minigame takes the screen — so the announcement used to be a
-         toast that was covered 1.1s later and the player never saw where the
-         ally had landed. This holds the hand-off until somebody presses it. -->
+    <!-- Buddy report. Runs once per round, before the minigame takes the screen:
+         who is on the board, where, how many rounds before they leave, and what
+         each player is holding with the turns left on it. It began as an
+         arrival-only card, which meant a buddy could sit unclaimed for the rest
+         of a match with nobody ever reminded it was there. Holds the hand-off
+         until somebody presses it. -->
     <div id="ally-arrival" style="display:none;">
         <div class="aa-card" id="aa-card">
-            <div class="aa-tag bfont">A NEW ALLY IS ON THE BOARD</div>
+            <div class="aa-tag bfont" id="aa-tag">BUDDY REPORT</div>
             <div class="aa-icon" id="aa-icon">🦺</div>
             <div class="aa-name bfont" id="aa-name">THE BODYGUARD</div>
             <div class="aa-power" id="aa-power"></div>
             <div class="aa-where" id="aa-where"></div>
-            <div class="aa-race">First one to reach it and win the minigame keeps it.</div>
+            <div class="aa-clock" id="aa-clock"></div>
+            <div class="aa-race" id="aa-race">First one to reach it and win the minigame keeps it.</div>
+            <div class="aa-held" id="aa-held"></div>
             <button class="btn-close primary bfont" id="btn-ally-arrival">GOT IT</button>
         </div>
     </div>
@@ -413,24 +425,25 @@
             <div style="font-size:52px;margin-bottom:4px;">⚔️</div>
             <div class="m-title bfont" style="color:#ff6b35;">DUEL!</div>
             <div class="m-desc" id="duel-info" style="font-family:'Nunito';margin-bottom:6px;"></div>
-            <div class="m-desc" style="font-family:'Nunito';font-size:13px;color:rgba(255,255,255,.6);margin-bottom:16px;">Winner takes the pot — set your bet!</div>
+            <div class="m-desc" id="duel-note" style="font-family:'Nunito';font-size:13px;color:rgba(255,255,255,.6);margin-bottom:16px;">Winner takes the pot — set your bet!</div>
             <div id="duel-bet-options" class="duel-bet-options"></div>
+            <button class="btn-close primary" id="btn-duel-skip" style="display:none;">CONTINUE</button>
         </div>
 
         <!-- Ally Encounter Modal -->
         <div class="modal-box" id="ally-encounter-modal" style="display:none;">
             <div style="font-size:56px;margin-bottom:4px;" id="ally-enc-icon">?</div>
-            <div class="m-title bfont" style="color:#4ade80;" id="ally-enc-name">ALLY SPOTTED!</div>
+            <div class="m-title bfont" style="color:#4ade80;" id="ally-enc-name">BUDDY SPOTTED!</div>
             <div class="m-desc" id="ally-enc-desc" style="font-family:'Nunito';"></div>
             <div class="m-desc" id="ally-enc-slots" style="font-family:'Nunito';font-size:13px;color:rgba(255,255,255,.6);margin-bottom:16px;"></div>
-            <button class="btn-close primary" id="btn-ally-claim" style="margin-bottom:8px;">⚔️ COMPETE FOR ALLY</button>
+            <button class="btn-close primary" id="btn-ally-claim" style="margin-bottom:8px;">⚔️ COMPETE FOR BUDDY</button>
             <button class="btn-close" id="btn-ally-pass">PASS</button>
         </div>
 
         <!-- Ally Steal Modal -->
         <div class="modal-box" id="ally-steal-modal" style="display:none;">
             <div style="font-size:48px;margin-bottom:4px;">🤜</div>
-            <div class="m-title bfont" style="color:#f97316;">STEAL AN ALLY!</div>
+            <div class="m-title bfont" style="color:#f97316;">STEAL A BUDDY!</div>
             <div class="m-desc" id="ally-steal-pname" style="font-family:'Nunito';margin-bottom:12px;"></div>
             <div id="ally-steal-list" class="ally-steal-list"></div>
             <button class="btn-close" id="btn-ally-steal-cancel" style="margin-top:8px;">NEVER MIND</button>
@@ -438,6 +451,15 @@
     </div>
 
     <div id="toast-box"></div>
+
+    <!-- Shield marker. A Shield is bought a turn or more before it matters, and
+         nothing on screen said you were still carrying an active one — the item
+         left the bag the moment it was used, so players re-bought shields they
+         already had up. Stays until something spends it. -->
+    <div id="shield-marker" style="display:none;">
+        <span class="sm-ic">🛡️</span>
+        <span class="sm-tx bfont" id="shield-marker-tx">SHIELD UP</span>
+    </div>
 
     <!-- Hundred Block Dash story intro (content built by UIManager) -->
     <div id="hbd-story-overlay"></div>

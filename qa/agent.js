@@ -111,6 +111,12 @@ window.__QA = (function () {
             } else {
                 if (typeof p.pos !== 'string') push(`P${i + 1} City pos not a node id: ${p.pos}`);
                 else if (!window.CITY_GRAPH_REF[p.pos]) push(`P${i + 1} City pos not in graph: ${p.pos}`);
+                // A junction is a fork, not a tile. It is IN the graph, which is
+                // why "pos is in the graph" passed while a failed gate roll
+                // parked the player on bp_d — a node with no board space, and
+                // one moveThroughGraph steps off without offering a choice.
+                else if (window.CITY_GRAPH_REF[p.pos].isJunction) push(`P${i + 1} parked on junction node: ${p.pos}`);
+                else if (!S.board[p.pos]) push(`P${i + 1} City standing on node with no board space: ${p.pos}`);
             }
         });
         seenStates.add(S.gameState);
@@ -219,6 +225,10 @@ window.__QA = (function () {
         if (visId('duel-modal')) {
             const bets = [...byId('duel-bet-options').querySelectorAll('[data-bet]:not([disabled])')];
             if (bets.length) return tap(bets[Math.floor(Math.random() * bets.length)], 'duel bet') && 'DUEL_BET';
+            // No affordable bet means the opponent is broke; the modal must then
+            // offer a way out. If it doesn't, that is the old hard lock.
+            const out = byId('btn-duel-skip');
+            if (out && out.offsetParent !== null) return tap(out, 'duel no-wager continue') && 'DUEL_SKIP';
             note('STUCK', 'duel modal open with no enabled bet buttons and no exit');
             return 'DUEL_NO_OPTION';
         }

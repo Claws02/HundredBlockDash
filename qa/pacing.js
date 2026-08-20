@@ -650,7 +650,164 @@ const GL = ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=swiftshader',
         breach.after === breach.base, `${breach.base} → ${breach.after}`);
 
     // ---------------------------------------------------------------
-    // 6. Every set piece must leave the scene graph where it found it.
+    // 5b. Failing the gate leaves you AT the gate.
+    //
+    // Reported: "the district with the gate did cause a glitch, I was stuck at
+    // the gate, then the next round I was at the junction and was able to roll
+    // and move along." Failing the City gate teleported the player to 'bp_d' —
+    // a junction, which has no board tile — and startPreRoll only ever checked
+    // the HBD gate, so the next turn was an ordinary roll and the gate was
+    // simply forgotten. The card said "try again next turn"; nothing did.
+    // ---------------------------------------------------------------
+    const held = await page.evaluate(async () => {
+        const { state } = await import('/src/core/GameState.js');
+        const GC = await import('/src/core/GameController.js');
+        const M  = await import('/src/ui/ModalManager.js');
+        const D  = await import('/src/core/Director.js');
+        const R  = await import('/src/engine/Renderer.js');
+        D.reset(); R.getActiveAnims().length = 0; M.closeAllModals();
+        state.gateOpen = false;
+        state.activePlayer = 0;
+        const p = state.players[0];
+        p.isBot = false;
+        p.pos = 'ind_0'; p.mesh.position.copy(R.getPos('ind_0'));
+        // Drive closeGate() down the failure branch directly: the dice roll is
+        // random, and this is about where the player ends up, not the odds.
+        document.getElementById('gate-overlay').dataset.pid = '0';
+        GC.closeGate();
+        await new Promise(r => setTimeout(r, 500));
+        const G = window.CITY_GRAPH_REF;
+        return {
+            pos: p.pos,
+            onJunction: !!(G[p.pos] && G[p.pos].isJunction),
+            hasTile: !!state.board[p.pos],
+        };
+    });
+    ok('gate: failing it leaves you standing at the gate',
+        held.pos === 'ind_0', `ended on ${held.pos}`);
+    ok('gate: and never on a junction, which has no tile to stand on',
+        !held.onJunction && held.hasTile, JSON.stringify(held));
+
+    // Now take the next turn. It must be the gate again, not a free roll.
+    const retry = await page.evaluate(async () => {
+        const { state } = await import('/src/core/GameState.js');
+        const GC = await import('/src/core/GameController.js');
+        const M  = await import('/src/ui/ModalManager.js');
+        M.closeAllModals();
+        state.gameState = 'ACKNOWLEDGE';
+        GC.startPreRoll();
+        await new Promise(r => setTimeout(r, 600));
+        const ov = document.getElementById('gate-overlay');
+        return {
+            gs: state.gameState,
+            gateUp: !!ov && getComputedStyle(ov).display !== 'none',
+            rollBtn: (() => { const b = document.getElementById('gate-roll-btn'); return !!b && !b.disabled; })(),
+        };
+    });
+    ok('gate: the next turn puts you back at the gate, as the card promised',
+        retry.gateUp && retry.gs === 'GATE', JSON.stringify(retry));
+    ok('gate: with a live roll button, so the retry is actually playable',
+        retry.rollBtn, JSON.stringify(retry));
+
+    await page.evaluate(async () => {
+        const { state } = await import('/src/core/GameState.js');
+        const GC = await import('/src/core/GameController.js');
+        state.gateOpen = true;
+        GC.closeGate();
+    });
+    await page.waitForTimeout(600);
+
+    // ---------------------------------------------------------------
+    // 6. The duel must never be a dead end.
+    //
+    // Reported: "when I land on a duel, if I have zero coins I cannot do
+    // anything." Every bet button was disabled and the modal has no close, with
+    // gameState pinned at ACKNOWLEDGE — the one place on the board where being
+    // broke stopped the game rather than costing you. Two halves to it: the
+    // lander being broke (a stake on arrival fixes that) and the OPPONENT being
+    // broke (no stake to the lander can fix that — it needs a way out).
+    // ---------------------------------------------------------------
+    const resetToRoll = () => page.evaluate(async () => {
+        const M  = await import('/src/ui/ModalManager.js');
+        const D  = await import('/src/core/Director.js');
+        const R  = await import('/src/engine/Renderer.js');
+        const SP = await import('/src/engine/SetPieces.js');
+        const GC = await import('/src/core/GameController.js');
+        D.reset(); R.getActiveAnims().length = 0; SP.clearSetPieces();
+        R.endCinematic(); R.clearGateFocus(); M.closeAllModals();
+        document.body.classList.remove('gate-scene');
+        GC.startPreRoll();
+    });
+
+    // Drive a real landing and wait for the bet picker to be on screen.
+    const runDuel = async (myCoins, oppCoins) => {
+        await resetToRoll();
+        await page.waitForTimeout(600);
+        await page.evaluate(async ([mine, theirs]) => {
+            const { state } = await import('/src/core/GameState.js');
+            const GC = await import('/src/core/GameController.js');
+            const R  = await import('/src/engine/Renderer.js');
+            state.activePlayer = 0;
+            state.players[0].coins = mine;
+            state.players[1].coins = theirs;
+            state.players[0].pos = 'r5'; state.players[0].mesh.position.copy(R.getPos('r5'));
+            state.board['r5'] = { type: 'duel' };
+            state.gameState = 'MOVING';
+            R.snapCameraToActive();
+            GC.resolveSpace(state.players[0]);
+        }, [myCoins, oppCoins]);
+        let seen = null;
+        for (let i = 0; i < 60 && !seen; i++) {
+            await page.waitForTimeout(250);
+            seen = await page.evaluate(async () => {
+                const m = document.getElementById('duel-modal');
+                if (!m || getComputedStyle(m).display === 'none') return null;
+                const { state } = await import('/src/core/GameState.js');
+                const all = [...document.querySelectorAll('#duel-bet-options [data-bet]')];
+                const out = document.getElementById('btn-duel-skip');
+                return {
+                    coins: state.players.map(p => p.coins),
+                    bets: all.length,
+                    enabled: all.filter(b => !b.disabled).length,
+                    exit: !!out && out.offsetParent !== null,
+                    note: (document.getElementById('duel-note') || {}).innerText || ''
+                };
+            });
+        }
+        return seen;
+    };
+
+    // (a) Lander broke, opponent solvent — the reported case.
+    const brokeLander = await runDuel(0, 10);
+    ok('duel: landing on the ring while broke still opens the bet picker',
+        !!brokeLander, brokeLander ? '' : 'duel modal never appeared');
+    ok('duel: and hands the lander a stake to bet with',
+        !!brokeLander && brokeLander.coins[0] === 3, JSON.stringify(brokeLander && brokeLander.coins));
+    ok('duel: so at least one bet is actually affordable',
+        !!brokeLander && brokeLander.enabled > 0,
+        brokeLander ? `${brokeLander.enabled}/${brokeLander.bets} enabled` : 'n/a');
+
+    // (b) Both broke — no stake can create a wager, so there must be an exit.
+    const bothBroke = await runDuel(0, 0);
+    ok('duel: an unbettable duel offers a way out instead of a wall',
+        !!bothBroke && bothBroke.exit && bothBroke.bets === 0,
+        bothBroke ? `exit=${bothBroke.exit} bets=${bothBroke.bets} · "${bothBroke.note}"` : 'no modal');
+    const escaped = await page.evaluate(async () => {
+        const b = document.getElementById('btn-duel-skip');
+        if (b) b.click();
+        await new Promise(r => setTimeout(r, 2600));
+        const { state } = await import('/src/core/GameState.js');
+        const m = document.getElementById('duel-modal');
+        return { open: !!m && getComputedStyle(m).display !== 'none', gs: state.gameState };
+    });
+    ok('duel: and taking it closes the modal and releases the turn',
+        !!escaped && !escaped.open && escaped.gs !== 'ACKNOWLEDGE', JSON.stringify(escaped));
+
+    await resetToRoll();
+    await page.waitForTimeout(500);
+
+    // ---------------------------------------------------------------
+    // 7. Every set piece must leave the scene graph where it found it.
     // ---------------------------------------------------------------
     const leak = await page.evaluate(async () => {
         const { state } = await import('/src/core/GameState.js');

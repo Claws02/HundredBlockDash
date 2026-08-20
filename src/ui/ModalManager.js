@@ -135,25 +135,53 @@ export function openShop(district, discount) {
 
 // ---- Duel Modal ----
 
+// A duel is a wager, and a wager needs both sides to have something to put up.
+// This screen had no close button and disabled any bet neither player could
+// cover — so a player on zero coins met a wall of dead buttons with no way out.
+// Landing on the tile now pays a stake, which guarantees the LANDER can always
+// afford the smallest bet; this handles the other half, where the OPPONENT is
+// the one who is broke and no stake to the lander can fix it.
 export function showDuelModal(p, opp, callback) {
+    const maxBet = Math.min(p.coins, opp.coins);
+    const canWager = maxBet >= Math.min(...DUEL_BET_OPTIONS);
+
     const infoEl = document.getElementById('duel-info');
-    if (infoEl) infoEl.textContent = `${p.name} vs ${opp.name} — ${p.name} sets the bet!`;
+    if (infoEl) {
+        infoEl.textContent = canWager
+            ? `${p.name} vs ${opp.name} — ${p.name} sets the bet!`
+            : `${opp.name} has nothing left to put up. No wager this time.`;
+    }
+    const noteEl = document.getElementById('duel-note');
+    if (noteEl) {
+        noteEl.textContent = canWager
+            ? 'Winner takes the pot — set your bet!'
+            : 'A duel needs two stakes. Play on.';
+    }
 
     const betsEl = document.getElementById('duel-bet-options');
     if (betsEl) {
-        betsEl.innerHTML = DUEL_BET_OPTIONS.map(amount => {
-            const maxBet = Math.min(p.coins, opp.coins);
-            const valid  = amount <= maxBet;
+        betsEl.style.display = canWager ? '' : 'none';
+        betsEl.innerHTML = !canWager ? '' : DUEL_BET_OPTIONS.map(amount => {
+            const valid = amount <= maxBet;
             return `<button class="duel-bet-btn bfont" data-bet="${amount}"${valid ? '' : ' disabled'}>${amount}<br><span style="font-size:11px;font-family:'Nunito'">coins</span></button>`;
         }).join('');
     }
+    // The escape hatch. Present whenever no bet is possible, so this screen can
+    // never be a dead end again whatever the coin counts do.
+    const outEl = document.getElementById('btn-duel-skip');
+    if (outEl) outEl.style.display = canWager ? 'none' : '';
 
     _duelBetCb = callback;
     showModal('duel-modal');
 
+    if (!canWager) {
+        // Nothing to bet: let a bot walk out on its own, and give a human a button.
+        if (p.isBot) setTimeout(() => resolveDuelSkip(), 1200);
+        return;
+    }
+
     // Bot auto-selects highest affordable bet
     if (p.isBot) {
-        const maxBet = Math.min(p.coins, opp.coins);
         const botBet = [...DUEL_BET_OPTIONS].reverse().find(a => a <= maxBet) || DUEL_BET_OPTIONS[0];
         setTimeout(() => {
             closeAllModals();
@@ -161,6 +189,14 @@ export function showDuelModal(p, opp, callback) {
             if (cb) cb(botBet);
         }, 800);
     }
+}
+
+// Leave a duel that cannot be wagered. Calls back with 0, which _startDuel
+// already treats as "no duel" — it just never had a way to be told so.
+export function resolveDuelSkip() {
+    closeAllModals();
+    const cb = _duelBetCb; _duelBetCb = null;
+    if (cb) cb(0);
 }
 
 // ---- Drop modal (bag full) ----
@@ -296,6 +332,10 @@ function _wireStaticButtons() {
 
     // Pass modal
     document.getElementById('btn-resolve-pass').addEventListener('click', () => _controller.resolvePassModal());
+
+    // Duel escape hatch — shown only when the opponent has nothing to stake, so
+    // there is no bet to set. Without it the duel modal has no exit at all.
+    document.getElementById('btn-duel-skip').addEventListener('click', () => resolveDuelSkip());
 
     // Drop modal — tapping a card only selects it; DISCARD commits.
     document.getElementById('drop-inv-row').addEventListener('click', e => {

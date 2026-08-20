@@ -27,8 +27,8 @@ per realm (`HBD_BIOMES[].flavor`), but the effect is identical everywhere.
 
 | | Space | Effect |
 |---|---|---|
-| 🪙 | **COIN** | +3 coins. +1 more with a Vendor ally. |
-| 💰 | **BIG COIN** | +8 coins. +1 more with a Vendor ally. |
+| 🪙 | **COIN** | +3 coins. +2 more with a Street Vendor buddy. |
+| 💰 | **BIG COIN** | +8 coins. +2 more with a Street Vendor buddy. |
 | 🧲 | **MAGNET** | Steal up to 5 coins from your opponent. Good for you, bad for them — *not* a red space. |
 | 🕊️ | **TRUCE** | Both players gain 5 coins. |
 | 🏛️ | **DISTRICT HQ** | City only. First visit this lap +15 coins, revisits +5. Paid for **passing over** it — you do not have to land on it. |
@@ -52,7 +52,7 @@ These are the only three the 1-per-10 budget counts.
 | 🚀 | **LAUNCH** | Announces, then moves you **10 forward**. |
 | 🌑 | **PULLED BACK** | Announces, then moves you **10 backward**. Costs no coins. |
 | 🔄 | **SWAP ZONE** | Trade board positions with your opponent. The late-game decider. |
-| ⚓ | **ANCHOR TRAP** | Player-placed via an item. Dragged back 5 spaces; your own is free. Never generated. |
+| ⚓ | **ANCHOR TRAP** | Player-placed via an item. Dragged back 5 spaces; your own is free. A Bodyguard buddy blocks it. Never generated. |
 
 ### Structure
 
@@ -64,7 +64,7 @@ These are the only three the 1-per-10 budget counts.
 | 🔓 | **GATE (OPEN)** | Pass through freely. |
 | 🏪 | **ITEM SHOP** | Opens the shop. Themed per realm/district. |
 | 🎁 | **MYSTERY** | A random item straight into your bag, with a card naming it. |
-| ⚔️ | **DUEL** | City only. Set a coin bet, then play a minigame for the pot. |
+| ⚔️ | **DUEL** | City only. +3 coins to ante up, set a coin bet, then play a minigame for the pot. |
 
 ---
 
@@ -139,10 +139,10 @@ into the same slots every time, so the count is exact.
 | 💰 BIG COIN | 9 | 15.0% |
 | 🪙 COIN | 8 | 13.3% |
 | 🏪 ITEM SHOP | 6 | 10.0% |
-| 🎁 MYSTERY | 6 | 10.0% |
+| 🎁 MYSTERY | 7 | 11.7% |
 | 🔄 SWAP ZONE | 5 | 8.3% |
-| ⚔️ DUEL | 5 | 8.3% |
 | 🧲 MAGNET | 5 | 8.3% |
+| ⚔️ DUEL | 3 | 5.0% |
 | 🏛️ DISTRICT HQ | 4 | 6.7% |
 | ⚠️ TRAP | 3 | 5.0% |
 | ⚡ BOOST | 3 | 5.0% |
@@ -166,6 +166,14 @@ into the same slots every time, so the count is exact.
 > as lost progress. The Anchor and Rocket items still move people — those are
 > purchases, made on purpose, with the cost known up front.
 
+> **DUEL cut from 5 tiles to 3** (Wall Street, Back Alley, the Promenade — one
+> each; Industrial pays out instead). A duel is the longest voluntary detour on
+> the board: ante, faceoff, bet picker, a whole minigame, then a result card. At
+> five tiles a single lap could serve two of them and the set piece stopped
+> reading as an event. Landing on one also now hands you a **3-coin ante** before
+> the bet screen, because a player on zero coins used to meet a picker with every
+> option greyed out and no way to close it.
+
 > **Changed by this audit.** The old pools carried **13 red of 60 — one every 4.6
 > nodes**, nearly three times the HBD rate. That bites harder here than on HBD,
 > because City is a *lap* map: you pass the same tiles again on every circuit, so
@@ -181,9 +189,9 @@ into the same slots every time, so the count is exact.
 |---|---|
 | **City Ring Road** (17) | The generous baseline: 8 coin tiles, 3 mysteries, 2 boosts. 2 red. |
 | **Financial District** (8) | Big money, big risk: 3 BIG COIN, 2 magnets, a BIG FINE. 1 red. |
-| **Back Alley** (10) | Chaos: 3 magnets, 3 swaps, 2 duels. 2 red. |
+| **Back Alley** (10) | Chaos: 3 magnets, 3 swaps, a duel, a mystery. 2 red. |
 | **Shopping Promenade** (8) | Safe and generous — mysteries and coins, **0 red**. |
-| **Industrial Zone** (5) | Small, behind the Gate, and high-variance. 1 red. |
+| **Industrial Zone** (5) | Small, behind the Gate, and it pays: BIG COIN, COIN, BOOST. 1 red. |
 
 ---
 

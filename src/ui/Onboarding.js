@@ -25,7 +25,7 @@ const SLIDES = [
     { icon: '🎒', title: 'ITEMS & SHOPS',
       body: 'Stop at a 🏪 shop to buy items with coins. On your turn, open your <b>🎒 bag</b> to use them — rockets, swaps, traps and more. You can carry up to 3.' },
     { icon: '🏙️', title: 'CITY CIRCUIT',
-      body: 'Earn coins at 🏛️ District HQs, complete 📋 Contracts, recruit 🤝 Allies with passive powers, and win ⚔️ Duels. Most coins after 20 rounds wins the city!' },
+      body: 'Earn coins at 🏛️ District HQs, complete 📋 Contracts, recruit 🤝 Buddies with passive powers, and win ⚔️ Duels. Most coins after 20 rounds wins the city!' },
     { icon: '🏆', title: 'MINIGAMES',
       body: 'Every few turns a quick head-to-head minigame decides who grabs bonus coins and rolls first. Hold the phone as the diagram shows, tap READY, and go!' },
 ];
@@ -116,7 +116,7 @@ function _buildRules() {
             <div class="ob-scroll">
                 <div class="ob-section bfont">🟦 SPACES</div>${spaceRows}
                 <div class="ob-section bfont">🎒 ITEMS</div>${itemRows}
-                <div class="ob-section bfont">🤝 ALLIES</div>${allyRows}
+                <div class="ob-section bfont">🤝 BUDDIES</div>${allyRows}
             </div>
         </div>`;
 }
