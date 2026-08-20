@@ -64,7 +64,7 @@ These are the only three the 1-per-10 budget counts.
 | 🔓 | **GATE (OPEN)** | Pass through freely. |
 | 🏪 | **ITEM SHOP** | Opens the shop. Themed per realm/district. |
 | 🎁 | **MYSTERY** | A random item straight into your bag, with a card naming it. |
-| ⚔️ | **DUEL** | City only. Set a coin bet, then play a minigame for the pot. |
+| ⚔️ | **DUEL** | City only. +3 coins to ante up, set a coin bet, then play a minigame for the pot. |
 
 ---
 

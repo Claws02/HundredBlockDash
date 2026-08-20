@@ -1,6 +1,6 @@
 import { state, resetPlayers } from './GameState.js';
 import {
-    gateThreshold, GATE_NUM_DICE, FINE_AMOUNT, BIG_FINE_AMOUNT, TRAP_AMOUNT,
+    gateThreshold, GATE_NUM_DICE, FINE_AMOUNT, BIG_FINE_AMOUNT, TRAP_AMOUNT, DUEL_STAKE,
     MAX_INV, MAX_ALLIES, ALLY_TURNS, ALLY_SPAWN_DELAY_TURNS,
     MINIGAME_EVERY_N_TURNS, ITEMS, SPACE_META, SPACE_DESCS,
     DISTRICT_HQ_FIRST_BONUS, DISTRICT_HQ_REVISIT_BONUS,
@@ -940,6 +940,14 @@ export function resolveSpaceEffect(p, spaceType, space) {
         }
         case 'duel': {
             _checkContract(p, 'land_type', 'duel');
+            // Stepping into the ring pays a stake FIRST. A player on zero coins
+            // used to meet a bet screen with every option disabled and no close
+            // button — a hard lock, and the one place on the board where being
+            // broke stopped the game rather than just costing you.
+            earnCoins(p, DUEL_STAKE);
+            SetPieces.coinPop(Renderer.getPos(p.pos), false);
+            UIManager.updateUI();
+            UIManager.toast(`⚔️ Ante up! +${DUEL_STAKE} coins to bet with.`, '#fbbf24', { urgent: true });
             // Stage it. The bet picker used to appear with no lead-in at all,
             // which made the biggest voluntary risk on the board feel like a
             // form. This costs nothing: the minigame follows either way.
@@ -1944,7 +1952,14 @@ function _openDuelModal(p) {
 function _startDuel(p, betAmount) {
     const opp  = state.players[(p.id+1)%2];
     const safe = Math.min(betAmount, Math.min(p.coins, opp.coins), 10);
-    if (safe <= 0) { finishTurn(); return; }
+    if (safe <= 0) {
+        // A duel needs two stakes. The lander is handed DUEL_STAKE on arrival so
+        // this can only mean the opponent is broke — say so rather than ending
+        // the turn in silence right after the faceoff.
+        UIManager.toast(`No wager — ${opp.name} has nothing to stake.`, '#94a3b8', { urgent: true });
+        Director.hold('POST_RESULT', finishTurn);
+        return;
+    }
     state.pendingDuelBet = safe;
     state.mgContext = 'duel';
     UIManager.toast(`⚔️ DUEL! Both players bet ${safe} coins!`, '#ef4444');

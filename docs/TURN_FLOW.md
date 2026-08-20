@@ -241,7 +241,7 @@ turn; do not raise a card."* Four do:
 | Space | What it does instead |
 |---|---|
 | `shop` | `⏱ SHOP_OPEN` 400 ms, then the shop modal. Closing it ends the turn. |
-| `duel` | `⏱ DUEL_OPEN` 450 ms, then the bet picker → a minigame. |
+| `duel` | +3 coin ante, faceoff, `⏱ DUEL_OPEN` 450 ms, then the bet picker → a minigame. If the *opponent* has nothing to stake there is no wager to set, so the picker shows a CONTINUE instead of five disabled buttons. |
 | `swap_space` | §6, the abduction. Raises its own SHARED-tier card when the saucer has gone. |
 | `mystery` with a full bag | Hands the beat to the discard picker, which names the item itself. |
 

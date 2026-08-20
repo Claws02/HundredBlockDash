@@ -61,6 +61,12 @@ export const CONTRACT_COUNT           = 3;
 export const MAX_ALLIES               = 2;
 export const ALLY_TURNS               = 3; // turns before an ally expires
 export const DUEL_BET_OPTIONS         = [1, 3, 5, 8, 10];
+// Landing on a DUEL hands you a stake before the bet is set. Without it a
+// player on zero coins met a bet screen with every option disabled and no way
+// out — a hard lock, and the one place on the board where being broke stopped
+// the game rather than just costing you. Three is the smallest amount that
+// clears the lowest bet with something left over.
+export const DUEL_STAKE               = 3;
 export const ALLY_SPAWN_DELAY_TURNS   = 2; // turns after claim before next ally spawns
 
 // ============================================================
@@ -219,7 +225,7 @@ export const SPACE_DESCS = {
     gate_open:   'Gate is open — pass freely.',
     shop:        'Browse and buy items with your coins!',
     hq:          'District HQ! First visit: +15 coins. Revisit: +5 coins.',
-    duel:        'DUEL! Set a coin bet — then compete in a minigame. Winner takes the pot!',
+    duel:        'DUEL! Take 3 coins to ante up, set a bet, then compete in a minigame. Winner takes the pot!',
     start:       'Back at the start of the City Ring Road.',
     finish:      'The Crown. Reach it for the finish bonus — but the most coins still wins.',
 };

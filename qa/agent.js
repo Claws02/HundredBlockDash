@@ -219,6 +219,10 @@ window.__QA = (function () {
         if (visId('duel-modal')) {
             const bets = [...byId('duel-bet-options').querySelectorAll('[data-bet]:not([disabled])')];
             if (bets.length) return tap(bets[Math.floor(Math.random() * bets.length)], 'duel bet') && 'DUEL_BET';
+            // No affordable bet means the opponent is broke; the modal must then
+            // offer a way out. If it doesn't, that is the old hard lock.
+            const out = byId('btn-duel-skip');
+            if (out && out.offsetParent !== null) return tap(out, 'duel no-wager continue') && 'DUEL_SKIP';
             note('STUCK', 'duel modal open with no enabled bet buttons and no exit');
             return 'DUEL_NO_OPTION';
         }
