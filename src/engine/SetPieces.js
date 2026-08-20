@@ -445,6 +445,37 @@ export function gateBreach(worldPos, onDone) {
 }
 
 // ---------------------------------------------------------------------------
+// 🤝 ALLY ARRIVAL — show the player WHERE it landed                 ~1.3 s
+//     Runs under the arrival card, which then waits for a press. Announcing an
+//     ally as text alone was useless: the minigame takes the screen 1.1 s later,
+//     so there was no way to go and look at the board.
+// ---------------------------------------------------------------------------
+export function allyArrival(worldPos, onDone) {
+    const at = worldPos.clone().setY(0);
+
+    // A widening ring on the ground under it, so the eye goes to the right tile.
+    const ping = _add(new THREE.Mesh(
+        new THREE.RingGeometry(0.6, 3.4, 28),
+        new THREE.MeshBasicMaterial({ color: 0xfbbf24, transparent: true, opacity: 0,
+                                      side: THREE.DoubleSide, depthWrite: false })));
+    ping.rotation.x = -Math.PI / 2;
+    ping.position.copy(at).setY(0.12);
+
+    // Close enough to read which ally it is — that is the whole decision. The
+    // look point is BELOW the ally rather than on it: everything in shot then
+    // sits above the frame's centre, clear of the arrival card that is about to
+    // appear on the player's edge. Aiming above the ally does the opposite.
+    _takeCamera({ pos: at.clone().add(new THREE.Vector3(0, 12, 21)), look: at.clone().setY(-4) }, 1.3);
+    sfx('land_good');
+    _beat(1.3, (pr) => {
+        // Two pulses, so it reads as a beacon rather than a one-off flash.
+        const w = Math.sin(pr * Math.PI * 2);
+        ping.material.opacity = Math.max(0, w) * 0.75;
+        ping.scale.setScalar(0.6 + (pr % 0.5) * 2.2);
+    }, () => { _drop(ping); if (onDone) onDone(); });
+}
+
+// ---------------------------------------------------------------------------
 // Camera helpers
 // ---------------------------------------------------------------------------
 //

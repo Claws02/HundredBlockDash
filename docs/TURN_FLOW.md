@@ -362,6 +362,7 @@ piece can never cost anybody a coin or a position.
 | 🎁 **MYSTERY** | A ribboned crate drops out of the sky, thuds, and the lid blows off in a burst — then the item card. | 1.5 s |
 | ⚓ **ANCHOR** | The anchor falls from off-screen, thuds into the tile and digs in — *before* the drag, so it is clear why you are about to travel backwards. | 1.4 s |
 | ⚔️ **DUEL** | Crossed sparks over the midpoint between the two tokens, low two-shot, then the bet picker. Free: the minigame follows either way. | 1.4 s |
+| 🤝 **ALLY ARRIVAL** | The camera swoops to the tile the ally landed on, a beacon pulses under it, and a card names it — **and waits for a press**. See §5. | 1.3 s + a tap |
 | 🕊️ **TRUCE** | A dove crosses between the two tokens as both counters tick up. | 1.0 s |
 | 💸 **FINE / TRAP** | A red seal slams onto the tile and coins fall *through* the ground. A shielded hit still gets the seal but drops no coins. | 0.6 s |
 | 🪙 **COIN / BIG COIN** | Coins pop out of the tile and arc away. | 0.55 s |
@@ -370,6 +371,33 @@ piece can never cost anybody a coin or a position.
 **⚡ BOOST deliberately has none.** It fires often and already chains straight
 into another roll; a launch cinematic there would be the third thing in a row
 demanding attention on a turn that is not over yet.
+
+### The ally arrival is the one that WAITS
+
+Every other set piece runs on a clock. This one stops until somebody presses it,
+and the reason is a scheduling collision rather than a taste call.
+
+An ally spawns in `_onRoundEnd()` — which is called from `maybeTriggerMinigame()`
+**immediately before** `PRE_MINIGAME` hands the screen to the minigame. The
+announcement was a toast, so it appeared and was covered 1.1 s later. The player
+was told an ally existed, never saw where, and could not go and look because the
+board had gone.
+
+So `spawnAlly()` no longer announces anything. It sets `state.pendingAllyReveal`,
+and `maybeTriggerMinigame()` runs `_afterAllyReveal()` before the hand-off: the
+camera swoops to the tile, a beacon pulses under it, and a SHARED-tier card names
+the ally, says what it does and says where it is. Both players are about to race
+for the same ally, so both need it — and the minigame does not start until
+somebody presses GOT IT.
+
+The card sits on the active player's edge over a barely-dimmed board, and the
+reveal camera aims *below* the ally so the tile lands in the upper half of the
+frame, clear of the card. A centred card over a blurred board would show you the
+card instead of the thing it is about.
+
+**One exception:** the final round. An ally landing then can never be claimed, so
+the reveal is skipped and the marker cleared rather than stopping the match to
+announce something nobody can use.
 
 ### The rule
 

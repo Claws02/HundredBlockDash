@@ -2034,3 +2034,59 @@ body:not(.tabletop-mode) #turn-banner.tb-show .tb-bottom { transform: translate(
     letter-spacing: .5px; color: var(--p1); opacity: .9;
 }
 .char-card { position: relative; }
+
+/* ============================================================
+   ALLY ARRIVAL — the card that holds the minigame back
+   ============================================================
+   An ally lands at the close of a round, which is the same moment the minigame
+   takes the screen. This waits for a press, so the player gets to see where it
+   is before the board disappears. */
+#ally-arrival {
+    position: fixed; inset: 0; z-index: 190;
+    display: none; align-items: flex-end; justify-content: center;
+    /* Barely dimmed and anchored to an edge on purpose: the whole point of this
+       card is that the camera has just swooped to the ally and you can SEE
+       where it landed. A centred card over a blurred board would show you the
+       card instead of the thing it is about. */
+    background: rgba(4, 3, 10, .28);
+    padding: 16px 16px calc(var(--hud-h) + 18px);
+}
+.tabletop-p2-turn #ally-arrival {
+    align-items: flex-start;
+    padding: calc(var(--hud-h) + 18px) 16px 16px;
+}
+/* Tabletop draws it twice, so the pair has to share one screen. */
+#ally-arrival.dual-mode { flex-direction: column; gap: 8px; padding: 8px 14px; justify-content: center; align-items: center; }
+.aa-card {
+    width: 100%; max-width: 380px;
+    display: flex; flex-direction: column; align-items: center; gap: 5px;
+    background: var(--panel); border: 1.5px solid rgba(251, 191, 36, .6);
+    border-radius: 20px; padding: 16px 18px 16px;
+    box-shadow: 0 18px 50px rgba(0,0,0,.75), 0 0 34px -12px rgba(251,191,36,.6);
+    text-align: center;
+}
+#ally-arrival.dual-mode .aa-card,
+#ally-arrival.dual-mode .dual-mirror { max-height: 45vh; padding: 10px 14px; gap: 3px; }
+.aa-tag {
+    font-size: 10.5px; letter-spacing: 1.6px; color: rgba(251,191,36,.85);
+}
+.aa-icon { font-size: 40px; line-height: 1.1; }
+.aa-name { font-size: 25px; letter-spacing: 1.6px; color: #fff; line-height: 1.05; }
+.aa-power {
+    font-family: 'Nunito', system-ui, sans-serif; font-size: 12.5px; line-height: 1.4;
+    color: rgba(255,255,255,.78);
+}
+.aa-where {
+    font-family: 'Nunito', system-ui, sans-serif; font-size: 12px; font-weight: 800;
+    color: var(--gold); margin-top: 2px;
+}
+.aa-race {
+    font-family: 'Nunito', system-ui, sans-serif; font-size: 10.5px; line-height: 1.35;
+    color: rgba(255,255,255,.5); margin-bottom: 4px;
+}
+#ally-arrival.dual-mode .aa-icon { font-size: 26px; }
+#ally-arrival.dual-mode .aa-name { font-size: 18px; }
+#ally-arrival.dual-mode .aa-power { font-size: 10.5px; }
+#ally-arrival.dual-mode .aa-where { font-size: 10.5px; }
+#ally-arrival.dual-mode .aa-race  { font-size: 9px; }
+#ally-arrival .btn-close { width: 100%; }

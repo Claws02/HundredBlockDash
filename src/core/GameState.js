@@ -79,6 +79,10 @@ export const state = {
     // Ally on map
     allyOnMap:           null,  // { nodeId, allyType } | null
     allySpawnCountdown:  0,     // turns until next ally spawns (0 = spawn now)
+    // Set when an ally lands on the board at the close of a round; consumed by
+    // maybeTriggerMinigame(), which waits for the player to press through the
+    // arrival card before the minigame takes the screen.
+    pendingAllyReveal:   null,
 
     // City contracts
     activeContracts:     [],    // up to CONTRACT_COUNT active contracts
@@ -177,6 +181,7 @@ export function resetPlayers() {
     state.pendingUnbox       = null;
     state.allyOnMap          = null;
     state.allySpawnCountdown = 0;
+    state.pendingAllyReveal  = null;
     state.activeContracts    = [];
     state.contractPool       = [];
     state.investorUsedThisRound = [false, false];

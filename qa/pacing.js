@@ -140,7 +140,15 @@ const GL = ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=swiftshader',
         const jPos = R.getPos('bp_b').clone().setY(0);
         const samples = [];
         const cam = R.getCamera();
-        const iv = setInterval(() => {
+        // Sample per RENDER FRAME, not on a timer. A setInterval sampler and the
+        // render loop run at different rates, so a slow frame puts a whole
+        // frame's worth of movement into a 20 ms measured window and reports a
+        // ground speed the game never produced. One sample per frame makes the
+        // delta and the interval describe the same thing.
+        let stop = false;
+        (function sample() {
+            if (stop) return;
+            requestAnimationFrame(sample);
             samples.push({
                 t: performance.now(),
                 x: p.mesh.position.x, z: p.mesh.position.z,
@@ -148,7 +156,7 @@ const GL = ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=swiftshader',
                 camD: cam.position.distanceTo(p.mesh.position),
                 gs: state.gameState,
             });
-        }, 20);
+        })();
 
         GC.moveThroughGraph(p, 1);
         // Answer the fork as a player would, once the arrows are up.
@@ -168,7 +176,7 @@ const GL = ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=swiftshader',
             setTimeout(() => { clearInterval(poll); res(null); }, 12000);
         });
         await new Promise(r => setTimeout(r, 4500));
-        clearInterval(iv);
+        stop = true;
         return { samples, endPos: p.pos, jPos: { x: jPos.x, z: jPos.z } };
     });
 
@@ -178,19 +186,31 @@ const GL = ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=swiftshader',
     ok('junction: the token travels THROUGH the fork, not around it',
         closest < 1.6, `closest approach to the fork node: ${closest.toFixed(2)} units`);
 
-    // A sanity bound on ground speed, not the teleport detector — under
-    // software GL the frame delta is capped, so a short-duration animation is
-    // stretched in wall clock and measures SLOWER, not faster. Reverting the
-    // fix makes this number go down, which is why the fork-proximity check
-    // above is the one that actually catches a jump cut.
-    let biggest = 0;
-    for (let i = 1; i < s.length; i++) {
-        const d = Math.hypot(s[i].x - s[i - 1].x, s[i].z - s[i - 1].z);
-        const dt = (s[i].t - s[i - 1].t) / 1000;
-        if (dt > 0 && dt < 0.2) biggest = Math.max(biggest, d / dt);   // units per second
+    // What actually separates a walk from a jump cut is how LONG the leg takes,
+    // not how fast the token is at any instant. Every hop uses a cubic ease-out,
+    // whose peak velocity is three times its average and occurs in the first
+    // frame — so an instantaneous-speed bound flags a perfectly good hop and
+    // was measuring nothing useful. (An earlier version of this probe did
+    // exactly that, and had to be told so twice.)
+    //
+    // The fork → district leg is ~26 world units against ~10 for an ordinary
+    // step. It used to be given the same fixed 0.35 s as every other hop, which
+    // is what read as a teleport; the duration is now derived from distance.
+    // Measured from the token's FIRST movement to the end of the move, so the
+    // JUNCTION_COMMIT pause (during which nothing moves) is excluded and this
+    // is purely how long the travelling takes. One 0.35 s hop straight to the
+    // district ≈ 350 ms; a walk to the fork and then out onto the road ≈ 900 ms.
+    const moveSamples = s.filter(e => e.gs === 'MOVING');
+    let firstMoveT = null;
+    for (let i = 1; i < moveSamples.length; i++) {
+        const d = Math.hypot(moveSamples[i].x - moveSamples[0].x, moveSamples[i].z - moveSamples[0].z);
+        if (d > 0.5) { firstMoveT = moveSamples[i].t; break; }
     }
-    ok('junction: the token never jump-cuts (ground speed stays sane)',
-        biggest < 95, `peak ${biggest.toFixed(0)} units/s`);
+    const endT = s.find(e => firstMoveT !== null && e.t > firstMoveT && e.gs !== 'MOVING');
+    const legMs = firstMoveT !== null && endT ? Math.round(endT.t - firstMoveT) : null;
+    ok('junction: the travelling is walked, not cut',
+        legMs !== null && legMs >= 600,
+        `${legMs}ms of actual movement`);
 
     // The camera must be on the player when the walk starts, not chasing it.
     const moving = s.filter(e => Math.hypot(e.x, e.z) > 0);
@@ -433,6 +453,117 @@ const GL = ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=swiftshader',
     ok('roll: and holds for about a second and a half first',
         roll.movedAt !== null && roll.movedAt >= 1300,
         `${roll.movedAt}ms between the number and the first step`);
+
+    // ---------------------------------------------------------------
+    // 4c. Ally arrival. An ally lands at the CLOSE of a round, which is the
+    //     same moment the minigame takes the screen — so announcing it as a
+    //     toast meant the player never saw where it landed and could not go and
+    //     look, because the board was gone 1.1 s later. The hand-off must wait
+    //     for a press.
+    // ---------------------------------------------------------------
+    const ally = await page.evaluate(async () => {
+        const { state } = await import('/src/core/GameState.js');
+        const GC = await import('/src/core/GameController.js');
+        const D  = await import('/src/core/Director.js');
+        const R  = await import('/src/engine/Renderer.js');
+        const M  = await import('/src/ui/ModalManager.js');
+        D.reset(); R.getActiveAnims().length = 0; M.closeAllModals();
+
+        state.allyOnMap = null;
+        state.allySpawnCountdown = 0;
+        state.pendingAllyReveal = null;
+        state.currentRound = 1;
+        state.totalTurns = 3;            // the next finishTurn hits the cadence
+        state.gameState = 'ACKNOWLEDGE';
+
+        const log = [];
+        const t0 = performance.now();
+        const iv = setInterval(() => log.push({
+            t: Math.round(performance.now() - t0),
+            card: getComputedStyle(document.getElementById('ally-arrival')).display !== 'none',
+            mg:   getComputedStyle(document.getElementById('mg-intro-overlay')).display !== 'none',
+        }), 40);
+
+        GC.finishTurn();
+        await new Promise(r => setTimeout(r, 6000));
+        clearInterval(iv);
+
+        const firstCard = log.find(e => e.card);
+        const firstMg   = log.find(e => e.mg);
+        const stillUp   = log.length ? log[log.length - 1].card : false;
+        return {
+            cardAt: firstCard ? firstCard.t : null,
+            mgAt:   firstMg ? firstMg.t : null,
+            stillUp,
+            name:  (document.getElementById('aa-name')  || {}).textContent || '',
+            power: (document.getElementById('aa-power') || {}).textContent || '',
+            where: (document.getElementById('aa-where') || {}).textContent || '',
+            onMap: state.allyOnMap && state.allyOnMap.allyType,
+        };
+    });
+    await page.screenshot({ path: path.join(__dirname, 'shot-ally-arrival.png') });
+    ok('ally: an arrival raises a card', ally.cardAt !== null, `at ${ally.cardAt}ms`);
+    ok('ally: the minigame does NOT start until it is pressed',
+        ally.mgAt === null && ally.stillUp,
+        `card at ${ally.cardAt}ms, minigame at ${ally.mgAt}ms, still up: ${ally.stillUp}`);
+    ok('ally: the card names it, says what it does, and says where it is',
+        ally.name.length > 3 && ally.power.length > 10 && /near/i.test(ally.where),
+        `"${ally.name}" / "${ally.power}" / "${ally.where}"`);
+    ok('ally: and it is actually on the board to go and get',
+        !!ally.onMap, String(ally.onMap));
+
+    const allyGo = await page.evaluate(async () => {
+        document.getElementById('btn-ally-arrival').click();
+        await new Promise(r => setTimeout(r, 4000));
+        const { state } = await import('/src/core/GameState.js');
+        return {
+            card: getComputedStyle(document.getElementById('ally-arrival')).display !== 'none',
+            mg:   getComputedStyle(document.getElementById('mg-intro-overlay')).display !== 'none',
+            gs:   state.gameState,
+        };
+    });
+    ok('ally: pressing it closes the card and hands over to the minigame',
+        !allyGo.card && allyGo.mg, JSON.stringify(allyGo));
+
+    // The last round is the exception: an ally that lands then can never be
+    // claimed, so stopping the match to announce it would be pure friction.
+    const lastRound = await page.evaluate(async () => {
+        const { state } = await import('/src/core/GameState.js');
+        const GC = await import('/src/core/GameController.js');
+        const D  = await import('/src/core/Director.js');
+        const M  = await import('/src/ui/ModalManager.js');
+        const U  = await import('/src/ui/UIManager.js');
+        const MG = await import('/src/minigames/MinigameManager.js');
+        // Tear the previous minigame down and then WAIT OUT its completion
+        // path: endMinigame() runs the real result handler, which finishes a
+        // turn, ends a round and can raise another arrival card of its own.
+        // Resetting the Director immediately is too early to catch it.
+        MG.endMinigame(0);
+        await new Promise(r => setTimeout(r, 3500));
+        D.reset(); M.closeAllModals();
+        document.getElementById('ally-arrival').style.display = 'none';
+        await new Promise(r => setTimeout(r, 300));
+
+        state.allyOnMap = null;
+        state.allySpawnCountdown = 0;
+        state.pendingAllyReveal = null;
+        // _cityRounds() only honours a value in CITY_LENGTHS (6 | 12 | 20) and
+        // silently falls back to the default otherwise — an arbitrary 3 here
+        // read as 12, so the "last round" branch never ran and this assertion
+        // was testing nothing.
+        state.cityRounds = 6;
+        state.currentRound = 5;          // ++ takes it to the last round
+        state.totalTurns = 7;
+        state.gameState = 'ACKNOWLEDGE';
+        GC.finishTurn();
+        await new Promise(r => setTimeout(r, 1800));
+        return {
+            card: getComputedStyle(document.getElementById('ally-arrival')).display !== 'none',
+            pending: !!state.pendingAllyReveal,
+        };
+    });
+    ok('ally: no arrival card on the final round — nobody could claim it',
+        !lastRound.card && !lastRound.pending, JSON.stringify(lastRound));
 
     // ---------------------------------------------------------------
     // 5. The gate: the board stays visible, and items are unavailable.
