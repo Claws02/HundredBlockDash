@@ -162,6 +162,45 @@ const RECT = `(id) => {
     }, RECT);
     ok('fork: it goes away when the road is chosen', forkGone === null, JSON.stringify(forkGone));
 
+    // The primer explains the fork the first time a match ever shows one — that
+    // fork can arrive on turn one, before any ordinary turn has been taken. It
+    // must not cover the readout, the arrows or the scout button.
+    const primer = await page.evaluate(async (rectSrc) => {
+        const rect = eval(rectSrc);
+        const { state } = await import('/src/core/GameState.js');
+        const U = await import('/src/ui/UIManager.js');
+        const { BRANCH_OPTIONS } = await import('/src/config/BoardGraph.js');
+        state.activePlayer = 0;
+        U.applyOrientation();
+        U.resetForkPrimer();
+        U.showJunctionArrows('bp_b', 'r5', BRANCH_OPTIONS.bp_b, 3);
+        await new Promise(r => setTimeout(r, 350));
+        const first = { primer: rect('junction-primer'), steps: rect('junction-steps'),
+                        scout: rect('btn-junction-map'),
+                        arrows: [...document.querySelectorAll('#junction-arrows .j-arrow')].map(a => {
+                            const r = a.getBoundingClientRect();
+                            return { top: Math.round(r.top), bottom: Math.round(r.bottom) };
+                        }),
+                        text: (document.getElementById('junction-primer') || {}).textContent || '' };
+        U.hideJunctionArrows();
+        await new Promise(r => setTimeout(r, 200));
+        U.showJunctionArrows('bp_c', 'r10', BRANCH_OPTIONS.bp_c, 2);
+        await new Promise(r => setTimeout(r, 300));
+        const second = rect('junction-primer');
+        U.hideJunctionArrows();
+        return { first, second };
+    }, RECT);
+    ok('fork: the first fork of a match explains itself',
+        !!primer.first.primer && /junction/i.test(primer.first.text), primer.first.text);
+    ok('fork: and only the first — it does not nag at every fork after',
+        primer.second === null, JSON.stringify(primer.second));
+    const pr = primer.first;
+    ok('fork: the primer clears the readout, the arrows and the scout button',
+        !!pr.primer && pr.primer.top > pr.steps.bottom
+        && (!pr.scout || pr.primer.bottom <= pr.scout.top + 1)
+        && pr.arrows.every(a => a.bottom < pr.primer.top || a.top > pr.primer.bottom),
+        `primer ${JSON.stringify(pr.primer)} · steps ${JSON.stringify(pr.steps)} · scout ${JSON.stringify(pr.scout)}`);
+
     // ---------------------------------------------------------------
     // 2. The shield marker.
     // ---------------------------------------------------------------

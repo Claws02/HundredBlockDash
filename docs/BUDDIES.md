@@ -110,30 +110,60 @@ It began as an arrival-only card, which fired on exactly one round per buddy.
 After that a buddy could sit on the board for the rest of a match with nothing on
 screen saying so, and a buddy at your side could expire with no warning.
 
+**And once at the start of each round, as a toast.** The card lands at the CLOSE
+of a round, which is the right place for it — that is when a buddy arrives and
+when the clock ticks — but a round is several turns long, so by the time anyone is
+actually rolling, the card that said "two rounds left" is well behind them. The
+first `startPreRoll` of each round repeats the line: who, where, and how long.
+Urgent, so it is not queued behind whatever the last turn left in the rail, and
+fired once per round by `_buddyRemindedRound`.
+
 `body.buddy-report` moves the toast rail to the opposite edge while it is up —
 the report hugs the same edge the rail lives on, and round-end toasts (Banker
 interest, a departure) fire in the same beat.
 
 ---
 
-## 4. Stealing
+## 3b. The buddy space
 
-Two ways in, both ending in a minigame against the holder:
+A buddy does not stand **on** a tile — they stand **beside** one, `BUDDY_STAND_OFF`
+(2.6 units) out from it, facing the road. The tile they are next to becomes the
+**BUDDY SPACE** for as long as they are there:
+
+- a pulsing gold pad and rim on the tile itself
+- a short walkway from the tile to the figure, so it is unambiguous *which*
+  square the buddy belongs to
+- `🤝 BUDDY SPACE · <name>` above the tile's own name in the map tooltip
+
+The tile keeps whatever type it already had. The buddy is an encounter attached
+to the square, not a replacement for it — land on a buddy space that is also a
+coin space and you get both.
+
+Standing the model *on* the tile put it exactly where a player token lands, so
+the two occupied one square and the buddy read as scenery.
+
+---
+
+## 4. Claiming and stealing
+
+Three ways in, all ending in a minigame:
 
 | Trigger | Where | Notes |
 |---|---|---|
-| **Landing** on the holder's square | `_onLand()` | The original route. |
-| **Passing** the holder's square | `_checkPassThroughShop()` | New. Fires while steps remain; declining resumes the move. |
+| **Landing** on the buddy space | `_onLand()` | The original route. |
+| **Passing** the buddy space | `_checkPassThroughShop()` | Fires while steps remain; declining resumes the move. |
+| **Passing or landing on** a rival who holds one | `_checkPassThroughShop()` / `_onLand()` | The steal. |
 
-The landing-only version needed an exact stop on one node in sixty, on a turn the
-rival happened to be holding something. It existed on paper and almost never in a
-match. Passing them is the same encounter and happens often enough to make
+Both landing-only versions needed an exact stop on one node in sixty, in the
+handful of rounds a buddy is out there. The report told you where the buddy was
+and then the dice decided whether you were allowed to go. Passing is the same
+encounter and happens often enough to be a real decision — and it is what makes
 holding a buddy a position worth defending.
 
-The pass-by check runs on the same per-step hook as the District HQ payout and
-the shop offer, and chains ahead of the shop: HQ pays, then the steal is offered,
-then the shop. A steal minigame suspends the move and `onDone` resumes it with
-the steps still owed.
+The pass-by checks run on the same per-step hook as the District HQ payout and
+the shop offer, and chain ahead of the shop: HQ pays, then the steal, then the
+buddy claim, then the shop. A minigame suspends the move and `onDone` resumes it
+with the steps still owed.
 
 ---
 
@@ -147,6 +177,7 @@ the steps still owed.
   changes wording on the last round
 - an unclaimed buddy's countdown ticks and it actually leaves
 - passing a rival offers the steal, and declining resumes the move
+- passing the buddy space itself offers the claim
 - no player-facing string in `ALLIES`, `CONTRACT_POOL`, `MAP_REGISTRY` or the
   buddy screens still says "ally"
 - a round-end toast does not land on the report card

@@ -1685,6 +1685,14 @@ body.buddy-report.tabletop-p2-turn #toast-box { top: auto; bottom: calc(var(--hu
    The base rule is nowrap for a one-line label; now that there is a sentence in
    here it has to be allowed to wrap. */
 #map-tooltip { white-space: normal; max-width: 264px; }
+/* A tile with a buddy standing beside it is the one square worth routing
+   towards, so it says so above its own name. */
+#map-tooltip .map-buddy {
+    display: block; margin-bottom: 4px; padding-bottom: 4px;
+    border-bottom: 1px solid rgba(251,191,36,.35);
+    font-family: 'Nunito', system-ui, sans-serif; font-size: 11px; font-weight: 900;
+    letter-spacing: .5px; color: #fbbf24;
+}
 #map-tooltip .map-effect {
     display: block; margin-top: 5px;
     font-family: 'Nunito', system-ui, sans-serif; font-size: 11.5px; line-height: 1.4;
@@ -1760,6 +1768,25 @@ body.buddy-report.tabletop-p2-turn #toast-box { top: auto; bottom: calc(var(--hu
    enough to read without looking for it — this is the number the whole fork
    decision is made against. Kept off the middle of the board so the two roads
    the arrows point down stay visible. */
+/* Shown at the first fork of a match only — that fork can arrive on turn one,
+   before the player has taken a single ordinary turn. */
+#junction-primer {
+    /* Directly above SCOUT THE MAP, not under the banner: the top of the screen
+       already carries the round counter, the bounty strip, the fork banner and
+       the SPACES LEFT readout, and a fifth row up there covers the roads the
+       arrows are pointing down. */
+    position: absolute; bottom: calc(var(--hud-h) + 74px); left: 50%; top: auto;
+    transform: translateX(-50%);
+    max-width: 300px; text-align: center; pointer-events: none;
+    font-family: 'Nunito', system-ui, sans-serif; font-size: 11.5px; font-weight: 700;
+    line-height: 1.35; color: rgba(255,255,255,.86);
+    background: rgba(8,6,18,.82); border: 1px solid rgba(255,255,255,.16);
+    border-radius: 14px; padding: 5px 12px;
+}
+.tabletop-p2-turn #junction-primer {
+    bottom: auto; top: calc(var(--hud-h) + 74px);
+    transform: translateX(-50%) rotate(180deg);
+}
 #junction-steps {
     /* Below the round counter, the bounty strip AND the banner. The first
        placement was 58px down and the gold digit came out half-hidden behind

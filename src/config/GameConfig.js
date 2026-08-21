@@ -261,12 +261,48 @@ export const SPACE_DESCS = {
 // ============================================================
 // DISTRICT BIOMES — visual theming per district
 // ============================================================
+// A district was a name and four colours. That is enough to tint the sky and
+// nothing else, so all four read as the same road under different lighting —
+// the player was choosing between "the blue one" and "the red one" rather than
+// between places. Each one now also carries an icon, a tagline and a line of
+// lore for the entry banner and the briefing, a SURFACE (what the ground is
+// made of) and a PROPS key the renderer dresses the roadside with.
 export const DISTRICT_BIOMES = {
-    ring:  { name: 'City Ring Road',     bgTop: '#5b9bd5', bgBot: '#87bce8', fog: '#a8d4f0', floorEdge: 0x94a3b8, pathTint: 0xcbd5e1 },
-    fin:   { name: 'Financial District', bgTop: '#2e6da4', bgBot: '#5491c8', fog: '#8ab8e0', floorEdge: 0x3b82f6, pathTint: 0x60a5fa },
-    ba:    { name: 'Back Alley',         bgTop: '#5a4040', bgBot: '#7a5555', fog: '#9a7070', floorEdge: 0xef4444, pathTint: 0xf87171 },
-    shop:  { name: 'Shopping Promenade', bgTop: '#6040a0', bgBot: '#8060c0', fog: '#b090d8', floorEdge: 0xec4899, pathTint: 0xf472b6 },
-    ind:   { name: 'Industrial Zone',    bgTop: '#8a7040', bgBot: '#a89060', fog: '#c8b080', floorEdge: 0xeab308, pathTint: 0xfbbf24 },
+    ring:  {
+        name: 'City Ring Road', icon: '🛣️',
+        tagline: 'The long way round, and the safe one.',
+        lore: 'Four lanes of nothing much. Steady coins, clear sightlines, and a fork every five blocks.',
+        bgTop: '#5b9bd5', bgBot: '#87bce8', fog: '#a8d4f0', floorEdge: 0x94a3b8, pathTint: 0xcbd5e1,
+        surface: 'asphalt', props: 'civic',
+    },
+    fin:   {
+        name: 'Financial District', icon: '📈',
+        tagline: 'Where the money is, and the money knows it.',
+        lore: 'Granite plazas and glass towers. The tickers never stop, and neither does the Exchange.',
+        bgTop: '#2e6da4', bgBot: '#5491c8', fog: '#8ab8e0', floorEdge: 0x3b82f6, pathTint: 0x60a5fa,
+        surface: 'granite', props: 'finance',
+    },
+    ba:    {
+        name: 'Back Alley', icon: '🌃',
+        tagline: 'Nothing here is bolted down. Including you.',
+        lore: 'Wet brick, dead neon and washing strung overhead. Twelve blocks of somebody else\'s business.',
+        bgTop: '#5a4040', bgBot: '#7a5555', fog: '#9a7070', floorEdge: 0xef4444, pathTint: 0xf87171,
+        surface: 'wet', props: 'alley',
+    },
+    shop:  {
+        name: 'Shopping Promenade', icon: '🎪',
+        tagline: 'Everything is for sale and half of it is half price.',
+        lore: 'Striped awnings, bunting between the lamps, and the Grand Mall at the far end.',
+        bgTop: '#6040a0', bgBot: '#8060c0', fog: '#b090d8', floorEdge: 0xec4899, pathTint: 0xf472b6,
+        surface: 'paving', props: 'market',
+    },
+    ind:   {
+        name: 'Industrial Zone', icon: '⚙️',
+        tagline: 'Behind the Gate, and worth the roll.',
+        lore: 'Pipework, cooling towers and a permanent haze. Five blocks, and every one of them pays.',
+        bgTop: '#8a7040', bgBot: '#a89060', fog: '#c8b080', floorEdge: 0xeab308, pathTint: 0xfbbf24,
+        surface: 'concrete', props: 'works',
+    },
 };
 
 export function getBiomeForDistrict(district) {

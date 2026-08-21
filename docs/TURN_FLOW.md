@@ -245,6 +245,8 @@ turn; do not raise a card."* Four do:
 | `shop` | `⏱ SHOP_OPEN` 400 ms, then the shop modal. Closing it ends the turn. |
 | `duel` | +3 coin ante, faceoff, `⏱ DUEL_OPEN` 450 ms, then the bet picker → a minigame. If the *opponent* has nothing to stake there is no wager to set, so the picker shows a CONTINUE instead of five disabled buttons. |
 | passing a rival who holds a Buddy | Suspends the move, offers the steal, and resumes the remaining steps whichever way it goes. See `docs/BUDDIES.md` §4. |
+| passing the BUDDY SPACE itself | Same: suspends, offers the challenge, resumes. A buddy stands beside a tile and marks it for as long as they are there. |
+| entering a district | Raises the district banner — icon, name, tagline. See `docs/DISTRICTS.md` §4. |
 | `swap_space` | §6, the abduction. Raises its own SHARED-tier card when the saucer has gone. |
 | `mystery` with a full bag | Hands the beat to the discard picker, which names the item itself. |
 
