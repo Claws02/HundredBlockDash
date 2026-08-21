@@ -1373,10 +1373,20 @@ export function placeAllyMarker(nodeId, allyType) {
     if (!ally || !nodeId) return;
 
     const grp = new THREE.Group();
-    grp.position.copy(getPos(nodeId)).setY(0);
+    const tile = getPos(nodeId).clone().setY(0);
+    grp.position.copy(tile);
 
+    // The buddy stands BESIDE the tile, not on it. Standing on it meant the
+    // model sat in the same place a player token lands, so on arrival the two
+    // occupied one square and the buddy read as scenery rather than as somebody
+    // waiting by the road. Offset outward, away from the middle of the board,
+    // which is the open side on a ring map.
+    const side = _outwardDir(tile);
     const model = createCharacterMesh(allyType, 0xfbbf24);
     model.scale.setScalar(0.85);
+    model.position.copy(side).multiplyScalar(BUDDY_STAND_OFF);
+    // Face the road they are waiting beside.
+    model.rotation.y = Math.atan2(-side.x, -side.z);
     grp.add(model);
 
     // A halo above the head: the "there is something here" signal the octahedron
@@ -1384,24 +1394,51 @@ export function placeAllyMarker(nodeId, allyType) {
     const ring = new THREE.Mesh(
         new THREE.TorusGeometry(0.62, 0.09, 8, 20),
         new THREE.MeshStandardMaterial({ color: 0xfbbf24, emissive: 0xf59e0b, emissiveIntensity: 1.6 }));
-    ring.position.y = 2.5;
+    ring.position.copy(model.position).setY(2.5);
     ring.rotation.x = Math.PI / 2;
     grp.add(ring);
 
-    // And a glow disc on the ground, so the tile itself is marked from a
-    // distance even when the model is behind a building.
-    const pad = new THREE.Mesh(
-        new THREE.CircleGeometry(1.35, 20),
-        new THREE.MeshBasicMaterial({ color: 0xfbbf24, transparent: true, opacity: 0.32, side: THREE.DoubleSide }));
-    pad.rotation.x = -Math.PI / 2;
-    pad.position.y = 0.06;
+    // The BUDDY SPACE itself. The tile the buddy is standing next to is marked
+    // for as long as they are there: a bright ring on the tile, a soft fill, and
+    // a link from the tile to the figure so it is unambiguous WHICH space the
+    // buddy belongs to.
+    const padMat = new THREE.MeshBasicMaterial({
+        color: 0xfbbf24, transparent: true, opacity: 0.3,
+        side: THREE.DoubleSide, depthWrite: false });
+    const pad = new THREE.Mesh(new THREE.CircleGeometry(1.9, 24), padMat);
+    pad.rotation.x = -Math.PI / 2; pad.position.y = 0.07; pad.renderOrder = 2;
     grp.add(pad);
+
+    const rim = new THREE.Mesh(
+        new THREE.RingGeometry(1.9, 2.25, 28),
+        new THREE.MeshBasicMaterial({ color: 0xfde68a, transparent: true, opacity: 0.85,
+                                      side: THREE.DoubleSide, depthWrite: false }));
+    rim.rotation.x = -Math.PI / 2; rim.position.y = 0.08; rim.renderOrder = 3;
+    grp.add(rim);
+
+    // A short walkway from the marked tile to the figure standing off it.
+    const link = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.5, BUDDY_STAND_OFF),
+        new THREE.MeshBasicMaterial({ color: 0xfbbf24, transparent: true, opacity: 0.22,
+                                      side: THREE.DoubleSide, depthWrite: false }));
+    link.rotation.x = -Math.PI / 2;
+    link.rotation.z = -Math.atan2(side.z, side.x) + Math.PI / 2;
+    link.position.copy(side).multiplyScalar(BUDDY_STAND_OFF / 2).setY(0.075);
+    link.renderOrder = 2;
+    grp.add(link);
 
     scene.add(grp);
     allyMarkers.set('current', grp);
     // Bob the ring, not the whole group — a hovering character reads as a ghost.
     floatingIcons.push({ mesh: ring, group: grp, baseY: 2.5, speed: 2.0, phase: 0 });
+    // Pulse the tile marking so a BUDDY SPACE reads as live rather than painted.
+    _buddyPulse = { pad: padMat, rim: rim.material, t: 0 };
 }
+
+// How far off the tile the figure stands. Far enough to read as "beside the
+// road" and not far enough to look like it belongs to the next tile along.
+const BUDDY_STAND_OFF = 2.6;
+let _buddyPulse = null;
 
 export function removeAllyMarker() {
     const m = allyMarkers.get('current');
@@ -1417,6 +1454,7 @@ export function removeAllyMarker() {
     scene.remove(m);
     _disposeTree(m);
     allyMarkers.delete('current');
+    _buddyPulse = null;
 }
 
 // ---- Character portraits -------------------------------------------------
@@ -2171,6 +2209,15 @@ function _loop() {
         f.mesh.rotation.y += 1.4 * dt * f.speed;
     });
 
+    if (_cityLive.length) _animateCityLife(time, dt);
+
+    // A BUDDY SPACE breathes, so it reads as live rather than painted on.
+    if (_buddyPulse) {
+        const b = (Math.sin(time * 2.2) + 1) * 0.5;
+        _buddyPulse.pad.opacity = 0.20 + b * 0.16;
+        _buddyPulse.rim.opacity = 0.62 + b * 0.32;
+    }
+
     // The saucer keeps turning and its rim lights chase while it is on screen.
     if (_swapUfo && _swapUfo.visible) {
         _swapUfo.rotation.y += dt * 1.5;
@@ -2738,18 +2785,529 @@ function _buildAllDistrictBuildings() {
 
 function _buildCityScene() {
     if (_cityEnvGroup) { scene.remove(_cityEnvGroup); _cityEnvGroup = null; }
+    // Every animated prop holds a material reference. Rebuilding without
+    // clearing these would keep ticking materials belonging to a disposed
+    // scene — the same class of leak removeAllyMarker() once had.
+    _cityLive.length = 0;
     _CM = _initCityMaterials();
     _cityEnvGroup = new THREE.Group();
+    // Named so a probe can tell the CITY from the BOARD: tiles, tile icons and
+    // player tokens all legitimately stand on a node, and the dressing must not.
+    _cityEnvGroup.name = 'cityEnv';
     scene.add(_cityEnvGroup);
 
     _buildCityGround();
     _buildCityCenter();
     _buildAllDistrictBuildings();
     _buildStreetLamps();
+    _buildDistrictSurfaces();
+    _buildDistrictDressing();
+    _buildDistrictLandmarks();
+}
+
+// ============================================================
+// DISTRICT DRESSING — four places, not one road under four skies
+// ============================================================
+//
+// Each district had exactly one thing of its own: a building type set back
+// twelve units from the road. Everything at street level — the ground, the
+// lamps, the props — was identical everywhere, so the districts differed only
+// in the colour of the sky and the shape of a distant silhouette. Choosing a
+// road was choosing a tint.
+//
+// Three layers go on top, all inside _cityEnvGroup so cleanup() still frees
+// them in one go:
+//
+//   1. SURFACES  — the ground under each district arc is that district's own
+//                  material: polished granite, wet cracked asphalt, patterned
+//                  paving, hazard-striped concrete.
+//   2. DRESSING  — roadside props, two per node, drawn from a per-district set
+//                  and placed on alternating sides with a deterministic seed so
+//                  a district looks the same every match but not repetitive.
+//   3. LANDMARKS — one big silhouette per district, at its midpoint, readable
+//                  from the map view and from the opening flyover.
+//
+// Budget: props are boxes and cylinders at 6–8 segments. The dressing adds
+// roughly 350 meshes across 60 nodes, against ~750 already in the scene.
+
+// Deterministic pseudo-random, so a district is identical every match.
+function _seeded(n) { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); }
+
+// Nodes of a district, in lap order.
+function _districtNodes(key) {
+    return ALL_NODES_ORDERED.filter(id => CITY_GRAPH[id]?.district === key);
+}
+
+function _dressMat(color, opts = {}) {
+    return new THREE.MeshStandardMaterial({
+        color, roughness: opts.rough ?? 0.85, metalness: opts.metal ?? 0,
+        emissive: opts.emissive ?? 0x000000, emissiveIntensity: opts.ei ?? 0,
+        transparent: !!opts.opacity, opacity: opts.opacity ?? 1,
+    });
+}
+
+// ---- 1. Ground under each district ----
+//
+// A flat patch per node, laid just above the base disc, oriented along the
+// road. Cheaper and far more controllable than re-texturing the ring bands,
+// and it means the surface follows the road rather than a perfect annulus.
+function _buildDistrictSurfaces() {
+    const SURF = {
+        granite:  { col: 0x3c4250, rough: 0.35, metal: 0.25, seam: 0xa9b6c8 },
+        wet:      { col: 0x22252b, rough: 0.28, metal: 0.15, seam: 0x4d5460 },
+        paving:   { col: 0x8f7fa8, rough: 0.8,  metal: 0,    seam: 0xe6d8f2 },
+        concrete: { col: 0x6f6a5e, rough: 0.92, metal: 0,    seam: 0xd9b23a },
+    };
+    ['fin', 'ba', 'shop', 'ind'].forEach(key => {
+        const cfg = SURF[DISTRICT_BIOMES[key]?.surface];
+        if (!cfg) return;
+        const mat = _dressMat(cfg.col, { rough: cfg.rough, metal: cfg.metal });
+        const seamMat = _dressMat(cfg.seam, { rough: 0.6, opacity: 0.5 });
+        _districtNodes(key).forEach((id, i) => {
+            const pos = getPos(id).clone().setY(0);
+            const ang = _facingAngle(pos);
+            const slab = new THREE.Mesh(new THREE.PlaneGeometry(16, 13), mat);
+            slab.rotation.x = -Math.PI / 2;
+            slab.rotation.z = -ang;
+            slab.position.set(pos.x, -0.55, pos.z);
+            slab.receiveShadow = true;
+            _cityEnvGroup.add(slab);
+            // One seam line per slab, so the surface reads as laid rather than
+            // painted. Hazard chevrons in Industrial, joints everywhere else.
+            const seams = key === 'ind' ? 3 : 1;
+            for (let s = 0; s < seams; s++) {
+                const line = new THREE.Mesh(
+                    new THREE.PlaneGeometry(key === 'ind' ? 1.1 : 0.35, 12),
+                    seamMat);
+                line.rotation.x = -Math.PI / 2;
+                line.rotation.z = -ang;
+                const off = new THREE.Vector3(Math.cos(ang), 0, -Math.sin(ang))
+                    .multiplyScalar((s - (seams - 1) / 2) * 3.4);
+                line.position.set(pos.x + off.x, -0.54, pos.z + off.z);
+                _cityEnvGroup.add(line);
+            }
+            // Back Alley puddles: dark glossy discs that catch the key light.
+            if (key === 'ba' && _seeded(i * 7 + 3) > 0.45) {
+                const puddle = new THREE.Mesh(
+                    new THREE.CircleGeometry(1.1 + _seeded(i * 11) * 1.3, 14),
+                    new THREE.MeshPhysicalMaterial({ color: 0x141a22, roughness: 0.05,
+                        metalness: 0.5, transparent: true, opacity: 0.85 }));
+                puddle.rotation.x = -Math.PI / 2;
+                const out = _outwardDir(pos).multiplyScalar(2.4 + _seeded(i * 5) * 2.6);
+                puddle.position.set(pos.x + out.x, -0.53, pos.z + out.z);
+                _cityEnvGroup.add(puddle);
+            }
+        });
+    });
+}
+
+// ---- 2. Roadside props ----
+
+function _buildDistrictDressing() {
+    const MAKER = { finance: _propFinance, alley: _propAlley, market: _propMarket,
+                    works: _propWorks, civic: _propCivic };
+    Object.keys(DISTRICT_BIOMES).forEach(key => {
+        const make = MAKER[DISTRICT_BIOMES[key].props];
+        if (!make) return;
+        _districtNodes(key).forEach((id, i) => {
+            const pos = getPos(id).clone().setY(0);
+            const out = _outwardDir(pos);
+            const ang = _facingAngle(pos);
+            // Two props per node, one each side of the road. The ring already
+            // carries lamps on both sides, so it gets one and further out.
+            const sides = key === 'ring' ? [1] : [1, -1];
+            sides.forEach((s, k) => {
+                const r = _seeded(i * 31 + k * 7 + key.length * 13);
+                if (r > 0.86) return;                       // gaps, so it is not a fence
+                const dist = (key === 'ring' ? 9 : 6.2) + _seeded(i * 17 + k) * 1.6;
+                const p = pos.clone().addScaledVector(out, s * dist);
+                const g = make(r, i * 3 + k);
+                if (!g) return;
+                g.position.copy(p).setY(0);
+                g.rotation.y = ang + (s < 0 ? Math.PI : 0) + (_seeded(i + k) - 0.5) * 0.5;
+                g.traverse(o => { if (o.isMesh) o.castShadow = true; });
+                _cityEnvGroup.add(g);
+            });
+        });
+    });
+}
+
+// Financial: planters, bollard rows, and a live stock ticker.
+function _propFinance(r, seed) {
+    const g = new THREE.Group();
+    if (r < 0.34) {                                    // stone planter with a hedge
+        const box = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.9, 1.2), _dressMat(0xbfc6d1, { rough: 0.7 }));
+        box.position.y = 0.45; g.add(box);
+        const hedge = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.8, 0.95), _dressMat(0x2f6b32, { rough: 0.95 }));
+        hedge.position.y = 1.2; g.add(hedge);
+    } else if (r < 0.66) {                             // bollard row
+        for (let i = 0; i < 4; i++) {
+            const b = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.2, 1.0, 8),
+                _dressMat(0xd8dee8, { rough: 0.4, metal: 0.6 }));
+            b.position.set((i - 1.5) * 0.95, 0.5, 0); g.add(b);
+        }
+    } else {                                            // ticker board
+        const post = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.16, 3.0, 8),
+            _dressMat(0x5b6472, { rough: 0.4, metal: 0.7 }));
+        post.position.y = 1.5; g.add(post);
+        const board = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.95, 0.22), _dressMat(0x0b1220, { rough: 0.5 }));
+        board.position.y = 3.1; g.add(board);
+        const bars = [];
+        for (let i = 0; i < 7; i++) {
+            const up = _seeded(seed * 5 + i) > 0.45;
+            const bar = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.5),
+                new THREE.MeshBasicMaterial({ color: up ? 0x22c55e : 0xef4444 }));
+            bar.position.set(-1.3 + i * 0.44, 3.1, 0.13);
+            g.add(bar); bars.push(bar);
+        }
+        _cityLive.push({ kind: 'ticker', bars, seed });
+    }
+    return g;
+}
+
+// Back Alley: dumpsters, crate stacks, steam vents, flickering neon.
+function _propAlley(r, seed) {
+    const g = new THREE.Group();
+    if (r < 0.3) {                                      // dumpster
+        const body = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.4, 1.3), _dressMat(0x2f5f3a, { rough: 0.8 }));
+        body.position.y = 0.7; g.add(body);
+        const lid = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.16, 1.4), _dressMat(0x24482d, { rough: 0.8 }));
+        lid.position.set(0, 1.5, -0.1); lid.rotation.x = -0.25; g.add(lid);
+    } else if (r < 0.55) {                              // crates and a barrel
+        for (let i = 0; i < 3; i++) {
+            const s = 0.7 + _seeded(seed + i) * 0.4;
+            const c = new THREE.Mesh(new THREE.BoxGeometry(s, s, s), _dressMat(0x8a6a3c, { rough: 0.95 }));
+            c.position.set((i - 1) * 0.85, s / 2 + (i === 1 ? 0.75 : 0), _seeded(seed * 3 + i) * 0.5);
+            c.rotation.y = _seeded(seed + i * 2) * 0.7; g.add(c);
+        }
+        const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 1.1, 10),
+            _dressMat(0x7a3b22, { rough: 0.85 }));
+        barrel.position.set(1.5, 0.55, 0.2); g.add(barrel);
+    } else if (r < 0.72) {                              // steam vent
+        const grate = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.75, 0.14, 12),
+            _dressMat(0x3a3a3a, { rough: 0.7, metal: 0.5 }));
+        grate.position.y = 0.07; g.add(grate);
+        const puffs = [];
+        for (let i = 0; i < 4; i++) {
+            const puff = new THREE.Mesh(new THREE.SphereGeometry(0.55, 8, 6),
+                new THREE.MeshBasicMaterial({ color: 0xd8dde5, transparent: true,
+                    opacity: 0.0, depthWrite: false }));
+            puff.position.y = 0.3; g.add(puff); puffs.push(puff);
+        }
+        _cityLive.push({ kind: 'steam', puffs, seed, rise: 4.5, spread: 0.5 });
+    } else {                                            // neon sign on a bracket
+        const arm = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 1.4), _dressMat(0x333333, { rough: 0.6, metal: 0.5 }));
+        arm.position.set(0, 3.0, 0.7); g.add(arm);
+        const col = [0xff2d78, 0x2ddcff, 0xffd12d, 0x8b5cf6][Math.floor(_seeded(seed * 9) * 4)];
+        const tube = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.09, 6, 18),
+            new THREE.MeshBasicMaterial({ color: col }));
+        tube.position.set(0, 2.8, 1.4); g.add(tube);
+        const bar = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.13, 0.13),
+            new THREE.MeshBasicMaterial({ color: col }));
+        bar.position.set(0, 2.8, 1.4); g.add(bar);
+        _cityLive.push({ kind: 'neon', parts: [tube.material, bar.material], seed });
+    }
+    return g;
+}
+
+// Promenade: market stalls, kiosks, planters, sandwich boards.
+function _propMarket(r, seed) {
+    const g = new THREE.Group();
+    const stripe = [0xef4444, 0x22c55e, 0x3b82f6, 0xf59e0b][Math.floor(_seeded(seed * 3) * 4)];
+    if (r < 0.5) {                                      // stall with a striped awning
+        for (let i = 0; i < 4; i++) {
+            const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 2.0, 6),
+                _dressMat(0xd6d3d1, { rough: 0.6, metal: 0.3 }));
+            leg.position.set(i < 2 ? -1.1 : 1.1, 1.0, i % 2 ? -0.7 : 0.7); g.add(leg);
+        }
+        const table = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.12, 1.6), _dressMat(0xa1854f, { rough: 0.9 }));
+        table.position.y = 1.0; g.add(table);
+        // Awning: two sloped panels in the stall's colour and white.
+        [-1, 1].forEach(s => {
+            const panel = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.08, 1.05),
+                _dressMat(s > 0 ? stripe : 0xf8fafc, { rough: 0.7 }));
+            panel.position.set(0, 2.25, s * 0.5);
+            panel.rotation.x = s * 0.42; g.add(panel);
+        });
+        // Goods on the table.
+        for (let i = 0; i < 3; i++) {
+            const b = new THREE.Mesh(new THREE.SphereGeometry(0.2, 8, 6),
+                _dressMat([0xef4444, 0xfbbf24, 0x22c55e][i], { rough: 0.7 }));
+            b.position.set(-0.7 + i * 0.7, 1.2, 0); g.add(b);
+        }
+    } else if (r < 0.75) {                              // kiosk
+        const body = new THREE.Mesh(new THREE.CylinderGeometry(0.95, 1.0, 2.4, 10),
+            _dressMat(0xe8e2ee, { rough: 0.7 }));
+        body.position.y = 1.2; g.add(body);
+        const roof = new THREE.Mesh(new THREE.ConeGeometry(1.35, 0.8, 10), _dressMat(stripe, { rough: 0.7 }));
+        roof.position.y = 2.8; g.add(roof);
+        const board = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 0.7),
+            _dressMat(0xffffff, { rough: 0.5, emissive: 0xffffff, ei: 0.25 }));
+        board.position.set(0, 1.6, 1.02); g.add(board);
+    } else {                                            // planter + sandwich board
+        const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.45, 0.8, 10),
+            _dressMat(0xb08968, { rough: 0.9 }));
+        pot.position.y = 0.4; g.add(pot);
+        const bush = new THREE.Mesh(new THREE.SphereGeometry(0.7, 10, 8), _dressMat(0x2f6b32, { rough: 0.95 }));
+        bush.position.y = 1.25; bush.scale.y = 1.15; g.add(bush);
+        [-1, 1].forEach(s => {
+            const p = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.2, 0.06), _dressMat(0x6b4f2a, { rough: 0.9 }));
+            p.position.set(1.6, 0.65, s * 0.16); p.rotation.x = s * 0.22; g.add(p);
+        });
+    }
+    return g;
+}
+
+// Industrial: pipe runs, containers, cones, and a smoking stack.
+function _propWorks(r, seed) {
+    const g = new THREE.Group();
+    if (r < 0.32) {                                     // pipe run on trestles
+        const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 5.2, 10),
+            _dressMat(0x8a8f7a, { rough: 0.6, metal: 0.5 }));
+        pipe.rotation.z = Math.PI / 2; pipe.position.y = 1.35; g.add(pipe);
+        [-1.9, 1.9].forEach(x => {
+            const leg = new THREE.Mesh(new THREE.BoxGeometry(0.2, 1.35, 0.2), _dressMat(0x5c6157, { rough: 0.7, metal: 0.4 }));
+            leg.position.set(x, 0.68, 0); g.add(leg);
+        });
+        const flange = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.38, 0.2, 10),
+            _dressMat(0xb45309, { rough: 0.6, metal: 0.4 }));
+        flange.rotation.z = Math.PI / 2; flange.position.y = 1.35; g.add(flange);
+    } else if (r < 0.6) {                               // cargo containers
+        const cols = [0xb45309, 0x1d4ed8, 0x15803d, 0x991b1b];
+        for (let i = 0; i < 2; i++) {
+            const c = new THREE.Mesh(new THREE.BoxGeometry(3.4, 1.5, 1.5),
+                _dressMat(cols[Math.floor(_seeded(seed * 3 + i) * 4)], { rough: 0.85, metal: 0.2 }));
+            c.position.set(_seeded(seed + i) * 0.5, 0.75 + i * 1.55, 0);
+            c.rotation.y = (_seeded(seed * 7 + i) - 0.5) * 0.25; g.add(c);
+        }
+    } else if (r < 0.78) {                              // hazard cones and a barrier
+        for (let i = 0; i < 3; i++) {
+            const cone = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.85, 8), _dressMat(0xf97316, { rough: 0.8 }));
+            cone.position.set((i - 1) * 1.1, 0.42, _seeded(seed + i) * 0.4); g.add(cone);
+            const band = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.19, 0.14, 8), _dressMat(0xf8fafc, { rough: 0.7 }));
+            band.position.copy(cone.position).setY(0.52); g.add(band);
+        }
+    } else {                                            // smoking stack
+        const stack = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.78, 5.2, 12),
+            _dressMat(0x8a8070, { rough: 0.9 }));
+        stack.position.y = 2.6; g.add(stack);
+        [1.5, 3.2, 4.6].forEach(y => {
+            const ring = new THREE.Mesh(new THREE.TorusGeometry(0.66, 0.09, 6, 14), _dressMat(0x59544a, { rough: 0.8 }));
+            ring.position.y = y; ring.rotation.x = Math.PI / 2; g.add(ring);
+        });
+        const puffs = [];
+        for (let i = 0; i < 5; i++) {
+            const puff = new THREE.Mesh(new THREE.SphereGeometry(0.85, 8, 6),
+                new THREE.MeshBasicMaterial({ color: 0xc9ccd2, transparent: true, opacity: 0, depthWrite: false }));
+            puff.position.y = 5.2; g.add(puff); puffs.push(puff);
+        }
+        _cityLive.push({ kind: 'steam', puffs, seed, rise: 7.0, base: 5.2, spread: 1.1 });
+    }
+    return g;
+}
+
+// Ring road: the civic baseline — hedges, benches, parked cars, crossings.
+function _propCivic(r, seed) {
+    const g = new THREE.Group();
+    if (r < 0.4) {                                      // hedge run
+        const hedge = new THREE.Mesh(new THREE.BoxGeometry(3.6, 1.0, 1.0), _dressMat(0x2f6b32, { rough: 0.95 }));
+        hedge.position.y = 0.5; g.add(hedge);
+    } else if (r < 0.72) {                              // parked car
+        const cols = [0xdc2626, 0x2563eb, 0xf8fafc, 0x111827, 0x16a34a];
+        const col = cols[Math.floor(_seeded(seed * 5) * 5)];
+        const body = new THREE.Mesh(_roundedBox(3.9, 1.0, 1.7, 0.32, 4), _dressMat(col, { rough: 0.35, metal: 0.35 }));
+        body.position.y = 0.78; g.add(body);
+        const cabin = new THREE.Mesh(_roundedBox(2.0, 0.8, 1.5, 0.3, 4),
+            _dressMat(0x93c5fd, { rough: 0.15, metal: 0.2, opacity: 0.85 }));
+        cabin.position.set(-0.25, 1.5, 0); g.add(cabin);
+        [[-1.3, 0.65], [1.3, 0.65], [-1.3, -0.65], [1.3, -0.65]].forEach(([x, z]) => {
+            const w = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.38, 0.3, 10), _dressMat(0x1c1c1c, { rough: 0.9 }));
+            w.rotation.x = Math.PI / 2; w.position.set(x, 0.38, z); g.add(w);
+        });
+    } else {                                            // bench and a bin
+        g.add(_mkBench(new THREE.Vector3(0, 0, 0), 0));
+        const bin = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.3, 0.9, 10),
+            _dressMat(0x4b5563, { rough: 0.7, metal: 0.3 }));
+        bin.position.set(1.7, 0.45, 0); g.add(bin);
+    }
+    return g;
+}
+
+// ---- 3. One landmark per district ----
+//
+// Placed at the district's midpoint and set well back, so it reads as the thing
+// the district is named after from the flyover and from the map view.
+function _buildDistrictLandmarks() {
+    const BUILD = { fin: _lmExchange, ba: _lmNeonArch, shop: _lmArcade, ind: _lmCoolingTowers };
+    Object.keys(BUILD).forEach(key => {
+        const nodes = _districtNodes(key);
+        if (!nodes.length) return;
+        const mid = getPos(nodes[Math.floor(nodes.length / 2)]).clone().setY(0);
+        const g = BUILD[key]();
+        if (!g) return;
+        g.position.copy(mid).addScaledVector(_outwardDir(mid), 30).setY(0);
+        g.rotation.y = _facingAngle(mid);
+        g.traverse(o => { if (o.isMesh) o.castShadow = true; });
+        _cityEnvGroup.add(g);
+    });
+}
+
+function _lmExchange() {                                 // colonnaded exchange
+    const g = new THREE.Group();
+    const stone = _dressMat(0xd7d2c6, { rough: 0.75 });
+    const base = new THREE.Mesh(new THREE.BoxGeometry(22, 2, 13), stone);
+    base.position.y = 1; g.add(base);
+    const body = new THREE.Mesh(new THREE.BoxGeometry(19, 11, 11), stone);
+    body.position.y = 7.5; g.add(body);
+    for (let i = 0; i < 7; i++) {
+        const col = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.85, 11, 12), stone);
+        col.position.set(-8.4 + i * 2.8, 7.5, 6.2); g.add(col);
+    }
+    const ped = new THREE.Mesh(new THREE.ConeGeometry(11.5, 3.6, 4), stone);
+    ped.position.y = 14.6; ped.rotation.y = Math.PI / 4; g.add(ped);
+    // A gold arrow over the pediment: the district's own emblem.
+    const arrow = new THREE.Mesh(new THREE.ConeGeometry(1.5, 3.2, 4),
+        _dressMat(0xfbbf24, { rough: 0.3, metal: 0.7, emissive: 0xb45309, ei: 0.4 }));
+    arrow.position.y = 18.4; arrow.rotation.y = Math.PI / 4; g.add(arrow);
+    return g;
+}
+
+function _lmNeonArch() {                                 // market gate over the alley
+    const g = new THREE.Group();
+    const brick = _dressMat(0x5a2417, { rough: 0.95 });
+    [-6.5, 6.5].forEach(x => {
+        const leg = new THREE.Mesh(new THREE.BoxGeometry(2.2, 12, 2.2), brick);
+        leg.position.set(x, 6, 0); g.add(leg);
+    });
+    const span = new THREE.Mesh(new THREE.BoxGeometry(15, 2.4, 2.2), brick);
+    span.position.y = 13.2; g.add(span);
+    const signMat = new THREE.MeshBasicMaterial({ color: 0xff2d78 });
+    const sign = new THREE.Mesh(new THREE.BoxGeometry(11, 2.6, 0.3), signMat);
+    sign.position.set(0, 13.2, 1.3); g.add(sign);
+    const tubeMat = new THREE.MeshBasicMaterial({ color: 0x2ddcff });
+    for (let i = 0; i < 5; i++) {
+        const t = new THREE.Mesh(new THREE.TorusGeometry(0.7, 0.11, 6, 16), tubeMat);
+        t.position.set(-4 + i * 2, 10.6, 1.3); g.add(t);
+    }
+    // Washing lines strung between the legs — the detail that says "lived in".
+    const line = _dressMat(0x2a2a2a, { rough: 1 });
+    [8.6, 6.4].forEach((y, li) => {
+        const rope = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 13, 5), line);
+        rope.rotation.z = Math.PI / 2; rope.position.set(0, y, li ? 1.2 : -1.2); g.add(rope);
+        for (let i = 0; i < 6; i++) {
+            const cloth = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 1.3),
+                _dressMat([0xf8fafc, 0x60a5fa, 0xfbbf24, 0xf87171][i % 4],
+                          { rough: 0.9, opacity: 0.95 }));
+            cloth.material.side = THREE.DoubleSide;
+            cloth.position.set(-5 + i * 2, y - 0.75, li ? 1.2 : -1.2); g.add(cloth);
+        }
+    });
+    _cityLive.push({ kind: 'neon', parts: [signMat, tubeMat], seed: 4 });
+    return g;
+}
+
+function _lmArcade() {                                   // glass arcade with bunting
+    const g = new THREE.Group();
+    const frame = _dressMat(0xf2e9f7, { rough: 0.5 });
+    [-8, 8].forEach(x => {
+        const w = new THREE.Mesh(new THREE.BoxGeometry(1.6, 12, 10), frame);
+        w.position.set(x, 6, 0); g.add(w);
+    });
+    const glass = new THREE.Mesh(new THREE.CylinderGeometry(8.4, 8.4, 10, 20, 1, true, 0, Math.PI),
+        new THREE.MeshPhysicalMaterial({ color: 0xd8b4fe, transparent: true, opacity: 0.42,
+            roughness: 0.05, metalness: 0.2, side: THREE.DoubleSide }));
+    glass.rotation.z = Math.PI / 2; glass.rotation.y = Math.PI / 2;
+    glass.position.y = 12; g.add(glass);
+    for (let i = 0; i < 6; i++) {
+        const rib = new THREE.Mesh(new THREE.TorusGeometry(8.4, 0.16, 6, 18, Math.PI), frame);
+        rib.position.set(0, 12, -4.6 + i * 1.85); g.add(rib);
+    }
+    // Bunting between the two piers.
+    for (let i = 0; i < 11; i++) {
+        const flag = new THREE.Mesh(new THREE.ConeGeometry(0.4, 0.9, 3),
+            _dressMat([0xef4444, 0xfbbf24, 0x22c55e, 0x3b82f6][i % 4], { rough: 0.7 }));
+        const t = i / 10;
+        flag.position.set(-7.5 + t * 15, 13.2 - Math.sin(t * Math.PI) * 1.8, 5.4);
+        flag.rotation.x = Math.PI; g.add(flag);
+    }
+    return g;
+}
+
+function _lmCoolingTowers() {                            // the power plant
+    const g = new THREE.Group();
+    const shell = _dressMat(0x9c968a, { rough: 0.92 });
+    [-7.5, 7.5].forEach((x, i) => {
+        const pts = [];
+        for (let s = 0; s <= 10; s++) {
+            const t = s / 10;
+            const rr = 5.4 - Math.sin(t * Math.PI) * 2.2 + t * 1.1;
+            pts.push(new THREE.Vector2(rr, t * 18));
+        }
+        const tower = new THREE.Mesh(new THREE.LatheGeometry(pts, 18), shell);
+        tower.position.set(x, 0, i ? 2.5 : -2.5); g.add(tower);
+        const puffs = [];
+        for (let k = 0; k < 4; k++) {
+            const puff = new THREE.Mesh(new THREE.SphereGeometry(3.0, 10, 8),
+                new THREE.MeshBasicMaterial({ color: 0xdfe3e8, transparent: true, opacity: 0, depthWrite: false }));
+            puff.position.set(x, 18, i ? 2.5 : -2.5); g.add(puff); puffs.push(puff);
+        }
+        _cityLive.push({ kind: 'steam', puffs, seed: 20 + i * 3, rise: 13, base: 18,
+                         spread: 2.2, x, z: i ? 2.5 : -2.5 });
+    });
+    // A red aircraft beacon on a gantry between them.
+    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.5, 22, 8),
+        _dressMat(0x6b6f66, { rough: 0.6, metal: 0.5 }));
+    mast.position.y = 11; g.add(mast);
+    const lampMat = new THREE.MeshBasicMaterial({ color: 0xff3b30 });
+    const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.7, 10, 8), lampMat);
+    lamp.position.y = 22.4; g.add(lamp);
+    _cityLive.push({ kind: 'beacon', mat: lampMat, seed: 1 });
+    return g;
+}
+
+// ---- Motion ----
+//
+// Four cheap systems, all driven from _loop(). A city that never moves reads as
+// a diorama; these are what make it read as a place with something going on.
+const _cityLive = [];
+
+function _animateCityLife(time, dt) {
+    for (let i = 0; i < _cityLive.length; i++) {
+        const e = _cityLive[i];
+        if (e.kind === 'steam') {
+            // Puffs march up on staggered phases, fading as they rise.
+            const base = e.base ?? 0.3;
+            e.puffs.forEach((p, k) => {
+                const t = ((time * 0.32 + k / e.puffs.length + _seeded(e.seed + k)) % 1);
+                p.position.y = base + t * e.rise;
+                p.position.x = (e.x ?? 0) + Math.sin(t * 3 + k) * e.spread * t;
+                p.position.z = (e.z ?? 0) + Math.cos(t * 2.2 + k) * e.spread * t;
+                p.scale.setScalar(0.5 + t * 1.4);
+                p.material.opacity = Math.sin(t * Math.PI) * 0.34;
+            });
+        } else if (e.kind === 'neon') {
+            // Dead tubes: mostly lit, with an occasional stutter.
+            const n = _seeded(Math.floor(time * 9) + e.seed);
+            const on = n > 0.12 ? 1 : 0.15;
+            e.parts.forEach(m => { m.opacity = on; m.transparent = on < 1; });
+        } else if (e.kind === 'ticker') {
+            // Bars step every ~0.9 s, so the board is always saying something.
+            const step = Math.floor(time / 0.9);
+            e.bars.forEach((bar, k) => {
+                const v = _seeded(step + e.seed * 3 + k * 11);
+                bar.scale.y = 0.4 + v * 1.3;
+                bar.material.color.setHex(v > 0.45 ? 0x22c55e : 0xef4444);
+            });
+        } else if (e.kind === 'beacon') {
+            const b = (Math.sin(time * 2.4) + 1) * 0.5;
+            e.mat.color.setRGB(1, 0.15 + b * 0.1, 0.1 + b * 0.08);
+        }
+    }
 }
 
 export function cleanup() {
     if (_cityEnvGroup) { scene?.remove(_cityEnvGroup); _cityEnvGroup = null; }
+    _cityLive.length = 0;
     if (_CM) { Object.values(_CM).forEach(m => { try { m.dispose?.(); } catch(e){} }); _CM = null; }
     Object.values(textureCache).forEach(t => t.dispose());
     Object.keys(textureCache).forEach(k => delete textureCache[k]);

@@ -748,8 +748,16 @@ const GL = ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=swiftshader',
             const GC = await import('/src/core/GameController.js');
             const R  = await import('/src/engine/Renderer.js');
             state.activePlayer = 0;
+            // Clear the bounties first. Landing on a duel fires
+            // _checkContract(p,'land_type','duel'), and if the live board
+            // happens to be holding that card it pays out between setting the
+            // coin count and the picker appearing — which made this assertion
+            // read 14 on some runs and 3 on others. The stake is a DELTA; the
+            // absolute total is not this probe's business.
+            state.activeContracts = [];
             state.players[0].coins = mine;
             state.players[1].coins = theirs;
+            window.__coinsBefore = mine;
             state.players[0].pos = 'r5'; state.players[0].mesh.position.copy(R.getPos('r5'));
             state.board['r5'] = { type: 'duel' };
             state.gameState = 'MOVING';
@@ -767,6 +775,7 @@ const GL = ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=swiftshader',
                 const out = document.getElementById('btn-duel-skip');
                 return {
                     coins: state.players.map(p => p.coins),
+                    gained: state.players[0].coins - window.__coinsBefore,
                     bets: all.length,
                     enabled: all.filter(b => !b.disabled).length,
                     exit: !!out && out.offsetParent !== null,
@@ -782,7 +791,8 @@ const GL = ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=swiftshader',
     ok('duel: landing on the ring while broke still opens the bet picker',
         !!brokeLander, brokeLander ? '' : 'duel modal never appeared');
     ok('duel: and hands the lander a stake to bet with',
-        !!brokeLander && brokeLander.coins[0] === 3, JSON.stringify(brokeLander && brokeLander.coins));
+        !!brokeLander && brokeLander.gained === 3,
+        brokeLander ? `+${brokeLander.gained} coins on arrival` : 'no modal');
     ok('duel: so at least one bet is actually affordable',
         !!brokeLander && brokeLander.enabled > 0,
         brokeLander ? `${brokeLander.enabled}/${brokeLander.bets} enabled` : 'n/a');

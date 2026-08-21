@@ -6,7 +6,7 @@ import {
     DISTRICT_HQ_FIRST_BONUS, DISTRICT_HQ_REVISIT_BONUS,
     FULL_CIRCUIT_BONUSES,
     ALLIES, BA_DISCOUNT, GRAND_MALL_DISCOUNT,
-    ALL_CHAR_TYPES, HQ_META, CHAR_ICONS, CHAR_NAMES,
+    ALL_CHAR_TYPES, HQ_META, CHAR_ICONS, CHAR_NAMES, DISTRICT_BIOMES,
     CITY_LENGTHS, CITY_DEFAULT_ROUNDS, HBD_LENGTHS,
     buildHbdConfig, setHbdRealmCount, HBD_DEFAULT_CONFIG, HBD_FINISH_BONUS,
     hbdSpaceLabel, hbdShopKey, getRealmForSpace,
@@ -248,6 +248,7 @@ export function startGame() {
     Director.reset();          // no beat from a previous match may fire into this one
     _gateFromTurnStart = false;
     _pendingStepsAfterGate = 0;
+    _buddyRemindedRound = -1;
     state.gameStarted = true;
     _savePrefs();
     if (state.playStyle === 'tabletop') document.body.classList.add('tabletop-mode');
@@ -261,6 +262,7 @@ export function startGame() {
         state.activePlayer = Math.floor(Math.random() * 2);
         resetPlayers();
         UIManager.resetTurnAnnouncer();   // a new match announces its first turn
+        UIManager.resetForkPrimer();      // ...and explains its first fork
         if (state.selectedMap === 'hundred_block_dash') {
             state.hbd = buildHbdConfig(state.hbdLength);
             setHbdRealmCount(state.hbd.realmCount);
@@ -366,6 +368,7 @@ export function startPreRoll() {
     // to miss coming back from a minigame. Only fires when the turn actually
     // changed hands, so a BOOST re-roll does not re-announce the same player.
     UIManager.announceTurnIfChanged(state.activePlayer);
+    _remindBuddyAtRoundStart();
     UIManager.flushToasts();     // nothing queued mid-move may be stranded
     state.rollAgainPending = false;
     state.rollAgainSamePlayer = false;
@@ -548,6 +551,12 @@ function _noteDistrictEntry(player, nodeId) {
     if (player._lastDistrictEntered === dist) return;
     player._lastDistrictEntered = dist;
     _checkContract(player, 'enter_district', dist);
+    // Say where you have arrived. Turning off the ring into a district is the
+    // one deliberate journey a player makes on this board, and it used to
+    // happen in silence — the sky changed colour and that was the whole
+    // announcement. Hundred Block Dash has announced its realms since the
+    // story pass; this is the same banner, reused.
+    UIManager.showRealmBanner(DISTRICT_BIOMES[dist]);
 }
 
 function _checkPassThroughShop(player, nodeId, stepsLeft, continueMove) {
@@ -611,6 +620,18 @@ function _checkPassThroughShop(player, nodeId, stepsLeft, continueMove) {
         }
         UIManager.toast(`🥷 You brushed past ${opp.name} — go for a Buddy?`, '#f97316', { urgent: true });
         _offerAllySteal(player, opp, resume);
+        return;
+    }
+
+    // Same rule for the buddy waiting on the board: walking past the BUDDY
+    // SPACE is enough to challenge for them. Landing exactly on one node out of
+    // sixty, in the handful of rounds a buddy is out there, meant most matches
+    // never offered the encounter at all — the buddy report told you where they
+    // were and then the dice decided whether you were allowed to go.
+    if (stepsLeft > 0 && state.allyOnMap && state.allyOnMap.nodeId === nodeId) {
+        state.gameState = 'ACKNOWLEDGE';
+        const resume = () => { state.gameState = 'MOVING'; thenShop(); };
+        _offerAllyEncounter(player, resume);
         return;
     }
 
@@ -1328,6 +1349,30 @@ function _onRoundEnd() {
     } else if (!state.allyOnMap) {
         spawnAlly();
     }
+}
+
+// The buddy report is a card at the CLOSE of a round, which is the right place
+// for it — that is when a buddy arrives and when the clock ticks. But a round is
+// several turns long, and by the time you are actually rolling, the card that
+// told you a buddy was two rounds from leaving is well behind you.
+//
+// So the first roll of each round also says it, once, as a toast. Cheap enough
+// to fire every round, short enough not to gate anything, and urgent so it is
+// not queued behind whatever the last turn left in the rail.
+let _buddyRemindedRound = -1;
+function _remindBuddyAtRoundStart() {
+    if (state.selectedMap === 'hundred_block_dash') return;
+    if (!state.allyOnMap) return;
+    if (_buddyRemindedRound === state.currentRound) return;
+    _buddyRemindedRound = state.currentRound;
+    const b = ALLIES[state.allyOnMap.allyType];
+    if (!b) return;
+    const left  = state.allyOnMap.roundsLeft ?? BUDDY_MAP_ROUNDS;
+    const where = DISTRICT_NAMES[CITY_GRAPH[state.allyOnMap.nodeId]?.district] || 'the city';
+    UIManager.toast(
+        left <= 1 ? `${b.icon} ${b.name} leaves the ${where} after this round!`
+                  : `${b.icon} ${b.name} is waiting in the ${where} — ${left} rounds left.`,
+        left <= 1 ? '#fca5a5' : '#fbbf24', { urgent: true });
 }
 
 // Everything the round report needs to say, gathered in one place so the card

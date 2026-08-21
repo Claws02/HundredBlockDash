@@ -319,6 +319,7 @@ function _wireBranchChoiceEvents() {
 // view and brings them straight back here afterwards.
 
 let _junction = null;   // { junctionId, fromNodeId, options, frame }
+let _seenAFork = false; // the primer under the banner shows once per match
 
 export function showJunctionArrows(junctionId, fromNodeId, options, stepsLeft) {
     const layer = document.getElementById('junction-layer');
@@ -341,6 +342,19 @@ export function showJunctionArrows(junctionId, fromNodeId, options, stepsLeft) {
 
     document.getElementById('junction-banner').textContent =
         `${state.players[state.activePlayer].name.toUpperCase()} — CHOOSE YOUR ROAD`;
+
+    // The first fork of a match can land on turn one: players start on r1, r5
+    // feeds bp_b, so a roll of 5 or 6 reaches a junction before anyone has taken
+    // an ordinary turn. That is the rule working, but arriving cold — straight
+    // out of the briefing into a full-screen decision — is what reads as "the
+    // junction scene popped up at the start of the match". Naming it the first
+    // time turns a surprise into an instruction.
+    const primer = document.getElementById('junction-primer');
+    if (primer) {
+        const first = !_seenAFork;
+        _seenAFork = true;
+        primer.style.display = first ? '' : 'none';
+    }
 
     // How far the roll still carries you. A fork is a choice about which run of
     // tiles to spend the REST of the roll on, and that number was nowhere on
@@ -879,6 +893,9 @@ export function announceTurnIfChanged(playerIdx) {
     return true;
 }
 
+// A new match has not seen a fork yet, so the primer is due again.
+export function resetForkPrimer() { _seenAFork = false; }
+
 export function resetTurnAnnouncer() { _lastAnnouncedTurn = -1; }
 
 // ---- Toasts ----
@@ -1192,7 +1209,13 @@ function _wireMapEvents() {
             // four coins, or that it is exactly one 6 away.
             const effect = _spaceEffectText(addr, type);
             const dist   = _distanceText(addr);
+            // While a buddy is standing beside a tile, that tile IS the buddy
+            // space — the one square on the board worth routing towards — so
+            // scouting has to say so, not just report whatever it normally is.
+            const buddyHere = state.allyOnMap && state.allyOnMap.nodeId === addr
+                ? ALLIES[state.allyOnMap.allyType] : null;
             tt.innerHTML =
+                (buddyHere ? `<span class="map-buddy">🤝 BUDDY SPACE · ${buddyHere.name}</span><br>` : '') +
                 `<span style="color:#${cStr}">${title}</span>` +
                 `<br><span class="map-dist">${sub}</span>` +
                 (effect ? `<br><span class="map-effect">${effect}</span>` : '') +
