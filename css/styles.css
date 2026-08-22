@@ -2215,3 +2215,17 @@ body:not(.tabletop-mode) #turn-banner.tb-show .tb-bottom { transform: translate(
 #ally-arrival.dual-mode .aa-where { font-size: 10.5px; }
 #ally-arrival.dual-mode .aa-race  { font-size: 9px; }
 #ally-arrival .btn-close { width: 100%; }
+
+/* District copy — the tagline says what the place IS, the lore says what it is
+   like to be there. Both live in DISTRICT_BIOMES with the colours and props, so
+   the writing and the place cannot drift apart. */
+.cb-lore {
+    display: block; margin-top: 3px;
+    font-family: 'Nunito', system-ui, sans-serif; font-size: 10.5px; line-height: 1.4;
+    color: rgba(255,255,255,.55); font-style: italic;
+}
+#realm-banner .rb-lore {
+    font-family: 'Nunito', system-ui, sans-serif; font-size: 11px; line-height: 1.4;
+    color: rgba(255,255,255,.62); max-width: 300px; margin-top: 4px;
+    text-align: center;
+}

@@ -131,9 +131,17 @@ const GL = ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=swiftshader',
             // supposed to lie under the road.
             if (['PlaneGeometry', 'CircleGeometry', 'RingGeometry'].includes(o.geometry.type)) return;
             o.getWorldPosition(wp);
-            if (wp.y > 8) return;                        // buildings set back and up
+            // Overhead spans — ticker arches, pipe bridges, bunting, washing
+            // lines — are deliberately ABOVE the road: passing under one is the
+            // whole point of them. The tallest character is about 2.4 units, so
+            // anything clearing 3.4 cannot be walked into.
+            if (wp.y > 3.4) return;
             for (const n of nodes) {
-                if (Math.hypot(wp.x - n.p.x, wp.z - n.p.z) < 2.4) {
+                // A tile is about 2 units across and a token about 1.2 wide, so
+                // 1.8 from the centre is the line between "on the square" and
+                // "beside it". A span leg 2.4 units off the kerb of a node on the
+                // inside of a bend is street furniture, not an obstruction.
+                if (Math.hypot(wp.x - n.p.x, wp.z - n.p.z) < 1.8) {
                     bad.push(`${n.id}:${o.geometry.type}@y${wp.y.toFixed(1)}`);
                     return;
                 }
@@ -142,8 +150,51 @@ const GL = ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=swiftshader',
         return { found: true, bad };
     });
     ok('dressing: the scenery group is identifiable', onRoad.found);
-    ok('dressing: no prop is standing on a playable square',
+    ok('dressing: nothing blocks a playable square at token height',
         onRoad.bad.length === 0, `${onRoad.bad.length}: ${onRoad.bad.slice(0, 5).join(', ')}`);
+
+    // ...and the spans really are spans: something over the middle of the road,
+    // high enough to walk under, in every district.
+    const spans = await page.evaluate(async () => {
+        const R = await import('/src/engine/Renderer.js');
+        const { ALL_NODES_ORDERED, CITY_GRAPH } = await import('/src/config/BoardGraph.js');
+        let env = null;
+        R.getScene().traverse(o => { if (o.name === 'cityEnv') env = o; });
+        const out = {};
+        const wp = new THREE.Vector3();
+        ['ring', 'fin', 'ba', 'shop', 'ind'].forEach(k => {
+            const ns = ALL_NODES_ORDERED.filter(id => CITY_GRAPH[id]?.district === k)
+                .map(id => R.getPos(id).clone().setY(0));
+            let over = 0, top = 0;
+            env.traverse(o => {
+                if (!o.isMesh) return;
+                o.getWorldPosition(wp);
+                if (wp.y < 4 || wp.y > 12) return;
+                for (const n of ns) {
+                    if (Math.hypot(wp.x - n.x, wp.z - n.z) < 3.5) { over++; top = Math.max(top, wp.y); return; }
+                }
+            });
+            out[k] = { over, top: +top.toFixed(1) };
+        });
+        return out;
+    });
+    ok('overheads: every district has something you pass underneath',
+        keys.every(k => spans[k].over >= 3 && spans[k].top >= 5),
+        keys.map(k => `${k}:${spans[k].over}@${spans[k].top}u`).join(' '));
+
+    // Light is the reason four roads used to read as one. Each district needs
+    // its own lamp; a scene lit by one global rig cannot look like anywhere.
+    const lights = await page.evaluate(async () => {
+        const R = await import('/src/engine/Renderer.js');
+        const out = [];
+        R.getScene().traverse(o => {
+            if (o.isPointLight) out.push({ c: o.color.getHexString(), i: +o.intensity.toFixed(2) });
+        });
+        return out;
+    });
+    ok('light: the districts are lit by their own lamps, not one global rig',
+        lights.length >= 6 && new Set(lights.map(l => l.c)).size >= 4,
+        `${lights.length} point lights, ${new Set(lights.map(l => l.c)).size} colours`);
 
     // ---------------------------------------------------------------
     // 3. A landmark per district, and it is big.
@@ -262,18 +313,28 @@ const GL = ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=swiftshader',
         await page.evaluate(async (n) => {
             const R = await import('/src/engine/Renderer.js');
             const { state } = await import('/src/core/GameState.js');
+            const { ALL_NODES_ORDERED } = await import('/src/config/BoardGraph.js');
             state.cameraState = 'CINEMATIC';
             const at = R.getPos(n).clone().setY(0);
-            const out = at.clone().normalize();
+            // DOWN THE ROAD, which is the only angle that shows what a player
+            // actually sees. Looking in from the centre photographs the backs of
+            // things; looking in from outside photographs a wall. Standing back
+            // along the road and looking along it frames the span you walk under
+            // and the props down both kerbs.
+            const i = ALL_NODES_ORDERED.indexOf(n);
+            const prev = ALL_NODES_ORDERED[(i - 2 + ALL_NODES_ORDERED.length) % ALL_NODES_ORDERED.length];
+            const dir = at.clone().sub(R.getPos(prev).clone().setY(0)).normalize();
             const cam = R.getCamera();
-            // From the INSIDE of the ring looking out. The district buildings sit
-            // twelve units outward, so a camera placed outward at 26 is behind
-            // (and often inside) them, and the first pass photographed a wall.
-            cam.position.copy(at).addScaledVector(out, -34).setY(26);
-            cam.lookAt(at.x, 1.5, at.z);
+            cam.position.copy(at).addScaledVector(dir, -19).setY(8.5);
+            cam.lookAt(at.x + dir.x * 10, 2.2, at.z + dir.z * 10);
         }, node);
         await page.waitForTimeout(500);
+        // HUD off for the wide shot: the action column owns the right half of
+        // the screen, and these images exist to show the world, not the buttons.
+        await page.evaluate(() => { document.getElementById('ui-layer').style.display = 'none'; });
+        await page.waitForTimeout(150);
         await page.screenshot({ path: path.join(__dirname, `shot-district-${key}-wide.png`) });
+        await page.evaluate(() => { document.getElementById('ui-layer').style.display = 'block'; });
         await page.evaluate(async () => {
             const { state } = await import('/src/core/GameState.js');
             state.cameraState = 'FOLLOW';
