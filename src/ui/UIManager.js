@@ -649,16 +649,22 @@ export function showCityBriefing(onDone) {
 
     // One card per road you can actually choose, in lap order, so the briefing
     // reads in the same order the junctions will come at you.
+    // The briefing is where a player decides what kind of match they want, so
+    // each road gets its own STORY line rather than a mechanical blurb. The
+    // taglines live with the district in DISTRICT_BIOMES, next to the colours
+    // and the props, so the copy and the place can never drift apart.
     const rows = [
-        { icon: '🛣️', name: 'Ring Road', spaces: 20,
-          desc: 'The short way round. Steady coins, one Truce, few surprises.' },
+        { icon: DISTRICT_BIOMES.ring.icon, name: DISTRICT_BIOMES.ring.name, spaces: 20,
+          desc: DISTRICT_BIOMES.ring.tagline, lore: DISTRICT_BIOMES.ring.lore },
         ...DISTRICT_KEYS.map(k => {
             const opt = Object.values(BRANCH_OPTIONS).flat().find(o => o.district === k);
+            const b = DISTRICT_BIOMES[k] || {};
             return {
-                icon: opt?.icon || '⬤',
-                name: DISTRICT_NAMES[k] || k,
+                icon: b.icon || opt?.icon || '⬤',
+                name: b.name || DISTRICT_NAMES[k] || k,
                 spaces: opt?.spaces || 0,
-                desc: opt?.desc || '',
+                desc: b.tagline || opt?.desc || '',
+                lore: b.lore || '',
                 hq: HQ_META[k]?.name,
             };
         }),
@@ -669,6 +675,7 @@ export function showCityBriefing(onDone) {
             <span class="cb-body">
                 <span class="cb-name bfont">${r.name}</span>
                 <span class="cb-desc">${r.desc}</span>
+                ${r.lore ? `<span class="cb-lore">${r.lore}</span>` : ''}
                 ${r.hq ? `<span class="cb-hq">🏛️ ${r.hq} at the far end — coins for passing it</span>` : ''}
             </span>
             <span class="cb-len bfont">${r.spaces}</span>
@@ -824,7 +831,9 @@ export function showRealmBanner(realm) {
     const el = document.getElementById('realm-banner');
     if (!el || !realm) return;
     el.innerHTML = DualRead.dualHTML(
-        `<div class="rb-ic">${realm.icon}</div><div class="rb-name">${realm.name}</div><div class="rb-tag">${realm.tagline || ''}</div>`);
+        `<div class="rb-ic">${realm.icon}</div><div class="rb-name">${realm.name}</div>`
+        + `<div class="rb-tag">${realm.tagline || ''}</div>`
+        + (realm.lore ? `<div class="rb-lore">${realm.lore}</div>` : ''));
     el.style.display = 'flex';
     el.style.animation = 'none'; void el.offsetWidth; el.style.animation = '';
     clearTimeout(el._hideTimer);

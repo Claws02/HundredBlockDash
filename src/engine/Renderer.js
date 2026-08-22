@@ -683,8 +683,12 @@ export function init(container) {
     container.appendChild(renderer.domElement);
 
     // 3-light rig
-    scene.add(new THREE.AmbientLight(isHBD ? 0x9977bb : 0xfff0d0, isHBD ? 0.52 : 1.2));
-    const sun = new THREE.DirectionalLight(isHBD ? 0xfff4d0 : 0xfff8e8, isHBD ? 1.05 : 2.0);
+    // City ambient was 1.2 — so high that every surface came back the same flat
+    // value and the four districts differed only in the colour of the sky. The
+    // per-district light rigs (_buildDistrictLights) supply the local colour;
+    // the global fill only has to keep shadows from going black.
+    scene.add(new THREE.AmbientLight(isHBD ? 0x9977bb : 0xdfe6f0, isHBD ? 0.52 : 0.75));
+    const sun = new THREE.DirectionalLight(isHBD ? 0xfff4d0 : 0xfff8e8, isHBD ? 1.05 : 1.55);
     sun.position.set(isHBD ? 20 : 60, 60, isHBD ? 30 : -30); sun.castShadow = true;
     sun.shadow.camera.left = sun.shadow.camera.bottom = isHBD ? -30 : -100;
     sun.shadow.camera.right = sun.shadow.camera.top = isHBD ? 30 : 100;
@@ -2562,7 +2566,57 @@ function _mkSkyscraper(pos, isHQ) {
         band.position.y = b * 3; grp.add(band);
     }
 
+    // LIT WINDOWS. Without these the Financial District is a dark canyon: the
+    // towers are tall, they stand on both sides of a narrow road, and there is
+    // no global illumination to bounce anything back down. A grid of emissive
+    // panes is what makes a stylised glass tower read as an office tower rather
+    // than as a black slab, and it is the only light the district gets at street
+    // level from its own buildings.
+    const lit  = new THREE.MeshBasicMaterial({ color: 0xffe9b0 });
+    const cool = new THREE.MeshBasicMaterial({ color: 0x9fd8ff });
+    const cols = Math.max(2, Math.round(w / 1.5));
+    for (let b = 1; b < bandCount; b++) {
+        for (let c = 0; c < cols; c++) {
+            const r = _seeded(s * 3 + b * 11 + c * 7);
+            if (r > 0.62) continue;                 // most panes are dark
+            const pane = new THREE.Mesh(new THREE.PlaneGeometry(w / cols * 0.55, 1.5),
+                                        r > 0.34 ? cool : lit);
+            pane.position.set(-w / 2 + (c + 0.5) * (w / cols), b * 3 - 1.4, d / 2 + 0.03);
+            grp.add(pane);
+            // And the same on the back face, so a tower reads from both sides.
+            const back = pane.clone();
+            back.position.z = -d / 2 - 0.03; back.rotation.y = Math.PI;
+            grp.add(back);
+        }
+    }
+    // A red aircraft light on the taller ones.
+    if (h > 22) {
+        const lampMat = new THREE.MeshBasicMaterial({ color: 0xff3b30 });
+        const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.32, 8, 6), lampMat);
+        lamp.position.y = h * (isHQ ? 1.62 : 1.5); grp.add(lamp);
+        _cityLive.push({ kind: 'beacon', mat: lampMat, seed: s });
+    }
+
     return grp;
+}
+
+// Lit-window grid shared by the brick and factory builders. A district lit only
+// from above reads as a set; windows are what make it read as a place with
+// people in it.
+function _addLitWindows(grp, w, h, d, seed, warm = 0xffd07a, chance = 0.45) {
+    const lit = new THREE.MeshBasicMaterial({ color: warm });
+    const dark = new THREE.MeshBasicMaterial({ color: 0x141821 });
+    const cols = Math.max(2, Math.round(w / 1.8));
+    const rows = Math.max(1, Math.floor(h / 3));
+    for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+            const on = _seeded(seed * 5 + r * 13 + c * 3) < chance;
+            const pane = new THREE.Mesh(new THREE.PlaneGeometry(w / cols * 0.5, 1.2),
+                                        on ? lit : dark);
+            pane.position.set(-w / 2 + (c + 0.5) * (w / cols), 2.0 + r * 3, d / 2 + 0.04);
+            grp.add(pane);
+        }
+    }
 }
 
 function _mkBrickBuilding(pos, isHQ) {
@@ -2609,6 +2663,8 @@ function _mkBrickBuilding(pos, isHQ) {
         }
         grp.add(escGrp);
     }
+
+    _addLitWindows(grp, w, h, d, Math.abs(Math.round(pos.x * 5 + pos.z * 11)) % 100, 0xffc46a, 0.4);
 
     return grp;
 }
@@ -2803,6 +2859,303 @@ function _buildCityScene() {
     _buildDistrictSurfaces();
     _buildDistrictDressing();
     _buildDistrictLandmarks();
+    _buildDistrictLights();
+    _buildOverheads();
+    _buildDistrictMotes();
+}
+
+// ---- 4. Light ----
+//
+// The single biggest reason the districts read as one road: there was one light
+// rig for the whole city, ambient turned up to 1.2, and every surface came back
+// the same flat value. Colour lived only in the sky gradient, which you cannot
+// see from a follow camera aimed at the ground.
+//
+// Each district now has its own lamp hung over the middle of its arc, in its own
+// colour, plus an optional warm bounce at street height — the Exchange's tickers,
+// the alley's neon, the furnace glow. Four point lights and four bounces is
+// nothing next to the shadow-casting sun that was already there.
+function _buildDistrictLights() {
+    Object.keys(DISTRICT_BIOMES).forEach(key => {
+        const cfg = DISTRICT_BIOMES[key].light;
+        if (!cfg || !cfg.intensity) return;
+        const nodes = _districtNodes(key);
+        if (!nodes.length) return;
+        // Two lamps for a long district, one for a short one, so the far end of
+        // the Back Alley is not left in the dark.
+        const picks = nodes.length >= 9
+            ? [nodes[Math.floor(nodes.length * 0.28)], nodes[Math.floor(nodes.length * 0.72)]]
+            : [nodes[Math.floor(nodes.length / 2)]];
+        picks.forEach(id => {
+            const at = getPos(id).clone().setY(0);
+            const lamp = new THREE.PointLight(cfg.color, cfg.intensity / picks.length,
+                                              cfg.radius, 1.8);
+            lamp.position.set(at.x, cfg.height, at.z);
+            _cityEnvGroup.add(lamp);
+            if (cfg.bounce) {
+                const b = new THREE.PointLight(cfg.bounce, cfg.bounceI / picks.length,
+                                               cfg.radius * 0.55, 2.0);
+                b.position.set(at.x, 2.4, at.z);
+                _cityEnvGroup.add(b);
+            }
+        });
+    });
+}
+
+// ---- 5. Overhead structures ----
+//
+// The one element that makes a road feel like a PLACE rather than a surface:
+// something you pass underneath. Every district gets a span across its road at
+// two points along its length, and each span is the district's own story told in
+// one object — a stock board, a washing line under dead neon, a bunting arch, a
+// pipe bridge.
+function _buildOverheads() {
+    const SPAN = { fin: _spanTickerArch, ba: _spanLaundry, shop: _spanBunting,
+                   ind: _spanPipeBridge, ring: _spanGantrySign };
+    Object.keys(SPAN).forEach(key => {
+        const nodes = _districtNodes(key);
+        if (nodes.length < 3) return;
+        const at = key === 'ring'
+            ? [nodes[3], nodes[11]]
+            : [nodes[1], nodes[Math.max(2, nodes.length - 2)]];
+        at.forEach((id, i) => {
+            if (!id) return;
+            const pos = getPos(id).clone().setY(0);
+            const g = SPAN[key](i);
+            if (!g) return;
+            g.position.copy(pos);
+            // +PI/2 against the building convention. _facingAngle() rotates so
+            // local +Z points at the city centre, which is what a BUILDING wants
+            // — it faces the road. A SPAN has to straddle the road, so its legs
+            // belong on the inward/outward axis: without the quarter turn the
+            // legs stood on the tiles ahead of and behind the node and the deck
+            // ran along the road instead of over it. The quarter turn also puts
+            // every sign face down the road, where an approaching player sees it.
+            g.rotation.y = _facingAngle(pos) + Math.PI / 2;
+            g.traverse(o => { if (o.isMesh) o.castShadow = true; });
+            _cityEnvGroup.add(g);
+        });
+    });
+}
+
+// A pair of legs either side of the road, at ±SPAN_HALF, with a deck across.
+const SPAN_HALF = 7.4;
+
+function _spanLegs(g, mat, height, thick = 0.55) {
+    [-SPAN_HALF, SPAN_HALF].forEach(x => {
+        const leg = new THREE.Mesh(new THREE.BoxGeometry(thick, height, thick), mat);
+        leg.position.set(x, height / 2, 0);
+        g.add(leg);
+    });
+}
+
+function _spanTickerArch(i) {                    // Financial: the boards overhead
+    const g = new THREE.Group();
+    const steel = _dressMat(0xb8c2cf, { rough: 0.35, metal: 0.7 });
+    _spanLegs(g, steel, 8.4, 0.6);
+    const deck = new THREE.Mesh(new THREE.BoxGeometry(SPAN_HALF * 2 + 1.2, 0.5, 1.0), steel);
+    deck.position.y = 8.4; g.add(deck);
+    const face = new THREE.Mesh(new THREE.BoxGeometry(SPAN_HALF * 2, 1.9, 0.28),
+        _dressMat(0x080d16, { rough: 0.45 }));
+    face.position.set(0, 7.2, 0.62); g.add(face);
+    const bars = [];
+    for (let k = 0; k < 16; k++) {
+        const bar = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 1.1),
+            new THREE.MeshBasicMaterial({ color: 0x22c55e }));
+        bar.position.set(-SPAN_HALF + 0.75 + k * 0.94, 7.2, 0.78);
+        g.add(bar); bars.push(bar);
+    }
+    _cityLive.push({ kind: 'ticker', bars, seed: 90 + i * 5 });
+    // A gold band under the deck picks the district's colour out at night.
+    const band = new THREE.Mesh(new THREE.BoxGeometry(SPAN_HALF * 2 + 1.2, 0.16, 1.02),
+        new THREE.MeshBasicMaterial({ color: 0xfbbf24 }));
+    band.position.y = 8.1; g.add(band);
+    return g;
+}
+
+function _spanLaundry(i) {                       // Back Alley: lines and dead neon
+    const g = new THREE.Group();
+    const brick = _dressMat(0x4a2018, { rough: 0.95 });
+    // Two tenement walls right at the kerb, so the alley is enclosed.
+    [-1, 1].forEach(sgn => {
+        const wall = new THREE.Mesh(new THREE.BoxGeometry(1.4, 13, 11), brick);
+        wall.position.set(sgn * (SPAN_HALF + 0.7), 6.5, 0); g.add(wall);
+        // Fire escape: three landings and their rails.
+        for (let f = 0; f < 3; f++) {
+            const deck = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.16, 3.2),
+                _dressMat(0x2c2c2c, { rough: 0.6, metal: 0.55 }));
+            deck.position.set(sgn * (SPAN_HALF - 0.6), 3.4 + f * 3.1, 0); g.add(deck);
+            const rail = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.9, 3.2),
+                _dressMat(0x2c2c2c, { rough: 0.6, metal: 0.55 }));
+            rail.position.set(sgn * (SPAN_HALF - 1.3), 3.9 + f * 3.1, 0); g.add(rail);
+        }
+        // Lit window squares up the wall — the cheapest "people live here".
+        for (let w = 0; w < 5; w++) {
+            const lit = _seeded(i * 13 + w + (sgn > 0 ? 7 : 0)) > 0.45;
+            const win = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 1.1),
+                new THREE.MeshBasicMaterial({ color: lit ? 0xffd88a : 0x14171f }));
+            win.position.set(sgn * (SPAN_HALF - 0.05), 4.5 + w * 1.9, -3.4 + (w % 2) * 6.8);
+            win.rotation.y = sgn > 0 ? -Math.PI / 2 : Math.PI / 2;
+            g.add(win);
+        }
+    });
+    // Three washing lines across, sagging.
+    const rope = _dressMat(0x1e1e1e, { rough: 1 });
+    [7.2, 9.6, 11.4].forEach((y, li) => {
+        const line = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, SPAN_HALF * 2, 5), rope);
+        line.rotation.z = Math.PI / 2;
+        line.position.set(0, y, -2 + li * 2); g.add(line);
+        for (let k = 0; k < 7; k++) {
+            const t = (k + 0.5) / 7;
+            const cloth = new THREE.Mesh(new THREE.PlaneGeometry(0.95, 1.4),
+                _dressMat([0xf1f5f9, 0x60a5fa, 0xfbbf24, 0xf87171, 0x86efac][(k + li) % 5], { rough: 0.9 }));
+            cloth.material.side = THREE.DoubleSide;
+            cloth.position.set(-SPAN_HALF + t * SPAN_HALF * 2,
+                               y - 0.8 - Math.sin(t * Math.PI) * 0.5, -2 + li * 2);
+            g.add(cloth);
+        }
+    });
+    // A dead neon sign hanging over the middle of the road.
+    const col = [0xff2d78, 0x35e0ff, 0xa855f7][i % 3];
+    const signMat = new THREE.MeshBasicMaterial({ color: col });
+    const sign = new THREE.Mesh(new THREE.BoxGeometry(4.6, 1.5, 0.22), signMat);
+    sign.position.set(0, 5.6, 1.2); g.add(sign);
+    const tubeMat = new THREE.MeshBasicMaterial({ color: 0xfff3a0 });
+    for (let k = 0; k < 3; k++) {
+        const t = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.1, 6, 14), tubeMat);
+        t.position.set(-1.3 + k * 1.3, 4.2, 1.2); g.add(t);
+    }
+    _cityLive.push({ kind: 'neon', parts: [signMat, tubeMat], seed: 30 + i * 3 });
+    return g;
+}
+
+function _spanBunting(i) {                       // Promenade: the parade arch
+    const g = new THREE.Group();
+    const pole = _dressMat(0xf5eaf8, { rough: 0.5 });
+    _spanLegs(g, pole, 7.6, 0.4);
+    [-SPAN_HALF, SPAN_HALF].forEach(x => {
+        const finial = new THREE.Mesh(new THREE.SphereGeometry(0.45, 12, 10),
+            _dressMat(0xfbbf24, { rough: 0.3, metal: 0.6 }));
+        finial.position.set(x, 8.0, 0); g.add(finial);
+    });
+    // Three swags of bunting at different depths, each a catenary of triangles.
+    const cols = [0xef4444, 0xfbbf24, 0x22c55e, 0x3b82f6, 0xf472b6];
+    [0, 1, 2].forEach(row => {
+        for (let k = 0; k < 13; k++) {
+            const t = k / 12;
+            const flag = new THREE.Mesh(new THREE.ConeGeometry(0.34, 0.85, 3),
+                _dressMat(cols[(k + row) % 5], { rough: 0.65 }));
+            flag.position.set(-SPAN_HALF + t * SPAN_HALF * 2,
+                              7.2 - Math.sin(t * Math.PI) * 1.7 - row * 0.15,
+                              -2.2 + row * 2.2);
+            flag.rotation.x = Math.PI;
+            g.add(flag);
+        }
+    });
+    // A banner across the top.
+    const banner = new THREE.Mesh(new THREE.BoxGeometry(SPAN_HALF * 1.5, 1.5, 0.2),
+        _dressMat(0xf472b6, { rough: 0.6, emissive: 0xd6337f, ei: 0.35 }));
+    banner.position.set(0, 8.3, 0); g.add(banner);
+    // Balloon cluster tied to one leg.
+    const side = i % 2 ? 1 : -1;
+    for (let k = 0; k < 6; k++) {
+        const b = new THREE.Mesh(new THREE.SphereGeometry(0.42, 10, 8),
+            _dressMat(cols[k % 5], { rough: 0.35 }));
+        b.scale.y = 1.2;
+        b.position.set(side * (SPAN_HALF - 0.9) + (_seeded(i * 9 + k) - 0.5) * 1.4,
+                       5.6 + _seeded(i * 5 + k) * 1.5,
+                       (_seeded(i * 3 + k) - 0.5) * 1.4);
+        g.add(b);
+    }
+    return g;
+}
+
+function _spanPipeBridge(i) {                    // Industrial: the works overhead
+    const g = new THREE.Group();
+    const steel = _dressMat(0x6d7268, { rough: 0.55, metal: 0.6 });
+    _spanLegs(g, steel, 7.0, 0.75);
+    // Lattice deck.
+    const deck = new THREE.Mesh(new THREE.BoxGeometry(SPAN_HALF * 2 + 1.5, 0.4, 2.6), steel);
+    deck.position.y = 7.0; g.add(deck);
+    for (let k = 0; k < 9; k++) {
+        const brace = new THREE.Mesh(new THREE.BoxGeometry(0.18, 1.5, 0.18), steel);
+        brace.position.set(-SPAN_HALF + k * (SPAN_HALF * 2 / 8), 6.3, 0);
+        brace.rotation.z = (k % 2 ? 1 : -1) * 0.7; g.add(brace);
+    }
+    // Three pipes running the span, one of them painted hazard orange.
+    [[-0.8, 0x8a8f7a], [0, 0xb45309], [0.8, 0x7e8478]].forEach(([z, c], k) => {
+        const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.36, SPAN_HALF * 2 + 1.5, 10),
+            _dressMat(c, { rough: 0.6, metal: 0.45 }));
+        pipe.rotation.z = Math.PI / 2;
+        pipe.position.set(0, 7.9 + (k === 1 ? 0.1 : 0), z * 1.5); g.add(pipe);
+    });
+    // Floodlights aimed down at the road.
+    [-1, 1].forEach(sgn => {
+        const head = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.6, 0.7), steel);
+        head.position.set(sgn * (SPAN_HALF - 1.6), 6.6, 1.6);
+        head.rotation.x = 0.5; g.add(head);
+        const glow = new THREE.Mesh(new THREE.PlaneGeometry(0.95, 0.5),
+            new THREE.MeshBasicMaterial({ color: 0xffd9a0 }));
+        glow.position.set(sgn * (SPAN_HALF - 1.6), 6.35, 1.9);
+        glow.rotation.x = -1.1; g.add(glow);
+    });
+    // Hazard chevrons on the legs.
+    [-SPAN_HALF, SPAN_HALF].forEach(x => {
+        for (let k = 0; k < 3; k++) {
+            const ch = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.28, 0.8),
+                _dressMat(k % 2 ? 0x111111 : 0xfacc15, { rough: 0.8 }));
+            ch.position.set(x, 0.5 + k * 0.34, 0); g.add(ch);
+        }
+    });
+    return g;
+}
+
+function _spanGantrySign(i) {                    // Ring road: motorway signage
+    const g = new THREE.Group();
+    const steel = _dressMat(0x9aa3ad, { rough: 0.4, metal: 0.65 });
+    _spanLegs(g, steel, 6.6, 0.42);
+    const beam = new THREE.Mesh(new THREE.BoxGeometry(SPAN_HALF * 2 + 1.0, 0.32, 0.42), steel);
+    beam.position.y = 6.6; g.add(beam);
+    const board = new THREE.Mesh(new THREE.BoxGeometry(6.4, 2.0, 0.22),
+        _dressMat(0x1b5e2a, { rough: 0.7 }));
+    board.position.set(0, 5.4, 0.35); g.add(board);
+    [0, 1].forEach(r => {
+        const line = new THREE.Mesh(new THREE.PlaneGeometry(4.4 - r * 1.4, 0.3),
+            new THREE.MeshBasicMaterial({ color: 0xf1f5f9 }));
+        line.position.set(-0.4 + r * 0.5, 5.8 - r * 0.75, 0.48); g.add(line);
+    });
+    return g;
+}
+
+// ---- 6. Ambient particles ----
+//
+// Gold motes over the Exchange, embers off the alley's barrel fires, confetti
+// falling on the Promenade, sparks rising from the Works. Twenty-odd sprites per
+// district, drifting on a seeded loop — the layer that stops a district reading
+// as a still life.
+function _buildDistrictMotes() {
+    Object.keys(DISTRICT_BIOMES).forEach(key => {
+        const cfg = DISTRICT_BIOMES[key].motes;
+        if (!cfg) return;
+        const nodes = _districtNodes(key);
+        if (!nodes.length) return;
+        const centre = nodes.reduce((a, id) => a.add(getPos(id)), new THREE.Vector3())
+            .divideScalar(nodes.length).setY(0);
+        const mat = new THREE.MeshBasicMaterial({
+            color: cfg.color, transparent: true, opacity: 0.75, depthWrite: false });
+        const geo = new THREE.PlaneGeometry(cfg.size, cfg.size);
+        const parts = [];
+        for (let i = 0; i < cfg.count; i++) {
+            const m = new THREE.Mesh(geo, mat.clone());
+            m.position.set(
+                centre.x + (_seeded(i * 3 + key.length) - 0.5) * cfg.spread * 2,
+                1 + _seeded(i * 7) * 10,
+                centre.z + (_seeded(i * 11 + 2) - 0.5) * cfg.spread * 2);
+            _cityEnvGroup.add(m);
+            parts.push({ m, base: m.position.clone(), phase: _seeded(i * 13) });
+        }
+        _cityLive.push({ kind: 'motes', parts, rise: cfg.rise, seed: key.length });
+    });
 }
 
 // ============================================================
@@ -2855,7 +3208,7 @@ function _buildDistrictSurfaces() {
     const SURF = {
         granite:  { col: 0x3c4250, rough: 0.35, metal: 0.25, seam: 0xa9b6c8 },
         wet:      { col: 0x22252b, rough: 0.28, metal: 0.15, seam: 0x4d5460 },
-        paving:   { col: 0x8f7fa8, rough: 0.8,  metal: 0,    seam: 0xe6d8f2 },
+        paving:   { col: 0x6f5f88, rough: 0.8,  metal: 0,    seam: 0xd8c4ea },
         concrete: { col: 0x6f6a5e, rough: 0.92, metal: 0,    seam: 0xd9b23a },
     };
     ['fin', 'ba', 'shop', 'ind'].forEach(key => {
@@ -3297,6 +3650,18 @@ function _animateCityLife(time, dt) {
                 const v = _seeded(step + e.seed * 3 + k * 11);
                 bar.scale.y = 0.4 + v * 1.3;
                 bar.material.color.setHex(v > 0.45 ? 0x22c55e : 0xef4444);
+            });
+        } else if (e.kind === 'motes') {
+            // Drift on a loop, always facing the camera so a flat plane reads as
+            // a speck of light from any angle.
+            e.parts.forEach((p, k) => {
+                const t = (time * 0.09 * (e.rise >= 0 ? 1 : -1) + p.phase) % 1;
+                const u = t < 0 ? t + 1 : t;
+                p.m.position.y = p.base.y + (u - 0.5) * Math.abs(e.rise) * 12;
+                p.m.position.x = p.base.x + Math.sin(time * 0.3 + k) * 1.6;
+                p.m.position.z = p.base.z + Math.cos(time * 0.24 + k * 1.3) * 1.6;
+                p.m.material.opacity = 0.15 + Math.sin(u * Math.PI) * 0.6;
+                if (camera) p.m.quaternion.copy(camera.quaternion);
             });
         } else if (e.kind === 'beacon') {
             const b = (Math.sin(time * 2.4) + 1) * 0.5;

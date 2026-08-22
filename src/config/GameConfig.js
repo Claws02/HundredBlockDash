@@ -270,38 +270,60 @@ export const SPACE_DESCS = {
 export const DISTRICT_BIOMES = {
     ring:  {
         name: 'City Ring Road', icon: '🛣️',
-        tagline: 'The long way round, and the safe one.',
-        lore: 'Four lanes of nothing much. Steady coins, clear sightlines, and a fork every five blocks.',
-        bgTop: '#5b9bd5', bgBot: '#87bce8', fog: '#a8d4f0', floorEdge: 0x94a3b8, pathTint: 0xcbd5e1,
+        tagline: 'Four lanes of ordinary, and that is the point.',
+        lore: 'Traffic lights, bus shelters, street trees and the fountain plaza turning in the middle of it all. Nothing happens here. That is why everybody takes it.',
+        story: 'THE LOOP · Every road in the city eventually comes back to this one. It is the safe way round and the slow way round, and the four turnings off it are the only real decisions on the board.',
+        // Midday. The baseline every other district is read against.
+        bgTop: '#63a6de', bgBot: '#a9d4f2', fog: '#bfe0f5', floorEdge: 0x94a3b8, pathTint: 0xcbd5e1,
         surface: 'asphalt', props: 'civic',
+        light: { color: 0xfff3dd, intensity: 0.0, height: 26, radius: 60 },   // daylight is enough
+        motes: null,
     },
     fin:   {
-        name: 'Financial District', icon: '📈',
-        tagline: 'Where the money is, and the money knows it.',
-        lore: 'Granite plazas and glass towers. The tickers never stop, and neither does the Exchange.',
-        bgTop: '#2e6da4', bgBot: '#5491c8', fog: '#8ab8e0', floorEdge: 0x3b82f6, pathTint: 0x60a5fa,
+        name: 'Financial District', icon: '🏦',
+        tagline: 'The money never sleeps, and neither do the tickers.',
+        lore: 'Mirror-polished granite, gold inlay running to the Exchange steps, and a bronze bull everybody touches on the way past. Green and red light on every face.',
+        story: 'THE EXCHANGE · Ten blocks of glass and granite where the numbers on the boards decide who eats. Come here to make money fast, and know that the boards are watching you do it.',
+        // Crisp cold morning — bright and blue-white, high contrast off glass.
+        bgTop: '#3f7fbe', bgBot: '#8ec4e8', fog: '#a7cbe8', floorEdge: 0x38bdf8, pathTint: 0x7dd3fc,
         surface: 'granite', props: 'finance',
+        // An ACCENT, not a flood. The first pass ran these at 1.5–2.4 and every
+        // surface in the district came back the same single hue.
+        light: { color: 0x9fd0ff, intensity: 0.8, height: 22, radius: 66, bounce: 0xffc65c, bounceI: 0.7 },
+        motes: { color: 0xffd782, count: 26, rise: 0.35, size: 0.22, spread: 26 },
     },
     ba:    {
         name: 'Back Alley', icon: '🌃',
-        tagline: 'Nothing here is bolted down. Including you.',
-        lore: 'Wet brick, dead neon and washing strung overhead. Twelve blocks of somebody else\'s business.',
-        bgTop: '#5a4040', bgBot: '#7a5555', fog: '#9a7070', floorEdge: 0xef4444, pathTint: 0xf87171,
+        tagline: 'Where the city keeps what it does not want seen.',
+        lore: 'Wet black brick, neon in six languages, steam off the grates and washing strung between the fire escapes. Somebody is always watching.',
+        story: 'THE NIGHT MARKET · Twelve blocks of somebody else\'s business. Nothing here is bolted down — including you. It is the longest road on the board and the only one where a rival can take something off you.',
+        // Night. The only district lit by its own signage rather than the sky.
+        bgTop: '#150e1e', bgBot: '#33223f', fog: '#4c3350', floorEdge: 0xf472b6, pathTint: 0xfb7185,
         surface: 'wet', props: 'alley',
+        light: { color: 0xff4fa3, intensity: 1.6, height: 13, radius: 52, bounce: 0x35e0ff, bounceI: 1.1 },
+        motes: { color: 0xff9a4d, count: 34, rise: 1.5, size: 0.14, spread: 22 },
     },
     shop:  {
         name: 'Shopping Promenade', icon: '🎪',
-        tagline: 'Everything is for sale and half of it is half price.',
-        lore: 'Striped awnings, bunting between the lamps, and the Grand Mall at the far end.',
-        bgTop: '#6040a0', bgBot: '#8060c0', fog: '#b090d8', floorEdge: 0xec4899, pathTint: 0xf472b6,
+        tagline: 'A street festival that never packs up.',
+        lore: 'Bunting from lamp to lamp, striped awnings over every stall, a carousel turning at the far end and the Grand Mall\'s dome catching all of it.',
+        story: 'THE GRAND PARADE · Everything is for sale and half of it is half price. The friendliest road on the board — no coin losses at all — and the Grand Mall at the end sells the whole shop at half price.',
+        // Warm afternoon, high key. The brightest road on the board.
+        bgTop: '#a06ad0', bgBot: '#e3bdf2', fog: '#e6c9f2', floorEdge: 0xf0abfc, pathTint: 0xf9a8d4,
         surface: 'paving', props: 'market',
+        light: { color: 0xffd9f0, intensity: 0.7, height: 20, radius: 60, bounce: 0xffe08a, bounceI: 0.6 },
+        motes: { color: 0xffffff, count: 40, rise: -0.5, size: 0.16, spread: 24 },   // falling confetti
     },
     ind:   {
         name: 'Industrial Zone', icon: '⚙️',
-        tagline: 'Behind the Gate, and worth the roll.',
-        lore: 'Pipework, cooling towers and a permanent haze. Five blocks, and every one of them pays.',
-        bgTop: '#8a7040', bgBot: '#a89060', fog: '#c8b080', floorEdge: 0xeab308, pathTint: 0xfbbf24,
+        tagline: 'The machines that keep the lights on.',
+        lore: 'Pipework overhead, chain-link and hazard paint underfoot, and a permanent orange haze off the furnaces. It pays well because nobody wants to be here.',
+        story: 'THE WORKS · Behind the Gate, and worth the roll to get in. Five blocks, every one of them pays, and the cooling towers never stop breathing.',
+        // Sodium dusk, hard and hazy.
+        bgTop: '#33220e', bgBot: '#8a5a20', fog: '#a8763a', floorEdge: 0xf97316, pathTint: 0xfb923c,
         surface: 'concrete', props: 'works',
+        light: { color: 0xff9a3c, intensity: 1.3, height: 17, radius: 46, bounce: 0xffd08a, bounceI: 0.6 },
+        motes: { color: 0xff7a1a, count: 30, rise: 2.2, size: 0.13, spread: 20 },
     },
 };
 
