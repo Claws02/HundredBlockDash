@@ -47,6 +47,24 @@ async function once(browser, label, cfg, chipSel) {
         await page.waitForTimeout(500);
     }
 
+    // Wait for the board to finish arriving BEFORE starting the turn budget.
+    //
+    // The 75s budget below used to be measured from startRun, which meant it
+    // was really "the flyover, plus whatever is left". On City that flyover is
+    // ~50s of wall clock in this container (fixed-duration animation, ~2 fps),
+    // so the budget expired with 0 turns played and the probe reported a stall
+    // that was not one. HBD's scene is a bare tube and boots fast, which is why
+    // only one of the two configurations ever failed.
+    let bootMs = 0;
+    {
+        const b0 = Date.now();
+        try {
+            await page.waitForFunction(() => window.__QA.snapshot().gameState !== 'INIT',
+                                       null, { timeout: 300000 });
+        } catch (e) { /* fall through — the turn loop below will report 0 turns */ }
+        bootMs = Date.now() - b0;
+    }
+
     // Run a short burst of real turns.
     const t0 = Date.now();
     await page.evaluate(() => window.__QA.setMinigameFastResolve(2000));
@@ -60,7 +78,7 @@ async function once(browser, label, cfg, chipSel) {
     const roundText = await page.evaluate(() => document.getElementById('round-counter').textContent);
     const mapBtn = await page.evaluate(() => getComputedStyle(document.querySelector('[data-map="0"]')).display);
 
-    results.push({ label, booted, pickerState, snap, roundText, mapBtnDisplay: mapBtn,
+    results.push({ label, booted, bootMs, pickerState, snap, roundText, mapBtnDisplay: mapBtn,
                    invariants: rep.invariantViolations, errors: [...new Set(errors)], turns: snap.totalTurns });
     await page.screenshot({ path: path.join(__dirname, `shot-smoke-${label}.png`) });
     await ctx.close();
@@ -86,7 +104,8 @@ async function once(browser, label, cfg, chipSel) {
         if (r.turns < 2) problems.push('only ' + r.turns + ' turns ran');
         if (problems.length) bad++;
         console.log(`${problems.length ? 'FAIL' : 'OK  '} ${r.label}  booted=${r.booted} turns=${r.turns} ` +
-                    `round="${r.roundText}" mapBtn=${r.mapBtnDisplay} pickers(hbd=${r.pickerState.hbd},city=${r.pickerState.city})`);
+                    `boot=${(r.bootMs/1000).toFixed(1)}s round="${r.roundText}" mapBtn=${r.mapBtnDisplay} ` +
+                    `pickers(hbd=${r.pickerState.hbd},city=${r.pickerState.city})`);
         problems.forEach(p => console.log('       - ' + p));
     }
     console.log(bad ? `\n${bad} configuration(s) failed` : '\nsmoke: all clean');

@@ -108,13 +108,29 @@ const ok = (n, cond, detail) => (cond ? out.pass : out.fail).push(n + (detail ? 
 
     // ---------- Start a City Circuit game for the renderer / physics checks ----------
     await page.evaluate(() => window.__QA.startRun({ mode: '1p', difficulty: 'medium', map: 'city_circuit' }));
-    // 30s was too tight. This context renders at deviceScaleFactor 2 on software
-    // GL, and the City flyover is a fixed-duration animation driven by frame
-    // deltas capped at 0.1s — so on a slow enough renderer it takes far longer
-    // in wall clock than the ~9s it runs on a real device. Measured at ~24s here.
+    // The City flyover is a fixed-duration animation driven by frame deltas, so
+    // its WALL-CLOCK length is a function of how fast the renderer runs. On a
+    // real device it is the ~9s it is declared as; on software GL it is however
+    // long the container takes to draw that many frames.
+    //
+    // This budget has now rotted twice: 30s, then 75s ("measured at ~24s here"),
+    // and both eventually stopped being enough as City's scene grew heavier —
+    // the district dressing pass alone put hundreds of meshes in front of the
+    // flyover camera. Measured 2026-08-23 in this container: ~2 fps, flyover
+    // ~50s, PRE_ROLL at ~57s. A 75s ceiling failed the whole gate before a
+    // single assertion ran.
+    //
+    // So: a budget with real headroom, and it now PRINTS how long it took. A
+    // magic number that rots silently is what got us here; one that reports
+    // itself gets fixed the next time somebody reads the log.
+    //
+    // Nothing is asserted here — this is waiting for setup to finish, not a
+    // check on the product.
+    const _bootT0 = Date.now();
     await page.waitForFunction(() => {
         return window.__QA.snapshot().gameState !== 'INIT';
-    }, null, { timeout: 75000 });
+    }, null, { timeout: 300000 });
+    console.log(`    (City boot took ${((Date.now() - _bootT0) / 1000).toFixed(1)}s)`);
     await page.waitForTimeout(3000);
 
     // ---------- 1. Renderer leak ----------
