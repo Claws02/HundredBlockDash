@@ -20,7 +20,17 @@ const ok = (n, cond, detail) => (cond ? out.pass : out.fail).push(n + (detail ? 
         args: ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=swiftshader',
                '--enable-unsafe-swiftshader', '--mute-audio', '--autoplay-policy=no-user-gesture-required'],
     });
-    const ctx = await browser.newContext({ viewport: { width: 412, height: 892 }, deviceScaleFactor: 2, hasTouch: true });
+    // deviceScaleFactor is a SCREENSHOT-CRISPNESS setting, and on software GL it
+    // is also a 4x fragment-shading bill. At dsf 2 (an 824x1784 backing store)
+    // City Circuit's boot flyover did not finish inside FIVE MINUTES in this
+    // container, so the gate died on a bare TimeoutError before running a single
+    // assertion — on this branch and, checked in a worktree, on the commit
+    // before it too. At dsf 1 the same boot takes about a minute.
+    //
+    // Nothing measured here is a function of backing-store resolution, so the
+    // default drops to 1 and QA_DSF=2 gets the crisper screenshots back.
+    const DSF = Number(process.env.QA_DSF || 1);
+    const ctx = await browser.newContext({ viewport: { width: 412, height: 892 }, deviceScaleFactor: DSF, hasTouch: true });
     const page = await ctx.newPage();
     const errors = [];
     page.on('pageerror', e => errors.push('PAGEERROR: ' + e.message));
@@ -108,13 +118,43 @@ const ok = (n, cond, detail) => (cond ? out.pass : out.fail).push(n + (detail ? 
 
     // ---------- Start a City Circuit game for the renderer / physics checks ----------
     await page.evaluate(() => window.__QA.startRun({ mode: '1p', difficulty: 'medium', map: 'city_circuit' }));
-    // 30s was too tight. This context renders at deviceScaleFactor 2 on software
-    // GL, and the City flyover is a fixed-duration animation driven by frame
-    // deltas capped at 0.1s — so on a slow enough renderer it takes far longer
-    // in wall clock than the ~9s it runs on a real device. Measured at ~24s here.
-    await page.waitForFunction(() => {
-        return window.__QA.snapshot().gameState !== 'INIT';
-    }, null, { timeout: 75000 });
+    // The City flyover is a fixed-duration animation driven by frame deltas, so
+    // its WALL-CLOCK length is a function of how fast the renderer runs. On a
+    // real device it is the ~9s it is declared as; on software GL it is however
+    // long the container takes to draw that many frames.
+    //
+    // This budget has now rotted twice: 30s, then 75s ("measured at ~24s here"),
+    // and both eventually stopped being enough as City's scene grew heavier —
+    // the district dressing pass alone put hundreds of meshes in front of the
+    // flyover camera. Measured 2026-08-23 in this container: ~2 fps, flyover
+    // ~50s, PRE_ROLL at ~57s. A 75s ceiling failed the whole gate before a
+    // single assertion ran.
+    //
+    // So: a budget with real headroom, and it now PRINTS how long it took. A
+    // magic number that rots silently is what got us here; one that reports
+    // itself gets fixed the next time somebody reads the log.
+    //
+    // Nothing is asserted here — this is waiting for setup to finish, not a
+    // check on the product.
+    const _bootT0 = Date.now();
+    try {
+        await page.waitForFunction(() => {
+            return window.__QA.snapshot().gameState !== 'INIT';
+        }, null, { timeout: 300000 });
+    } catch (e) {
+        const fps = await page.evaluate(() => new Promise(r => {
+            let n = 0; const t0 = performance.now();
+            const tick = () => { n++; performance.now() - t0 < 1000 ? requestAnimationFrame(tick) : r(n); };
+            requestAnimationFrame(tick);
+        })).catch(() => -1);
+        throw new Error(
+            `City Circuit did not leave INIT in 300s (deviceScaleFactor ${DSF}, ~${fps} fps).\n` +
+            `The boot flyover is a fixed-duration animation driven by frame deltas, so its\n` +
+            `wall-clock length is set by how fast this machine draws. Try QA_DSF=1, close\n` +
+            `anything else running a browser, and re-run. This is an environment limit, not\n` +
+            `a product failure — confirm by running the same probe on the previous commit.`);
+    }
+    console.log(`    (City boot took ${((Date.now() - _bootT0) / 1000).toFixed(1)}s at dsf ${DSF})`);
     await page.waitForTimeout(3000);
 
     // ---------- 1. Renderer leak ----------

@@ -7,14 +7,10 @@ export const FINE_AMOUNT     = 3;    // was 4
 export const BIG_FINE_AMOUNT = 8;    // was 10
 export const TRAP_AMOUNT     = 5;
 
-// The Gate. HBD's Rift is the harder wall: it gates the run to the Crown and a
-// player who cannot break it loses real ground, so it is worth 20. City's Gate
-// only guards one district on a lap map and stays at 15.
-export const GATE_THRESHOLD      = 15;   // City Circuit
-export const GATE_THRESHOLD_HBD  = 20;   // Hundred Block Dash
-export function gateThreshold(map) {
-    return map === 'hundred_block_dash' ? GATE_THRESHOLD_HBD : GATE_THRESHOLD;
-}
+// The Gate's dice count is shared; the THRESHOLD is per-map and now lives on
+// the map module (ActiveMap.gateThreshold()). It used to be a function here
+// that switched on the map id — the last piece of per-map tuning outside the
+// map, and one more place a third board would have had to be added by hand.
 export const GATE_NUM_DICE       = 5;
 
 // Hundred Block Dash — selectable linear-map lengths.

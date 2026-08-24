@@ -7,24 +7,24 @@
 
 import { state } from './GameState.js';
 import { DISTRICT_DOMINANCE_BONUS, HQ_META, HBD_FINISH_BONUS } from '../config/GameConfig.js';
-import { DISTRICT_KEYS, DISTRICT_NAMES } from '../config/BoardGraph.js';
 import { earnCoins } from './Economy.js';
 import * as Stats from './Stats.js';
 import * as ModalManager from '../ui/ModalManager.js';
 import { sfx } from '../engine/AudioManager.js';
+import * as ActiveMap from '../config/ActiveMap.js';
 
 export function calculateWinner() {
     const p1 = state.players[0], p2 = state.players[1];
 
     const HBD_FIN = state.hbd ? state.hbd.finish : 99;
     let p1s, p2s, subtitle;
-    if (state.selectedMap === 'hundred_block_dash') {
+    if (ActiveMap.has('finishBonus')) {
         const p1f = p1.pos >= HBD_FIN ? HBD_FINISH_BONUS : 0, p2f = p2.pos >= HBD_FIN ? HBD_FINISH_BONUS : 0;
         p1s = p1.coins + p1f; p2s = p2.coins + p2f;
         subtitle = 'WINS THE HUSTLE!';
     } else {
         // City Circuit: district dominance bonuses
-        DISTRICT_KEYS.forEach(dk => {
+        ActiveMap.regionKeys().forEach(dk => {
             if (p1.districtsVisited[dk] > p2.districtsVisited[dk]) earnCoins(p1, DISTRICT_DOMINANCE_BONUS);
             else if (p2.districtsVisited[dk] > p1.districtsVisited[dk]) earnCoins(p2, DISTRICT_DOMINANCE_BONUS);
         });
@@ -32,11 +32,11 @@ export function calculateWinner() {
         subtitle = 'WINS THE CITY!';
     }
 
-    const tiebreaker = state.selectedMap === 'hundred_block_dash'
+    const tiebreaker = ActiveMap.isLinear()
         ? (p1.pos >= p2.pos ? p1 : p2)
         : (p1.fullCircuitsCompleted >= p2.fullCircuitsCompleted ? p1 : p2);
     const winner = p1s > p2s ? p1 : p2s > p1s ? p2 : tiebreaker;
-    const isTie  = p1s === p2s && (state.selectedMap === 'hundred_block_dash' ? p1.pos === p2.pos : p1.fullCircuitsCompleted === p2.fullCircuitsCompleted);
+    const isTie  = p1s === p2s && (ActiveMap.isLinear() ? p1.pos === p2.pos : p1.fullCircuitsCompleted === p2.fullCircuitsCompleted);
 
     ModalManager.closeAllModals();
     document.getElementById('ui-layer').style.display = 'none';
@@ -54,11 +54,11 @@ export function calculateWinner() {
     }
     function districtStrip(pl) {
         const o = state.players[(pl.id + 1) % 2];
-        const chips = DISTRICT_KEYS.map(dk => {
+        const chips = ActiveMap.regionKeys().map(dk => {
             const icon = HQ_META[dk]?.icon || '🏛️';
             const mine = pl.districtsVisited[dk] || 0;
             const held = mine > (o.districtsVisited[dk] || 0);
-            return `<span class="ws-chip${held ? ' ws-held' : ''}" title="${DISTRICT_NAMES[dk]}${held ? ' — controlled' : ''}">` +
+            return `<span class="ws-chip${held ? ' ws-held' : ''}" title="${ActiveMap.regionName(dk)}${held ? ' — controlled' : ''}">` +
                    `${icon}<b>${mine}</b>${held ? '<i>👑</i>' : ''}</span>`;
         }).join('');
         return `<div class="ws-districts"><span class="ws-dlabel">DISTRICTS</span><span class="ws-chips">${chips}</span></div>`;
@@ -66,7 +66,7 @@ export function calculateWinner() {
     function card(p, s) {
         const isW = !isTie && p === winner;
         let details;
-        if (state.selectedMap === 'hundred_block_dash') {
+        if (ActiveMap.has('finishBonus')) {
             const fin = p.pos >= HBD_FIN ? HBD_FINISH_BONUS : 0;
             details = `<div class="ws-grid">${
                 stat('💰', 'earned', p.coinsEarned)}${
@@ -163,7 +163,7 @@ function _renderRaceChart() {
         return;
     }
 
-    const isHBD  = state.selectedMap === 'hundred_block_dash';
+    const isHBD  = ActiveMap.isLinear();
     const rounds = isHBD ? null : _coinsByRound(h);
     // What the line actually is, per board.
     const series = rounds

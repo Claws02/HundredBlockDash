@@ -169,7 +169,7 @@ const RECT = `(id) => {
         const rect = eval(rectSrc);
         const { state } = await import('/src/core/GameState.js');
         const U = await import('/src/ui/UIManager.js');
-        const { BRANCH_OPTIONS } = await import('/src/config/BoardGraph.js');
+        const BRANCH_OPTIONS = (await import('/src/config/ActiveMap.js')).branches();
         state.activePlayer = 0;
         U.applyOrientation();
         U.resetForkPrimer();

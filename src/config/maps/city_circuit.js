@@ -1,13 +1,21 @@
 // ============================================================
-// BOARD GRAPH — City Circuit map topology
+// CITY CIRCUIT — the map module.
+//
+// Was src/config/BoardGraph.js, which exported ONE hardcoded graph that six
+// other modules imported directly. Nothing about it was City-specific by
+// construction — it was City-specific by being the only one. It is now one
+// entry in src/config/maps/, reached through ActiveMap.js, so a second graph
+// board is a new file rather than a second set of branches.
+//
+// Topology
 // Nodes: { id, type, district, isJunction?, isHQ?, isGrandMall?, shopDistrict?, next[] }
 // Junctions (isJunction=true) are invisible path forks — players never land on them.
 // 'next' has 2 entries at junctions (ring road vs district), 1 elsewhere.
 // ============================================================
 
-export const JUNCTION_IDS = new Set(['bp_a', 'bp_b', 'bp_c', 'bp_d']);
+export const JUNCTIONS = new Set(['bp_a', 'bp_b', 'bp_c', 'bp_d']);
 
-export const DISTRICT_NAMES = {
+export const REGION_NAMES = {
     fin:  'Financial District',
     ba:   'Back Alley',
     shop: 'Shopping Promenade',
@@ -15,11 +23,11 @@ export const DISTRICT_NAMES = {
     ring: 'City Ring Road',
 };
 
-export const DISTRICT_KEYS = ['fin', 'ba', 'shop', 'ind'];
+export const REGION_KEYS = ['fin', 'ba', 'shop', 'ind'];
 
 // Branch junction descriptions shown in the path-choice UI.
 // `short` is the version that has to fit inside an on-board arrow button.
-export const BRANCH_OPTIONS = {
+export const BRANCHES = {
     bp_a: [
         { nodeId: 'r1',     label: 'Ring Road',           short: 'RING',       desc: 'Short lap · steady coins',   icon: '🛣️', district: 'ring', spaces: 5  },
         { nodeId: 'fin_0',  label: 'Financial District',  short: 'FINANCIAL',  desc: 'Big money · big fines',      icon: '💹', district: 'fin',  spaces: 10 },
@@ -124,11 +132,11 @@ G.ind_5 = { id: 'ind_5', type: null,   district: 'ind', next: ['ind_6'] };
 G.ind_6 = { id: 'ind_6', type: null,   district: 'ind', next: ['ind_7'] };
 G.ind_7 = { id: 'ind_7', type: 'hq',   district: 'ind', isHQ: true, next: ['bp_a'] };
 
-export const CITY_GRAPH = G;
+export const GRAPH = G;
 
 // ---- Randomisable slots per district (type === null nodes) ----
 // Counts must match pool sizes in DISTRICT_POOLS below.
-export const DISTRICT_POOLS = {
+export const POOLS = {
     // Coin-LOSING spaces (lose / lose_big / trap) are capped at one per ten
     // nodes across the whole ring, the same rule the Hundred Block Dash
     // generator enforces. The audit (qa/spaceaudit.js) measured the old pools at
@@ -194,7 +202,7 @@ export const DISTRICT_POOLS = {
 // which you paid a gate roll to enter, pays out instead.
 
 // Flat ordered list used for camera path and map slider
-export const ALL_NODES_ORDERED = [
+export const ORDERED = [
     'r1','r2','r3','r4','r5',
     'fin_0','fin_1','fin_2','fin_3','fin_4','fin_5','fin_6','fin_7','fin_8','fin_9',
     'r6','r7','r8','r9','r10',
@@ -204,3 +212,76 @@ export const ALL_NODES_ORDERED = [
     'r16','r17','r18','r19','r20',
     'ind_0','ind_1','ind_2','ind_3','ind_4','ind_5','ind_6','ind_7',
 ];
+
+
+// ------------------------------------------------------------
+// Bot routing bias, moved out of Bot._branchScore().
+//
+// It used to read `if (dist === 'fin' || dist === 'shop') s += 2` in source, so
+// the route AI only understood City's four district keys and a second graph
+// board would have had no opinion at all about its own roads.
+// ------------------------------------------------------------
+export const BOT_BIAS = { fin: 2, shop: 2, ind: 1, ring: 1, ba: -1 };
+
+// The renderer's layout hook. Writes nodeId -> Vector3 into the map it is given
+// so the Renderer owns no board geometry of its own.
+//   R  — ring road radius
+//   DR — district arc radius
+export const LAYOUT = {
+    kind: 'city_arcs',
+    R: 32,
+    DR: 58,
+    // [startDeg, endDeg, count, radiusKey, ids...]
+    ring: [
+        [90,    0,   5, 'R',  'r1','r2','r3','r4','r5'],
+        [0,   -90,   5, 'R',  'r6','r7','r8','r9','r10'],
+        [-90, -180,  5, 'R',  'r11','r12','r13','r14','r15'],
+        [180,  90,   5, 'R',  'r16','r17','r18','r19','r20'],
+    ],
+    arcs: [
+        [90,    0,  10, 'DR', 'fin_0','fin_1','fin_2','fin_3','fin_4','fin_5','fin_6','fin_7','fin_8','fin_9'],
+        [0,   -90,  12, 'DR', 'ba_0','ba_1','ba_2','ba_3','ba_4','ba_5','ba_6','ba_7','ba_8','ba_9','ba_10','ba_11'],
+        [-90,-180,  10, 'DR', 'shop_0','shop_1','shop_2','shop_3','shop_4','shop_5','shop_6','shop_7','shop_8','shop_9'],
+        [180,  90,   8, 'DR', 'ind_0','ind_1','ind_2','ind_3','ind_4','ind_5','ind_6','ind_7'],
+    ],
+    // junction id -> [x, 0, z] in units of R
+    junctions: { bp_a: [0, -1], bp_b: [1, 0], bp_c: [0, 1], bp_d: [-1, 0] },
+};
+
+// ------------------------------------------------------------
+// THE MAP MODULE
+//
+// `features` is the thing that replaces `state.selectedMap === '...'`. A check
+// that is really about a FEATURE now asks for the feature by name, so adding a
+// board does not mean auditing 47 equality tests to work out which of them
+// meant "is linear" and which meant "has bounties".
+// ------------------------------------------------------------
+export default {
+    id:      'city_circuit',
+    kind:    'graph',
+    start:   'r1',
+    graph:   G,
+    pools:   POOLS,
+    ordered: ORDERED,
+    junctions: JUNCTIONS,
+    branches:  BRANCHES,
+    regionKeys:  REGION_KEYS,
+    regionNames: REGION_NAMES,
+    botBias: BOT_BIAS,
+    layout:  LAYOUT,
+    gateNode: 'ind_0',
+    gateThreshold: 15,
+    features: {
+        bounties:      true,
+        buddies:       true,
+        duels:         true,
+        gate:          true,
+        hqBonus:       true,
+        circuitBonus:  true,
+        stars:         false,
+        roundLimit:    true,   // ends on a round count, not a finish line
+        finishBonus:   false,
+        realms:        false,  // per-space biome re-skinning (HBD only)
+        routeChoice:   true,
+    },
+};

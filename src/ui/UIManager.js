@@ -7,13 +7,12 @@ import { state } from '../core/GameState.js';
 import { ITEMS, ALLIES, SPACE_META, SPACE_DESCS, DISTRICT_BIOMES, HQ_META, CHAR_ICONS,
          getActiveRealms, HBD_FINISH_BONUS, CITY_DEFAULT_ROUNDS,
          hbdSpaceLabel, getRealmForSpace } from '../config/GameConfig.js';
-import { CITY_GRAPH, ALL_NODES_ORDERED, BRANCH_OPTIONS, JUNCTION_IDS, DISTRICT_NAMES,
-         DISTRICT_KEYS } from '../config/BoardGraph.js';
 import { COUNTED_TYPES } from '../config/ContractPool.js';
 import { SCENE } from '../config/SceneTiming.js';
 import * as DualRead from './DualRead.js';
 import { getPos, getTileMeshes, setMapCameraTarget, mapCamera, onResize, getCamera,
          clampMapTarget, worldToScreen, focusJunction, clearJunctionFocus } from '../engine/Renderer.js';
+import * as ActiveMap from '../config/ActiveMap.js';
 
 // World units panned per pixel of drag on the map view.
 const MAP_DRAG_GAIN = 0.055;
@@ -72,7 +71,7 @@ export function updateUI() {
 
         // Position badge
         let districtLabel;
-        if (state.selectedMap === 'hundred_block_dash') {
+        if (ActiveMap.isLinear()) {
             // Read the finish from the live layout — a 50- or 75-block run never
             // reaches space 99, so a hardcoded 99 never showed "FINISHED!".
             const finish = state.hbd ? state.hbd.finish : 99;
@@ -80,10 +79,10 @@ export function updateUI() {
                 ? (p.pos >= finish ? 'FINISHED!' : `Space ${p.pos} / ${finish}`)
                 : 'Space 0';
         } else {
-            const node = CITY_GRAPH[p.pos];
+            const node = ActiveMap.graph()[p.pos];
             const districtKey = node?.district || 'ring';
             const biome = DISTRICT_BIOMES[districtKey];
-            districtLabel = biome?.name || DISTRICT_NAMES[districtKey] || districtKey;
+            districtLabel = biome?.name || ActiveMap.regionName(districtKey) || districtKey;
         }
         document.getElementById(`p${i + 1}-pos-badge`).textContent = districtLabel;
 
@@ -97,7 +96,7 @@ export function updateUI() {
 
         // Bounties are a City Circuit rule, so the button only exists there.
         const bqBtn = document.querySelector(`[data-bounties="${i}"]`);
-        if (bqBtn) bqBtn.style.display = state.selectedMap === 'hundred_block_dash' ? 'none' : '';
+        if (bqBtn) bqBtn.style.display = ActiveMap.has('bounties') ? '' : 'none';
 
         // Show Cabbie button if player has Cabbie ally and hasn't used it this round
         const cabbieBtn = document.querySelector(`[data-cabbie="${i}"]`);
@@ -112,7 +111,7 @@ export function updateUI() {
     if (state.gameState === 'PRE_ROLL' || state.gameState === 'ACKNOWLEDGE') {
         updateContracts();
     }
-    if (state.selectedMap !== 'hundred_block_dash') {
+    if (ActiveMap.has('bounties')) {
         updateRoundCounter(state.currentRound, state.cityRounds || CITY_DEFAULT_ROUNDS);
     } else {
         const el = document.getElementById('round-counter');
@@ -187,7 +186,7 @@ export function updateShieldMarker() {
 function _updateAllySlots(playerIdx, p) {
     const slotsEl = document.getElementById(`p${playerIdx + 1}-ally-slots`);
     if (!slotsEl) return;
-    if (state.selectedMap === 'hundred_block_dash') { slotsEl.innerHTML = ''; return; }
+    if (!ActiveMap.has('bounties')) { slotsEl.innerHTML = ''; return; }
     const MAX = 2;
     let html = '';
     for (let i = 0; i < MAX; i++) {
@@ -233,7 +232,7 @@ export function updateRoundCounter(current, total) {
 export function updateContracts() {
     const strip = document.getElementById('contracts-strip');
     if (!strip) return;
-    if (state.selectedMap === 'hundred_block_dash' || !state.activeContracts || state.activeContracts.length === 0) {
+    if (!ActiveMap.has('bounties') || !state.activeContracts || state.activeContracts.length === 0) {
         strip.style.display = 'none';
         return;
     }
@@ -472,8 +471,8 @@ function _positionJunctionArrows() {
 function _anchorNode(nodeId) {
     let cur = nodeId;
     for (let i = 0; i < 3; i++) {
-        const nxt = CITY_GRAPH[cur]?.next?.[0];
-        if (!nxt || JUNCTION_IDS.has(nxt)) break;
+        const nxt = ActiveMap.graph()[cur]?.next?.[0];
+        if (!nxt || ActiveMap.isJunction(nxt)) break;
         cur = nxt;
     }
     return cur;
@@ -696,7 +695,7 @@ function _renderBountyList() {
     const sub  = document.getElementById('bounty-sub');
     if (!list) return;
     const cards = state.activeContracts || [];
-    if (state.selectedMap === 'hundred_block_dash' || cards.length === 0) {
+    if (!ActiveMap.has('bounties') || cards.length === 0) {
         list.innerHTML = `<div class="bounty-empty">No bounties on this board.</div>`;
         if (sub) sub.textContent = 'Bounties are a City Circuit rule.';
         return;
@@ -737,7 +736,7 @@ let _briefingDone = null;
 
 export function showCityBriefing(onDone) {
     const el = document.getElementById('city-briefing');
-    if (!el || state.selectedMap === 'hundred_block_dash') { if (onDone) onDone(); return; }
+    if (!el || !ActiveMap.has('routeChoice')) { if (onDone) onDone(); return; }
     _briefingOpen = true;
     _briefingDone = onDone || null;
 
@@ -750,12 +749,12 @@ export function showCityBriefing(onDone) {
     const rows = [
         { icon: DISTRICT_BIOMES.ring.icon, name: DISTRICT_BIOMES.ring.name, spaces: 20,
           desc: DISTRICT_BIOMES.ring.tagline, lore: DISTRICT_BIOMES.ring.lore },
-        ...DISTRICT_KEYS.map(k => {
-            const opt = Object.values(BRANCH_OPTIONS).flat().find(o => o.district === k);
+        ...ActiveMap.regionKeys().map(k => {
+            const opt = Object.values(ActiveMap.branches()).flat().find(o => o.district === k);
             const b = DISTRICT_BIOMES[k] || {};
             return {
                 icon: b.icon || opt?.icon || '⬤',
-                name: b.name || DISTRICT_NAMES[k] || k,
+                name: b.name || ActiveMap.regionName(k) || k,
                 spaces: opt?.spaces || 0,
                 desc: b.tagline || opt?.desc || '',
                 lore: b.lore || '',
@@ -1081,24 +1080,24 @@ export function hideSpaceInfoCard() { document.getElementById('space-info-card')
 // ---- Map ----
 
 // True when the running board is the linear Hundred Block Dash track.
-function _isHBD() { return state.selectedMap === 'hundred_block_dash'; }
+function _isHBD() { return ActiveMap.isLinear(); }
 
 // Highest slider index for the running board.
 function _mapMaxIndex() {
-    return _isHBD() ? ((state.hbd ? state.hbd.finish : 99)) : (ALL_NODES_ORDERED.length - 1);
+    return _isHBD() ? ((state.hbd ? state.hbd.finish : 99)) : (ActiveMap.ordered().length - 1);
 }
 
 // Slider index → the address the renderer and board use (number on HBD,
 // node-id string on City Circuit).
 function _mapAddress(idx) {
-    return _isHBD() ? idx : ALL_NODES_ORDERED[idx];
+    return _isHBD() ? idx : ActiveMap.ordered()[idx];
 }
 
 // Where the active player currently sits, as a slider index.
 function _playerMapIndex() {
     const pos = state.players[state.activePlayer].pos;
     if (_isHBD()) return typeof pos === 'number' ? pos : 0;
-    const i = ALL_NODES_ORDERED.indexOf(pos);
+    const i = ActiveMap.ordered().indexOf(pos);
     return i >= 0 ? i : 0;
 }
 
@@ -1178,8 +1177,8 @@ export function updateMapSlider() {
                                    : `${-ahead} behind`;
         label = `${realm.icon} ${realm.name} · Block ${val}/${finish} · ${rel}`;
     } else {
-        const node = CITY_GRAPH[ALL_NODES_ORDERED[val]];
-        label = node ? (DISTRICT_BIOMES[node.district]?.name || DISTRICT_NAMES[node.district] || node.district) : '—';
+        const node = ActiveMap.graph()[ActiveMap.ordered()[val]];
+        label = node ? (DISTRICT_BIOMES[node.district]?.name || ActiveMap.regionName(node.district) || node.district) : '—';
     }
     document.getElementById('map-counter').textContent = label;
 }
@@ -1209,12 +1208,12 @@ function _distanceText(addr) {
     let idx;
     if (typeof addr === 'number') idx = addr;
     else {
-        idx = ALL_NODES_ORDERED.indexOf(addr);
+        idx = ActiveMap.ordered().indexOf(addr);
         if (idx < 0) return '';
     }
     let ahead = idx - you;
     // The City board loops, so "12 behind" on a 60-node ring is really 48 ahead.
-    if (!_isHBD() && ahead < 0) ahead += ALL_NODES_ORDERED.length;
+    if (!_isHBD() && ahead < 0) ahead += ActiveMap.ordered().length;
 
     if (ahead === 0) return '📍 You are standing here';
     if (ahead < 0)   return `↩︎ ${-ahead} space${-ahead === 1 ? '' : 's'} behind you`;
@@ -1290,7 +1289,7 @@ function _wireMapEvents() {
             const addr = td.nodeId !== undefined ? td.nodeId : td.idx;
             if (addr === undefined) { tt.style.display = 'none'; return; }
             const tile = state.board[addr];
-            const node = typeof addr === 'string' ? CITY_GRAPH[addr] : null;
+            const node = typeof addr === 'string' ? ActiveMap.graph()[addr] : null;
             const type = tile?.type || node?.type || 'coin';
             const meta = SPACE_META[type] || { ic: '❓', n: type, c: 0xffffff };
             const cStr = meta.c.toString(16).padStart(6, '0');
@@ -1304,7 +1303,7 @@ function _wireMapEvents() {
                 sub   = `${realm.icon} ${realm.name} · Block ${addr}`;
             } else {
                 title = `${meta.ic} ${meta.n}`;
-                sub   = node ? (DISTRICT_BIOMES[node.district]?.name || DISTRICT_NAMES[node.district] || '') : '';
+                sub   = node ? (DISTRICT_BIOMES[node.district]?.name || ActiveMap.regionName(node.district) || '') : '';
             }
             // What the space actually DOES, and how far away it is. Scouting the
             // road was previously a name and a block number — you could see that

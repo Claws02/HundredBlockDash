@@ -173,7 +173,7 @@ const toPreRoll = async (page, budget = 400) => {
     const ally = await page.evaluate(async () => {
         const { state } = await import('/src/core/GameState.js');
         const R = await import('/src/engine/Renderer.js');
-        const CG = (await import('/src/config/BoardGraph.js')).CITY_GRAPH;
+        const CG = (await import('/src/config/ActiveMap.js')).graph();
         const node = CG[state.players[0].pos].next[0];
 
         // Count from the SCENE, not by walking up from the camera: the camera is

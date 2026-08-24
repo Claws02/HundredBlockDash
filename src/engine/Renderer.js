@@ -4,10 +4,10 @@
 
 import { state } from '../core/GameState.js';
 import { SPACE_META, DISTRICT_BIOMES, getBiomeForDistrict, HBD_BIOMES, getBiomeForSpace, ALLIES, CHAR_ICONS, HBD_DEFAULT_CONFIG } from '../config/GameConfig.js';
-import { CITY_GRAPH, ALL_NODES_ORDERED, JUNCTION_IDS } from '../config/BoardGraph.js';
 import { SCENE } from '../config/SceneTiming.js';
 import * as Physics from './Physics.js';
 import { sfx } from './AudioManager.js';   // set pieces cue their own sound
+import * as ActiveMap from '../config/ActiveMap.js';
 
 let scene, camera, renderer, clock;
 let boardGrp, diceGrp;
@@ -118,35 +118,30 @@ function _arcPts(startDeg, endDeg, count, radius) {
     return pts;
 }
 
+// Board layout is DATA now, declared by the map module and laid out here.
+// This function used to write City's ring (R=32) and district arcs (R=58)
+// straight into the module-level map, which meant the renderer knew one graph
+// board's geometry by heart and a second one had nowhere to go.
+// Exported so the layout can be built and inspected WITHOUT standing up a whole
+// scene. It is a pure function of the map module's layout table, and
+// qa/mapmodules.js compares its output against the geometry that used to be
+// hardcoded here — which it can only do if it can run it on its own.
+export function buildLayout() { buildNodePositions(); return nodePositions; }
+
 function buildNodePositions() {
-    const R  = 32;  // ring road radius
-    const DR = 58;  // district arc radius
+    nodePositions.clear();
+    const L = ActiveMap.layout();
+    if (!L || L.kind !== 'city_arcs') return;
+    const radius = { R: L.R, DR: L.DR };
 
-    // Branch junctions (on ring circle)
-    nodePositions.set('bp_a', new THREE.Vector3(0,   0, -R));
-    nodePositions.set('bp_b', new THREE.Vector3(R,   0,  0));
-    nodePositions.set('bp_c', new THREE.Vector3(0,   0,  R));
-    nodePositions.set('bp_d', new THREE.Vector3(-R,  0,  0));
-
-    // Ring road — 4 arcs of 5 spaces each
-    const rA = _arcPts(90, 0,   5, R); // bp_a → bp_b (north-east)
-    const rB = _arcPts(0, -90,  5, R); // bp_b → bp_c (south-east)
-    const rC = _arcPts(-90, -180, 5, R); // bp_c → bp_d (south-west)
-    const rD = _arcPts(180, 90, 5, R); // bp_d → bp_a (north-west)
-    ['r1','r2','r3','r4','r5'].forEach((id,i) => nodePositions.set(id, rA[i]));
-    ['r6','r7','r8','r9','r10'].forEach((id,i) => nodePositions.set(id, rB[i]));
-    ['r11','r12','r13','r14','r15'].forEach((id,i) => nodePositions.set(id, rC[i]));
-    ['r16','r17','r18','r19','r20'].forEach((id,i) => nodePositions.set(id, rD[i]));
-
-    // Districts — same angular span as corresponding ring segment but larger radius
-    const dFin  = _arcPts(90, 0,   10, DR);
-    const dBA   = _arcPts(0, -90,  12, DR);
-    const dShop = _arcPts(-90, -180, 10, DR);
-    const dInd  = _arcPts(180, 90,  8,  DR);
-    ['fin_0','fin_1','fin_2','fin_3','fin_4','fin_5','fin_6','fin_7','fin_8','fin_9'].forEach((id,i) => nodePositions.set(id, dFin[i]));
-    ['ba_0','ba_1','ba_2','ba_3','ba_4','ba_5','ba_6','ba_7','ba_8','ba_9','ba_10','ba_11'].forEach((id,i) => nodePositions.set(id, dBA[i]));
-    ['shop_0','shop_1','shop_2','shop_3','shop_4','shop_5','shop_6','shop_7','shop_8','shop_9'].forEach((id,i) => nodePositions.set(id, dShop[i]));
-    ['ind_0','ind_1','ind_2','ind_3','ind_4','ind_5','ind_6','ind_7'].forEach((id,i) => nodePositions.set(id, dInd[i]));
+    for (const [id, [rx, rz]] of Object.entries(L.junctions || {})) {
+        nodePositions.set(id, new THREE.Vector3(rx * L.R, 0, rz * L.R));
+    }
+    for (const run of [...(L.ring || []), ...(L.arcs || [])]) {
+        const [startDeg, endDeg, count, radiusKey, ...ids] = run;
+        const pts = _arcPts(startDeg, endDeg, count, radius[radiusKey]);
+        ids.forEach((id, i) => nodePositions.set(id, pts[i]));
+    }
 }
 
 export function getPos(nodeId) {
@@ -154,20 +149,20 @@ export function getPos(nodeId) {
     return nodePositions.get(nodeId) || new THREE.Vector3(0, 0, 0);
 }
 
-// Camera reference curve — loop following ALL_NODES_ORDERED for smooth interpolation
+// Camera reference curve — loop following ActiveMap.ordered() for smooth interpolation
 let _camCurve;
 let _camCurveLen;
 
 function buildCamCurve() {
-    const pts = ALL_NODES_ORDERED.map(id => getPos(id).clone().setY(0));
+    const pts = ActiveMap.ordered().map(id => getPos(id).clone().setY(0));
     pts.push(pts[0].clone()); // close the loop
     _camCurve = new THREE.CatmullRomCurve3(pts, true);
-    _camCurveLen = ALL_NODES_ORDERED.length;
+    _camCurveLen = ActiveMap.ordered().length;
 }
 
 export function getNodeT(nodeId) {
     if (typeof nodeId === 'number') return nodeId / _hbdMax;
-    const idx = ALL_NODES_ORDERED.indexOf(nodeId);
+    const idx = ActiveMap.ordered().indexOf(nodeId);
     if (idx < 0) return 0;
     return idx / _camCurveLen;
 }
@@ -652,7 +647,7 @@ function _buildCrownBeacon(pos) {
 
 export function init(container) {
     container.innerHTML = '';
-    const isHBD = state.selectedMap === 'hundred_block_dash';
+    const isHBD = ActiveMap.isLinear();
 
     if (isHBD) {
         buildHBDPositions();
@@ -861,8 +856,8 @@ export function drawTiles() {
 
     // ---- City Circuit: string-keyed object ----
     Object.entries(state.board).forEach(([nodeId, b]) => {
-        if (JUNCTION_IDS.has(nodeId)) return;
-        const graphNode = CITY_GRAPH[nodeId];
+        if (ActiveMap.isJunction(nodeId)) return;
+        const graphNode = ActiveMap.graph()[nodeId];
         const isGate    = b.type === 'gate';
         const spc       = SPACE_META[b.type] || SPACE_META.coin;
         const bInfo     = DISTRICT_BIOMES[graphNode?.district || 'ring'];
@@ -880,15 +875,8 @@ export function drawTiles() {
         const pos = getPos(nodeId);
         baseMesh.position.copy(pos);
         // Orient tile to face next node
-        const nextId = CITY_GRAPH[nodeId]?.next?.[0];
-        if (nextId) {
-            const nextPos = getPos(nextId);
-            if (!JUNCTION_IDS.has(nextId)) baseMesh.lookAt(nextPos.clone().setY(0));
-            else {
-                const nn = CITY_GRAPH[nextId]?.next?.[0];
-                if (nn) baseMesh.lookAt(getPos(nn).clone().setY(0));
-            }
-        }
+        const nextId = ActiveMap.nextNode(nodeId);
+        if (nextId) baseMesh.lookAt(getPos(nextId).clone().setY(0));
         baseMesh.userData = { nodeId };
         tileMeshes.push(baseMesh);
         boardGrp.add(baseMesh);
@@ -958,7 +946,7 @@ function _buildGateMesh(nodeId, pos) {
     const gateGrp   = new THREE.Group();
     gateGrp.position.copy(pos);
 
-    const nextId  = CITY_GRAPH[nodeId]?.next?.[0];
+    const nextId  = ActiveMap.graph()[nodeId]?.next?.[0];
     const nextPos = nextId ? getPos(nextId) : pos.clone().add(new THREE.Vector3(1, 0, 0));
     const tangent = new THREE.Vector3().subVectors(nextPos, pos).normalize();
     gateGrp.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), tangent);
@@ -987,7 +975,7 @@ function _buildGateMesh(nodeId, pos) {
 
 function _buildShopMesh(nodeId, pos, district) {
     const shopGrp = new THREE.Group();
-    const nextId  = CITY_GRAPH[nodeId]?.next?.[0];
+    const nextId  = ActiveMap.graph()[nodeId]?.next?.[0];
     const nextPos = nextId ? getPos(nextId) : pos.clone().add(new THREE.Vector3(1, 0, 0));
     const tangent = new THREE.Vector3().subVectors(nextPos, pos).normalize();
     const right   = new THREE.Vector3(0, 1, 0).cross(tangent).normalize();
@@ -1344,7 +1332,7 @@ function _mkMat(color, rough = 0.42, metal = 0) {
 }
 
 function buildPlayerMeshes() {
-    const isHBD = state.selectedMap === 'hundred_block_dash';
+    const isHBD = ActiveMap.isLinear();
     state.players.forEach(p => {
         p.mesh = createCharacterMesh(p.charType, p.color);
         if (isHBD) {
@@ -1597,8 +1585,8 @@ export function animatePlayerHop(player, targetNodeId, onComplete, opts = {}) {
         }
     } else {
         // City Circuit: use graph next node for orientation
-        let nextId = opts.faceToward || CITY_GRAPH[targetNodeId]?.next?.[0];
-        if (nextId && JUNCTION_IDS.has(nextId)) nextId = CITY_GRAPH[nextId]?.next?.[0];
+        let nextId = opts.faceToward || ActiveMap.nextNode(targetNodeId);
+        if (nextId && ActiveMap.isJunction(nextId)) nextId = ActiveMap.nextNode(nextId);
         if (nextId) {
             const nextPos = getPos(nextId);
             const fwd     = new THREE.Vector3().subVectors(nextPos, dest).normalize();
@@ -1880,7 +1868,7 @@ export function swapCinematicMs() {
 // ---- Flyover (game start) ----
 
 export function startFlyover(onComplete) {
-    if (state.selectedMap === 'hundred_block_dash') {
+    if (ActiveMap.isLinear()) {
         // Linear flyover: sweep along boardCurve
         const flyObj = { p: 0 };
         activeAnims.push({
@@ -1918,7 +1906,7 @@ export function startFlyover(onComplete) {
 // ---- Post-minigame flyover (HBD: sweep from near end back to rearmost player) ----
 
 export function startPostMinigameFlyover(onComplete) {
-    if (state.selectedMap !== 'hundred_block_dash' || !boardCurve) {
+    if (!ActiveMap.isLinear() || !boardCurve) {
         // City has no reverse sweep, so hand the camera straight back — but put
         // it where it belongs first. Returning it in FOLLOW while it is still
         // parked at whatever the minigame left behind meant a long swooping
@@ -1991,14 +1979,13 @@ export function resetCameraSmoothing() { _camFwdInit = false; }
 
 // Which way is this player facing, per the board itself?
 function _rawHeading(p) {
-    if (state.selectedMap === 'hundred_block_dash' && boardCurve && typeof p.pos === 'number') {
+    if (ActiveMap.isLinear() && boardCurve && typeof p.pos === 'number') {
         const t = Math.max(0.001, Math.min(p.pos / _hbdMax, 0.999));
         return _tmpHead.copy(boardCurve.getTangent(t)).setY(0).normalize();
     }
     // City: ask the graph where this node points. Resolve through the invisible
     // junction nodes so the heading never aims at a node nobody can stand on.
-    let nid = CITY_GRAPH[p.pos]?.next?.[0];
-    if (nid && JUNCTION_IDS.has(nid)) nid = CITY_GRAPH[nid]?.next?.[0];
+    const nid = ActiveMap.nextNode(p.pos);
     if (!nid) return null;
     _tmpHead.copy(getPos(nid)).sub(getPos(p.pos)).setY(0);
     return _tmpHead.lengthSq() > 1e-6 ? _tmpHead.normalize() : null;
@@ -2009,7 +1996,7 @@ function _rawHeading(p) {
 // go through this, so resuming play after a full-screen scene lands on exactly
 // the pose the loop would have eased to — no jump on the first frame back.
 function _followPose(p) {
-    const isHBD = state.selectedMap === 'hundred_block_dash';
+    const isHBD = ActiveMap.isLinear();
     const f = isHBD ? CAM.hbd : CAM.city;
     // Flattened: the hop animation bobs the token 2.5 units into the air, and
     // reading its live y made the camera bob with it on every single move.
@@ -2115,7 +2102,7 @@ export const mapCamera = mapCam;
 let _panBounds = { cx: 0, cz: 0, r: 120 };
 
 function _measureBoardExtent() {
-    const pts = state.selectedMap === 'hundred_block_dash'
+    const pts = ActiveMap.isLinear()
         ? hbdPositions
         : [...nodePositions.values()];
     if (!pts.length) { _panBounds = { cx: 0, cz: 0, r: 120 }; return; }
@@ -2145,7 +2132,7 @@ export function clampMapTarget() {
 export function setMapCameraTarget(nodeId, offsetY = 50, offsetZ = 30) {
     // getPos() already resolves both address spaces: a string is a City node id,
     // a number is a Hundred Block Dash board index. The old numeric branch went
-    // through ALL_NODES_ORDERED (City-only), so on HBD it aimed the map camera at
+    // through ActiveMap.ordered() (City-only), so on HBD it aimed the map camera at
     // an unrelated city node — which is why the map view was disabled there.
     const pt = getPos(nodeId);
     mapCam.targetPos.copy(pt).add(new THREE.Vector3(0, offsetY, offsetZ));
@@ -2804,9 +2791,9 @@ function _buildBackgroundSkyline() {
 
 function _buildAllDistrictBuildings() {
     const boardData = state.board;
-    Object.keys(CITY_GRAPH).forEach(nodeId => {
-        if (JUNCTION_IDS.has(nodeId)) return;
-        const graphNode = CITY_GRAPH[nodeId];
+    Object.keys(ActiveMap.graph()).forEach(nodeId => {
+        if (ActiveMap.isJunction(nodeId)) return;
+        const graphNode = ActiveMap.graph()[nodeId];
         const district  = graphNode?.district || 'ring';
         const spaceType = boardData[nodeId]?.type;
         const isHQ      = spaceType === 'hq';
@@ -3188,7 +3175,7 @@ function _seeded(n) { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return
 
 // Nodes of a district, in lap order.
 function _districtNodes(key) {
-    return ALL_NODES_ORDERED.filter(id => CITY_GRAPH[id]?.district === key);
+    return ActiveMap.ordered().filter(id => ActiveMap.graph()[id]?.district === key);
 }
 
 function _dressMat(color, opts = {}) {

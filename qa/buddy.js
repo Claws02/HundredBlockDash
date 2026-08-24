@@ -317,7 +317,7 @@ const GL = ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=swiftshader',
         const { BUDDY_NEAR_STEPS, BUDDY_MAX_STEPS } = await import('/src/config/GameConfig.js');
         const GC = await import('/src/core/GameController.js');
         const R  = await import('/src/engine/Renderer.js');
-        const { ALL_NODES_ORDERED } = await import('/src/config/BoardGraph.js');
+        const ALL_NODES_ORDERED = (await import('/src/config/ActiveMap.js')).ordered();
         const out = [];
         // Sample from a spread of starting positions, so this is the rule and
         // not one lucky board.
@@ -560,7 +560,7 @@ const GL = ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=swiftshader',
     // 6. Fewer duels.
     // ---------------------------------------------------------------
     const duels = await page.evaluate(async () => {
-        const { DISTRICT_POOLS } = await import('/src/config/BoardGraph.js');
+        const DISTRICT_POOLS = (await import('/src/config/ActiveMap.js')).pools();
         const all = Object.values(DISTRICT_POOLS).flat();
         return {
             duel: all.filter(t => t === 'duel').length,

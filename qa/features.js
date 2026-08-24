@@ -155,7 +155,7 @@ const ok = (n, c, d) => (c ? pass : fail).push(n + (d ? ` — ${d}` : ''));
             const ui = document.getElementById('map-ui');
             const slider = document.getElementById('map-slider');
             const opened = getComputedStyle(ui).display !== 'none';
-            const { ALL_NODES_ORDERED } = await import('/src/config/BoardGraph.js');
+            const ALL_NODES_ORDERED = (await import('/src/config/ActiveMap.js')).ordered();
             const maxOk = parseInt(slider.max) === (state.selectedMap === 'hundred_block_dash'
                 ? state.hbd.finish : ALL_NODES_ORDERED.length - 1);
             // Drive the slider to the far end and confirm the camera actually moved.
