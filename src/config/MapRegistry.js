@@ -35,14 +35,18 @@ export const MAP_REGISTRY = [
     },
 
     // ─── Add future maps below this line ───────────────────────
-    // {
-    //     id:        'wild_west',
-    //     name:      'Wild West',
-    //     icon:      '🤠',
-    //     desc:      'Stake gold claims across frontier territories.',
-    //     longDesc:  'Coming soon!',
-    //     tags:      ['5 Territories', '25 Rounds', 'Coming Soon'],
-    //     color:     '#f59e0b',
-    //     available: false,
-    // },
+    //
+    // Star Territory is specced in docs/STAR_TERRITORY_SPEC.md but not built.
+    // `available: false` renders it as a disabled COMING SOON card with no
+    // click handler, so this entry is inert until the map module exists.
+    {
+        id:        'star_territory',
+        name:      'Star Territory',
+        icon:      '🤠',
+        desc:      'Ride four territories and pin on the most Stars.',
+        longDesc:  'The Territory has no law and four days before the circuit judge arrives. Ride out from 🤠 Perdition through the 🚂 Ironwood Railyard, the ⛏️ Cinder Mine, the 🐎 Longhorn Ranch and the 🏜️ Boot Hill Badlands. Post a bond at a Territory Office to pin on a Sheriff\'s Star — and the next one is dispatched to the Office farthest from you. Coins are what you spend; Stars are what you score.',
+        tags:      ['4 Territories', 'The Sheriff\'s Star', '6 / 12 / 20 Rounds', 'Coming Soon'],
+        color:     '#d97706',
+        available: false,
+    },
 ];
