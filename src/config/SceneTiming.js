@@ -94,6 +94,10 @@ export const SCENE = {
     // Whose-turn banner. Long enough to read across a table, short enough that
     // it is gone before anyone reaches for the roll button.
     TURN_BANNER:    1700,
+    // The last round announces itself for a full three seconds. It is the
+    // one moment in a match where the remaining plan changes — nothing left
+    // to bank, nothing left to walk to — so it is worth the whole beat.
+    FINAL_ROUND:    3000,
 };
 
 // Bot "thinking" pauses. Separate from the beat floors because these are about

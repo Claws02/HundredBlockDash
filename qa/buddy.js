@@ -83,6 +83,13 @@ const GL = ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=swiftshader',
         const give = t => { p.allies = [{ type: t, turnsRemaining: ALLY_TURNS,
                                           shieldCharges: ALLIES[t].shieldCharges || 0, mesh: null }]; };
         const out = {};
+        // No live bounties for any of this. Landing on a coin space fires
+        // _checkContract('land_coin'), and a BLOCKED hit fires
+        // _checkContract('block_space') — so if the board happened to be holding
+        // either card it paid out between setting a coin total and reading it,
+        // and the Bodyguard assertion read 52 where it had written 40. Every
+        // number below is a DELTA on an isolated economy.
+        state.activeContracts = [];
 
         // Vendor: +2 on a coin space.
         state.activePlayer = 0; p.pos = 'r2'; p.mesh.position.copy(R.getPos('r2'));
@@ -100,8 +107,10 @@ const GL = ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=swiftshader',
 
         // Bodyguard: coin damage AND an Anchor both cost a charge.
         give('bodyguard'); p.coins = 40;
+        const bgBefore = p.coins;
         EC.loseCoins(p, 8);
-        out.bgCoins = { coins: p.coins, chargesLeft: p.allies[0] ? p.allies[0].shieldCharges : 0 };
+        out.bgCoins = { lost: bgBefore - p.coins, coins: p.coins,
+                        chargesLeft: p.allies[0] ? p.allies[0].shieldCharges : 0 };
         give('bodyguard');
         p.pos = 'r5'; p.mesh.position.copy(R.getPos('r5'));
         const anchorSpace = { type: 'anchor_trap', owner: 1 };
@@ -124,7 +133,7 @@ const GL = ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=swiftshader',
         powers.out.vendor.withBuddy === powers.out.vendor.plain + 2,
         `${powers.out.vendor.plain} → ${powers.out.vendor.withBuddy}`);
     ok('power · Bodyguard: a fine costs a charge, not coins',
-        powers.out.bgCoins.coins === 40 && powers.out.bgCoins.chargesLeft === 2,
+        powers.out.bgCoins.lost === 0 && powers.out.bgCoins.chargesLeft === 2,
         JSON.stringify(powers.out.bgCoins));
     ok('power · Bodyguard: an Anchor costs a charge too, and you do NOT move',
         powers.out.bgAnchor.forced === 0 && powers.out.bgAnchor.chargesLeft === 2,
@@ -406,6 +415,119 @@ const GL = ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=swiftshader',
     });
     ok('pass-by: declining resumes the move — the rival\'s square was passed, not landed on',
         resumed.pos === 'r5', JSON.stringify(resumed));
+
+    // ---------------------------------------------------------------
+    // 4b. One square, several things owed — in order, none dropped.
+    // ---------------------------------------------------------------
+    // Reported: "there was a glitch when a player hit the store, the game
+    // glitched and went to the end of their turn and skipped over an ally."
+    //
+    // The pass-through used to be three nested closures with the shop parking
+    // its continuation in a module-level slot, and closeShopModal() deciding
+    // between "carry on walking" and "end the turn" on one string flag. A shop
+    // on a square that also owed a buddy encounter could finish the turn early
+    // and swallow the encounter.
+    await reset();
+    const stack = await page.evaluate(async () => {
+        const { state } = await import('/src/core/GameState.js');
+        const GC = await import('/src/core/GameController.js');
+        const R  = await import('/src/engine/Renderer.js');
+        const M  = await import('/src/ui/ModalManager.js');
+        const D  = await import('/src/core/Director.js');
+        D.reset(); R.getActiveAnims().length = 0; M.closeAllModals();
+        state.activePlayer = 0;
+        const p = state.players[0], opp = state.players[1];
+        p.isBot = false; opp.isBot = false;
+        p.allies = []; opp.allies = [];
+
+        // A clean route, then load ONE square with a shop AND a buddy.
+        ['r6', 'r7', 'r8', 'r9', 'r10'].forEach(id => { state.board[id] = { type: 'coin' }; });
+        state.board.r8 = { type: 'shop', shopDistrict: 'ring' };
+        p.pos = 'r6'; p.mesh.position.copy(R.getPos('r6'));
+        opp.pos = 'r1'; opp.mesh.position.copy(R.getPos('r1'));
+        state.allyOnMap = null; R.removeAllyMarker();
+        state.allyOnMap = { nodeId: 'r8', allyType: 'banker', roundsLeft: 3 };
+        R.placeAllyMarker('r8', 'banker');
+
+        const seen = [];
+        GC.moveThroughGraph(p, 4);           // r7, r8 (shop + buddy), r9, r10
+        for (let i = 0; i < 90; i++) {
+            await new Promise(r => setTimeout(r, 180));
+            const enc  = document.getElementById('ally-encounter-modal');
+            const offr = document.getElementById('shop-offer-modal');
+            if (enc && getComputedStyle(enc).display !== 'none') {
+                if (seen[seen.length - 1] !== 'buddy') seen.push('buddy');
+                document.getElementById('btn-ally-pass').click();
+                continue;
+            }
+            if (offr && getComputedStyle(offr).display !== 'none') {
+                if (seen[seen.length - 1] !== 'shop') seen.push('shop');
+                // ENTER the shop, then close it — the reported path.
+                document.getElementById('btn-shop-offer-enter').click();
+                await new Promise(r => setTimeout(r, 700));
+                document.getElementById('btn-close-shop').click();
+                continue;
+            }
+            if (p.pos === 'r10') break;
+        }
+        return { seen, pos: p.pos, gs: state.gameState,
+                 district: state.pendingShopDistrict };
+    });
+    ok('order: a square owing a buddy AND a shop offers both',
+        stack.seen.includes('buddy') && stack.seen.includes('shop'),
+        JSON.stringify(stack.seen));
+    ok('order: the buddy comes first — the shop cannot swallow it',
+        stack.seen.indexOf('buddy') < stack.seen.indexOf('shop'), JSON.stringify(stack.seen));
+    ok('order: and the move finishes its remaining steps afterwards',
+        stack.pos === 'r10', `ended on ${stack.pos}, gameState ${stack.gs}`);
+    // The offer used to leave pendingShopDistrict alone, so entering picked up
+    // whatever the last shop visit had left behind.
+    ok('order: the shop that opens is the one you walked past',
+        stack.district === 'ring', String(stack.district));
+
+    // The exact failure mode. closeShopModal() used to decide between "carry on
+    // walking" and "end the turn" by reading state.pendingReturnState — so any
+    // path that cleared or never set that flag closed the shop straight into
+    // finishTurn(), with steps still owed and the rest of the square's
+    // interruptions never offered. Clearing it by hand is what the reported
+    // glitch looked like from the inside.
+    const flagLost = await page.evaluate(async () => {
+        const { state } = await import('/src/core/GameState.js');
+        const GC = await import('/src/core/GameController.js');
+        const R  = await import('/src/engine/Renderer.js');
+        const M  = await import('/src/ui/ModalManager.js');
+        const D  = await import('/src/core/Director.js');
+        D.reset(); R.getActiveAnims().length = 0; M.closeAllModals();
+        state.activePlayer = 0;
+        const p = state.players[0];
+        p.isBot = false; state.players[1].isBot = false;
+        ['r6', 'r7', 'r8', 'r9', 'r10'].forEach(id => { state.board[id] = { type: 'coin' }; });
+        state.board.r8 = { type: 'shop', shopDistrict: 'ring' };
+        state.allyOnMap = null; R.removeAllyMarker();
+        p.pos = 'r6'; p.mesh.position.copy(R.getPos('r6'));
+
+        GC.moveThroughGraph(p, 4);
+        let entered = false;
+        for (let i = 0; i < 70; i++) {
+            await new Promise(r => setTimeout(r, 180));
+            const offr = document.getElementById('shop-offer-modal');
+            if (!entered && offr && getComputedStyle(offr).display !== 'none') {
+                document.getElementById('btn-shop-offer-enter').click();
+                await new Promise(r => setTimeout(r, 700));
+                // Lose the flag, then close. Under the old rule this ended the
+                // turn on the spot.
+                state.pendingReturnState = null;
+                document.getElementById('btn-close-shop').click();
+                entered = true;
+                continue;
+            }
+            if (p.pos === 'r10') break;
+        }
+        return { entered, pos: p.pos, gs: state.gameState };
+    });
+    ok('order: losing the shop flag no longer ends the turn mid-walk',
+        flagLost.entered && flagLost.pos === 'r10',
+        `ended on ${flagLost.pos} (wanted r10), gameState ${flagLost.gs}`);
 
     // ---------------------------------------------------------------
     // 5. Nothing a player reads still says "ally".

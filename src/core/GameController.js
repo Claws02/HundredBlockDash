@@ -250,6 +250,7 @@ export function startGame() {
     _gateFromTurnStart = false;
     _pendingStepsAfterGate = 0;
     _buddyRemindedRound = -1;
+    _finalRoundAnnounced = false;
     state.gameStarted = true;
     _savePrefs();
     if (state.playStyle === 'tabletop') document.body.classList.add('tabletop-mode');
@@ -353,6 +354,11 @@ export function startPreRoll() {
         if (uiL && uiL.style.display === 'none') uiL.style.display = 'block';
     }
     UIManager.hideRollCallout();
+    UIManager.hideFinalRoundBanner();
+    // No move is in progress at the top of a turn, so no continuation from one
+    // may still be parked — closeShopModal() reads this slot to decide whether
+    // the turn is over, and a stale one would resume a walk that ended turns ago.
+    _clearPassThroughResume();
 
     // A player parked at a shut gate does not get an ordinary turn — they get
     // the gate. This lived in proceedTurn() and covered ONLY Hundred Block Dash,
@@ -368,6 +374,18 @@ export function startPreRoll() {
             triggerGateChallenge(gp);
             return;
         }
+    }
+    // The last round announces itself, once, before anything else about the
+    // round. It does not wait for a press — it owns the screen for its floor and
+    // then the turn begins — but it does hold the beat, because a three-second
+    // banner nobody has time to read is not an announcement.
+    if (_finalRoundDue()) {
+        _finalRoundAnnounced = true;
+        state.gameState = 'ACKNOWLEDGE';
+        UIManager.showFinalRoundBanner(_cityRounds());
+        sfx('land_bad');
+        Director.hold('FINAL_ROUND', startPreRoll);
+        return;
     }
     // The round's buddy news, before anybody rolls — and before PRE_ROLL is
     // entered, so no roll control can appear behind the card. It takes the
@@ -588,83 +606,114 @@ function _noteDistrictEntry(player, nodeId) {
     UIManager.showRealmBanner(DISTRICT_BIOMES[dist]);
 }
 
-function _checkPassThroughShop(player, nodeId, stepsLeft, continueMove) {
-    const b = state.board[nodeId];
+// Everything that can interrupt a single STEP of a move, run one at a time.
+//
+// Reported: "there was a glitch when a player hit the store, the game glitched
+// and went to the end of their turn and skipped over an ally."
+//
+// This used to be three nested branches, each capturing the next as a closure —
+// steal wrapped buddy wrapped shop — with the shop leg parking its continuation
+// in a module-level slot (`_passThroughResumeHop`) and the turn's end reachable
+// from closeShopModal() whenever one string flag failed to match. Two globals
+// and three closures deciding between "carry on walking" and "end the turn" is
+// exactly how a shop swallows a buddy and finishes the turn early.
+//
+// Now: build the list of interruptions this square owes, in a fixed order, and
+// walk it with an index. One continuation, one place that decides the turn is
+// over, and each step gets the whole screen until it hands back.
+const PASS_STEPS = ['hq', 'steal', 'buddy', 'shop'];
 
-    // District HQ pays for PASSING it, not just for stopping on it. Landing
-    // exactly on one of four HQs on a 60-node ring was a coin flip you had no
-    // control over, so the biggest single payout on the board was pure luck;
-    // now the reward is for choosing the route that goes through the district.
-    // Landing on it still pays via the 'hq' case, and the two can't both fire
-    // for one square because this branch only runs while steps remain.
-    if (stepsLeft > 0 && b?.type === 'hq') {
-        const dist = CITY_GRAPH[nodeId]?.district;
-        if (dist) {
+function _checkPassThroughShop(player, nodeId, stepsLeft, continueMove) {
+    const b   = state.board[nodeId];
+    const opp = state.players[(player.id + 1) % 2];
+    const isCity = state.selectedMap !== 'hundred_block_dash';
+
+    // Which of them actually apply here. Decided ONCE, up front, from the board
+    // as it is at this instant — so a buddy claimed by the steal step cannot
+    // also fire the buddy step, and nothing re-reads state a later step changed.
+    const due = PASS_STEPS.filter(k => {
+        if (stepsLeft <= 0) return false;
+        if (k === 'hq')    return b?.type === 'hq' && !!CITY_GRAPH[nodeId]?.district;
+        if (k === 'steal') return isCity && opp.pos === nodeId && opp.allies.length > 0;
+        if (k === 'buddy') return isCity && state.allyOnMap && state.allyOnMap.nodeId === nodeId;
+        if (k === 'shop')  return b?.type === 'shop';
+        return false;
+    });
+
+    let idx = 0;
+    // The ONE continuation. Every step calls this and only this; nothing else in
+    // here may resume the move or end the turn.
+    const next = () => {
+        if (idx >= due.length) { state.gameState = 'MOVING'; continueMove(); return; }
+        const step = due[idx++];
+        state.gameState = 'MOVING';
+
+        if (step === 'hq') {
+            // District HQ pays for PASSING it, not just for stopping on it.
+            // Landing exactly on one of four HQs on a 60-node ring was a coin
+            // flip you had no control over; now the reward is for choosing the
+            // route that goes through the district.
+            const dist   = CITY_GRAPH[nodeId].district;
             const before = player.districtsVisited[dist] || 0;
             _onDistrictHQReached(player, dist);
             const bonus = before === 0 ? DISTRICT_HQ_FIRST_BONUS : DISTRICT_HQ_REVISIT_BONUS;
-            const info = HQ_META[dist] || { name: 'HQ', icon: '🏛️' };
+            const info  = HQ_META[dist] || { name: 'HQ', icon: '🏛️' };
             UIManager.toast(`${info.icon} Passed ${info.name} — +${bonus} coins!`, '#fbbf24');
             UIManager.animateCoinDisplay(player.id, player.coins);
             sfx('coin_gain');
+            next();
+            return;
         }
-    }
 
-    const thenShop = () => {
-        if (stepsLeft > 0 && b?.type === 'shop') {
+        if (step === 'steal') {
+            // Brushing past a rival is enough to go for their buddy. It used to
+            // need an exact landing on their square — one node in sixty, on the
+            // one turn they happened to be holding something.
+            state.gameState = 'ACKNOWLEDGE';
             if (player.isBot) {
-                if (Bot.shopPassThrough()) {
-                    state.gameState = 'SHOP';
-                    _noteShopVisit(player);
-                    setTimeout(() => {
-                        if (state.gameState !== 'SHOP') return;
-                        _botShop(player);
-                        Director.wait(BOT_THINK.SHOP, () => { state.gameState = 'MOVING'; continueMove(); });
-                    }, 400);
-                } else setTimeout(continueMove, 300);
-            } else {
-                _passThroughResumeHop = continueMove;
-                state.gameState = 'SHOP';
-                ModalManager.showModal('shop-offer-modal');
+                if (Bot.shouldAttemptAllySteal()) _startAllySteal(player, opp, Bot.allyStealIndex(opp), next);
+                else next();
+                return;
             }
-        } else {
-            continueMove();
+            UIManager.toast(`🥷 You brushed past ${opp.name} — go for a Buddy?`, '#f97316', { urgent: true });
+            _offerAllySteal(player, opp, next);
+            return;
         }
+
+        if (step === 'buddy') {
+            // Same rule for the buddy waiting on the board: walking past the
+            // BUDDY SPACE is enough to challenge for them.
+            if (!state.allyOnMap || state.allyOnMap.nodeId !== nodeId) { next(); return; }
+            state.gameState = 'ACKNOWLEDGE';
+            _offerAllyEncounter(player, next);
+            return;
+        }
+
+        // shop
+        if (player.isBot) {
+            if (!Bot.shopPassThrough()) { Director.hold('PASSTHROUGH', next); return; }
+            state.gameState = 'SHOP';
+            _noteShopVisit(player);
+            Director.hold('PASSTHROUGH', () => {
+                if (state.gameState !== 'SHOP') { next(); return; }
+                _botShop(player);
+                Director.wait(BOT_THINK.SHOP, next);
+            });
+            return;
+        }
+        // The offer names WHICH shop it is. It used to leave
+        // pendingShopDistrict alone, so entering picked up whatever district the
+        // last shop visit had left behind — the Back Alley's discount on the
+        // Promenade's stock, and vice versa.
+        state.pendingShopDistrict = CITY_GRAPH[nodeId]?.shopDistrict
+            || CITY_GRAPH[nodeId]?.district || 'ring';
+        state.pendingShopDiscount = state.pendingShopDistrict === 'ba' ? BA_DISCOUNT : 1.0;
+        _passThroughResumeHop = next;
+        state.gameState = 'SHOP';
+        ModalManager.showModal('shop-offer-modal');
     };
 
-    // Brushing past a rival is enough to go for their buddy. This used to need
-    // an exact landing on their square — one node out of sixty, on the one turn
-    // they happened to be holding something, which meant the steal existed on
-    // paper and almost never in a match. Passing them is the same encounter and
-    // happens often enough to be a real threat, which is what makes holding a
-    // buddy a position worth defending.
-    const opp = state.players[(player.id + 1) % 2];
-    if (stepsLeft > 0 && state.selectedMap !== 'hundred_block_dash'
-        && opp.pos === nodeId && opp.allies.length > 0) {
-        state.gameState = 'ACKNOWLEDGE';
-        const resume = () => { state.gameState = 'MOVING'; thenShop(); };
-        if (player.isBot) {
-            if (Bot.shouldAttemptAllySteal()) { _startAllySteal(player, opp, Bot.allyStealIndex(opp), resume); return; }
-            resume(); return;
-        }
-        UIManager.toast(`🥷 You brushed past ${opp.name} — go for a Buddy?`, '#f97316', { urgent: true });
-        _offerAllySteal(player, opp, resume);
-        return;
-    }
-
-    // Same rule for the buddy waiting on the board: walking past the BUDDY
-    // SPACE is enough to challenge for them. Landing exactly on one node out of
-    // sixty, in the handful of rounds a buddy is out there, meant most matches
-    // never offered the encounter at all — the buddy report told you where they
-    // were and then the dice decided whether you were allowed to go.
-    if (stepsLeft > 0 && state.allyOnMap && state.allyOnMap.nodeId === nodeId) {
-        state.gameState = 'ACKNOWLEDGE';
-        const resume = () => { state.gameState = 'MOVING'; thenShop(); };
-        _offerAllyEncounter(player, resume);
-        return;
-    }
-
-    thenShop();
+    next();
 }
 
 function _onLand(player) {
@@ -1394,6 +1443,16 @@ function _onRoundEnd() {
 //
 // Returns true when it took the screen, in which case startPreRoll() steps back
 // and lets the card's own callback restart it.
+// currentRound counts rounds COMPLETED, so the last round being PLAYED is the
+// one where that count is one short of the total.
+let _finalRoundAnnounced = false;
+function _finalRoundDue() {
+    if (state.selectedMap === 'hundred_block_dash') return false;
+    if (_finalRoundAnnounced) return false;
+    const total = _cityRounds();
+    return total > 1 && state.currentRound === total - 1;
+}
+
 let _buddyRemindedRound = -1;
 function _buddyReportDue() {
     if (state.selectedMap === 'hundred_block_dash') return false;
@@ -1737,10 +1796,18 @@ export function buyItem(itemId, cost) {
 }
 
 export function closeShopModal() {
-    const wasPassThrough = state.pendingReturnState === 'pass_through_done';
     state.pendingReturnState = null;
     ModalManager.closeAllModals();
-    if (wasPassThrough) { _afterPassThroughShop(); return; }
+    // A MOVE STILL OWED OUTRANKS EVERYTHING. This used to decide between
+    // "carry on walking" and "end the turn" by comparing one string flag
+    // (`pendingReturnState === 'pass_through_done'`), and any path that opened a
+    // shop without setting it — or that cleared it in between — closed the shop
+    // straight into finishTurn(), ending the turn with steps still on the clock
+    // and every later interruption on the square skipped. That is the reported
+    // "hit the store, the game went to the end of their turn and skipped an
+    // ally". The pending continuation is now the authority: if one exists, the
+    // move is not finished, whatever any flag says.
+    if (_passThroughResumeHop) { _afterPassThroughShop(); return; }
     if (state.gameState === 'SHOP') { state.gameState = 'ACKNOWLEDGE'; Director.hold('POST_RESULT', finishTurn); }
 }
 
@@ -1752,6 +1819,11 @@ export function shopOfferEnter() {
 }
 
 export function shopOfferSkip() { ModalManager.closeAllModals(); _afterPassThroughShop(); }
+
+// Drop a continuation that no longer belongs to the move in progress. A slot
+// left set from an abandoned move would make the NEXT shop close resume a walk
+// that finished several turns ago.
+function _clearPassThroughResume() { _passThroughResumeHop = null; }
 
 function _afterPassThroughShop() {
     state.pendingReturnState = null;

@@ -36,8 +36,8 @@ cd qa
 | `node polish.js` | The presentation pass: the whose-turn banner (fires on hand-over, silent on a re-roll, never over the roll button), City's coins-per-round end chart, the win-screen stat tiles and both buttons on screen, the buddy's real 3D model on the board with no leak across 12 spawn cycles, and a rendered 3D portrait on every character card. | ~4 min |
 | `node districts.js` | Do the four roads read as four places? Street-level furniture with a palette per district, no prop standing on a playable square, a landmark per district tall enough to read, the smoke and neon actually running, and the arrival banner. Writes ten screenshots — a follow-cam and a raised wide view per district. | ~3 min |
 | `node junctionboot.js [n]` | Repro harness for "the junction arrows pop up at the start of a match, but only sometimes." Boots a fresh City match n times and reports whether the layer ever appears with NO branch choice pending (a leak) versus the legitimate turn-one fork. | ~1 min per boot |
-| `node readouts.js` | The two persistent readouts: the fork's SPACES LEFT counter (right number, clear of three rows of chrome and both road arrows, flips for Player 2, gone when the road is chosen) and the shield marker (bottom-left, names itself, comes down the instant the shield is spent, hides with the HUD), and the first-fork primer. | ~2 min |
-| `node buddy.js` | Buddies end to end: every power does what its card says (including the Bodyguard against a fine **and** an Anchor), the round report names who/where/how-long and lists what each player holds, an unclaimed buddy's countdown ticks and it actually leaves, passing a rival offers the steal and declining resumes the move, the report opens the round rather than closing the last one, 60 sampled spawns all land within reach of a player, no player-facing string still says "ally", and the duel tiles are down to three. | ~3 min |
+| `node readouts.js` | The two persistent readouts: the fork's SPACES LEFT counter (right number, clear of three rows of chrome and both road arrows, flips for Player 2, gone when the road is chosen) the shield marker (bottom-left, names itself, comes down the instant the shield is spent, hides with the HUD), the first-fork primer, the round counter reading 1/12 through 12/12, and the FINAL ROUND banner (fires once, on the last round only, holds its full floor and hands the turn over by itself). | ~2 min |
+| `node buddy.js` | Buddies end to end: every power does what its card says (including the Bodyguard against a fine **and** an Anchor), the round report names who/where/how-long and lists what each player holds, an unclaimed buddy's countdown ticks and it actually leaves, passing a rival offers the steal and declining resumes the move, the report opens the round rather than closing the last one, 60 sampled spawns all land within reach of a player, a square owing both a buddy and a shop offers both in order and finishes its remaining steps, no player-facing string still says "ally", and the duel tiles are down to three. | ~3 min |
 | `node charshots.js` | The nine character figures: every type builds, nobody sinks through their tile, the silhouettes vary, none is a triangle bomb, and the picker paints a real 3D portrait on every card. Writes `shot-charsheet.png` — a labelled contact sheet to actually look at. | ~2 min |
 | `node city.js` | The City Circuit audit: the opening briefing and its map tour, junction **arrows over the board** (labelled, separated, correct through the tabletop half turn, and returning from a map scout with the choice still open), zero track-moving spaces in the pools *and* on a live board, the bounty panel, and a sampled camera trace — position **and aim**. | ~4 min |
 | `node mapp2.js` | The map from **Player 2's** end in tabletop: touching a block selects that block, the tooltip faces them and keeps its offset, and dragging pushes the board the way the finger moves. `mapinfo.js` only ever plays P1, which is how the inverted raycast survived. | ~2 min |
@@ -101,6 +101,14 @@ cd qa
 > both files pass 13/13 and 31/31 when run on their own. A failure that does not
 > reproduce alone is the harness, not the game — but check, do not assume.
 
+> **An absolute total is not a measurement in a live match — twice now.**
+> After the duel case below, the SAME mistake surfaced in `buddy.js`: the
+> Bodyguard assertion wrote 40 coins, blocked an 8-coin fine and read back 52.
+> A blocked hit fires `_checkContract('block_space')`, so on the runs where the
+> board happened to be holding that bounty it paid out 12 in between. Both are
+> now deltas on a board with `state.activeContracts` cleared. If a probe writes
+> a coin total and reads it back, it is measuring the whole economy.
+>
 > **An absolute total is not a measurement in a live match.** `pacing.js`
 > asserted the duel ante by reading `players[0].coins === 3` after setting it to
 > zero. Landing on a duel also fires `_checkContract(p,'land_type','duel')`, so

@@ -54,6 +54,8 @@ place a turn can go somewhere else.
                             │
         ┌───────────────────┴───────────────────┐
         │ parked at a shut gate?  → §5          │
+        │ last round, unannounced? → FINAL       │
+        │   ROUND banner holds 3000 ms          │
         │ round's buddy news unread? → the      │
         │   BUDDY REPORT owns the screen and    │
         │   re-enters here when pressed         │
@@ -87,13 +89,12 @@ place a turn can go somewhere else.
         ┌───────────────────┴────────────────────┐            │
         │ is the NEXT node a junction? (City)    │            │
         │   → §3 The fork                        │            │
-        │ is it a shop, with steps left?         │            │
-        │   → ⏱ PASSTHROUGH 320 ms, offer to     │            │
-        │     stop in; resume the hop after      │            │
-        │ is the rival here holding a Buddy?     │            │
-        │   → offer the steal, resume after      │            │
-        │ is it an HQ, with steps left?          │            │
-        │   → pays the pass-through bonus, toast │            │
+        │ what does this square OWE?             │            │
+        │   _checkPassThroughShop() builds the   │            │
+        │   list once — HQ · steal · buddy ·     │            │
+        │   shop — and walks it with an index.   │            │
+        │   ONE continuation; each step owns the │            │
+        │   screen until it hands back. §2b      │            │
         │ is it the Gate, and closed?            │            │
         │   → bank the remaining steps, §5       │            │
         └───────────────────┬────────────────────┘            │
@@ -127,7 +128,45 @@ place a turn can go somewhere else.
 | `POST_RESULT` | 650 ms | The board on its own before the turn moves on. |
 | `TURN_HANDOFF` | 600 ms | Long enough to notice the turn changing hands. |
 | `PRE_MINIGAME` | 1100 ms | The gap before a minigame takes the screen. |
+| `FINAL_ROUND` | 3000 ms | The last round announces itself. It does not wait for a press, but it does hold the beat — a three-second banner nobody has time to read is not an announcement. |
 | `POST_MINIGAME` | 700 ms | The gap after its result closes. |
+
+### 2b. What one square owes you
+
+A single STEP of a move can owe up to four things, and they must happen in a
+fixed order with none dropped:
+
+```
+   HQ  ──▶  STEAL  ──▶  BUDDY  ──▶  SHOP  ──▶  keep walking
+   pays     rival on    buddy       offer to
+   on the   this node   waiting     stop in
+   way past holding     here
+            a Buddy
+```
+
+`_checkPassThroughShop()` decides which of the four apply **once**, up front,
+from the board as it is at that instant — so a buddy claimed by the steal step
+cannot also fire the buddy step — then walks the list with an index. There is
+exactly **one** continuation, and nothing else in the function may resume the
+move or end the turn.
+
+> **This was three nested closures.** Steal wrapped buddy wrapped shop, with the
+> shop leg parking its continuation in a module-level slot
+> (`_passThroughResumeHop`) and `closeShopModal()` deciding between "carry on
+> walking" and "end the turn" by comparing one string flag. Any path that
+> cleared or never set that flag closed the shop straight into `finishTurn()` —
+> steps still owed, every later interruption on the square skipped. Reported as
+> *"hit the store, the game glitched and went to the end of their turn and
+> skipped over an ally."*
+>
+> The pending continuation is now the authority: **if one exists, the move is
+> not finished, whatever any flag says.** `startPreRoll()` clears the slot, so a
+> continuation from an abandoned move can never resume a walk that ended turns
+> ago.
+
+The same pass fixed a quieter one: the City shop offer never set
+`state.pendingShopDistrict`, so entering it opened whatever district the last
+shop visit had left behind.
 
 ---
 
