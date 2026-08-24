@@ -994,6 +994,16 @@ export function resolveSpaceEffect(p, spaceType, space) {
             }
             return 'Your own Tollbooth.';
         }
+        // ⭐ TERRITORY OFFICE — Star Territory.
+        //
+        // PHASE 1 PLACEHOLDER. The board, its four Offices and the routing that
+        // makes them worth reaching all exist; the Star itself does not yet, so
+        // an Office says so plainly rather than paying out a stand-in bonus.
+        // Faking a reward here would mean tuning the board's economy against a
+        // number that is about to be replaced.
+        // See docs/STAR_TERRITORY_SPEC.md §4 for what goes here in phase 3.
+        case 'plinth':
+            return 'The Office is shut — the circuit judge has not arrived yet.';
         // Landing on an already-broken gate is a non-event, but it still needs
         // real copy — returning '' fell through to the generic "Nothing happens."
         case 'gate': case 'gate_open':

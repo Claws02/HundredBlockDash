@@ -118,6 +118,14 @@ export const DISTRICT_SHOPS = {
     ind:  ['rocket', 'custom_dice', 'swap'],
     // Hundred Block Dash realm shops — full inventory, themed title only.
     woods: null, ember: null, fae: null, void: null,
+    // Star Territory outfitters. Each sits FOUR SPACES BEFORE that territory's
+    // Office, so what it sells is competing directly with the Star for the same
+    // coins — which is the decision neither other board has.
+    hub:   null,                                   // the town stores: everything
+    rail:  ['rocket', 'custom_dice', 'shield'],    // the railyard moves things
+    mine:  ['rocket', 'anchor', 'custom_dice'],    // blasting gear
+    ranch: null,                                   // the trading post: everything
+    bad:   ['cursed_die', 'steal', 'anchor'],      // whatever fell off a wagon
 };
 
 export const BA_DISCOUNT = 0.75;   // 25% off in Back Alley
@@ -227,6 +235,10 @@ export const SPACE_META = {
     shop:        { ic: '🏪', n: 'ITEM SHOP',      e: 0x1a0a2e, c: 0xa855f7, geo: 'knot'       },
     hq:          { ic: '🏛️', n: 'DISTRICT HQ',   e: 0x1a1500, c: 0xfbbf24, geo: 'double_torus'},
     duel:        { ic: '⚔️', n: 'DUEL',           e: 0x2a0a2a, c: 0xff6b35, geo: 'crystal'    },
+    // Star Territory. One of the four Offices holds the live Star at any time;
+    // the rest are dark. The board reads that difference at a glance, so the
+    // tile carries the gold of the thing you are chasing.
+    plinth:      { ic: '⭐', n: 'TERRITORY OFFICE', e: 0x2a2000, c: 0xfbbf24, geo: 'double_torus' },
 };
 
 export const SPACE_DESCS = {
@@ -252,6 +264,7 @@ export const SPACE_DESCS = {
     duel:        'DUEL! Take 3 coins to ante up, set a bet, then compete in a minigame. Winner takes the pot!',
     start:       'Back at the start of the City Ring Road.',
     finish:      'The Crown. Reach it for the finish bonus — but the most coins still wins.',
+    plinth:      'A Territory Office. Post the bond here when it is holding the Star.',
 };
 
 // ============================================================
@@ -322,6 +335,70 @@ export const DISTRICT_BIOMES = {
         motes: { color: 0xff7a1a, count: 30, rise: 2.2, size: 0.13, spread: 20 },
     },
 };
+
+// ============================================================
+// STAR TERRITORY — five roads, five times of day, the same rule the City
+// districts follow (docs/DISTRICTS.md): that is what keeps them apart at a
+// glance. Surfaces and prop sets currently borrow City's makers; the frontier
+// prop art is phase 2 of docs/STAR_TERRITORY_SPEC.md.
+// ============================================================
+Object.assign(DISTRICT_BIOMES, {
+    hub: {
+        name: 'Perdition', icon: '🤠',
+        tagline: 'Every road out of town comes back through it.',
+        lore: 'Rutted dirt, hitching rails, a courthouse clock nobody winds. The saloon lights are coming on.',
+        story: 'PERDITION · Twelve blocks of main street and the four turnings off it. It is the fast way round and it is where you will meet whoever else is out here — the only road on the board that carries two ways to lose money.',
+        // Late afternoon, long shadows.
+        bgTop: '#c98a4b', bgBot: '#e8c48e', fog: '#e0bd8d', floorEdge: 0xb98a4a, pathTint: 0xd8b27a,
+        surface: 'concrete', props: 'civic',
+        light: { color: 0xffc98a, intensity: 0.5, height: 22, radius: 60, bounce: 0xffdcae, bounceI: 0.4 },
+        motes: { color: 0xffdca8, count: 22, rise: 0.25, size: 0.18, spread: 26 },
+    },
+    rail: {
+        name: 'Ironwood Railyard', icon: '🚂',
+        tagline: 'The 5:40 has not run in nine years.',
+        lore: 'Ballast and sleepers, a water tower leaking, and a cold locomotive that still ticks as it settles.',
+        story: 'THE RAILYARD · Twelve blocks of somebody else\'s freight. More mysteries than anywhere on the board, and the boosts to go with them — the road you take when you want the game to hand you something.',
+        // Dawn: low sun through steam.
+        bgTop: '#5878a8', bgBot: '#bcc9d8', fog: '#adc0d4', floorEdge: 0x6d84ad, pathTint: 0x9fb3cc,
+        surface: 'concrete', props: 'works',
+        light: { color: 0xbcd4ff, intensity: 0.7, height: 20, radius: 58, bounce: 0xffd9a0, bounceI: 0.5 },
+        motes: { color: 0xdfe8f5, count: 30, rise: 1.1, size: 0.2, spread: 24 },
+    },
+    mine: {
+        name: 'Cinder Mine', icon: '⛏️',
+        tagline: 'Past the rockslide, and worth the powder.',
+        lore: 'Wet rock, ore-cart rails, lantern hooks every few yards and a furnace glow somewhere below.',
+        story: 'THE CINDER MINE · Behind the rockslide, and it pays for the roll it cost you — three big seams in nine blocks. The Office down here is dark until somebody blasts the way in.',
+        // Underground: lantern and furnace, no sky.
+        bgTop: '#1c1310', bgBot: '#4a2a18', fog: '#5a3320', floorEdge: 0xb8562f, pathTint: 0xd2793f,
+        surface: 'wet', props: 'works',
+        light: { color: 0xff8a3c, intensity: 1.4, height: 14, radius: 46, bounce: 0xffc27a, bounceI: 0.7 },
+        motes: { color: 0xff7a2a, count: 28, rise: 1.8, size: 0.13, spread: 20 },
+    },
+    ranch: {
+        name: 'Longhorn Ranch', icon: '🐎',
+        tagline: 'Nothing out here wants anything from you.',
+        lore: 'Grass to the fence line, a windmill turning slow, hay stacked against the great barn.',
+        story: 'THE LONGHORN · The friendliest road in the Territory — not one block on it costs you a coin. Eleven spaces out of your way to get here, which is the price of a road that never bites.',
+        // Golden hour.
+        bgTop: '#8a9c46', bgBot: '#f0d896', fog: '#e4d29a', floorEdge: 0x6f8f4a, pathTint: 0xa8bd6a,
+        surface: 'paving', props: 'market',
+        light: { color: 0xffd98a, intensity: 0.6, height: 21, radius: 62, bounce: 0xfff0c0, bounceI: 0.5 },
+        motes: { color: 0xfff2c4, count: 34, rise: 0.4, size: 0.16, spread: 26 },
+    },
+    bad: {
+        name: 'Boot Hill Badlands', icon: '🏜️',
+        tagline: 'The only road where a rival can take something off you.',
+        lore: 'Cracked hardpan and salt, a mesa throwing the only shade for a mile, and crosses on the rise.',
+        story: 'BOOT HILL · High noon and no law. Three magnets, two swap zones and a duel in twelve blocks — everything here takes from somebody rather than paying out.',
+        // High noon, bleached and blinding.
+        bgTop: '#9fb4cc', bgBot: '#e8dcc0', fog: '#ded2b8', floorEdge: 0xb8802e, pathTint: 0xd6b070,
+        surface: 'concrete', props: 'alley',
+        light: { color: 0xfff4dc, intensity: 0.35, height: 26, radius: 66, bounce: 0xe8d8b0, bounceI: 0.3 },
+        motes: { color: 0xe0cfa8, count: 26, rise: 0.6, size: 0.15, spread: 28 },
+    },
+});
 
 export function getBiomeForDistrict(district) {
     return DISTRICT_BIOMES[district] || DISTRICT_BIOMES.ring;

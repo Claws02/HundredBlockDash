@@ -36,6 +36,13 @@ export function pools()       { return active().pools || {}; }
 export function junctions()   { return active().junctions; }
 export function branches()    { return active().branches; }
 export function regionKeys()  { return active().regionKeys; }
+
+// The "everyone uses it" road — City's ring, Star Territory's hub. Scenery
+// treats it differently (lamps on both sides, dressing pushed further back,
+// buildings facing inward), and that used to be the literal string 'ring'
+// compared in four places in the renderer.
+export function hubKey()      { return active().hubKey; }
+export function isHubRegion(k){ return k === active().hubKey; }
 export function regionNames() { return active().regionNames; }
 export function botBias()     { return active().botBias; }
 export function layout()      { return active().layout; }
@@ -48,6 +55,11 @@ export function gateNode()    { return active().gateNode; }
 // that switched on the map id — the last piece of per-map tuning that lived
 // outside the map.
 export function gateThreshold() { return active().gateThreshold; }
+
+// What the map view calls this board and the two ends of its track.
+export function mapLabels() {
+    return active().mapLabels || { title: 'MAP', start: 'START', middle: '', end: 'END' };
+}
 
 // The lap/track order. On a graph board this is the authored node order that
 // drives the camera curve, the map slider and lap progress. A linear board has

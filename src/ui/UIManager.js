@@ -14,6 +14,11 @@ import { getPos, getTileMeshes, setMapCameraTarget, mapCamera, onResize, getCame
          clampMapTarget, worldToScreen, focusJunction, clearJunctionFocus } from '../engine/Renderer.js';
 import * as ActiveMap from '../config/ActiveMap.js';
 
+// "1 spaces" — City Circuit never had a one-space road, so the hardcoded plural
+// was never wrong until Star Territory's "stay in town" branch, which is
+// exactly one node long.
+const nSpaces = n => `${n} space${n === 1 ? '' : 's'}`;
+
 // World units panned per pixel of drag on the map view.
 const MAP_DRAG_GAIN = 0.055;
 
@@ -274,7 +279,7 @@ function _renderPathOverlay(options, title) {
         cardsEl.innerHTML = options.map(opt => {
             const dist    = opt.district || 'ring';
             const spacesHtml = opt.spaces
-                ? `<span class="bc-spaces">${opt.spaces} spaces</span>`
+                ? `<span class="bc-spaces">${nSpaces(opt.spaces)}</span>`
                 : '';
             return `<button class="branch-card branch-${dist} bfont" data-node="${opt.nodeId}">
                 <span class="bc-icon">${opt.icon || '⬤'}</span>
@@ -333,7 +338,7 @@ export function showJunctionArrows(junctionId, fromNodeId, options, stepsLeft) {
             <span class="j-head">➤</span>
             <span class="j-label">
                 <span class="j-name bfont">${opt.short || opt.label}</span>
-                <span class="j-meta">${opt.spaces ? `${opt.spaces} spaces` : ''}</span>
+                <span class="j-meta">${opt.spaces ? nSpaces(opt.spaces) : ''}</span>
                 <span class="j-desc">${opt.desc || ''}</span>
             </span>
         </button>`;
@@ -1018,15 +1023,17 @@ export function openMap() {
     slider.max   = _mapMaxIndex();
     slider.value = posIdx;
 
-    // Track ends are labelled for the board you're actually on.
+    // Track ends are labelled for the board you're actually on. These were a
+    // two-way if, so every graph board that was not City Circuit still called
+    // its own roads "DISTRICTS" and titled itself "CITY MAP". The words belong
+    // to the map, like everything else that differs between boards.
     const labels = document.querySelector('.map-labels');
     if (labels) {
-        labels.innerHTML = _isHBD()
-            ? '<span>START</span><span>REALMS</span><span>👑 CROWN</span>'
-            : '<span>START</span><span>DISTRICTS</span><span>LOOP</span>';
+        const l = ActiveMap.mapLabels();
+        labels.innerHTML = `<span>${l.start}</span><span>${l.middle}</span><span>${l.end}</span>`;
     }
     const title = document.querySelector('.map-title');
-    if (title) title.textContent = _isHBD() ? '🗺️ THE ROAD' : '🗺️ CITY MAP';
+    if (title) title.textContent = '🗺️ ' + ActiveMap.mapLabels().title;
     const hint = document.getElementById('map-drag-hint');
     if (hint) hint.textContent = _isHBD()
         ? '👆 Drag to scout the road ahead · Tap a block for details'

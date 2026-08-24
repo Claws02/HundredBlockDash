@@ -4,6 +4,19 @@
 
 import { MAPS, DEFAULT_MAP } from '../config/maps/index.js';
 
+function _activeMapDef() { return MAPS[state.selectedMap] || MAPS[DEFAULT_MAP]; }
+
+// Per-region visit counters, keyed by whatever regions the ACTIVE map has.
+// This used to be the literal `{ fin: 0, ba: 0, shop: 0, ind: 0 }`, written out
+// three times — City Circuit's district keys, hardcoded into the shape of a
+// player. Any other graph board would have counted its visits into keys that
+// were never read and left City's four sitting at zero forever.
+function _freshRegionCounts() {
+    const out = {};
+    for (const k of _activeMapDef().regionKeys) out[k] = 0;
+    return out;
+}
+
 export const state = {
     // Flow
     playStyle:           null,
@@ -105,7 +118,7 @@ export const state = {
             _shielded: false,
             // City Circuit tracking
             allies: [],          // up to MAX_ALLIES: { type, turnsRemaining, shieldCharges?, mesh }
-            districtsVisited: { fin: 0, ba: 0, shop: 0, ind: 0 },
+            districtsVisited: {},   // filled by resetPlayers() from the active map
             districtHQsThisLoop: new Set(),
             fullCircuitsCompleted: 0,
             contractsClaimed: 0,
@@ -126,7 +139,7 @@ export const state = {
             inv: [], mesh: null,
             _shielded: false,
             allies: [],
-            districtsVisited: { fin: 0, ba: 0, shop: 0, ind: 0 },
+            districtsVisited: {},   // filled by resetPlayers() from the active map
             districtHQsThisLoop: new Set(),
             fullCircuitsCompleted: 0,
             contractsClaimed: 0,
@@ -161,7 +174,7 @@ export function resetPlayers() {
         p.inv = []; p.mesh = null;
         p._shielded = false;
         p.allies = [];
-        p.districtsVisited = { fin: 0, ba: 0, shop: 0, ind: 0 };
+        p.districtsVisited = _freshRegionCounts();
         p.districtHQsThisLoop = new Set();
         p.fullCircuitsCompleted = 0;
         p.contractsClaimed = 0;

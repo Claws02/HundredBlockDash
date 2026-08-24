@@ -116,6 +116,105 @@ const EXPECTED_POOLS = { ring: 17, fin: 8, ba: 10, shop: 8, ind: 5 };
     ok('gate node is ind_0', city.gateNode === 'ind_0', String(city.gateNode));
     ok('City gate threshold is still 15', city.gateThresh === 15, String(city.gateThresh));
 
+    // ---- 2b. structural invariants, for EVERY graph map ---------------------
+    //
+    // Deliberately generic: these run over whatever is in MAPS, so a fourth
+    // board is covered the day it is added rather than the day somebody
+    // remembers to write assertions for it.
+    const every = await page.evaluate(async () => {
+        const { MAPS } = await import('/src/config/maps/index.js');
+        const R = await import('/src/engine/Renderer.js');
+        const { state } = await import('/src/core/GameState.js');
+        const prev = state.selectedMap;
+        const out = {};
+        for (const [id, M] of Object.entries(MAPS)) {
+            if (M.kind !== 'graph') continue;
+            const playable = Object.values(M.graph).filter(n => !n.isJunction);
+
+            // Pools must match slots EXACTLY. initCityBoard() fills a null-type
+            // node with `pool.pop() || 'coin'`, so a pool one entry short does
+            // not throw — it silently turns a designed tile into a coin, and the
+            // board quietly stops being the board that was designed.
+            const slots = {};
+            playable.forEach(n => { if (!n.type) slots[n.district] = (slots[n.district] || 0) + 1; });
+            const poolMismatch = Object.keys({ ...slots, ...M.pools })
+                .filter(k => (M.pools[k] || []).length !== (slots[k] || 0))
+                .map(k => `${k}: pool ${(M.pools[k] || []).length} vs ${slots[k] || 0} slots`);
+
+            const reds = Object.values(M.pools).flat()
+                .filter(t => ['lose', 'lose_big', 'trap'].includes(t)).length;
+
+            // Geometry. The teardrop lobes this board was first drawn with had
+            // their two sides 2-6 units apart against a 16x13 tile — the roads
+            // sat on top of each other. So: no two NON-ADJACENT nodes may be
+            // closer than nodes that are actually next to each other.
+            state.selectedMap = id;
+            R.buildLayout();
+            const pos = {};
+            for (const n of playable) { const v = R.getPos(n.id); pos[n.id] = [v.x, v.z]; }
+            const d = (a, b) => Math.hypot(pos[a][0] - pos[b][0], pos[a][1] - pos[b][1]);
+            const adjacent = new Set();      // every real board step
+            const withinRoad = new Set();    // ...excluding the legs between roads
+            for (const n of playable) for (const nx of (n.next || [])) {
+                const viaJunction = M.junctions.has(nx);
+                const t = viaJunction ? (M.graph[nx].next || []) : [nx];
+                for (const tt of t) {
+                    if (!pos[tt]) continue;
+                    const k = [n.id, tt].sort().join('|');
+                    adjacent.add(k);
+                    if (!viaJunction && M.graph[tt].district === n.district) withinRoad.add(k);
+                }
+            }
+            // Evenness is measured WITHIN a road only. The leg from a junction
+            // out to a district is legitimately long — up to 26 units on City
+            // against about 10 for an ordinary step (docs/TURN_FLOW.md §3), and
+            // the hop animation derives its duration from distance precisely so
+            // that leg still travels at a constant ground speed. Asserting
+            // evenness across it would be asserting City is not City.
+            const steps = [...withinRoad].map(k => d(...k.split('|'))).sort((a, b) => a - b);
+            const median = steps[Math.floor(steps.length / 2)] || 0;
+            let closest = Infinity, pair = null;
+            const ids = playable.map(n => n.id);
+            for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) {
+                if (adjacent.has([ids[i], ids[j]].sort().join('|'))) continue;
+                const dd = d(ids[i], ids[j]);
+                if (dd < closest) { closest = dd; pair = [ids[i], ids[j]]; }
+            }
+            const atOrigin = ids.filter(k => pos[k][0] === 0 && pos[k][1] === 0);
+            out[id] = {
+                playable: playable.length, poolMismatch, reds,
+                redBudget: Math.floor(playable.length / 10),
+                stepMin: steps[0], stepMax: steps[steps.length - 1], median, stepCount: steps.length,
+                closest, pair, atOrigin,
+                dangling: Object.values(M.graph).flatMap(n => (n.next || []).filter(x => !M.graph[x]).map(x => n.id + '->' + x)),
+                orderedOrphans: M.ordered.filter(x => !M.graph[x] || M.graph[x].isJunction),
+                orderedDupes: M.ordered.length !== new Set(M.ordered).size,
+                startOk: !!M.graph[M.start] && !M.graph[M.start].isJunction,
+                gateOk: M.gateNode === null || !!M.graph[M.gateNode],
+            };
+        }
+        state.selectedMap = prev;
+        R.buildLayout();
+        return out;
+    });
+
+    for (const [id, m] of Object.entries(every)) {
+        ok(`[${id}] pools match slots exactly`, m.poolMismatch.length === 0, m.poolMismatch.join('; '));
+        ok(`[${id}] red budget is at most 1 per 10 nodes`, m.reds <= m.redBudget,
+            `${m.reds} red of ${m.playable} (budget ${m.redBudget})`);
+        ok(`[${id}] no dangling edges`, m.dangling.length === 0, m.dangling.join(', '));
+        ok(`[${id}] lap order covers real nodes only, no duplicates`,
+            m.orderedOrphans.length === 0 && !m.orderedDupes, m.orderedOrphans.join(', '));
+        ok(`[${id}] start and gate nodes exist`, m.startOk && m.gateOk);
+        ok(`[${id}] no two nodes share a position`, m.atOrigin.length === 0, m.atOrigin.join(', '));
+        ok(`[${id}] step length is even WITHIN each road`, m.stepMax / m.stepMin < 1.6,
+            `${m.stepMin.toFixed(1)}-${m.stepMax.toFixed(1)} u across ${m.stepCount} in-road steps`);
+        // The assertion that killed the teardrop.
+        ok(`[${id}] non-adjacent nodes are no closer than adjacent ones`,
+            m.closest >= m.median * 0.9,
+            `closest ${m.pair && m.pair.join('/')} at ${m.closest.toFixed(1)} u vs median step ${m.median.toFixed(1)} u`);
+    }
+
     // ---- 3. THE ONE THAT MATTERS: geometry is bit-identical ----------------
     const got = await page.evaluate(async () => {
         const R = await import('/src/engine/Renderer.js');
@@ -191,6 +290,20 @@ const EXPECTED_POOLS = { ring: 17, fin: 8, ba: 10, shop: 8, ind: 5 };
         pick.h[0] === 'block' && pick.h[1] === 'none', JSON.stringify(pick.h));
     ok('selecting City shows only the round picker',
         pick.c[0] === 'none' && pick.c[1] === 'block', JSON.stringify(pick.c));
+
+    // Copy that used to be a two-way if now belongs to the map. A board with no
+    // labels of its own would silently call its roads "DISTRICTS".
+    const labels = await page.evaluate(async () => {
+        const { MAPS } = await import('/src/config/maps/index.js');
+        return Object.fromEntries(Object.entries(MAPS).map(([k, m]) => [k, m.mapLabels]));
+    });
+    const labelIds = Object.keys(labels);
+    ok('every map names itself and its track ends',
+        labelIds.every(k => labels[k] && labels[k].title && labels[k].start && labels[k].end),
+        JSON.stringify(labels));
+    ok('no two maps share a map-view title',
+        new Set(labelIds.map(k => labels[k].title)).size === labelIds.length,
+        JSON.stringify(labelIds.map(k => labels[k].title)));
 
     ok('no page errors', errors.length === 0, errors.join(' | '));
     await browser.close();

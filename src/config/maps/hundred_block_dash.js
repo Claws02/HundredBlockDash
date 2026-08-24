@@ -21,12 +21,14 @@ export default {
     ordered: null,          // ActiveMap.ordered() synthesises 0..finish
     junctions:   new Set(),
     branches:    {},
+    hubKey:      null,
     regionKeys:  [],        // realms are positional, not named regions
     regionNames: {},
     botBias: {},
     layout:  { kind: 'hbd_curve' },
     gateNode: null,         // the Rift's position is computed from the length
     gateThreshold: 20,
+    mapLabels: { title: 'THE ROAD',  start: 'START', middle: 'REALMS',      end: '👑 CROWN' },
     features: {
         bounties:      false,
         buddies:       false,
