@@ -47,30 +47,49 @@ async function once(browser, label, cfg, chipSel) {
         await page.waitForTimeout(500);
     }
 
-    // Wait for the board to finish arriving BEFORE starting the turn budget.
+    // Get the match to its first playable turn BEFORE starting the turn budget.
     //
-    // The 75s budget below used to be measured from startRun, which meant it
-    // was really "the flyover, plus whatever is left". On City that flyover is
-    // ~50s of wall clock in this container (fixed-duration animation, ~2 fps),
-    // so the budget expired with 0 turns played and the probe reported a stall
-    // that was not one. HBD's scene is a bare tube and boots fast, which is why
-    // only one of the two configurations ever failed.
+    // The 75s budget below used to be measured from startRun, so it was really
+    // "the opening flyover, plus whatever is left". City's flyover is a
+    // fixed-duration animation driven by frame deltas and takes ~35-50s of wall
+    // clock in this container, which ate the budget and made the probe report a
+    // stall that was not one.
+    //
+    // The wait has to DRIVE step(), not just watch. Both boards deliberately
+    // hold at gameState 'INIT' after the flyover until somebody taps their
+    // opening card — HBD's story intro, City's briefing — and step() is what
+    // taps. A passive waitForFunction on `gameState !== 'INIT'` therefore sat
+    // through the full timeout on BOTH boards and reported a 300s "boot" that
+    // was really a card waiting for a press.
     let bootMs = 0;
     {
         const b0 = Date.now();
-        try {
-            await page.waitForFunction(() => window.__QA.snapshot().gameState !== 'INIT',
-                                       null, { timeout: 300000 });
-        } catch (e) { /* fall through — the turn loop below will report 0 turns */ }
+        while ((Date.now() - b0) / 1000 < 300) {
+            const gs = await page.evaluate(() => window.__QA.snapshot().gameState);
+            if (gs && gs !== 'INIT') break;
+            await page.evaluate(() => window.__QA.step());
+            await page.waitForTimeout(150);
+        }
         bootMs = Date.now() - b0;
     }
 
     // Run a short burst of real turns.
+    //
+    // This used to be a flat 75-second wall-clock budget, which quietly assumed
+    // a turn is quick. On City in this container a turn takes ~30s (verify.js
+    // measures it), so 75s could yield at most two — and the assertion below
+    // wants two. One slow minigame and the probe reported a stall.
+    //
+    // The budget is now "keep going until enough turns have run, up to a
+    // generous ceiling". The ASSERTION is unchanged (still >= 2 turns); what
+    // changed is that wall-clock speed no longer decides the outcome.
+    const TARGET_TURNS = 4, CEILING_S = 300;
     const t0 = Date.now();
     await page.evaluate(() => window.__QA.setMinigameFastResolve(2000));
-    while ((Date.now() - t0) / 1000 < 75) {
+    while ((Date.now() - t0) / 1000 < CEILING_S) {
         const r = await page.evaluate(() => window.__QA.step());
         if (r === 'WIN_SCREEN' || r === 'BOOT_ERROR') break;
+        if (await page.evaluate(() => window.__QA.snapshot().totalTurns) >= TARGET_TURNS) break;
         await page.waitForTimeout(110);
     }
     const snap = await page.evaluate(() => window.__QA.snapshot());
@@ -78,7 +97,7 @@ async function once(browser, label, cfg, chipSel) {
     const roundText = await page.evaluate(() => document.getElementById('round-counter').textContent);
     const mapBtn = await page.evaluate(() => getComputedStyle(document.querySelector('[data-map="0"]')).display);
 
-    results.push({ label, booted, bootMs, pickerState, snap, roundText, mapBtnDisplay: mapBtn,
+    results.push({ label, booted, bootMs, playMs: Date.now() - t0, pickerState, snap, roundText, mapBtnDisplay: mapBtn,
                    invariants: rep.invariantViolations, errors: [...new Set(errors)], turns: snap.totalTurns });
     await page.screenshot({ path: path.join(__dirname, `shot-smoke-${label}.png`) });
     await ctx.close();
@@ -104,7 +123,7 @@ async function once(browser, label, cfg, chipSel) {
         if (r.turns < 2) problems.push('only ' + r.turns + ' turns ran');
         if (problems.length) bad++;
         console.log(`${problems.length ? 'FAIL' : 'OK  '} ${r.label}  booted=${r.booted} turns=${r.turns} ` +
-                    `boot=${(r.bootMs/1000).toFixed(1)}s round="${r.roundText}" mapBtn=${r.mapBtnDisplay} ` +
+                    `boot=${(r.bootMs/1000).toFixed(1)}s play=${(r.playMs/1000).toFixed(1)}s round="${r.roundText}" mapBtn=${r.mapBtnDisplay} ` +
                     `pickers(hbd=${r.pickerState.hbd},city=${r.pickerState.city})`);
         problems.forEach(p => console.log('       - ' + p));
     }

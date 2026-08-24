@@ -354,10 +354,29 @@ interrupted set piece must never cost anybody a Star.
 
 ## 5. Implementation
 
-### 5.1 · Phase 0 — the map-module refactor
+### 5.1 · Phase 0 — the map-module refactor ✅ **done** (`d2c5254`)
 
-No new content. Both existing maps must pass the full probe suite before and
-after. **Do not stack content on a half-finished refactor.**
+What actually shipped, against what this section planned:
+
+| Planned | Shipped |
+|---|---|
+| `config/maps/*` + `ActiveMap.js` | ✅ as specced |
+| 47 map-id checks converted | ✅ **zero left in `src/`** — split into `isLinear()` (board shape) and `has('feature')` (does a system run) |
+| ~91 graph references | ✅ all through `ActiveMap` |
+| Renderer layout hook | ✅ `buildNodePositions` is data-driven off `LAYOUT`; `buildLayout()` exported so geometry is testable without a scene |
+| Data-driven bot routing | ✅ `BOT_BIAS` on the map module |
+| — *(not planned)* | gate threshold, start square, gate node and the match-length picker also moved onto the map |
+| — *(not planned)* | 4 open-coded junction-skips → `ActiveMap.nextNode()` |
+
+**Verification.** `qa/mapmodules.js` (new, 30 assertions) compares every node
+position against the pre-refactor formula transcribed into the probe as an
+oracle: identical to within **1e-9 units**. Both boards drive real turns with
+zero invariant violations and zero page errors.
+
+> **The probe caught its own blind spot first.** Node positions are only written
+> during `Renderer.init()`, so the first run compared the oracle against an empty
+> map and reported a 58-unit "drift" that was nothing at all. `buildLayout()`
+> exists because of that.
 
 **New files**
 
@@ -451,7 +470,7 @@ whole biome / surface / dressing / lighting / landmark / overhead system.
 
 | # | Phase | Ends with |
 |---|---|---|
-| 0 | Map-module refactor | Both existing maps green on the full probe suite |
+| 0 | ~~Map-module refactor~~ — **done**, `d2c5254` | Both boards play; `qa/mapmodules.js` 30/30, layout identical to 1e-9 u |
 | 1 | The board — graph, layout, pools, junctions, briefing. No Star | You can walk a Clover lap; plays as a City variant |
 | 2 | Dressing — biomes, surfaces, props, lights, landmarks, spans, arrival banners | It looks like a place |
 | 3 | The Star — state, offer, purchase, dispatch, Shards, HUD, bot | The map is the map |

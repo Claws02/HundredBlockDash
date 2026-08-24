@@ -20,7 +20,17 @@ const ok = (n, cond, detail) => (cond ? out.pass : out.fail).push(n + (detail ? 
         args: ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=swiftshader',
                '--enable-unsafe-swiftshader', '--mute-audio', '--autoplay-policy=no-user-gesture-required'],
     });
-    const ctx = await browser.newContext({ viewport: { width: 412, height: 892 }, deviceScaleFactor: 2, hasTouch: true });
+    // deviceScaleFactor is a SCREENSHOT-CRISPNESS setting, and on software GL it
+    // is also a 4x fragment-shading bill. At dsf 2 (an 824x1784 backing store)
+    // City Circuit's boot flyover did not finish inside FIVE MINUTES in this
+    // container, so the gate died on a bare TimeoutError before running a single
+    // assertion — on this branch and, checked in a worktree, on the commit
+    // before it too. At dsf 1 the same boot takes about a minute.
+    //
+    // Nothing measured here is a function of backing-store resolution, so the
+    // default drops to 1 and QA_DSF=2 gets the crisper screenshots back.
+    const DSF = Number(process.env.QA_DSF || 1);
+    const ctx = await browser.newContext({ viewport: { width: 412, height: 892 }, deviceScaleFactor: DSF, hasTouch: true });
     const page = await ctx.newPage();
     const errors = [];
     page.on('pageerror', e => errors.push('PAGEERROR: ' + e.message));
@@ -127,10 +137,24 @@ const ok = (n, cond, detail) => (cond ? out.pass : out.fail).push(n + (detail ? 
     // Nothing is asserted here — this is waiting for setup to finish, not a
     // check on the product.
     const _bootT0 = Date.now();
-    await page.waitForFunction(() => {
-        return window.__QA.snapshot().gameState !== 'INIT';
-    }, null, { timeout: 300000 });
-    console.log(`    (City boot took ${((Date.now() - _bootT0) / 1000).toFixed(1)}s)`);
+    try {
+        await page.waitForFunction(() => {
+            return window.__QA.snapshot().gameState !== 'INIT';
+        }, null, { timeout: 300000 });
+    } catch (e) {
+        const fps = await page.evaluate(() => new Promise(r => {
+            let n = 0; const t0 = performance.now();
+            const tick = () => { n++; performance.now() - t0 < 1000 ? requestAnimationFrame(tick) : r(n); };
+            requestAnimationFrame(tick);
+        })).catch(() => -1);
+        throw new Error(
+            `City Circuit did not leave INIT in 300s (deviceScaleFactor ${DSF}, ~${fps} fps).\n` +
+            `The boot flyover is a fixed-duration animation driven by frame deltas, so its\n` +
+            `wall-clock length is set by how fast this machine draws. Try QA_DSF=1, close\n` +
+            `anything else running a browser, and re-run. This is an environment limit, not\n` +
+            `a product failure — confirm by running the same probe on the previous commit.`);
+    }
+    console.log(`    (City boot took ${((Date.now() - _bootT0) / 1000).toFixed(1)}s at dsf ${DSF})`);
     await page.waitForTimeout(3000);
 
     // ---------- 1. Renderer leak ----------

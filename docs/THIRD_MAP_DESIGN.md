@@ -137,6 +137,12 @@ of them is a regression, not a variation.
 
 ## 6. Where a third map will fight you — the seams
 
+> **Status: fixed.** Everything in this section was true when it was written and
+> is now history — phase 0 landed in `d2c5254`. The map registry, `ActiveMap.js`
+> and `qa/mapmodules.js` exist; there are zero map-id comparisons left in `src/`.
+> The section is kept because it is the argument for why the refactor was worth
+> a week, and the numbers in it are the before-picture.
+
 This is the part that decides the schedule, so it is stated bluntly.
 
 ### 6.1 · Map dispatch is a **binary**, not a registry
@@ -385,7 +391,7 @@ Each phase ends somewhere playable, which is what keeps a long build honest.
 
 | # | Phase | Ends with |
 |---|---|---|
-| 0 | **Map-module refactor** (§6, option B) — `ActiveMap` accessor, per-map layout hook, data-driven bot routing. No new content. | Both existing maps still pass the full probe suite |
+| 0 | ~~**Map-module refactor**~~ ✅ **done** (`d2c5254`) — `ActiveMap` accessor, per-map layout hook, data-driven bot routing. No new content. | Both existing maps still play; `qa/mapmodules.js` 30/30 |
 | 1 | **The board exists** — graph, layout, pools, junctions. No Star. | You can walk a Clover lap; it plays as a City variant |
 | 2 | **Dressing** — biomes, surfaces, props, lights, landmarks, overheads, arrival banners, briefing | It looks like a place |
 | 3 | **The Star** — state, purchase, relocation, HUD, bot | The map is the map |

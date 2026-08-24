@@ -50,10 +50,11 @@ export function gateNode()    { return active().gateNode; }
 export function gateThreshold() { return active().gateThreshold; }
 
 // The lap/track order. On a graph board this is the authored node order that
-// drives the camera curve, the map slider and lap progress. On a linear board
-// there is no such list — callers that need positions there use numbers — so
-// this returns an empty array rather than null, which is what let a caller that
-// forgot to branch crash on `.indexOf` instead of quietly reading zero.
+// drives the camera curve, the map slider and lap progress. A linear board has
+// no such list — positions there are numbers — so this returns an EMPTY ARRAY
+// rather than null: several callers do `.indexOf(pos)` or read `.length`
+// without branching first, and on a linear board those should come back -1 and
+// 0 rather than throwing. The guard is deliberate, not defensive habit.
 export function ordered() { return active().ordered || []; }
 
 // ---- graph walking, shared by everything that traces the track ----
