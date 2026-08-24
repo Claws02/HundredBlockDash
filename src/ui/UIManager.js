@@ -486,6 +486,51 @@ function _wireJunctionEvents() {
     });
 }
 
+// ---- Roll callout ----------------------------------------------------------
+//
+// The number you rolled was one line of toast text on the rail, the same weight
+// as "+3 coins" and "Passed the Grand Mall". It is not the same weight — it is
+// what the whole turn is about — and the token deliberately does not move for
+// DICE_READ (1500 ms) after the dice settle. That beat had nothing in it.
+//
+// It is safe to put this in the middle of the screen, which nothing else that
+// fires during a turn is: the rule that keeps notifications off the board is
+// about things that appear WHILE the board is moving, and this is gone before
+// the token takes its first step.
+
+let _rollOutTimer = null;
+
+export function showRollCallout(n) {
+    const el = document.getElementById('roll-callout');
+    if (!el) return;
+    clearTimeout(_rollOutTimer);
+    const num = document.getElementById('rc-num');
+    const cap = document.getElementById('rc-cap');
+    const pip = document.getElementById('rc-pips');
+    if (num) num.textContent = String(n);
+    if (cap) cap.textContent = `${(state.players[state.activePlayer]?.name || 'YOU').toUpperCase()} ROLLED`;
+    // Pips under the digit, so it reads as a die face rather than a number.
+    if (pip) pip.innerHTML = '<i></i>'.repeat(Math.max(0, Math.min(6, n)));
+    applyOrientation();
+    el.classList.remove('out');
+    el.classList.add('up');
+}
+
+export function hideRollCallout() {
+    const el = document.getElementById('roll-callout');
+    if (!el || !el.classList.contains('up')) return;
+    el.classList.add('out');
+    clearTimeout(_rollOutTimer);
+    // Let the shrink-and-fade play out before the element leaves the layout,
+    // so the number does not simply vanish on the frame the token sets off.
+    _rollOutTimer = setTimeout(() => { el.classList.remove('up', 'out'); }, 220);
+}
+
+export function rollCalloutUp() {
+    const el = document.getElementById('roll-callout');
+    return !!el && el.classList.contains('up') && !el.classList.contains('out');
+}
+
 // ---- Buddy report ----------------------------------------------------------
 //
 // A buddy spawns at the END of a round — which is the same moment the minigame

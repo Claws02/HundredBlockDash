@@ -2,6 +2,7 @@ import { state, resetPlayers } from './GameState.js';
 import {
     gateThreshold, GATE_NUM_DICE, FINE_AMOUNT, BIG_FINE_AMOUNT, TRAP_AMOUNT, DUEL_STAKE,
     MAX_INV, MAX_ALLIES, ALLY_TURNS, ALLY_SPAWN_DELAY_TURNS, BUDDY_MAP_ROUNDS,
+    BUDDY_NEAR_STEPS, BUDDY_MAX_STEPS,
     MINIGAME_EVERY_N_TURNS, ITEMS, SPACE_META, SPACE_DESCS,
     DISTRICT_HQ_FIRST_BONUS, DISTRICT_HQ_REVISIT_BONUS,
     FULL_CIRCUIT_BONUSES,
@@ -330,6 +331,29 @@ function _atClosedGate(p) {
 }
 
 export function startPreRoll() {
+    // SAFETY NETS FIRST, before either of the two branches below can return.
+    //
+    // Every full-screen scene parks the camera in its own mode and is
+    // responsible for handing it back — and the ally minigame did not, so a
+    // single encounter left cameraState stuck on 'FLYOVER' and the follow camera
+    // never ran again for the rest of the match. The same argument covers the
+    // HUD and the roll callout.
+    //
+    // These used to sit further down, after the gate and buddy checks. Moving
+    // the buddy report in above them meant a round that opened with a report
+    // returned early and skipped the restore — qa/city.js caught it as a camera
+    // left dead on FLYOVER. Nothing may start a turn OR raise a turn-opening
+    // scene in a camera mode that is not following anybody.
+    if (state.cameraState !== 'FOLLOW' && state.cameraState !== 'CINEMATIC') {
+        state.cameraState = 'FOLLOW';
+        Renderer.snapCameraToActive();
+    }
+    {
+        const uiL = document.getElementById('ui-layer');
+        if (uiL && uiL.style.display === 'none') uiL.style.display = 'block';
+    }
+    UIManager.hideRollCallout();
+
     // A player parked at a shut gate does not get an ordinary turn — they get
     // the gate. This lived in proceedTurn() and covered ONLY Hundred Block Dash,
     // so in City a failed gate roll left the player with a normal roll the next
@@ -345,30 +369,29 @@ export function startPreRoll() {
             return;
         }
     }
+    // The round's buddy news, before anybody rolls — and before PRE_ROLL is
+    // entered, so no roll control can appear behind the card. It takes the
+    // screen and hands control back through its own callback, which calls this
+    // function again with the round already marked as reported.
+    if (_buddyReportDue()) {
+        state.gameState = 'ACKNOWLEDGE';
+        _showBuddyReportThen(startPreRoll);
+        return;
+    }
     state.gameState = 'PRE_ROLL';
-    // Safety net. Every full-screen scene parks the camera in its own mode and
-    // is responsible for handing it back — and the ally minigame did not, so a
-    // single ally encounter left cameraState stuck on 'FLYOVER' and the follow
-    // camera never ran again for the rest of the match. Play cannot begin in a
-    // camera mode that isn't following anybody, so assert that here rather than
-    // trusting every scene to remember.
+    // The camera can legitimately be CINEMATIC on the way back from the buddy
+    // report — its own resume hands it back. By the time play actually begins it
+    // must be following somebody.
     if (state.cameraState !== 'FOLLOW') {
         state.cameraState = 'FOLLOW';
         Renderer.snapCameraToActive();
     }
-    // Same argument for the HUD. Every full-screen scene hides #ui-layer and is
-    // supposed to put it back; a 300s autoplay caught one run sitting in
-    // PRE_ROLL with the whole control layer still hidden and no way to roll.
-    // Whatever swallowed the restore, play cannot begin without the controls.
-    const uiLayer = document.getElementById('ui-layer');
-    if (uiLayer && uiLayer.style.display === 'none') uiLayer.style.display = 'block';
     UIManager.applyOrientation();
     // Say whose turn it is. Whose it was had only ever been implied — by which
     // HUD bar lit up and which edge the buttons appeared on — and that is easy
     // to miss coming back from a minigame. Only fires when the turn actually
     // changed hands, so a BOOST re-roll does not re-announce the same player.
     UIManager.announceTurnIfChanged(state.activePlayer);
-    _remindBuddyAtRoundStart();
     UIManager.flushToasts();     // nothing queued mid-move may be stranded
     state.rollAgainPending = false;
     state.rollAgainSamePlayer = false;
@@ -447,10 +470,16 @@ export function executeRoll(flickVelocity) {
         // mid-move chatter off the board swallowed this one — gameState is
         // 'ROLLING' when the dice settle — so the result appeared once the
         // player had already arrived somewhere, which is exactly backwards.
-        UIManager.toast(`Rolled a ${finalResult}!`, '#fff', { urgent: true });
-        // Beat: the number is on the table and legible before anything moves.
+        UIManager.showRollCallout(finalResult);
+        // Beat: the number owns the screen, at size, and comes down the moment
+        // the token sets off. It used to be a toast — urgent, so it at least got
+        // through, but the same size and the same place as every other line of
+        // chatter, for a beat in which nothing else was happening.
         const mover = state.selectedMap === 'hundred_block_dash' ? _movePlayerHBD : moveThroughGraph;
-        Director.hold('DICE_READ', () => mover(state.players[state.activePlayer], finalResult));
+        Director.hold('DICE_READ', () => {
+            UIManager.hideRollCallout();
+            mover(state.players[state.activePlayer], finalResult);
+        });
     });
 }
 
@@ -1240,11 +1269,14 @@ export function maybeTriggerMinigame() {
                 return;
             }
         }
-        _afterAllyReveal(() => {
-            UIManager.announceMinigameIncoming();
-            Director.hold('PRE_MINIGAME', () =>
-                MinigameManager.trigger((winnerId) => _resolveMinigameResult(winnerId)));
-        });
+        // The buddy report used to be raised HERE, holding the minigame back at
+        // the close of the round. It now waits for the start of the next round —
+        // the minigame is the round's payoff and should not be queued behind
+        // news about the round that has not started yet, and a card read four
+        // turns before anybody can act on it is a card people forget.
+        UIManager.announceMinigameIncoming();
+        Director.hold('PRE_MINIGAME', () =>
+            MinigameManager.trigger((winnerId) => _resolveMinigameResult(winnerId)));
     } else {
         Director.hold('TURN_HANDOFF', proceedTurn);
     }
@@ -1351,28 +1383,27 @@ function _onRoundEnd() {
     }
 }
 
-// The buddy report is a card at the CLOSE of a round, which is the right place
-// for it — that is when a buddy arrives and when the clock ticks. But a round is
-// several turns long, and by the time you are actually rolling, the card that
-// told you a buddy was two rounds from leaving is well behind you.
+// The buddy report opens the round it belongs to.
 //
-// So the first roll of each round also says it, once, as a toast. Cheap enough
-// to fire every round, short enough not to gate anything, and urgent so it is
-// not queued behind whatever the last turn left in the rail.
+// It used to be raised at the CLOSE of a round, in the same breath as the
+// minigame — which meant the news about a buddy arrived four board turns before
+// anybody could act on it, queued in front of the round's own payoff, and was
+// long forgotten by the time the next player actually rolled. It is now the
+// first thing a new round does: the board is up, the camera is free to swoop to
+// the tile, and the very next thing that happens is somebody taking a turn.
+//
+// Returns true when it took the screen, in which case startPreRoll() steps back
+// and lets the card's own callback restart it.
 let _buddyRemindedRound = -1;
-function _remindBuddyAtRoundStart() {
-    if (state.selectedMap === 'hundred_block_dash') return;
-    if (!state.allyOnMap) return;
-    if (_buddyRemindedRound === state.currentRound) return;
+function _buddyReportDue() {
+    if (state.selectedMap === 'hundred_block_dash') return false;
+    if (_buddyRemindedRound === state.currentRound) return false;
+    const rep = buddyReport();
+    return !!(rep.onMap || rep.departed || rep.held.some(h => h.buddies.length));
+}
+function _showBuddyReportThen(then) {
     _buddyRemindedRound = state.currentRound;
-    const b = ALLIES[state.allyOnMap.allyType];
-    if (!b) return;
-    const left  = state.allyOnMap.roundsLeft ?? BUDDY_MAP_ROUNDS;
-    const where = DISTRICT_NAMES[CITY_GRAPH[state.allyOnMap.nodeId]?.district] || 'the city';
-    UIManager.toast(
-        left <= 1 ? `${b.icon} ${b.name} leaves the ${where} after this round!`
-                  : `${b.icon} ${b.name} is waiting in the ${where} — ${left} rounds left.`,
-        left <= 1 ? '#fca5a5' : '#fbbf24', { urgent: true });
+    _afterAllyReveal(then);
 }
 
 // Everything the round report needs to say, gathered in one place so the card
@@ -1912,6 +1943,30 @@ function _scheduleAllySpawn(turnsDelay) {
     state.allySpawnCountdown = turnsDelay;
 }
 
+// How many board steps forward from `fromId` to every node the player can reach,
+// taking BOTH roads at every junction. A lap-order index difference is not this:
+// the districts branch, so "twelve places along the flat list" can be a road the
+// player would have to choose and then walk, or a road they cannot reach at all
+// this lap. Capped, because the far side of the ring is not worth measuring.
+export function stepsFrom(fromId, cap = BUDDY_MAX_STEPS) {
+    const dist = {};
+    if (!CITY_GRAPH[fromId]) return dist;
+    let frontier = [fromId];
+    dist[fromId] = 0;
+    for (let d = 1; d <= cap && frontier.length; d++) {
+        const next = [];
+        for (const id of frontier) {
+            for (const n of (CITY_GRAPH[id]?.next || [])) {
+                if (dist[n] !== undefined) continue;
+                dist[n] = d;
+                next.push(n);
+            }
+        }
+        frontier = next;
+    }
+    return dist;
+}
+
 export function spawnAlly() {
     if (state.allyOnMap) return;
     const allyTypes  = Object.keys(ALLIES);
@@ -1919,7 +1974,28 @@ export function spawnAlly() {
     const realNodes  = ALL_NODES_ORDERED;
     // Prefer nodes not occupied by players
     const occupied = new Set(state.players.map(p => p.pos));
-    const candidates = realNodes.filter(id => !occupied.has(id) && state.board[id]?.type !== 'gate');
+    let candidates = realNodes.filter(id => !occupied.has(id) && state.board[id]?.type !== 'gate');
+
+    // A buddy nobody can reach is a buddy nobody plays for. Placed at random on a
+    // 60-node lap, most spawns landed most of a circuit away — the report told
+    // you where they were, the countdown told you they were leaving in three
+    // rounds, and the two facts did not fit together.
+    //
+    // Two tiers. Preferred: within BUDDY_NEAR_STEPS of somebody, which is a
+    // couple of turns of ordinary rolling. Hard limit: BUDDY_MAX_STEPS, six
+    // maximum rolls, so a claim is always at least theoretically possible in the
+    // rounds the buddy is around for. Junction distances count both roads, so a
+    // node "twenty along the flat list" is only twenty if a real route gets there.
+    const reach = state.players.map(p => stepsFrom(p.pos));
+    const stepsTo = id => Math.min(...reach.map(r => r[id] === undefined ? Infinity : r[id]));
+    const near = candidates.filter(id => stepsTo(id) <= BUDDY_NEAR_STEPS);
+    const ok   = candidates.filter(id => stepsTo(id) <= BUDDY_MAX_STEPS);
+    // Fall back down the tiers rather than off a cliff: on a board where nobody
+    // can reach anything (a player parked at a shut gate, say) an unreachable
+    // buddy still beats no buddy.
+    if (near.length)    candidates = near;
+    else if (ok.length) candidates = ok;
+
     const nodeId = candidates[Math.floor(Math.random() * candidates.length)] || realNodes[0];
 
     state.allyOnMap = { nodeId, allyType, roundsLeft: BUDDY_MAP_ROUNDS };

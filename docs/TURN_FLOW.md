@@ -49,9 +49,18 @@ place a turn can go somewhere else.
                             ▼
                       startPreRoll()                     ── state: PRE_ROLL
                             │
-   asserts: camera is FOLLOW · the HUD is visible · orientation faces
-   the active player · the turn banner names them (TURN_BANNER 1700 ms,
-   only when the turn actually changed hands)
+   asserts FIRST, before any branch can return: camera is FOLLOW · the HUD
+   is visible · no roll callout is left up
+                            │
+        ┌───────────────────┴───────────────────┐
+        │ parked at a shut gate?  → §5          │
+        │ round's buddy news unread? → the      │
+        │   BUDDY REPORT owns the screen and    │
+        │   re-enters here when pressed         │
+        └───────────────────┬───────────────────┘
+                            │
+   then: orientation faces the active player · the turn banner names them
+   (TURN_BANNER 1700 ms, only when the turn actually changed hands)
                             │
         ┌───────────────────┴──────────────────────────────┐
         │ human: swipe zone + action row (ROLL / MAP /     │
@@ -107,7 +116,7 @@ place a turn can go somewhere else.
 | Beat | Floor | What it protects |
 |---|---:|---|
 | `ROLL_LAUNCH` | 220 ms | The gap between committing and the dice leaving the hand. |
-| `DICE_READ` | 1500 ms | The number is on the table and readable **before** the token moves. 850 ms was not long enough to read a number and register it before the token set off. |
+| `DICE_READ` | 1500 ms | The number is on the table and readable **before** the token moves. 850 ms was not long enough. The beat now belongs to a full-screen ROLL CALLOUT — a 132 px digit with pips — which comes down the instant the token sets off. It was a line of toast on the rail, the same weight as "+3 coins", for a beat in which nothing else was happening. |
 | `PASSTHROUGH` | 320 ms | The shop prompt does not collide with the hop that triggered it. |
 | `JUNCTION_COMMIT` | 620 ms | **§3** — the camera turns down the chosen road before the walk starts. |
 | `LAND_ARRIVE` | 500 ms | **§4** — you see *where* you are before anything is done to you. |
@@ -368,7 +377,7 @@ piece can never cost anybody a coin or a position.
 | 🎁 **MYSTERY** | A ribboned crate drops out of the sky, thuds, and the lid blows off in a burst — then the item card. | 1.5 s |
 | ⚓ **ANCHOR** | The anchor falls from off-screen, thuds into the tile and digs in — *before* the drag, so it is clear why you are about to travel backwards. | 1.4 s |
 | ⚔️ **DUEL** | Crossed sparks over the midpoint between the two tokens, low two-shot, then the bet picker. Free: the minigame follows either way. | 1.4 s |
-| 🤝 **BUDDY ARRIVAL** | The camera swoops to the tile the Buddy landed on, a beacon pulses under it, and the round report names them — **and waits for a press**. See §5. | 1.3 s + a tap |
+| 🤝 **BUDDY ARRIVAL** | The camera swoops to the tile the Buddy landed on, a beacon pulses under it, and the round report names them — **and waits for a press**. Raised at the START of the round it belongs to, from `startPreRoll()`. See §5. | 1.3 s + a tap |
 | 🕊️ **TRUCE** | A dove crosses between the two tokens as both counters tick up. | 1.0 s |
 | 💸 **FINE / TRAP** | A red seal slams onto the tile and coins fall *through* the ground. A shielded hit still gets the seal but drops no coins. | 0.6 s |
 | 🪙 **COIN / BIG COIN** | Coins pop out of the tile and arc away. | 0.55 s |

@@ -76,9 +76,29 @@ Everything else checked out, including two that only *look* unimplemented:
 | Constant | Value | Meaning |
 |---|---:|---|
 | `MAX_ALLIES` | 2 | Slots per player. A third replaces the oldest. |
+| `BUDDY_NEAR_STEPS` | 20 | Preferred spawn distance from a player, in real board steps. |
+| `BUDDY_MAX_STEPS` | 36 | Hard limit — six maximum rolls. |
 | `ALLY_TURNS` | 3 | Turns a held buddy lasts — **your** turns, not rounds. |
 | `BUDDY_MAP_ROUNDS` | 3 | Rounds an unclaimed board buddy waits before leaving. |
 | `ALLY_SPAWN_DELAY_TURNS` | 2 | Gap before the next one appears. |
+
+### Where a buddy is allowed to land
+
+`spawnAlly()` used to pick uniformly from all 60 nodes, so most spawns landed
+most of a circuit away. The report said where they were, the countdown said three
+rounds, and those two facts did not fit together — the buddy was information
+rather than an opportunity.
+
+Placement is now measured with `stepsFrom(nodeId)`: a real forward walk through
+the graph taking **both** roads at every junction. A lap-order index difference
+is not the same thing — the districts branch, so "twelve along the flat list" can
+be a road the player would have to choose and then walk, or one they cannot reach
+this lap at all. (`stepsFrom('r1').fin_0` is **24**, not 5.)
+
+Two tiers, falling back rather than off a cliff: prefer nodes within
+`BUDDY_NEAR_STEPS` of either player, else within `BUDDY_MAX_STEPS`, else anywhere.
+Measured over 60 spawns from a spread of starting pairs: **60/60 within 20 steps,
+median 10, maximum 20**.
 
 **`BUDDY_MAP_ROUNDS` is new.** `spawnAlly()` only ran when the board was empty
 and nothing ever cleared an unclaimed buddy, so a board buddy was *permanent*.
@@ -88,9 +108,17 @@ and nothing ever cleared an unclaimed buddy, so a board buddy was *permanent*.
 
 ## 3. The round report
 
-Fires from `_afterAllyReveal()` once per round, before the minigame takes the
-screen, and holds the hand-off until somebody presses through. It is a **SHARED**
-DualRead card — both players are about to race for the same buddy.
+Fires from the top of `startPreRoll()` on the **first turn of each round**,
+before `PRE_ROLL` is entered so no roll control can appear behind it, and hands
+control back through its own callback. It is a **SHARED** DualRead card — both
+players are about to race for the same buddy.
+
+> **It used to open at the wrong end of the round.** The card was raised in
+> `maybeTriggerMinigame()` at the CLOSE of a round, holding the minigame back.
+> That put news about the next round in front of the payoff for the one just
+> finished, four board turns before anybody could act on it — and by the time
+> the next player actually rolled, it was long forgotten. A buddy spawning at
+> the end of round one is now announced at the start of round two.
 
 It says, in this order:
 
@@ -110,13 +138,8 @@ It began as an arrival-only card, which fired on exactly one round per buddy.
 After that a buddy could sit on the board for the rest of a match with nothing on
 screen saying so, and a buddy at your side could expire with no warning.
 
-**And once at the start of each round, as a toast.** The card lands at the CLOSE
-of a round, which is the right place for it — that is when a buddy arrives and
-when the clock ticks — but a round is several turns long, so by the time anyone is
-actually rolling, the card that said "two rounds left" is well behind them. The
-first `startPreRoll` of each round repeats the line: who, where, and how long.
-Urgent, so it is not queued behind whatever the last turn left in the rail, and
-fired once per round by `_buddyRemindedRound`.
+`_buddyRemindedRound` latches the round number, so the report fires exactly once
+per round however many times `startPreRoll()` is called.
 
 `body.buddy-report` moves the toast rail to the opposite edge while it is up —
 the report hugs the same edge the rail lives on, and round-end toasts (Banker
@@ -178,6 +201,9 @@ with the steps still owed.
 - an unclaimed buddy's countdown ticks and it actually leaves
 - passing a rival offers the steal, and declining resumes the move
 - passing the buddy space itself offers the claim
+- the report opens the round rather than closing the last one, nothing can be
+  rolled behind it, pressing through hands the turn back, and it fires once
+- 60 sampled spawns all land inside the reachable band, never on a player
 - no player-facing string in `ALLIES`, `CONTRACT_POOL`, `MAP_REGISTRY` or the
   buddy screens still says "ally"
 - a round-end toast does not land on the report card
