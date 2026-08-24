@@ -7,13 +7,13 @@
 
 import { state } from './GameState.js';
 import { HBD_DEFAULT_CONFIG, getBiomeForSpace } from '../config/GameConfig.js';
-import { CITY_GRAPH, DISTRICT_POOLS } from '../config/BoardGraph.js';
+import * as ActiveMap from '../config/ActiveMap.js';
 
 export function initCityBoard() {
     const pools = _buildPools();
     state.board = {};
 
-    Object.values(CITY_GRAPH).forEach(node => {
+    Object.values(ActiveMap.graph()).forEach(node => {
         if (node.isJunction) return; // junctions not in board
         const base = node.type; // may be null (random), or fixed (shop/gate/hq/start)
         if (base !== null) {
@@ -25,12 +25,12 @@ export function initCityBoard() {
     });
 }
 
-// Shuffles the canonical per-district pools from BoardGraph. (These used to be
+// Shuffles the canonical per-region pools from the active map module. (These used to be
 // re-declared here as a private copy, so editing the board layout in one place
 // silently diverged from the other.)
 function _buildPools() {
     const out = {};
-    for (const [key, arr] of Object.entries(DISTRICT_POOLS)) {
+    for (const [key, arr] of Object.entries(ActiveMap.pools())) {
         const pool = [...arr];
         for (let i = pool.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));

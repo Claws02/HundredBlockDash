@@ -16,6 +16,22 @@ change `executablePath` if yours differs.
 
 ## Running
 
+> **If a probe dies on a bare `TimeoutError` waiting for City Circuit to boot,
+> it is this machine, not the game.** City's opening flyover is a
+> fixed-duration animation driven by frame deltas, so its *wall-clock* length is
+> set by how fast the renderer draws — and City's scene carries hundreds of
+> meshes of district dressing that Hundred Block Dash's bare tube does not.
+> Measured 2026-08-23 in the dev container: **~35s to boot at
+> `deviceScaleFactor: 1`, over five minutes at 2** (four times the fragment
+> work). `verify.js` now defaults to dsf 1 — set `QA_DSF=2` if you want the
+> crisper screenshots and can afford the frames. Probes also contend badly:
+> two Chromiums doing software GL on four cores roughly quarters both.
+>
+> Before blaming a change for a boot timeout, run the same probe against the
+> previous commit in a worktree. That is how the 75s budget in `verify.js` was
+> shown to be the problem rather than the map-module refactor.
+
+
 Serve the repo root first — the game loads ES modules, so `file://` will not work.
 
 ```bash
@@ -25,6 +41,7 @@ cd qa
 
 | Command | What it does | Runtime |
 |---|---|---|
+| `node mapmodules.js` | Map modules and `ActiveMap`: every selectable map has a module and a length picker, City's graph/pools/junctions survived the move out of `BoardGraph.js` intact, **every node position is identical to the geometry the renderer used to hardcode**, and features follow the map rather than its id. Fast — no match is played. | ~30 s |
 | `node verify.js` | Assertion suite: every bounty in the pool claimable by its real emitter, counter regression guards, dice settle watchdog, no errors. **Deterministic — use this as the CI gate.** | ~4 min |
 | `node verify2.js city_circuit 6` | Starts a real match: scene-graph leak census across 12 tile redraws, measured turn pacing, plays through to the win screen. | ≤25 min |
 | `node verify2.js hundred_block_dash` | Same, on the 50-block linear map. | ≤25 min |

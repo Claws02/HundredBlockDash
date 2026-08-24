@@ -2,6 +2,8 @@
 // GAME STATE — single source of truth for all mutable data
 // ============================================================
 
+import { MAPS, DEFAULT_MAP } from '../config/maps/index.js';
+
 export const state = {
     // Flow
     playStyle:           null,
@@ -149,7 +151,10 @@ export const state = {
 };
 
 export function resetPlayers() {
-    const startPos = state.selectedMap === 'hundred_block_dash' ? 0 : 'r1';
+    // The start square belongs to the map. Reads maps/index.js directly rather
+    // than ActiveMap, which imports THIS file — a cycle that would resolve at
+    // runtime but reads as an accident waiting to happen.
+    const startPos = (MAPS[state.selectedMap] || MAPS[DEFAULT_MAP]).start;
     state.players.forEach(p => {
         p.coins = 10; p.coinsEarned = 10; p.mgWins = 0;
         p.pos = startPos; p.prevPos = startPos;

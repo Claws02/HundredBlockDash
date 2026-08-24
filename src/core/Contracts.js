@@ -23,6 +23,7 @@ import { getShuffledPool, COUNTED_TYPES } from '../config/ContractPool.js';
 import { earnCoins } from './Economy.js';
 import * as UIManager from '../ui/UIManager.js';
 import { sfx } from '../engine/AudioManager.js';
+import * as ActiveMap from '../config/ActiveMap.js';
 
 export function initContracts() {
     state.contractPool = getShuffledPool();
@@ -40,7 +41,7 @@ function _fresh(c) {
 }
 
 export function checkContract(player, eventType, param, count) {
-    if (state.selectedMap === 'hundred_block_dash') return;
+    if (!ActiveMap.has('bounties')) return;
     if (!state.activeContracts || state.activeContracts.length === 0) return;
     let claimed = false;
     // Walk backwards: _claimContract splices the completed card out.

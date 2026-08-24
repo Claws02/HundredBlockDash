@@ -13,8 +13,8 @@
 
 import { state } from './GameState.js';
 import { ITEMS, DISTRICT_SHOPS, MAX_INV, MAX_ALLIES, DUEL_BET_OPTIONS } from '../config/GameConfig.js';
-import { CITY_GRAPH, JUNCTION_IDS, BRANCH_OPTIONS } from '../config/BoardGraph.js';
 import * as Renderer from '../engine/Renderer.js';
+import * as ActiveMap from '../config/ActiveMap.js';
 
 // ── Difficulty profiles ───────────────────────────────────────────────────────
 const PROFILES = {
@@ -61,17 +61,15 @@ function _itemValue(itemId, p, opp, behind) {
 
 // Where the bot would land moving `steps` forward (for custom-dice planning).
 function _landingType(p, steps) {
-    if (state.selectedMap === 'hundred_block_dash') {
+    if (ActiveMap.isLinear()) {
         const fin    = state.hbd ? state.hbd.finish : 99;
         const target = Math.max(0, Math.min(fin, p.pos + steps));
         return { type: state.board[target]?.type, finish: target >= fin };
     }
     let cur = p.pos, left = steps;
     while (left > 0) {
-        const gn = CITY_GRAPH[cur];
-        if (!gn) break;
-        let nx = gn.next[0];
-        if (JUNCTION_IDS.has(nx)) nx = CITY_GRAPH[nx].next[0];
+        const nx = ActiveMap.nextNode(cur);
+        if (!nx) break;
         cur = nx; left--;
     }
     return { type: state.board[cur]?.type, finish: false };
@@ -112,16 +110,16 @@ export function branch(player, options) {
 
 function _branchScore(player, opt) {
     let s = Math.random() * 1.5;   // tie-break noise
-    const dist = opt.district || CITY_GRAPH[opt.nodeId]?.district;
+    const dist = opt.district || ActiveMap.graph()[opt.nodeId]?.district;
     if (dist && dist !== 'ring' && !player.districtHQsThisLoop.has(dist)) s += 6; // chase circuit/HQ bonus
     if (state.allyOnMap) {
-        const ad = CITY_GRAPH[state.allyOnMap.nodeId]?.district;
+        const ad = ActiveMap.graph()[state.allyOnMap.nodeId]?.district;
         if (ad && ad === dist) s += player.allies.length < MAX_ALLIES ? 5 : 2;
     }
-    if (dist === 'fin' || dist === 'shop') s += 2;
-    else if (dist === 'ind') s += 1;
-    else if (dist === 'ba') s -= 1;
-    else if (dist === 'ring') s += 1;   // safe & steady
+    // The per-road preference used to be four hardcoded City district keys, so
+    // the route AI had no opinion at all about any other board's roads. It is
+    // now a table on the map module.
+    s += ActiveMap.botBias()[dist] || 0;
     return s;
 }
 
@@ -239,11 +237,11 @@ export function cabbieJunction(p) {
 
 function _junctionScore(p, j) {
     let s = Math.random();
-    for (const o of (BRANCH_OPTIONS[j] || [])) {
+    for (const o of (ActiveMap.branches()[j] || [])) {
         const d = o.district;
         if (d && d !== 'ring') {
             if (!p.districtHQsThisLoop.has(d)) s += 6;
-            if (state.allyOnMap && CITY_GRAPH[state.allyOnMap.nodeId]?.district === d) s += 5;
+            if (state.allyOnMap && ActiveMap.graph()[state.allyOnMap.nodeId]?.district === d) s += 5;
         }
     }
     return s;

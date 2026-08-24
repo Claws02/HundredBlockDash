@@ -1,6 +1,6 @@
 import { state, resetPlayers } from './GameState.js';
 import {
-    gateThreshold, GATE_NUM_DICE, FINE_AMOUNT, BIG_FINE_AMOUNT, TRAP_AMOUNT, DUEL_STAKE,
+    GATE_NUM_DICE, FINE_AMOUNT, BIG_FINE_AMOUNT, TRAP_AMOUNT, DUEL_STAKE,
     MAX_INV, MAX_ALLIES, ALLY_TURNS, ALLY_SPAWN_DELAY_TURNS, BUDDY_MAP_ROUNDS,
     MINIGAME_EVERY_N_TURNS, ITEMS, SPACE_META, SPACE_DESCS,
     DISTRICT_HQ_FIRST_BONUS, DISTRICT_HQ_REVISIT_BONUS,
@@ -11,7 +11,6 @@ import {
     buildHbdConfig, setHbdRealmCount, HBD_DEFAULT_CONFIG, HBD_FINISH_BONUS,
     hbdSpaceLabel, hbdShopKey, getRealmForSpace,
 } from '../config/GameConfig.js';
-import { CITY_GRAPH, JUNCTION_IDS, DISTRICT_NAMES, DISTRICT_KEYS, BRANCH_OPTIONS, ALL_NODES_ORDERED } from '../config/BoardGraph.js';
 import { MAP_REGISTRY } from '../config/MapRegistry.js';
 import * as Bot from './Bot.js';
 import { initCityBoard, generateBoard } from './BoardSetup.js';
@@ -28,9 +27,10 @@ import * as Physics from '../engine/Physics.js';
 import * as UIManager from '../ui/UIManager.js';
 import * as ModalManager from '../ui/ModalManager.js';
 import * as MinigameManager from '../minigames/MinigameManager.js';
+import * as ActiveMap from '../config/ActiveMap.js';
 
 window.SPACE_META_REF  = SPACE_META;
-window.CITY_GRAPH_REF  = CITY_GRAPH;
+window.CITY_GRAPH_REF  = ActiveMap.graph();
 
 let _passThroughResumeHop = null;
 let _branchChoiceCallback = null;
@@ -180,11 +180,14 @@ export function selectMap(mapId) {
     const confirmBtn = document.getElementById('btn-map-confirm');
     if (confirmBtn) confirmBtn.disabled = false;
 
-    // Each map has its own length picker; show only the relevant one.
-    const lenSel = document.getElementById('hbd-length-select');
-    if (lenSel) lenSel.style.display = mapId === 'hundred_block_dash' ? 'block' : 'none';
-    const citySel = document.getElementById('city-length-select');
-    if (citySel) citySel.style.display = mapId === 'city_circuit' ? 'block' : 'none';
+    // Each map names its own length picker on its registry card, so showing the
+    // right one is a lookup rather than one `if` per map. This was the last
+    // place in src/ that compared against a map id to decide behaviour.
+    const pickers = new Set(MAP_REGISTRY.map(m => m.lengthPicker).filter(Boolean));
+    for (const id of pickers) {
+        const el = document.getElementById(id);
+        if (el) el.style.display = (id === map.lengthPicker) ? 'block' : 'none';
+    }
 }
 
 export function selectHbdLength(len) {
@@ -250,6 +253,7 @@ export function startGame() {
     _pendingStepsAfterGate = 0;
     _buddyRemindedRound = -1;
     state.gameStarted = true;
+    window.CITY_GRAPH_REF = ActiveMap.graph();   // the QA harness boots off this
     _savePrefs();
     if (state.playStyle === 'tabletop') document.body.classList.add('tabletop-mode');
     document.getElementById('splash').style.display      = 'none';
@@ -263,7 +267,7 @@ export function startGame() {
         resetPlayers();
         UIManager.resetTurnAnnouncer();   // a new match announces its first turn
         UIManager.resetForkPrimer();      // ...and explains its first fork
-        if (state.selectedMap === 'hundred_block_dash') {
+        if (ActiveMap.isLinear()) {
             state.hbd = buildHbdConfig(state.hbdLength);
             setHbdRealmCount(state.hbd.realmCount);
             generateBoard();
@@ -281,9 +285,9 @@ export function startGame() {
                     state.activePlayer === 0 ? '#ff3b3b' : '#3b8eff');
                 proceedTurn();
             };
-            if (state.selectedMap !== 'hundred_block_dash') {
-                _scheduleAllySpawn(1);
-                initContracts();
+            if (ActiveMap.isGraph()) {
+                if (ActiveMap.has('buddies'))  _scheduleAllySpawn(1);
+                if (ActiveMap.has('bounties')) initContracts();
                 // City Circuit is the only board where the player routes
                 // themselves. Show them the shape of it — and offer the map —
                 // before the first junction springs the decision on them.
@@ -324,9 +328,9 @@ export function isMyTurn(pIdx) {
 // one; they just express it differently — HBD by track index, City by node id.
 function _atClosedGate(p) {
     if (state.gateOpen) return false;
-    return state.selectedMap === 'hundred_block_dash'
+    return ActiveMap.isLinear()
         ? p.pos === (state.hbd || HBD_DEFAULT_CONFIG).gatePos
-        : p.pos === 'ind_0';
+        : p.pos === ActiveMap.gateNode();
 }
 
 export function startPreRoll() {
@@ -449,7 +453,7 @@ export function executeRoll(flickVelocity) {
         // player had already arrived somewhere, which is exactly backwards.
         UIManager.toast(`Rolled a ${finalResult}!`, '#fff', { urgent: true });
         // Beat: the number is on the table and legible before anything moves.
-        const mover = state.selectedMap === 'hundred_block_dash' ? _movePlayerHBD : moveThroughGraph;
+        const mover = ActiveMap.isLinear() ? _movePlayerHBD : moveThroughGraph;
         Director.hold('DICE_READ', () => mover(state.players[state.activePlayer], finalResult));
     });
 }
@@ -467,18 +471,18 @@ export function moveThroughGraph(player, stepsTotal) {
             _onLand(player);
             return;
         }
-        const graphNode = CITY_GRAPH[player.pos];
+        const graphNode = ActiveMap.graph()[player.pos];
         if (!graphNode) { _onLand(player); return; }
         const nextId = graphNode.next[0];
 
         // About to step into a junction?
-        if (JUNCTION_IDS.has(nextId)) {
+        if (ActiveMap.isJunction(nextId)) {
             // stepsLeft counts the step INTO the fork, so it is exactly how many
             // more tiles this roll covers once the road is chosen.
             _offerBranchChoice(nextId, (chosenId) => {
                 _noteDistrictEntry(player, chosenId);
                 // If entering Industrial and gate is closed
-                if (CITY_GRAPH[nextId]?.next?.includes(chosenId) && CITY_GRAPH[chosenId]?.district === 'ind' && chosenId === 'ind_0' && !state.gateOpen) {
+                if (ActiveMap.graph()[nextId]?.next?.includes(chosenId) && ActiveMap.graph()[chosenId]?.district === 'ind' && chosenId === 'ind_0' && !state.gateOpen) {
                     _pendingStepsAfterGate = stepsLeft - 1;
                     player.pos = 'ind_0'; // position them at gate
                     Renderer.animatePlayerHop(player, 'ind_0', () => {
@@ -543,7 +547,7 @@ function _walkThroughJunction(player, junctionId, chosenId, onDone) {
 // the Ring Road into a named district on this trip. Without this, contracts
 // c09–c12 ("Enter the ... District") could never be claimed.
 function _noteDistrictEntry(player, nodeId) {
-    const dist = CITY_GRAPH[nodeId]?.district;
+    const dist = ActiveMap.graph()[nodeId]?.district;
     if (!dist) return;
     // Back on the Ring Road: clear the latch so the next entry counts again
     // (a contract for this district may not have been dealt yet).
@@ -569,7 +573,7 @@ function _checkPassThroughShop(player, nodeId, stepsLeft, continueMove) {
     // Landing on it still pays via the 'hq' case, and the two can't both fire
     // for one square because this branch only runs while steps remain.
     if (stepsLeft > 0 && b?.type === 'hq') {
-        const dist = CITY_GRAPH[nodeId]?.district;
+        const dist = ActiveMap.graph()[nodeId]?.district;
         if (dist) {
             const before = player.districtsVisited[dist] || 0;
             _onDistrictHQReached(player, dist);
@@ -610,7 +614,7 @@ function _checkPassThroughShop(player, nodeId, stepsLeft, continueMove) {
     // happens often enough to be a real threat, which is what makes holding a
     // buddy a position worth defending.
     const opp = state.players[(player.id + 1) % 2];
-    if (stepsLeft > 0 && state.selectedMap !== 'hundred_block_dash'
+    if (stepsLeft > 0 && ActiveMap.has('buddies')
         && opp.pos === nodeId && opp.allies.length > 0) {
         state.gameState = 'ACKNOWLEDGE';
         const resume = () => { state.gameState = 'MOVING'; thenShop(); };
@@ -663,8 +667,8 @@ function _onLand(player) {
 // ============================================================
 
 function _offerBranchChoice(junctionId, onChosen, stepsLeft) {
-    const options = BRANCH_OPTIONS[junctionId];
-    if (!options) { onChosen(CITY_GRAPH[junctionId].next[0]); return; }
+    const options = ActiveMap.branches()[junctionId];
+    if (!options) { onChosen(ActiveMap.graph()[junctionId].next[0]); return; }
 
     // Check if Industrial path is locked
     const displayOptions = options.map(opt => {
@@ -764,7 +768,7 @@ function _resolveHBDSpace(p) {
 
 // Cinematic banner when a player crosses into a new realm (HBD only).
 function _announceRealmChange(p, prevKey) {
-    if (state.selectedMap !== 'hundred_block_dash') return;
+    if (!ActiveMap.has('realms')) return;
     const realm = getRealmForSpace(p.pos);
     if (!realm || realm.key === prevKey) return;
     UIManager.showRealmBanner(realm);
@@ -772,7 +776,7 @@ function _announceRealmChange(p, prevKey) {
 
 // Dispatcher: call the right movement function based on selected map
 function _doMove(p, steps) {
-    if (state.selectedMap === 'hundred_block_dash') _movePlayerHBD(p, steps, true);
+    if (ActiveMap.isLinear()) _movePlayerHBD(p, steps, true);
     else moveThroughGraph(p, steps);
 }
 
@@ -801,11 +805,11 @@ export function resolveSpace(p) {
     // while the camera was still travelling. You were told what happened before
     // you could see where you were.
     const spc = SPACE_META[space.type] || SPACE_META.coin;
-    const lbl = state.selectedMap === 'hundred_block_dash' ? hbdSpaceLabel(p.pos, space.type) : null;
+    const lbl = ActiveMap.has('realms') ? hbdSpaceLabel(p.pos, space.type) : null;
     const tileName = lbl ? lbl.name : (spc.n || space.type.toUpperCase());
     const tileDesc = lbl ? lbl.desc : (SPACE_DESCS[space.type] || '');
-    if (state.selectedMap === 'hundred_block_dash') Renderer.updateBiomeVisuals(typeof p.pos === 'number' ? p.pos : 0);
-    else Renderer.updateBiomeVisuals(CITY_GRAPH[p.pos]?.district || 'ring');
+    if (ActiveMap.has('realms')) Renderer.updateBiomeVisuals(typeof p.pos === 'number' ? p.pos : 0);
+    else Renderer.updateBiomeVisuals(ActiveMap.graph()[p.pos]?.district || 'ring');
 
     // ARRIVE — name the tile you are standing on, and release anything that was
     // held back while the board was moving. Passing an HQ, claiming a bounty and
@@ -870,7 +874,7 @@ export function resolveSpace(p) {
 export function resolveSpaceEffect(p, spaceType, space) {
     const opp = state.players[(p.id + 1) % 2];
     switch (spaceType) {
-        case 'start':      return state.selectedMap === 'hundred_block_dash' ? 'Back at the start!' : 'Back at the city start!';
+        case 'start':      return ActiveMap.isLinear() ? 'Back at the start!' : 'Back at the city start!';
         // Landing here is handled by the win check in _resolveHBDSpace before the
         // space ever resolves; this only fires if something reaches it another way.
         case 'finish':     return 'The Crown!';
@@ -993,23 +997,23 @@ export function resolveSpaceEffect(p, spaceType, space) {
         // Landing on an already-broken gate is a non-event, but it still needs
         // real copy — returning '' fell through to the generic "Nothing happens."
         case 'gate': case 'gate_open':
-            return state.selectedMap === 'hundred_block_dash'
+            return ActiveMap.isLinear()
                 ? 'The Rift hangs open — you pass straight through.'
                 : 'The Gate stands open — you pass straight through.';
         case 'shop': {
             _noteShopVisit(p);
-            if (state.selectedMap === 'hundred_block_dash') {
+            if (ActiveMap.has('realms')) {
                 SetPieces.shopGlow(Renderer.getPos(p.pos));
             Director.hold('SHOP_OPEN', () => openShop(hbdShopKey(p.pos), 1.0)); return null;
             }
-            const gNode   = CITY_GRAPH[p.pos];
+            const gNode   = ActiveMap.graph()[p.pos];
             const distKey = gNode?.shopDistrict || 'ring';
             const disc    = distKey === 'ba' ? BA_DISCOUNT : 1.0;
             SetPieces.shopGlow(Renderer.getPos(p.pos));
             Director.hold('SHOP_OPEN', () => openShop(distKey, disc)); return null;
         }
         case 'hq': {
-            const gNode  = CITY_GRAPH[p.pos];
+            const gNode  = ActiveMap.graph()[p.pos];
             const dist   = gNode?.district;
             const isGM   = gNode?.isGrandMall;
             _onDistrictHQReached(p, dist);
@@ -1100,15 +1104,15 @@ function _playSwap(p, opp, message) {
 // ---- Forced movement helpers (graph-aware) ----
 
 function _skipForward(p, steps) {
-    if (state.selectedMap === 'hundred_block_dash') { _movePlayerHBD(p, steps, true); return; }
+    if (ActiveMap.isLinear()) { _movePlayerHBD(p, steps, true); return; }
     let cur = p.pos;
     let left = steps;
     while (left > 0) {
-        const gn = CITY_GRAPH[cur];
+        const gn = ActiveMap.graph()[cur];
         if (!gn) break;
         const nextId = gn.next[0];
-        if (JUNCTION_IDS.has(nextId)) {
-            cur = CITY_GRAPH[nextId].next[0];
+        if (ActiveMap.isJunction(nextId)) {
+            cur = ActiveMap.graph()[nextId].next[0];
         } else {
             cur = nextId;
         }
@@ -1120,11 +1124,11 @@ function _skipForward(p, steps) {
 }
 
 function _skipBackward(p, steps) {
-    if (state.selectedMap === 'hundred_block_dash') { _movePlayerHBD(p, -steps, true); return; }
-    let idx = ALL_NODES_ORDERED.indexOf(p.pos);
+    if (ActiveMap.isLinear()) { _movePlayerHBD(p, -steps, true); return; }
+    let idx = ActiveMap.ordered().indexOf(p.pos);
     if (idx < 0) idx = 0;
-    idx = ((idx - steps) % ALL_NODES_ORDERED.length + ALL_NODES_ORDERED.length) % ALL_NODES_ORDERED.length;
-    p.pos = ALL_NODES_ORDERED[idx];
+    idx = ((idx - steps) % ActiveMap.ordered().length + ActiveMap.ordered().length) % ActiveMap.ordered().length;
+    p.pos = ActiveMap.ordered()[idx];
     if (p.mesh) p.mesh.position.copy(Renderer.getPos(p.pos));
     resolveSpace(p);
 }
@@ -1174,12 +1178,12 @@ export function resolveMsgModal() {
 
 // Board progress as 0..1, so one chart shape works for both maps.
 function _progressOf(p) {
-    if (state.selectedMap === 'hundred_block_dash') {
+    if (ActiveMap.isLinear()) {
         const fin = (state.hbd || HBD_DEFAULT_CONFIG).finish || 99;
         return typeof p.pos === 'number' ? Math.max(0, Math.min(1, p.pos / fin)) : 0;
     }
-    const i = ALL_NODES_ORDERED.indexOf(p.pos);
-    const lapProgress = i < 0 ? 0 : i / (ALL_NODES_ORDERED.length - 1);
+    const i = ActiveMap.ordered().indexOf(p.pos);
+    const lapProgress = i < 0 ? 0 : i / (ActiveMap.ordered().length - 1);
     // City Circuit loops, so add completed laps to keep the line monotonic.
     return p.fullCircuitsCompleted + lapProgress;
 }
@@ -1221,7 +1225,7 @@ export function finishTurn() {
 
 export function maybeTriggerMinigame() {
     if (state.totalTurns > 0 && state.totalTurns % MINIGAME_EVERY_N_TURNS === 0) {
-        if (state.selectedMap !== 'hundred_block_dash') {
+        if (ActiveMap.has('roundLimit')) {
             state.currentRound++;
             _onRoundEnd();
             if (state.currentRound >= _cityRounds()) {
@@ -1295,13 +1299,13 @@ function _resolveMinigameResult(winnerId) {
         if (i === winnerId) { p.consecutiveMgWins++; }
         else { p.consecutiveMgWins = 0; }
     });
-    if (state.selectedMap !== 'hundred_block_dash') {
+    if (ActiveMap.has('bounties')) {
         _checkContract(state.players[winnerId], 'win_minigame');
         _checkContract(state.players[winnerId], 'win_minigames', null, state.players[winnerId].consecutiveMgWins);
     }
     ModalManager.showMessage('MINIGAME OVER', msg, icon, { tier: 'shared' });
     Renderer.startPostMinigameFlyover(() => { state.cameraState = 'FOLLOW'; });
-    if (state.selectedMap !== 'hundred_block_dash') UIManager.updateRoundCounter(state.currentRound, _cityRounds());
+    if (ActiveMap.has('roundLimit')) UIManager.updateRoundCounter(state.currentRound, _cityRounds());
     if (state.players[1].isBot) {
         Director.hold('BOT_RESULT', () => { if (state.gameState === 'MINIGAME_ACK') resolveMsgModal(); });
     }
@@ -1361,14 +1365,14 @@ function _onRoundEnd() {
 // not queued behind whatever the last turn left in the rail.
 let _buddyRemindedRound = -1;
 function _remindBuddyAtRoundStart() {
-    if (state.selectedMap === 'hundred_block_dash') return;
+    if (!ActiveMap.has('buddies')) return;
     if (!state.allyOnMap) return;
     if (_buddyRemindedRound === state.currentRound) return;
     _buddyRemindedRound = state.currentRound;
     const b = ALLIES[state.allyOnMap.allyType];
     if (!b) return;
     const left  = state.allyOnMap.roundsLeft ?? BUDDY_MAP_ROUNDS;
-    const where = DISTRICT_NAMES[CITY_GRAPH[state.allyOnMap.nodeId]?.district] || 'the city';
+    const where = ActiveMap.regionName(ActiveMap.graph()[state.allyOnMap.nodeId]?.district) || 'the city';
     UIManager.toast(
         left <= 1 ? `${b.icon} ${b.name} leaves the ${where} after this round!`
                   : `${b.icon} ${b.name} is waiting in the ${where} — ${left} rounds left.`,
@@ -1382,7 +1386,7 @@ export function buddyReport() {
         type:       state.allyOnMap.allyType,
         nodeId:     state.allyOnMap.nodeId,
         roundsLeft: state.allyOnMap.roundsLeft ?? BUDDY_MAP_ROUNDS,
-        where:      DISTRICT_NAMES[CITY_GRAPH[state.allyOnMap.nodeId]?.district] || 'the city',
+        where:      ActiveMap.regionName(ActiveMap.graph()[state.allyOnMap.nodeId]?.district) || 'the city',
         isNew:      !!state.pendingAllyReveal,
     } : null;
     return {
@@ -1407,8 +1411,8 @@ export function proceedTurn() {
     // The gate check used to live here, ahead of the pass prompt and on the HBD
     // branch only. It is now the first thing startPreRoll() does, for both maps
     // and after the device has changed hands.
-    if (state.selectedMap === 'hundred_block_dash') Renderer.updateBiomeVisuals(typeof p.pos === 'number' ? p.pos : 0);
-    else Renderer.updateBiomeVisuals(CITY_GRAPH[p.pos]?.district || 'ring');
+    if (ActiveMap.has('realms')) Renderer.updateBiomeVisuals(typeof p.pos === 'number' ? p.pos : 0);
+    else Renderer.updateBiomeVisuals(ActiveMap.graph()[p.pos]?.district || 'ring');
     if (state.playStyle === 'pass' && state.totalTurns > 0 && !state.rollAgainSamePlayer) {
         state.gameState = 'PASS_PROMPT';
         ModalManager.showPassModal(`Pass the device to ${p.name}.`, false);
@@ -1444,12 +1448,12 @@ export function triggerGateChallenge(p) {
     // could not see; the card is now transparent and this is what makes that
     // worth doing.
     Renderer.focusOnGate(p);
-    const isHBD = state.selectedMap === 'hundred_block_dash';
+    const isHBD = ActiveMap.isLinear();
     const gateTitleEl = document.getElementById('gate-title');
     if (gateTitleEl) gateTitleEl.textContent = isHBD ? 'THE RIFT' : 'THE GATE';
     const gateMsg = isHBD
-        ? `Roll ${GATE_NUM_DICE} dice. Score ${gateThreshold(state.selectedMap)}+ to tear through The Rift into the Void!`
-        : `Roll ${GATE_NUM_DICE} dice. Score ${gateThreshold(state.selectedMap)}+ to break through the Industrial Zone!`;
+        ? `Roll ${GATE_NUM_DICE} dice. Score ${ActiveMap.gateThreshold()}+ to tear through The Rift into the Void!`
+        : `Roll ${GATE_NUM_DICE} dice. Score ${ActiveMap.gateThreshold()}+ to break through the Industrial Zone!`;
     document.getElementById('gate-sub').textContent = gateMsg;
     document.getElementById('gate-result').textContent = '';
     document.getElementById('gate-sum').textContent = '';
@@ -1500,7 +1504,7 @@ export function resolveGateRoll() {
         const total = faceValues.reduce((s,v) => s+v, 0);
         const pid   = parseInt(document.getElementById('gate-overlay').dataset.pid);
         const p     = state.players[pid];
-        const succeeded = total >= gateThreshold(state.selectedMap);
+        const succeeded = total >= ActiveMap.gateThreshold();
         const overlay = document.getElementById('gate-overlay');
         overlay.style.display = 'flex';
         document.getElementById('gate-roll-btn').style.display = 'none';
@@ -1509,7 +1513,7 @@ export function resolveGateRoll() {
         document.getElementById('gate-sum').textContent = '';
         let dieStr = '';
         faceValues.forEach((val,i) => { setTimeout(() => { dieStr += (i>0?' + ':'')+val; document.getElementById('gate-sum').textContent = `🎲 ${dieStr}`; }, i*500); });
-        setTimeout(() => { document.getElementById('gate-sum').textContent = `Total: ${total}  (need ≥ ${gateThreshold(state.selectedMap)})`; }, faceValues.length*500+300);
+        setTimeout(() => { document.getElementById('gate-sum').textContent = `Total: ${total}  (need ≥ ${ActiveMap.gateThreshold()})`; }, faceValues.length*500+300);
         setTimeout(() => {
             if (succeeded) {
                 state.gateOpen = true;
@@ -1560,7 +1564,7 @@ export function closeGate() {
     _gateFromTurnStart = false;
 
     if (state.gateOpen) {
-        const openMsg = state.selectedMap === 'hundred_block_dash'
+        const openMsg = ActiveMap.isLinear()
             ? 'The Gate is open! Both players may now pass through.'
             : 'The Industrial Zone is accessible! Both players may now enter.';
         ModalManager.showMessage('🔓 GATE OPEN!', openMsg, '🔓', { tier: 'shared' });
@@ -1873,7 +1877,7 @@ export function confirmCustomDice(num) {
 // ============================================================
 
 function _onDistrictHQReached(p, district) {
-    if (!district || !DISTRICT_KEYS.includes(district)) return;
+    if (!district || !ActiveMap.regionKeys().includes(district)) return;
     p.districtsVisited[district] = (p.districtsVisited[district] || 0) + 1;
     const visits = p.districtsVisited[district];
     const bonus  = visits === 1 ? DISTRICT_HQ_FIRST_BONUS : DISTRICT_HQ_REVISIT_BONUS;
@@ -1889,7 +1893,7 @@ function _onDistrictHQReached(p, district) {
     // running total of distinct HQs rather than ticking by one — otherwise two
     // trips through the same district would claim it.
     _checkContract(p, 'visit_hq_any', null,
-        DISTRICT_KEYS.filter(d => (p.districtsVisited[d] || 0) > 0).length);
+        ActiveMap.regionKeys().filter(d => (p.districtsVisited[d] || 0) > 0).length);
     // Check for full circuit
     if (p.districtHQsThisLoop.size >= 4) {
         const circuitIdx = Math.min(p.fullCircuitsCompleted, FULL_CIRCUIT_BONUSES.length - 1);
@@ -1916,7 +1920,7 @@ export function spawnAlly() {
     if (state.allyOnMap) return;
     const allyTypes  = Object.keys(ALLIES);
     const allyType   = allyTypes[Math.floor(Math.random() * allyTypes.length)];
-    const realNodes  = ALL_NODES_ORDERED;
+    const realNodes  = ActiveMap.ordered();
     // Prefer nodes not occupied by players
     const occupied = new Set(state.players.map(p => p.pos));
     const candidates = realNodes.filter(id => !occupied.has(id) && state.board[id]?.type !== 'gate');
@@ -1926,8 +1930,8 @@ export function spawnAlly() {
     Renderer.placeAllyMarker(nodeId, allyType);
 
     const ally   = ALLIES[allyType];
-    const gNode  = CITY_GRAPH[nodeId];
-    const hint   = gNode ? DISTRICT_NAMES[gNode.district] || 'the city' : 'the city';
+    const gNode  = ActiveMap.graph()[nodeId];
+    const hint   = gNode ? ActiveMap.regionName(gNode.district) || 'the city' : 'the city';
     // The announcement is NOT a toast. An ally spawns at the end of a round,
     // which is the same moment the minigame takes the screen — a toast here was
     // covered 1.1 s later and the player never saw where the ally landed, with
@@ -2033,7 +2037,7 @@ function _grantAlly(player, allyType, turnsRemaining, shieldCharges) {
 }
 
 function _tickAllyTurns(playerIdx) {
-    if (state.selectedMap === 'hundred_block_dash') return;
+    if (!ActiveMap.has('buddies')) return;
     const p = state.players[playerIdx];
     for (let i = p.allies.length - 1; i >= 0; i--) {
         p.allies[i].turnsRemaining--;
@@ -2064,7 +2068,7 @@ export function activateCabbie(playerIdx) {
         // This used to set p.pos = junctionId and only correct it in the hop's
         // callback; a junction has no board tile, so anything reading the
         // position during the hop found a space that cannot resolve.
-        const firstNode = CITY_GRAPH[junctionId]?.next?.find(n => !JUNCTION_IDS.has(n));
+        const firstNode = ActiveMap.graph()[junctionId]?.next?.find(n => !ActiveMap.isJunction(n));
         if (firstNode) {
             if (p.mesh) p.mesh.position.copy(Renderer.getPos(junctionId));
             p.pos = firstNode;
@@ -2078,7 +2082,7 @@ export function activateCabbie(playerIdx) {
 function activateCabbie_bot(p) {
     const pick = Bot.cabbieJunction(p);
     p.cabbieUsedThisRound = true;
-    const firstNode = CITY_GRAPH[pick]?.next?.find(n => !JUNCTION_IDS.has(n));
+    const firstNode = ActiveMap.graph()[pick]?.next?.find(n => !ActiveMap.isJunction(n));
     if (firstNode) { p.pos = firstNode; if (p.mesh) p.mesh.position.copy(Renderer.getPos(firstNode)); }
     UIManager.toast(`${p.name}'s Cabbie teleports them!`, '#fbbf24');
 }
@@ -2100,7 +2104,7 @@ function _spendBodyguard(p, whatFor) {
 
 // Buddy passive effect checks
 function _allyPassive(player, powerType) {
-    if (state.selectedMap === 'hundred_block_dash') return 0;
+    if (!ActiveMap.has('buddies')) return 0;
     const idx = player.allies.findIndex(a => ALLIES[a.type]?.powerType === powerType);
     if (idx < 0) return 0;
     if (powerType === 'coin_bonus') return 2;
