@@ -128,7 +128,8 @@ async function boot(page, map) {
 
     const hq = await page.evaluate(async () => {
         const { state } = await import('/src/core/GameState.js');
-        const { CITY_GRAPH, ALL_NODES_ORDERED } = await import('/src/config/BoardGraph.js');
+        const AM = await import('/src/config/ActiveMap.js');
+        const ALL_NODES_ORDERED = AM.ordered(), CITY_GRAPH = AM.graph();
         // Every HQ sits at the end of a district spur, one step before a
         // junction back to the ring, so there is no junction-free path that
         // passes one. Park directly on an HQ's PREDECESSOR instead and move
@@ -157,8 +158,8 @@ async function boot(page, map) {
         // this landed on a TRAP and the assertion read 50→60 instead of 50→65.
         // 'start' is the one type that prints a line and touches nothing.
         {
-            const CG = (await import('/src/config/BoardGraph.js')).CITY_GRAPH;
-            const J  = (await import('/src/config/BoardGraph.js')).JUNCTION_IDS;
+            const CG = (await import('/src/config/ActiveMap.js')).graph();
+            const J  = (await import('/src/config/ActiveMap.js')).junctions();
             let cur = hq.startId;
             for (let i = 0; i < 5; i++) {
                 let nxt = CG[cur]?.next?.[0];

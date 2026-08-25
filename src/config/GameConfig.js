@@ -178,6 +178,20 @@ export const ALLIES = {
 // worth reading and what makes ignoring a buddy an actual decision.
 export const BUDDY_MAP_ROUNDS         = 3;
 
+// How far from a player a buddy is allowed to turn up, measured in real board
+// steps through the graph (both roads at every junction), not in lap-order index.
+//
+// Placed at random on a 60-node lap, most spawns landed most of a circuit away.
+// The report said where they were and the countdown said they leave in three
+// rounds, and those two facts did not fit together — the buddy was information
+// rather than an opportunity.
+//
+// NEAR is the preferred band: a couple of turns of ordinary rolling. MAX is six
+// maximum rolls, so a claim is always at least theoretically possible inside the
+// rounds the buddy is around for.
+export const BUDDY_NEAR_STEPS         = 20;
+export const BUDDY_MAX_STEPS          = 36;
+
 // All character types (original 4 + 5 ally characters)
 export const ALL_CHAR_TYPES = ['slime', 'ghost', 'boxy', 'bunny', 'cabbie', 'vendor', 'banker', 'bodyguard', 'investor'];
 

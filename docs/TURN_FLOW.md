@@ -49,9 +49,20 @@ place a turn can go somewhere else.
                             ▼
                       startPreRoll()                     ── state: PRE_ROLL
                             │
-   asserts: camera is FOLLOW · the HUD is visible · orientation faces
-   the active player · the turn banner names them (TURN_BANNER 1700 ms,
-   only when the turn actually changed hands)
+   asserts FIRST, before any branch can return: camera is FOLLOW · the HUD
+   is visible · no roll callout is left up
+                            │
+        ┌───────────────────┴───────────────────┐
+        │ parked at a shut gate?  → §5          │
+        │ last round, unannounced? → FINAL       │
+        │   ROUND banner holds 3000 ms          │
+        │ round's buddy news unread? → the      │
+        │   BUDDY REPORT owns the screen and    │
+        │   re-enters here when pressed         │
+        └───────────────────┬───────────────────┘
+                            │
+   then: orientation faces the active player · the turn banner names them
+   (TURN_BANNER 1700 ms, only when the turn actually changed hands)
                             │
         ┌───────────────────┴──────────────────────────────┐
         │ human: swipe zone + action row (ROLL / MAP /     │
@@ -78,13 +89,12 @@ place a turn can go somewhere else.
         ┌───────────────────┴────────────────────┐            │
         │ is the NEXT node a junction? (City)    │            │
         │   → §3 The fork                        │            │
-        │ is it a shop, with steps left?         │            │
-        │   → ⏱ PASSTHROUGH 320 ms, offer to     │            │
-        │     stop in; resume the hop after      │            │
-        │ is the rival here holding a Buddy?     │            │
-        │   → offer the steal, resume after      │            │
-        │ is it an HQ, with steps left?          │            │
-        │   → pays the pass-through bonus, toast │            │
+        │ what does this square OWE?             │            │
+        │   _checkPassThroughShop() builds the   │            │
+        │   list once — HQ · steal · buddy ·     │            │
+        │   shop — and walks it with an index.   │            │
+        │   ONE continuation; each step owns the │            │
+        │   screen until it hands back. §2b      │            │
         │ is it the Gate, and closed?            │            │
         │   → bank the remaining steps, §5       │            │
         └───────────────────┬────────────────────┘            │
@@ -107,7 +117,7 @@ place a turn can go somewhere else.
 | Beat | Floor | What it protects |
 |---|---:|---|
 | `ROLL_LAUNCH` | 220 ms | The gap between committing and the dice leaving the hand. |
-| `DICE_READ` | 1500 ms | The number is on the table and readable **before** the token moves. 850 ms was not long enough to read a number and register it before the token set off. |
+| `DICE_READ` | 1500 ms | The number is on the table and readable **before** the token moves. 850 ms was not long enough. The beat now belongs to a full-screen ROLL CALLOUT — a 132 px digit with pips — which comes down the instant the token sets off. It was a line of toast on the rail, the same weight as "+3 coins", for a beat in which nothing else was happening. |
 | `PASSTHROUGH` | 320 ms | The shop prompt does not collide with the hop that triggered it. |
 | `JUNCTION_COMMIT` | 620 ms | **§3** — the camera turns down the chosen road before the walk starts. |
 | `LAND_ARRIVE` | 500 ms | **§4** — you see *where* you are before anything is done to you. |
@@ -118,7 +128,45 @@ place a turn can go somewhere else.
 | `POST_RESULT` | 650 ms | The board on its own before the turn moves on. |
 | `TURN_HANDOFF` | 600 ms | Long enough to notice the turn changing hands. |
 | `PRE_MINIGAME` | 1100 ms | The gap before a minigame takes the screen. |
+| `FINAL_ROUND` | 3000 ms | The last round announces itself. It does not wait for a press, but it does hold the beat — a three-second banner nobody has time to read is not an announcement. |
 | `POST_MINIGAME` | 700 ms | The gap after its result closes. |
+
+### 2b. What one square owes you
+
+A single STEP of a move can owe up to four things, and they must happen in a
+fixed order with none dropped:
+
+```
+   HQ  ──▶  STEAL  ──▶  BUDDY  ──▶  SHOP  ──▶  keep walking
+   pays     rival on    buddy       offer to
+   on the   this node   waiting     stop in
+   way past holding     here
+            a Buddy
+```
+
+`_checkPassThroughShop()` decides which of the four apply **once**, up front,
+from the board as it is at that instant — so a buddy claimed by the steal step
+cannot also fire the buddy step — then walks the list with an index. There is
+exactly **one** continuation, and nothing else in the function may resume the
+move or end the turn.
+
+> **This was three nested closures.** Steal wrapped buddy wrapped shop, with the
+> shop leg parking its continuation in a module-level slot
+> (`_passThroughResumeHop`) and `closeShopModal()` deciding between "carry on
+> walking" and "end the turn" by comparing one string flag. Any path that
+> cleared or never set that flag closed the shop straight into `finishTurn()` —
+> steps still owed, every later interruption on the square skipped. Reported as
+> *"hit the store, the game glitched and went to the end of their turn and
+> skipped over an ally."*
+>
+> The pending continuation is now the authority: **if one exists, the move is
+> not finished, whatever any flag says.** `startPreRoll()` clears the slot, so a
+> continuation from an abandoned move can never resume a walk that ended turns
+> ago.
+
+The same pass fixed a quieter one: the City shop offer never set
+`state.pendingShopDistrict`, so entering it opened whatever district the last
+shop visit had left behind.
 
 ---
 
@@ -368,7 +416,7 @@ piece can never cost anybody a coin or a position.
 | 🎁 **MYSTERY** | A ribboned crate drops out of the sky, thuds, and the lid blows off in a burst — then the item card. | 1.5 s |
 | ⚓ **ANCHOR** | The anchor falls from off-screen, thuds into the tile and digs in — *before* the drag, so it is clear why you are about to travel backwards. | 1.4 s |
 | ⚔️ **DUEL** | Crossed sparks over the midpoint between the two tokens, low two-shot, then the bet picker. Free: the minigame follows either way. | 1.4 s |
-| 🤝 **BUDDY ARRIVAL** | The camera swoops to the tile the Buddy landed on, a beacon pulses under it, and the round report names them — **and waits for a press**. See §5. | 1.3 s + a tap |
+| 🤝 **BUDDY ARRIVAL** | The camera swoops to the tile the Buddy landed on, a beacon pulses under it, and the round report names them — **and waits for a press**. Raised at the START of the round it belongs to, from `startPreRoll()`. See §5. | 1.3 s + a tap |
 | 🕊️ **TRUCE** | A dove crosses between the two tokens as both counters tick up. | 1.0 s |
 | 💸 **FINE / TRAP** | A red seal slams onto the tile and coins fall *through* the ground. A shielded hit still gets the seal but drops no coins. | 0.6 s |
 | 🪙 **COIN / BIG COIN** | Coins pop out of the tile and arc away. | 0.55 s |

@@ -136,7 +136,11 @@ function _coinsByRound(h) {
     const out = [];
     let cur = null;
     h.forEach(e => {
-        const r = e.round || 0;
+        // `history.round` is state.currentRound at record time, which counts
+        // rounds COMPLETED — so the opening round's samples carry 0. The HUD
+        // counter now prints the round being PLAYED, and an axis that starts at
+        // 0 next to a counter that said ROUND 1 reads as a different match.
+        const r = (e.round || 0) + 1;
         if (!cur || cur.round !== r) { cur = { round: r, coins: e.coins.slice() }; out.push(cur); }
         else cur.coins = e.coins.slice();
     });

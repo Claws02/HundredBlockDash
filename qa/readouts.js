@@ -169,7 +169,7 @@ const RECT = `(id) => {
         const rect = eval(rectSrc);
         const { state } = await import('/src/core/GameState.js');
         const U = await import('/src/ui/UIManager.js');
-        const { BRANCH_OPTIONS } = await import('/src/config/BoardGraph.js');
+        const BRANCH_OPTIONS = (await import('/src/config/ActiveMap.js')).branches();
         state.activePlayer = 0;
         U.applyOrientation();
         U.resetForkPrimer();
@@ -289,6 +289,114 @@ const RECT = `(id) => {
     }, RECT);
     ok('shield: it hides with the HUD, so it cannot float over a minigame',
         hidden.during === null && !!hidden.after, JSON.stringify(hidden));
+
+    // ---------------------------------------------------------------
+    // 3. The round counter, and the last round announcing itself.
+    // ---------------------------------------------------------------
+    // state.currentRound counts rounds COMPLETED, so printing it raw made the
+    // opening round read "ROUND 0/12" and the final one "ROUND 11/12" — a round
+    // behind the game the whole way through, and a match that never showed its
+    // own last round as the last one.
+    const counter = await page.evaluate(async () => {
+        const { state } = await import('/src/core/GameState.js');
+        const U = await import('/src/ui/UIManager.js');
+        const out = [];
+        const total = 12;
+        state.cityRounds = total;
+        [0, 1, 5, total - 1, total].forEach(c => {
+            state.currentRound = c;
+            U.updateRoundCounter(c, total);
+            out.push({ completed: c, shown: document.getElementById('round-counter').textContent });
+        });
+        return { out, fn: [U.displayRound(0, 12), U.displayRound(11, 12), U.displayRound(12, 12)] };
+    });
+    ok('rounds: the opening round is round 1, not round 0',
+        /ROUND 1\/12/.test(counter.out[0].shown), counter.out[0].shown);
+    ok('rounds: the final round reads N of N',
+        /ROUND 12\/12/.test(counter.out[3].shown), counter.out[3].shown);
+    ok('rounds: and it never runs past the total',
+        /ROUND 12\/12/.test(counter.out[4].shown) && counter.fn[2] === 12,
+        counter.out[4].shown);
+
+    const finalBanner = await page.evaluate(async () => {
+        const { state } = await import('/src/core/GameState.js');
+        const GC = await import('/src/core/GameController.js');
+        const U  = await import('/src/ui/UIManager.js');
+        const D  = await import('/src/core/Director.js');
+        const M  = await import('/src/ui/ModalManager.js');
+        const R  = await import('/src/engine/Renderer.js');
+        const { SCENE } = await import('/src/config/SceneTiming.js');
+        D.reset(); R.getActiveAnims().length = 0; M.closeAllModals();
+        U.hideFinalRoundBanner();
+        document.getElementById('ally-arrival').style.display = 'none';
+        state.allyOnMap = null; R.removeAllyMarker();
+        state.players.forEach(p => { p.allies = []; p.isBot = false; });
+
+        // Not the last round: nothing should be announced.
+        state.cityRounds = 6; state.currentRound = 3;
+        state.activePlayer = 0;
+        GC.startPreRoll();
+        await new Promise(r => setTimeout(r, 400));
+        const midMatch = U.finalRoundBannerUp();
+        U.hideFinalRoundBanner();
+
+        // The last round: currentRound counts COMPLETED, so 5 of 6 is the 6th.
+        state.currentRound = 5;
+        GC.startPreRoll();
+        await new Promise(r => setTimeout(r, 350));
+        const up = U.finalRoundBannerUp();
+        const text = (document.getElementById('final-round') || {}).innerText || '';
+        const gs = state.gameState;
+
+        // It must hold the beat, then hand the turn over on its own.
+        // Sample until it goes down, and report WHEN — a guessed wait told us it
+        // was early without saying by how much.
+        const t0 = performance.now();
+        let downAt = null;
+        for (let i = 0; i < 60; i++) {
+            await new Promise(r => setTimeout(r, 100));
+            if (!U.finalRoundBannerUp()) { downAt = Math.round(performance.now() - t0) + 350; break; }
+        }
+        const stillUpJustBefore = downAt !== null && downAt >= SCENE.FINAL_ROUND - 400;
+        await new Promise(r => setTimeout(r, 700));
+        const after = { up: U.finalRoundBannerUp(), gs: state.gameState };
+
+        // And it does not announce twice.
+        GC.startPreRoll();
+        await new Promise(r => setTimeout(r, 350));
+        const again = U.finalRoundBannerUp();
+        U.hideFinalRoundBanner();
+        return { midMatch, up, text: text.replace(/\s+/g, ' ').trim(), gs,
+                 stillUpJustBefore, downAt, after, again, floor: SCENE.FINAL_ROUND };
+    });
+    ok('final round: nothing is announced mid-match',
+        !finalBanner.midMatch);
+    ok('final round: the last round announces itself',
+        finalBanner.up && /FINAL ROUND/i.test(finalBanner.text), finalBanner.text.slice(0, 90));
+    ok('final round: it names the round it is — N of N',
+        /ROUND 6 OF 6/i.test(finalBanner.text), finalBanner.text.slice(0, 60));
+    ok('final round: nothing can be rolled underneath it',
+        finalBanner.gs !== 'PRE_ROLL', `gameState was ${finalBanner.gs}`);
+    ok('final round: it holds the full three seconds',
+        finalBanner.stillUpJustBefore && finalBanner.floor === 3000,
+        `came down at ${finalBanner.downAt}ms, floor ${finalBanner.floor}ms`);
+    ok('final round: then hands the turn over by itself',
+        !finalBanner.after.up && finalBanner.after.gs === 'PRE_ROLL',
+        JSON.stringify(finalBanner.after));
+    ok('final round: and it only ever fires once',
+        !finalBanner.again);
+    // Raise it again for the picture — by the time the assertions above have
+    // run it has legitimately come down.
+    await page.evaluate(async () => {
+        const U = await import('/src/ui/UIManager.js');
+        const { state } = await import('/src/core/GameState.js');
+        state.activePlayer = 0;
+        U.updateRoundCounter(5, 6);
+        U.showFinalRoundBanner(6);
+    });
+    await page.waitForTimeout(600);
+    await page.screenshot({ path: path.join(__dirname, 'shot-final-round.png') });
+    await page.evaluate(async () => (await import('/src/ui/UIManager.js')).hideFinalRoundBanner());
 
     ok('no page errors', errors.length === 0, errors.slice(0, 3).join(' / '));
 

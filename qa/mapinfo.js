@@ -43,7 +43,7 @@ async function scout(page, addr) {
     await page.evaluate(async (addr) => {
         const U = await import('/src/ui/UIManager.js');
         const slider = document.getElementById('map-slider');
-        const { ALL_NODES_ORDERED } = await import('/src/config/BoardGraph.js');
+        const ALL_NODES_ORDERED = (await import('/src/config/ActiveMap.js')).ordered();
         const idx = typeof addr === 'number' ? addr : ALL_NODES_ORDERED.indexOf(addr);
         slider.value = idx;
         U.updateMapSlider();
@@ -156,7 +156,7 @@ async function scout(page, addr) {
 
     const city = await page.evaluate(async () => {
         const { state } = await import('/src/core/GameState.js');
-        const { ALL_NODES_ORDERED } = await import('/src/config/BoardGraph.js');
+        const ALL_NODES_ORDERED = (await import('/src/config/ActiveMap.js')).ordered();
         const R = await import('/src/engine/Renderer.js');
         state.activePlayer = 0;
         const p = state.players[0];

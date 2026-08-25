@@ -59,6 +59,34 @@ const GL = ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=swiftshader',
     }
     ok('boot: City match at the roll', ready);
 
+    // The buddy report now opens a round, which means it can take the screen on
+    // the first startPreRoll() a probe drives. Every reset below calls that, so
+    // press through it once here and leave the round marked as reported.
+    const clearBuddyReport = async () => {
+        for (let i = 0; i < 6; i++) {
+            const up = await page.evaluate(() => {
+                const el = document.getElementById('ally-arrival');
+                return !!el && getComputedStyle(el).display !== 'none';
+            });
+            if (!up) break;
+            await page.evaluate(() => document.getElementById('btn-ally-arrival').click());
+            await page.waitForTimeout(400);
+        }
+    };
+    await page.evaluate(async () => {
+        const { state } = await import('/src/core/GameState.js');
+        const GC = await import('/src/core/GameController.js');
+        const R  = await import('/src/engine/Renderer.js');
+        // No buddy on the board for the pacing probe at all: its subject is the
+        // ORDER of a turn, and a card that owns the screen at the top of
+        // startPreRoll is a different test (qa/buddy.js covers it).
+        state.allyOnMap = null; R.removeAllyMarker();
+        state.players.forEach(p => { p.allies = []; });
+        GC.startPreRoll();
+    });
+    await clearBuddyReport();
+    await page.waitForTimeout(400);
+
     // ---------------------------------------------------------------
     // 2. Effect ordering. Land on a coin space and watch, frame by frame,
     //    whether the coins move before the tile has named itself.
@@ -417,14 +445,22 @@ const GL = ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=swiftshader',
         const log = [];
         let t0 = null;
         const iv = setInterval(() => {
-            const box = document.getElementById('toast-box');
-            const txt = box ? box.innerText : '';
-            const rolled = /Rolled a/i.test(txt);
+            // The roll is no longer a line of toast — it is a full-screen
+            // callout, because the token does not move for DICE_READ anyway and
+            // the number is what the turn is about.
+            const el = document.getElementById('roll-callout');
+            const rolled = !!el && el.classList.contains('up') && !el.classList.contains('out');
             if (rolled && t0 === null) t0 = performance.now();
             if (t0 === null) return;
+            const box = el ? el.getBoundingClientRect() : null;
+            const num = document.getElementById('rc-num');
+            const nbox = num ? num.getBoundingClientRect() : null;
             log.push({
                 t: Math.round(performance.now() - t0),
                 rolled,
+                text: num ? num.textContent : '',
+                h: nbox ? Math.round(nbox.height) : 0,
+                cx: box ? Math.round(box.left + box.width / 2) : 0,
                 moved: Math.hypot(p.mesh.position.x - startX, p.mesh.position.z - startZ) > 0.6,
             });
         }, 25);
@@ -439,13 +475,21 @@ const GL = ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=swiftshader',
 
         const shown = log.find(e => e.rolled);
         const moved = log.find(e => e.moved);
+        // Was it still up while the token was moving? It should not be.
+        const upWhileMoving = log.filter(e => e.moved && e.rolled).length;
         return {
             shownAt: shown ? shown.t : null,
             movedAt: moved ? moved.t : null,
+            // The POP animation starts at scale(.55) and getBoundingClientRect
+            // returns the transformed box, so the first sample reads about half
+            // the real size. Take the largest — that is how big it actually gets.
+            digitH: Math.max(0, ...log.map(e => e.h)),
+            text: shown ? shown.text : '',
+            upWhileMoving,
             samples: log.length,
         };
     });
-    ok('roll: the number appears at all (it is queued, and urgent skips the queue)',
+    ok('roll: the number appears at all',
         roll.shownAt !== null, `${roll.samples} samples taken`);
     ok('roll: the number is on screen before the token moves',
         roll.shownAt !== null && roll.movedAt !== null && roll.shownAt < roll.movedAt,
@@ -453,117 +497,67 @@ const GL = ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=swiftshader',
     ok('roll: and holds for about a second and a half first',
         roll.movedAt !== null && roll.movedAt >= 1300,
         `${roll.movedAt}ms between the number and the first step`);
+    // The whole point of moving it off the toast rail: it is BIG. A line of
+    // toast text is about 16px tall.
+    ok('roll: it is a full-screen number, not a line of toast',
+        roll.digitH >= 80, `digit is ${roll.digitH}px tall, reading "${roll.text}"`);
+    // ...and it is gone before the board starts moving, which is what makes it
+    // safe to put in the middle of the screen at all.
+    ok('roll: and it is off the board before the token sets off',
+        roll.upWhileMoving <= 2, `${roll.upWhileMoving} samples with it up mid-move`);
 
     // ---------------------------------------------------------------
-    // 4c. Ally arrival. An ally lands at the CLOSE of a round, which is the
-    //     same moment the minigame takes the screen — so announcing it as a
-    //     toast meant the player never saw where it landed and could not go and
-    //     look, because the board was gone 1.1 s later. The hand-off must wait
-    //     for a press.
+    // 4c. The buddy report no longer holds the minigame back.
+    //
+    //     It used to: a buddy lands at the CLOSE of a round, which is the same
+    //     moment the minigame takes the screen, so the arrival card was raised
+    //     there and waited for a press. That put news about the NEXT round in
+    //     front of the payoff for the one just finished, four board turns before
+    //     anybody could act on it. The card moved to the top of the next round
+    //     (qa/buddy.js §2b asserts it there); what this checks is that the
+    //     round-end hand-off is clean again.
     // ---------------------------------------------------------------
-    const ally = await page.evaluate(async () => {
+    const handoff = await page.evaluate(async () => {
         const { state } = await import('/src/core/GameState.js');
         const GC = await import('/src/core/GameController.js');
+        const M  = await import('/src/ui/ModalManager.js');
         const D  = await import('/src/core/Director.js');
         const R  = await import('/src/engine/Renderer.js');
-        const M  = await import('/src/ui/ModalManager.js');
         D.reset(); R.getActiveAnims().length = 0; M.closeAllModals();
-
-        state.allyOnMap = null;
-        state.allySpawnCountdown = 0;
-        state.pendingAllyReveal = null;
-        state.currentRound = 1;
-        state.totalTurns = 3;            // the next finishTurn hits the cadence
-        state.gameState = 'ACKNOWLEDGE';
-
-        const log = [];
-        const t0 = performance.now();
-        const iv = setInterval(() => log.push({
-            t: Math.round(performance.now() - t0),
-            card: getComputedStyle(document.getElementById('ally-arrival')).display !== 'none',
-            mg:   getComputedStyle(document.getElementById('mg-intro-overlay')).display !== 'none',
-        }), 40);
-
-        GC.finishTurn();
-        await new Promise(r => setTimeout(r, 6000));
-        clearInterval(iv);
-
-        const firstCard = log.find(e => e.card);
-        const firstMg   = log.find(e => e.mg);
-        const stillUp   = log.length ? log[log.length - 1].card : false;
-        return {
-            cardAt: firstCard ? firstCard.t : null,
-            mgAt:   firstMg ? firstMg.t : null,
-            stillUp,
-            name:  (document.getElementById('aa-name')  || {}).textContent || '',
-            power: (document.getElementById('aa-power') || {}).textContent || '',
-            where: (document.getElementById('aa-where') || {}).textContent || '',
-            onMap: state.allyOnMap && state.allyOnMap.allyType,
-        };
-    });
-    await page.screenshot({ path: path.join(__dirname, 'shot-ally-arrival.png') });
-    ok('ally: an arrival raises a card', ally.cardAt !== null, `at ${ally.cardAt}ms`);
-    ok('ally: the minigame does NOT start until it is pressed',
-        ally.mgAt === null && ally.stillUp,
-        `card at ${ally.cardAt}ms, minigame at ${ally.mgAt}ms, still up: ${ally.stillUp}`);
-    ok('ally: the card names it, says what it does, and says where it is',
-        ally.name.length > 3 && ally.power.length > 10 && /near/i.test(ally.where),
-        `"${ally.name}" / "${ally.power}" / "${ally.where}"`);
-    ok('ally: and it is actually on the board to go and get',
-        !!ally.onMap, String(ally.onMap));
-
-    const allyGo = await page.evaluate(async () => {
-        document.getElementById('btn-ally-arrival').click();
-        await new Promise(r => setTimeout(r, 4000));
-        const { state } = await import('/src/core/GameState.js');
-        return {
-            card: getComputedStyle(document.getElementById('ally-arrival')).display !== 'none',
-            mg:   getComputedStyle(document.getElementById('mg-intro-overlay')).display !== 'none',
-            gs:   state.gameState,
-        };
-    });
-    ok('ally: pressing it closes the card and hands over to the minigame',
-        !allyGo.card && allyGo.mg, JSON.stringify(allyGo));
-
-    // The last round is the exception: an ally that lands then can never be
-    // claimed, so stopping the match to announce it would be pure friction.
-    const lastRound = await page.evaluate(async () => {
-        const { state } = await import('/src/core/GameState.js');
-        const GC = await import('/src/core/GameController.js');
-        const D  = await import('/src/core/Director.js');
-        const M  = await import('/src/ui/ModalManager.js');
-        const U  = await import('/src/ui/UIManager.js');
-        const MG = await import('/src/minigames/MinigameManager.js');
-        // Tear the previous minigame down and then WAIT OUT its completion
-        // path: endMinigame() runs the real result handler, which finishes a
-        // turn, ends a round and can raise another arrival card of its own.
-        // Resetting the Director immediately is too early to catch it.
-        MG.endMinigame(0);
-        await new Promise(r => setTimeout(r, 3500));
-        D.reset(); M.closeAllModals();
         document.getElementById('ally-arrival').style.display = 'none';
-        await new Promise(r => setTimeout(r, 300));
 
-        state.allyOnMap = null;
-        state.allySpawnCountdown = 0;
-        state.pendingAllyReveal = null;
-        // _cityRounds() only honours a value in CITY_LENGTHS (6 | 12 | 20) and
-        // silently falls back to the default otherwise — an arbitrary 3 here
-        // read as 12, so the "last round" branch never ran and this assertion
-        // was testing nothing.
+        // A buddy is on the board and unreported, which is exactly the state
+        // that used to stop the minigame.
         state.cityRounds = 6;
-        state.currentRound = 5;          // ++ takes it to the last round
-        state.totalTurns = 7;
+        state.currentRound = 1;
+        state.allyOnMap = null; R.removeAllyMarker();
+        GC.spawnAlly();
+
+        state.totalTurns = 3;            // finishTurn() takes it to a multiple of 4
         state.gameState = 'ACKNOWLEDGE';
+        state.players.forEach(p => { p.isBot = false; });
         GC.finishTurn();
-        await new Promise(r => setTimeout(r, 1800));
-        return {
-            card: getComputedStyle(document.getElementById('ally-arrival')).display !== 'none',
-            pending: !!state.pendingAllyReveal,
-        };
+
+        let mgAt = null, cardAt = null;
+        const t0 = performance.now();
+        for (let i = 0; i < 60; i++) {
+            await new Promise(r => setTimeout(r, 150));
+            const el = document.getElementById('ally-arrival');
+            if (cardAt === null && el && getComputedStyle(el).display !== 'none') {
+                cardAt = Math.round(performance.now() - t0);
+            }
+            if (mgAt === null && (state.gameState === 'MINIGAME_INTRO' || state.mgActive)) {
+                mgAt = Math.round(performance.now() - t0);
+                break;
+            }
+        }
+        return { mgAt, cardAt, hadBuddy: !!state.allyOnMap };
     });
-    ok('ally: no arrival card on the final round — nobody could claim it',
-        !lastRound.card && !lastRound.pending, JSON.stringify(lastRound));
+    ok('handoff: a buddy on the board no longer stops the round-end minigame',
+        handoff.hadBuddy && handoff.mgAt !== null,
+        JSON.stringify(handoff));
+    ok('handoff: and no card is raised over the hand-off',
+        handoff.cardAt === null, `card appeared at ${handoff.cardAt}ms`);
 
     // ---------------------------------------------------------------
     // 5. The gate: the board stays visible, and items are unavailable.

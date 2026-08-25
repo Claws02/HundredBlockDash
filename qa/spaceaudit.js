@@ -38,7 +38,7 @@ const SAMPLES = parseInt(process.argv[2] || '200', 10);
         const BS   = await import('/src/core/BoardSetup.js');
         const GCfg = await import('/src/config/GameConfig.js');
         const { state } = await import('/src/core/GameState.js');
-        const { CITY_GRAPH } = await import('/src/config/BoardGraph.js');
+        const CITY_GRAPH = (await import('/src/config/ActiveMap.js')).graph();
 
         const out = { hbd: {}, city: null, meta: {} };
 

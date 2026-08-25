@@ -83,6 +83,13 @@ const GL = ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=swiftshader',
         const give = t => { p.allies = [{ type: t, turnsRemaining: ALLY_TURNS,
                                           shieldCharges: ALLIES[t].shieldCharges || 0, mesh: null }]; };
         const out = {};
+        // No live bounties for any of this. Landing on a coin space fires
+        // _checkContract('land_coin'), and a BLOCKED hit fires
+        // _checkContract('block_space') — so if the board happened to be holding
+        // either card it paid out between setting a coin total and reading it,
+        // and the Bodyguard assertion read 52 where it had written 40. Every
+        // number below is a DELTA on an isolated economy.
+        state.activeContracts = [];
 
         // Vendor: +2 on a coin space.
         state.activePlayer = 0; p.pos = 'r2'; p.mesh.position.copy(R.getPos('r2'));
@@ -100,8 +107,10 @@ const GL = ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=swiftshader',
 
         // Bodyguard: coin damage AND an Anchor both cost a charge.
         give('bodyguard'); p.coins = 40;
+        const bgBefore = p.coins;
         EC.loseCoins(p, 8);
-        out.bgCoins = { coins: p.coins, chargesLeft: p.allies[0] ? p.allies[0].shieldCharges : 0 };
+        out.bgCoins = { lost: bgBefore - p.coins, coins: p.coins,
+                        chargesLeft: p.allies[0] ? p.allies[0].shieldCharges : 0 };
         give('bodyguard');
         p.pos = 'r5'; p.mesh.position.copy(R.getPos('r5'));
         const anchorSpace = { type: 'anchor_trap', owner: 1 };
@@ -124,7 +133,7 @@ const GL = ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=swiftshader',
         powers.out.vendor.withBuddy === powers.out.vendor.plain + 2,
         `${powers.out.vendor.plain} → ${powers.out.vendor.withBuddy}`);
     ok('power · Bodyguard: a fine costs a charge, not coins',
-        powers.out.bgCoins.coins === 40 && powers.out.bgCoins.chargesLeft === 2,
+        powers.out.bgCoins.lost === 0 && powers.out.bgCoins.chargesLeft === 2,
         JSON.stringify(powers.out.bgCoins));
     ok('power · Bodyguard: an Anchor costs a charge too, and you do NOT move',
         powers.out.bgAnchor.forced === 0 && powers.out.bgAnchor.chargesLeft === 2,
@@ -240,6 +249,119 @@ const GL = ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=swiftshader',
         !!expiry.departed, String(expiry.departed));
 
     // ---------------------------------------------------------------
+    // 2b. The report OPENS the round it belongs to.
+    // ---------------------------------------------------------------
+    // It used to be raised at the close of a round, in the same breath as the
+    // minigame — so the news arrived four board turns before anybody could act
+    // on it, queued in front of the round's own payoff.
+    const timing = await page.evaluate(async () => {
+        const { state } = await import('/src/core/GameState.js');
+        const GC = await import('/src/core/GameController.js');
+        const M  = await import('/src/ui/ModalManager.js');
+        const D  = await import('/src/core/Director.js');
+        const R  = await import('/src/engine/Renderer.js');
+        D.reset(); R.getActiveAnims().length = 0; M.closeAllModals();
+        const card = () => {
+            const el = document.getElementById('ally-arrival');
+            return !!el && getComputedStyle(el).display !== 'none';
+        };
+        // A buddy is on the board and the round has not reported yet.
+        state.currentRound = 4;
+        state.allyOnMap = null; R.removeAllyMarker();
+        state.players.forEach(p => { p.allies = []; p.isBot = false; });
+        GC.spawnAlly();
+        document.getElementById('ally-arrival').style.display = 'none';
+
+        // The minigame hand-off must NOT wait on it any more.
+        state.totalTurns = 3;
+        const beforeMg = card();
+
+        // The next turn must.
+        GC.startPreRoll();
+        await new Promise(r => setTimeout(r, 500));
+        const atTurnStart = card();
+        const gsWhileUp = state.gameState;
+
+        // Pressing through must hand the turn back, not strand it.
+        document.getElementById('btn-ally-arrival').click();
+        for (let i = 0; i < 40; i++) {
+            await new Promise(r => setTimeout(r, 200));
+            if (state.gameState === 'PRE_ROLL') break;
+        }
+        const afterPress = { card: card(), gs: state.gameState };
+
+        // And it does not come back for the SAME round.
+        GC.startPreRoll();
+        await new Promise(r => setTimeout(r, 400));
+        const again = card();
+        return { beforeMg, atTurnStart, gsWhileUp, afterPress, again };
+    });
+    ok('timing: the report is up at the start of the round, not the end of the last',
+        timing.atTurnStart && !timing.beforeMg, JSON.stringify(timing));
+    ok('timing: nothing can be rolled behind it',
+        timing.gsWhileUp !== 'PRE_ROLL', `gameState was ${timing.gsWhileUp}`);
+    ok('timing: pressing through hands the turn back',
+        !timing.afterPress.card && timing.afterPress.gs === 'PRE_ROLL',
+        JSON.stringify(timing.afterPress));
+    ok('timing: and it does not fire twice in one round',
+        !timing.again, `second startPreRoll re-raised it: ${timing.again}`);
+
+    // ---------------------------------------------------------------
+    // 3b. A buddy nobody can reach is a buddy nobody plays for.
+    // ---------------------------------------------------------------
+    // Placed at random on a 60-node lap, most spawns landed most of a circuit
+    // away — the report said where they were, the countdown said three rounds,
+    // and the two facts did not fit together.
+    const reach = await page.evaluate(async () => {
+        const { state } = await import('/src/core/GameState.js');
+        const { BUDDY_NEAR_STEPS, BUDDY_MAX_STEPS } = await import('/src/config/GameConfig.js');
+        const GC = await import('/src/core/GameController.js');
+        const R  = await import('/src/engine/Renderer.js');
+        const ALL_NODES_ORDERED = (await import('/src/config/ActiveMap.js')).ordered();
+        const out = [];
+        // Sample from a spread of starting positions, so this is the rule and
+        // not one lucky board.
+        const starts = ['r1', 'r8', 'ba_3', 'fin_6', 'shop_2', 'ind_4', 'r17', 'r12'];
+        for (let i = 0; i < 60; i++) {
+            const a = starts[i % starts.length];
+            const b = starts[(i * 3 + 2) % starts.length];
+            state.players[0].pos = a; state.players[0].mesh.position.copy(R.getPos(a));
+            state.players[1].pos = b; state.players[1].mesh.position.copy(R.getPos(b));
+            state.allyOnMap = null; R.removeAllyMarker();
+            GC.spawnAlly();
+            const id = state.allyOnMap.nodeId;
+            const d = Math.min(
+                GC.stepsFrom(a)[id] ?? Infinity,
+                GC.stepsFrom(b)[id] ?? Infinity);
+            out.push({ id, d, onPlayer: id === a || id === b });
+        }
+        state.allyOnMap = null; R.removeAllyMarker();
+        return { out, NEAR: BUDDY_NEAR_STEPS, MAX: BUDDY_MAX_STEPS,
+                 nodes: ALL_NODES_ORDERED.length };
+    });
+    const ds = reach.out.map(o => o.d);
+    const far = ds.filter(d => d > reach.MAX);
+    const near = ds.filter(d => d <= reach.NEAR);
+    ok('reach: no buddy ever spawns further than six maximum rolls away',
+        far.length === 0, `${far.length} of ${ds.length} over ${reach.MAX} steps (max seen ${Math.max(...ds)})`);
+    ok('reach: and nearly all of them land within the preferred band',
+        near.length >= ds.length * 0.9,
+        `${near.length}/${ds.length} within ${reach.NEAR} steps · median ${ds.slice().sort((a, b) => a - b)[Math.floor(ds.length / 2)]}`);
+    ok('reach: never on a square a player is already standing on',
+        reach.out.every(o => !o.onPlayer));
+    // The measure has to be a real walk, not a lap-order index difference: the
+    // districts branch, so "twelve along the flat list" can be a road you would
+    // have to choose and then walk.
+    const walk = await page.evaluate(async () => {
+        const GC = await import('/src/core/GameController.js');
+        const d = GC.stepsFrom('r1');
+        return { toR2: d.r2, toFin0: d.fin_0, toBa0: d.ba_0, reachable: Object.keys(d).length };
+    });
+    ok('reach: the measure is a real forward walk through the graph',
+        walk.toR2 === 1 && walk.toFin0 > 20 && walk.toBa0 === 6,
+        JSON.stringify(walk));
+
+    // ---------------------------------------------------------------
     // 4. Passing a rival is enough to go for their buddy.
     // ---------------------------------------------------------------
     await reset();
@@ -295,6 +417,119 @@ const GL = ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=swiftshader',
         resumed.pos === 'r5', JSON.stringify(resumed));
 
     // ---------------------------------------------------------------
+    // 4b. One square, several things owed — in order, none dropped.
+    // ---------------------------------------------------------------
+    // Reported: "there was a glitch when a player hit the store, the game
+    // glitched and went to the end of their turn and skipped over an ally."
+    //
+    // The pass-through used to be three nested closures with the shop parking
+    // its continuation in a module-level slot, and closeShopModal() deciding
+    // between "carry on walking" and "end the turn" on one string flag. A shop
+    // on a square that also owed a buddy encounter could finish the turn early
+    // and swallow the encounter.
+    await reset();
+    const stack = await page.evaluate(async () => {
+        const { state } = await import('/src/core/GameState.js');
+        const GC = await import('/src/core/GameController.js');
+        const R  = await import('/src/engine/Renderer.js');
+        const M  = await import('/src/ui/ModalManager.js');
+        const D  = await import('/src/core/Director.js');
+        D.reset(); R.getActiveAnims().length = 0; M.closeAllModals();
+        state.activePlayer = 0;
+        const p = state.players[0], opp = state.players[1];
+        p.isBot = false; opp.isBot = false;
+        p.allies = []; opp.allies = [];
+
+        // A clean route, then load ONE square with a shop AND a buddy.
+        ['r6', 'r7', 'r8', 'r9', 'r10'].forEach(id => { state.board[id] = { type: 'coin' }; });
+        state.board.r8 = { type: 'shop', shopDistrict: 'ring' };
+        p.pos = 'r6'; p.mesh.position.copy(R.getPos('r6'));
+        opp.pos = 'r1'; opp.mesh.position.copy(R.getPos('r1'));
+        state.allyOnMap = null; R.removeAllyMarker();
+        state.allyOnMap = { nodeId: 'r8', allyType: 'banker', roundsLeft: 3 };
+        R.placeAllyMarker('r8', 'banker');
+
+        const seen = [];
+        GC.moveThroughGraph(p, 4);           // r7, r8 (shop + buddy), r9, r10
+        for (let i = 0; i < 90; i++) {
+            await new Promise(r => setTimeout(r, 180));
+            const enc  = document.getElementById('ally-encounter-modal');
+            const offr = document.getElementById('shop-offer-modal');
+            if (enc && getComputedStyle(enc).display !== 'none') {
+                if (seen[seen.length - 1] !== 'buddy') seen.push('buddy');
+                document.getElementById('btn-ally-pass').click();
+                continue;
+            }
+            if (offr && getComputedStyle(offr).display !== 'none') {
+                if (seen[seen.length - 1] !== 'shop') seen.push('shop');
+                // ENTER the shop, then close it — the reported path.
+                document.getElementById('btn-shop-offer-enter').click();
+                await new Promise(r => setTimeout(r, 700));
+                document.getElementById('btn-close-shop').click();
+                continue;
+            }
+            if (p.pos === 'r10') break;
+        }
+        return { seen, pos: p.pos, gs: state.gameState,
+                 district: state.pendingShopDistrict };
+    });
+    ok('order: a square owing a buddy AND a shop offers both',
+        stack.seen.includes('buddy') && stack.seen.includes('shop'),
+        JSON.stringify(stack.seen));
+    ok('order: the buddy comes first — the shop cannot swallow it',
+        stack.seen.indexOf('buddy') < stack.seen.indexOf('shop'), JSON.stringify(stack.seen));
+    ok('order: and the move finishes its remaining steps afterwards',
+        stack.pos === 'r10', `ended on ${stack.pos}, gameState ${stack.gs}`);
+    // The offer used to leave pendingShopDistrict alone, so entering picked up
+    // whatever the last shop visit had left behind.
+    ok('order: the shop that opens is the one you walked past',
+        stack.district === 'ring', String(stack.district));
+
+    // The exact failure mode. closeShopModal() used to decide between "carry on
+    // walking" and "end the turn" by reading state.pendingReturnState — so any
+    // path that cleared or never set that flag closed the shop straight into
+    // finishTurn(), with steps still owed and the rest of the square's
+    // interruptions never offered. Clearing it by hand is what the reported
+    // glitch looked like from the inside.
+    const flagLost = await page.evaluate(async () => {
+        const { state } = await import('/src/core/GameState.js');
+        const GC = await import('/src/core/GameController.js');
+        const R  = await import('/src/engine/Renderer.js');
+        const M  = await import('/src/ui/ModalManager.js');
+        const D  = await import('/src/core/Director.js');
+        D.reset(); R.getActiveAnims().length = 0; M.closeAllModals();
+        state.activePlayer = 0;
+        const p = state.players[0];
+        p.isBot = false; state.players[1].isBot = false;
+        ['r6', 'r7', 'r8', 'r9', 'r10'].forEach(id => { state.board[id] = { type: 'coin' }; });
+        state.board.r8 = { type: 'shop', shopDistrict: 'ring' };
+        state.allyOnMap = null; R.removeAllyMarker();
+        p.pos = 'r6'; p.mesh.position.copy(R.getPos('r6'));
+
+        GC.moveThroughGraph(p, 4);
+        let entered = false;
+        for (let i = 0; i < 70; i++) {
+            await new Promise(r => setTimeout(r, 180));
+            const offr = document.getElementById('shop-offer-modal');
+            if (!entered && offr && getComputedStyle(offr).display !== 'none') {
+                document.getElementById('btn-shop-offer-enter').click();
+                await new Promise(r => setTimeout(r, 700));
+                // Lose the flag, then close. Under the old rule this ended the
+                // turn on the spot.
+                state.pendingReturnState = null;
+                document.getElementById('btn-close-shop').click();
+                entered = true;
+                continue;
+            }
+            if (p.pos === 'r10') break;
+        }
+        return { entered, pos: p.pos, gs: state.gameState };
+    });
+    ok('order: losing the shop flag no longer ends the turn mid-walk',
+        flagLost.entered && flagLost.pos === 'r10',
+        `ended on ${flagLost.pos} (wanted r10), gameState ${flagLost.gs}`);
+
+    // ---------------------------------------------------------------
     // 5. Nothing a player reads still says "ally".
     // ---------------------------------------------------------------
     const copy = await page.evaluate(async () => {
@@ -325,7 +560,7 @@ const GL = ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=swiftshader',
     // 6. Fewer duels.
     // ---------------------------------------------------------------
     const duels = await page.evaluate(async () => {
-        const { DISTRICT_POOLS } = await import('/src/config/BoardGraph.js');
+        const DISTRICT_POOLS = (await import('/src/config/ActiveMap.js')).pools();
         const all = Object.values(DISTRICT_POOLS).flat();
         return {
             duel: all.filter(t => t === 'duel').length,

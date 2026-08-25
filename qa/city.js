@@ -55,7 +55,8 @@ const GL = ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=swiftshader',
     // 4a. Board content — checked on the pools before anything renders.
     // ---------------------------------------------------------------
     const pools = await page.evaluate(async () => {
-        const { DISTRICT_POOLS, BRANCH_OPTIONS } = await import('/src/config/BoardGraph.js');
+        const AM = await import('/src/config/ActiveMap.js');
+        const DISTRICT_POOLS = AM.pools(), BRANCH_OPTIONS = AM.branches();
         const all = Object.values(DISTRICT_POOLS).flat();
         return {
             movers: all.filter(t => ['shortcut', 'cfwd', 'cbwd'].includes(t)),

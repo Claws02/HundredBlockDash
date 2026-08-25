@@ -64,7 +64,8 @@ const GL = ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=swiftshader',
     // of. Two districts that dress the same come out with the same signature.
     const census = await page.evaluate(async () => {
         const R = await import('/src/engine/Renderer.js');
-        const { ALL_NODES_ORDERED, CITY_GRAPH } = await import('/src/config/BoardGraph.js');
+        const AM = await import('/src/config/ActiveMap.js');
+        const ALL_NODES_ORDERED = AM.ordered(), CITY_GRAPH = AM.graph();
         const scene = R.getScene();
         const out = {};
         const keys = ['ring', 'fin', 'ba', 'shop', 'ind'];
@@ -118,7 +119,7 @@ const GL = ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=swiftshader',
     // scenery. Only the named city-environment group is scenery.
     const onRoad = await page.evaluate(async () => {
         const R = await import('/src/engine/Renderer.js');
-        const { ALL_NODES_ORDERED } = await import('/src/config/BoardGraph.js');
+        const ALL_NODES_ORDERED = (await import('/src/config/ActiveMap.js')).ordered();
         let env = null;
         R.getScene().traverse(o => { if (o.name === 'cityEnv') env = o; });
         if (!env) return { found: false, bad: [] };
@@ -157,7 +158,8 @@ const GL = ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=swiftshader',
     // high enough to walk under, in every district.
     const spans = await page.evaluate(async () => {
         const R = await import('/src/engine/Renderer.js');
-        const { ALL_NODES_ORDERED, CITY_GRAPH } = await import('/src/config/BoardGraph.js');
+        const AM = await import('/src/config/ActiveMap.js');
+        const ALL_NODES_ORDERED = AM.ordered(), CITY_GRAPH = AM.graph();
         let env = null;
         R.getScene().traverse(o => { if (o.name === 'cityEnv') env = o; });
         const out = {};
@@ -201,7 +203,8 @@ const GL = ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=swiftshader',
     // ---------------------------------------------------------------
     const lm = await page.evaluate(async () => {
         const R = await import('/src/engine/Renderer.js');
-        const { ALL_NODES_ORDERED, CITY_GRAPH } = await import('/src/config/BoardGraph.js');
+        const AM = await import('/src/config/ActiveMap.js');
+        const ALL_NODES_ORDERED = AM.ordered(), CITY_GRAPH = AM.graph();
         const scene = R.getScene();
         const out = {};
         ['fin', 'ba', 'shop', 'ind'].forEach(k => {
@@ -313,7 +316,7 @@ const GL = ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=swiftshader',
         await page.evaluate(async (n) => {
             const R = await import('/src/engine/Renderer.js');
             const { state } = await import('/src/core/GameState.js');
-            const { ALL_NODES_ORDERED } = await import('/src/config/BoardGraph.js');
+            const ALL_NODES_ORDERED = (await import('/src/config/ActiveMap.js')).ordered();
             state.cameraState = 'CINEMATIC';
             const at = R.getPos(n).clone().setY(0);
             // DOWN THE ROAD, which is the only angle that shows what a player

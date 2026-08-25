@@ -209,9 +209,22 @@ export function setPlayerNames() {
 
 // ---- Round Counter ----
 
+// `state.currentRound` counts rounds COMPLETED, not the round being played: it
+// starts at 0 and is incremented at the close of each round. Printing it raw
+// meant the opening round read "ROUND 0/12" and the final one "ROUND 11/12" —
+// the counter was a round behind the game all the way through, and a match
+// never showed its own last round as the last one.
+//
+// The number a player wants is the round they are IN, which is one more, capped
+// so the final round reads 12/12 rather than 13/12.
+export function displayRound(completed, total) {
+    return Math.min((completed || 0) + 1, total || 1);
+}
+
 export function updateRoundCounter(current, total) {
     const el = document.getElementById('round-counter');
-    if (el) el.textContent = `ROUND ${current || 0}/${total || 20}`;
+    const max = total || 20;
+    if (el) el.textContent = `ROUND ${displayRound(current, max)}/${max}`;
 }
 
 // ---- Contracts Strip ----
@@ -483,6 +496,87 @@ function _wireJunctionEvents() {
             openMap();
         }
     });
+}
+
+// ---- Final round ------------------------------------------------------------
+//
+// The one moment in a City match where every remaining plan changes: nothing
+// left to bank for, nothing left to walk to, and whatever you are holding is
+// what you finish with. It went by unmarked — the round counter ticked over and
+// that was the whole announcement, and it was ticking a round behind anyway.
+//
+// Both players need it, so it is drawn twice in tabletop. It does not wait for a
+// press: it owns the screen for SCENE.FINAL_ROUND and then the turn begins.
+
+export function showFinalRoundBanner(total) {
+    const el = document.getElementById('final-round');
+    if (!el) return;
+    el.innerHTML = DualRead.dualHTML(
+        `<div class="fr-tag bfont">ROUND ${total} OF ${total}</div>`
+        + `<div class="fr-name bfont">FINAL ROUND</div>`
+        + `<div class="fr-sub">Most coins at the end wins the city. Spend what you have.</div>`);
+    el.style.display = 'flex';
+    el.style.animation = 'none'; void el.offsetWidth; el.style.animation = '';
+    applyOrientation();
+    clearTimeout(el._hideTimer);
+    el._hideTimer = setTimeout(() => { el.style.display = 'none'; }, SCENE.FINAL_ROUND);
+}
+
+export function hideFinalRoundBanner() {
+    const el = document.getElementById('final-round');
+    if (!el) return;
+    clearTimeout(el._hideTimer);
+    el.style.display = 'none';
+}
+
+export function finalRoundBannerUp() {
+    const el = document.getElementById('final-round');
+    return !!el && getComputedStyle(el).display !== 'none';
+}
+
+// ---- Roll callout ----------------------------------------------------------
+//
+// The number you rolled was one line of toast text on the rail, the same weight
+// as "+3 coins" and "Passed the Grand Mall". It is not the same weight — it is
+// what the whole turn is about — and the token deliberately does not move for
+// DICE_READ (1500 ms) after the dice settle. That beat had nothing in it.
+//
+// It is safe to put this in the middle of the screen, which nothing else that
+// fires during a turn is: the rule that keeps notifications off the board is
+// about things that appear WHILE the board is moving, and this is gone before
+// the token takes its first step.
+
+let _rollOutTimer = null;
+
+export function showRollCallout(n) {
+    const el = document.getElementById('roll-callout');
+    if (!el) return;
+    clearTimeout(_rollOutTimer);
+    const num = document.getElementById('rc-num');
+    const cap = document.getElementById('rc-cap');
+    const pip = document.getElementById('rc-pips');
+    if (num) num.textContent = String(n);
+    if (cap) cap.textContent = `${(state.players[state.activePlayer]?.name || 'YOU').toUpperCase()} ROLLED`;
+    // Pips under the digit, so it reads as a die face rather than a number.
+    if (pip) pip.innerHTML = '<i></i>'.repeat(Math.max(0, Math.min(6, n)));
+    applyOrientation();
+    el.classList.remove('out');
+    el.classList.add('up');
+}
+
+export function hideRollCallout() {
+    const el = document.getElementById('roll-callout');
+    if (!el || !el.classList.contains('up')) return;
+    el.classList.add('out');
+    clearTimeout(_rollOutTimer);
+    // Let the shrink-and-fade play out before the element leaves the layout,
+    // so the number does not simply vanish on the frame the token sets off.
+    _rollOutTimer = setTimeout(() => { el.classList.remove('up', 'out'); }, 220);
+}
+
+export function rollCalloutUp() {
+    const el = document.getElementById('roll-callout');
+    return !!el && el.classList.contains('up') && !el.classList.contains('out');
 }
 
 // ---- Buddy report ----------------------------------------------------------

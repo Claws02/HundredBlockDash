@@ -2,6 +2,7 @@ import { state, resetPlayers } from './GameState.js';
 import {
     GATE_NUM_DICE, FINE_AMOUNT, BIG_FINE_AMOUNT, TRAP_AMOUNT, DUEL_STAKE,
     MAX_INV, MAX_ALLIES, ALLY_TURNS, ALLY_SPAWN_DELAY_TURNS, BUDDY_MAP_ROUNDS,
+    BUDDY_NEAR_STEPS, BUDDY_MAX_STEPS,
     MINIGAME_EVERY_N_TURNS, ITEMS, SPACE_META, SPACE_DESCS,
     DISTRICT_HQ_FIRST_BONUS, DISTRICT_HQ_REVISIT_BONUS,
     FULL_CIRCUIT_BONUSES,
@@ -252,6 +253,7 @@ export function startGame() {
     _gateFromTurnStart = false;
     _pendingStepsAfterGate = 0;
     _buddyRemindedRound = -1;
+    _finalRoundAnnounced = false;
     state.gameStarted = true;
     window.CITY_GRAPH_REF = ActiveMap.graph();   // the QA harness boots off this
     _savePrefs();
@@ -334,6 +336,34 @@ function _atClosedGate(p) {
 }
 
 export function startPreRoll() {
+    // SAFETY NETS FIRST, before either of the two branches below can return.
+    //
+    // Every full-screen scene parks the camera in its own mode and is
+    // responsible for handing it back — and the ally minigame did not, so a
+    // single encounter left cameraState stuck on 'FLYOVER' and the follow camera
+    // never ran again for the rest of the match. The same argument covers the
+    // HUD and the roll callout.
+    //
+    // These used to sit further down, after the gate and buddy checks. Moving
+    // the buddy report in above them meant a round that opened with a report
+    // returned early and skipped the restore — qa/city.js caught it as a camera
+    // left dead on FLYOVER. Nothing may start a turn OR raise a turn-opening
+    // scene in a camera mode that is not following anybody.
+    if (state.cameraState !== 'FOLLOW' && state.cameraState !== 'CINEMATIC') {
+        state.cameraState = 'FOLLOW';
+        Renderer.snapCameraToActive();
+    }
+    {
+        const uiL = document.getElementById('ui-layer');
+        if (uiL && uiL.style.display === 'none') uiL.style.display = 'block';
+    }
+    UIManager.hideRollCallout();
+    UIManager.hideFinalRoundBanner();
+    // No move is in progress at the top of a turn, so no continuation from one
+    // may still be parked — closeShopModal() reads this slot to decide whether
+    // the turn is over, and a stale one would resume a walk that ended turns ago.
+    _clearPassThroughResume();
+
     // A player parked at a shut gate does not get an ordinary turn — they get
     // the gate. This lived in proceedTurn() and covered ONLY Hundred Block Dash,
     // so in City a failed gate roll left the player with a normal roll the next
@@ -349,30 +379,41 @@ export function startPreRoll() {
             return;
         }
     }
+    // The last round announces itself, once, before anything else about the
+    // round. It does not wait for a press — it owns the screen for its floor and
+    // then the turn begins — but it does hold the beat, because a three-second
+    // banner nobody has time to read is not an announcement.
+    if (_finalRoundDue()) {
+        _finalRoundAnnounced = true;
+        state.gameState = 'ACKNOWLEDGE';
+        UIManager.showFinalRoundBanner(_cityRounds());
+        sfx('land_bad');
+        Director.hold('FINAL_ROUND', startPreRoll);
+        return;
+    }
+    // The round's buddy news, before anybody rolls — and before PRE_ROLL is
+    // entered, so no roll control can appear behind the card. It takes the
+    // screen and hands control back through its own callback, which calls this
+    // function again with the round already marked as reported.
+    if (_buddyReportDue()) {
+        state.gameState = 'ACKNOWLEDGE';
+        _showBuddyReportThen(startPreRoll);
+        return;
+    }
     state.gameState = 'PRE_ROLL';
-    // Safety net. Every full-screen scene parks the camera in its own mode and
-    // is responsible for handing it back — and the ally minigame did not, so a
-    // single ally encounter left cameraState stuck on 'FLYOVER' and the follow
-    // camera never ran again for the rest of the match. Play cannot begin in a
-    // camera mode that isn't following anybody, so assert that here rather than
-    // trusting every scene to remember.
+    // The camera can legitimately be CINEMATIC on the way back from the buddy
+    // report — its own resume hands it back. By the time play actually begins it
+    // must be following somebody.
     if (state.cameraState !== 'FOLLOW') {
         state.cameraState = 'FOLLOW';
         Renderer.snapCameraToActive();
     }
-    // Same argument for the HUD. Every full-screen scene hides #ui-layer and is
-    // supposed to put it back; a 300s autoplay caught one run sitting in
-    // PRE_ROLL with the whole control layer still hidden and no way to roll.
-    // Whatever swallowed the restore, play cannot begin without the controls.
-    const uiLayer = document.getElementById('ui-layer');
-    if (uiLayer && uiLayer.style.display === 'none') uiLayer.style.display = 'block';
     UIManager.applyOrientation();
     // Say whose turn it is. Whose it was had only ever been implied — by which
     // HUD bar lit up and which edge the buttons appeared on — and that is easy
     // to miss coming back from a minigame. Only fires when the turn actually
     // changed hands, so a BOOST re-roll does not re-announce the same player.
     UIManager.announceTurnIfChanged(state.activePlayer);
-    _remindBuddyAtRoundStart();
     UIManager.flushToasts();     // nothing queued mid-move may be stranded
     state.rollAgainPending = false;
     state.rollAgainSamePlayer = false;
@@ -451,10 +492,16 @@ export function executeRoll(flickVelocity) {
         // mid-move chatter off the board swallowed this one — gameState is
         // 'ROLLING' when the dice settle — so the result appeared once the
         // player had already arrived somewhere, which is exactly backwards.
-        UIManager.toast(`Rolled a ${finalResult}!`, '#fff', { urgent: true });
-        // Beat: the number is on the table and legible before anything moves.
+        UIManager.showRollCallout(finalResult);
+        // Beat: the number owns the screen, at size, and comes down the moment
+        // the token sets off. It used to be a toast — urgent, so it at least got
+        // through, but the same size and the same place as every other line of
+        // chatter, for a beat in which nothing else was happening.
         const mover = ActiveMap.isLinear() ? _movePlayerHBD : moveThroughGraph;
-        Director.hold('DICE_READ', () => mover(state.players[state.activePlayer], finalResult));
+        Director.hold('DICE_READ', () => {
+            UIManager.hideRollCallout();
+            mover(state.players[state.activePlayer], finalResult);
+        });
     });
 }
 
@@ -563,83 +610,114 @@ function _noteDistrictEntry(player, nodeId) {
     UIManager.showRealmBanner(DISTRICT_BIOMES[dist]);
 }
 
-function _checkPassThroughShop(player, nodeId, stepsLeft, continueMove) {
-    const b = state.board[nodeId];
+// Everything that can interrupt a single STEP of a move, run one at a time.
+//
+// Reported: "there was a glitch when a player hit the store, the game glitched
+// and went to the end of their turn and skipped over an ally."
+//
+// This used to be three nested branches, each capturing the next as a closure —
+// steal wrapped buddy wrapped shop — with the shop leg parking its continuation
+// in a module-level slot (`_passThroughResumeHop`) and the turn's end reachable
+// from closeShopModal() whenever one string flag failed to match. Two globals
+// and three closures deciding between "carry on walking" and "end the turn" is
+// exactly how a shop swallows a buddy and finishes the turn early.
+//
+// Now: build the list of interruptions this square owes, in a fixed order, and
+// walk it with an index. One continuation, one place that decides the turn is
+// over, and each step gets the whole screen until it hands back.
+const PASS_STEPS = ['hq', 'steal', 'buddy', 'shop'];
 
-    // District HQ pays for PASSING it, not just for stopping on it. Landing
-    // exactly on one of four HQs on a 60-node ring was a coin flip you had no
-    // control over, so the biggest single payout on the board was pure luck;
-    // now the reward is for choosing the route that goes through the district.
-    // Landing on it still pays via the 'hq' case, and the two can't both fire
-    // for one square because this branch only runs while steps remain.
-    if (stepsLeft > 0 && b?.type === 'hq') {
-        const dist = ActiveMap.graph()[nodeId]?.district;
-        if (dist) {
+function _checkPassThroughShop(player, nodeId, stepsLeft, continueMove) {
+    const b   = state.board[nodeId];
+    const opp = state.players[(player.id + 1) % 2];
+    const hasBuddies = ActiveMap.has('buddies');
+
+    // Which of them actually apply here. Decided ONCE, up front, from the board
+    // as it is at this instant — so a buddy claimed by the steal step cannot
+    // also fire the buddy step, and nothing re-reads state a later step changed.
+    const due = PASS_STEPS.filter(k => {
+        if (stepsLeft <= 0) return false;
+        if (k === 'hq')    return b?.type === 'hq' && !!ActiveMap.regionOf(nodeId);
+        if (k === 'steal') return hasBuddies && opp.pos === nodeId && opp.allies.length > 0;
+        if (k === 'buddy') return hasBuddies && state.allyOnMap && state.allyOnMap.nodeId === nodeId;
+        if (k === 'shop')  return b?.type === 'shop';
+        return false;
+    });
+
+    let idx = 0;
+    // The ONE continuation. Every step calls this and only this; nothing else in
+    // here may resume the move or end the turn.
+    const next = () => {
+        if (idx >= due.length) { state.gameState = 'MOVING'; continueMove(); return; }
+        const step = due[idx++];
+        state.gameState = 'MOVING';
+
+        if (step === 'hq') {
+            // District HQ pays for PASSING it, not just for stopping on it.
+            // Landing exactly on one of four HQs on a 60-node ring was a coin
+            // flip you had no control over; now the reward is for choosing the
+            // route that goes through the district.
+            const dist   = ActiveMap.regionOf(nodeId);
             const before = player.districtsVisited[dist] || 0;
             _onDistrictHQReached(player, dist);
             const bonus = before === 0 ? DISTRICT_HQ_FIRST_BONUS : DISTRICT_HQ_REVISIT_BONUS;
-            const info = HQ_META[dist] || { name: 'HQ', icon: '🏛️' };
+            const info  = HQ_META[dist] || { name: 'HQ', icon: '🏛️' };
             UIManager.toast(`${info.icon} Passed ${info.name} — +${bonus} coins!`, '#fbbf24');
             UIManager.animateCoinDisplay(player.id, player.coins);
             sfx('coin_gain');
+            next();
+            return;
         }
-    }
 
-    const thenShop = () => {
-        if (stepsLeft > 0 && b?.type === 'shop') {
+        if (step === 'steal') {
+            // Brushing past a rival is enough to go for their buddy. It used to
+            // need an exact landing on their square — one node in sixty, on the
+            // one turn they happened to be holding something.
+            state.gameState = 'ACKNOWLEDGE';
             if (player.isBot) {
-                if (Bot.shopPassThrough()) {
-                    state.gameState = 'SHOP';
-                    _noteShopVisit(player);
-                    setTimeout(() => {
-                        if (state.gameState !== 'SHOP') return;
-                        _botShop(player);
-                        Director.wait(BOT_THINK.SHOP, () => { state.gameState = 'MOVING'; continueMove(); });
-                    }, 400);
-                } else setTimeout(continueMove, 300);
-            } else {
-                _passThroughResumeHop = continueMove;
-                state.gameState = 'SHOP';
-                ModalManager.showModal('shop-offer-modal');
+                if (Bot.shouldAttemptAllySteal()) _startAllySteal(player, opp, Bot.allyStealIndex(opp), next);
+                else next();
+                return;
             }
-        } else {
-            continueMove();
+            UIManager.toast(`🥷 You brushed past ${opp.name} — go for a Buddy?`, '#f97316', { urgent: true });
+            _offerAllySteal(player, opp, next);
+            return;
         }
+
+        if (step === 'buddy') {
+            // Same rule for the buddy waiting on the board: walking past the
+            // BUDDY SPACE is enough to challenge for them.
+            if (!state.allyOnMap || state.allyOnMap.nodeId !== nodeId) { next(); return; }
+            state.gameState = 'ACKNOWLEDGE';
+            _offerAllyEncounter(player, next);
+            return;
+        }
+
+        // shop
+        if (player.isBot) {
+            if (!Bot.shopPassThrough()) { Director.hold('PASSTHROUGH', next); return; }
+            state.gameState = 'SHOP';
+            _noteShopVisit(player);
+            Director.hold('PASSTHROUGH', () => {
+                if (state.gameState !== 'SHOP') { next(); return; }
+                _botShop(player);
+                Director.wait(BOT_THINK.SHOP, next);
+            });
+            return;
+        }
+        // The offer names WHICH shop it is. It used to leave
+        // pendingShopDistrict alone, so entering picked up whatever district the
+        // last shop visit had left behind — the Back Alley's discount on the
+        // Promenade's stock, and vice versa.
+        state.pendingShopDistrict = ActiveMap.graph()[nodeId]?.shopDistrict
+            || ActiveMap.regionOf(nodeId) || 'ring';
+        state.pendingShopDiscount = state.pendingShopDistrict === 'ba' ? BA_DISCOUNT : 1.0;
+        _passThroughResumeHop = next;
+        state.gameState = 'SHOP';
+        ModalManager.showModal('shop-offer-modal');
     };
 
-    // Brushing past a rival is enough to go for their buddy. This used to need
-    // an exact landing on their square — one node out of sixty, on the one turn
-    // they happened to be holding something, which meant the steal existed on
-    // paper and almost never in a match. Passing them is the same encounter and
-    // happens often enough to be a real threat, which is what makes holding a
-    // buddy a position worth defending.
-    const opp = state.players[(player.id + 1) % 2];
-    if (stepsLeft > 0 && ActiveMap.has('buddies')
-        && opp.pos === nodeId && opp.allies.length > 0) {
-        state.gameState = 'ACKNOWLEDGE';
-        const resume = () => { state.gameState = 'MOVING'; thenShop(); };
-        if (player.isBot) {
-            if (Bot.shouldAttemptAllySteal()) { _startAllySteal(player, opp, Bot.allyStealIndex(opp), resume); return; }
-            resume(); return;
-        }
-        UIManager.toast(`🥷 You brushed past ${opp.name} — go for a Buddy?`, '#f97316', { urgent: true });
-        _offerAllySteal(player, opp, resume);
-        return;
-    }
-
-    // Same rule for the buddy waiting on the board: walking past the BUDDY
-    // SPACE is enough to challenge for them. Landing exactly on one node out of
-    // sixty, in the handful of rounds a buddy is out there, meant most matches
-    // never offered the encounter at all — the buddy report told you where they
-    // were and then the dice decided whether you were allowed to go.
-    if (stepsLeft > 0 && state.allyOnMap && state.allyOnMap.nodeId === nodeId) {
-        state.gameState = 'ACKNOWLEDGE';
-        const resume = () => { state.gameState = 'MOVING'; thenShop(); };
-        _offerAllyEncounter(player, resume);
-        return;
-    }
-
-    thenShop();
+    next();
 }
 
 function _onLand(player) {
@@ -1244,11 +1322,14 @@ export function maybeTriggerMinigame() {
                 return;
             }
         }
-        _afterAllyReveal(() => {
-            UIManager.announceMinigameIncoming();
-            Director.hold('PRE_MINIGAME', () =>
-                MinigameManager.trigger((winnerId) => _resolveMinigameResult(winnerId)));
-        });
+        // The buddy report used to be raised HERE, holding the minigame back at
+        // the close of the round. It now waits for the start of the next round —
+        // the minigame is the round's payoff and should not be queued behind
+        // news about the round that has not started yet, and a card read four
+        // turns before anybody can act on it is a card people forget.
+        UIManager.announceMinigameIncoming();
+        Director.hold('PRE_MINIGAME', () =>
+            MinigameManager.trigger((winnerId) => _resolveMinigameResult(winnerId)));
     } else {
         Director.hold('TURN_HANDOFF', proceedTurn);
     }
@@ -1355,28 +1436,37 @@ function _onRoundEnd() {
     }
 }
 
-// The buddy report is a card at the CLOSE of a round, which is the right place
-// for it — that is when a buddy arrives and when the clock ticks. But a round is
-// several turns long, and by the time you are actually rolling, the card that
-// told you a buddy was two rounds from leaving is well behind you.
+// The buddy report opens the round it belongs to.
 //
-// So the first roll of each round also says it, once, as a toast. Cheap enough
-// to fire every round, short enough not to gate anything, and urgent so it is
-// not queued behind whatever the last turn left in the rail.
+// It used to be raised at the CLOSE of a round, in the same breath as the
+// minigame — which meant the news about a buddy arrived four board turns before
+// anybody could act on it, queued in front of the round's own payoff, and was
+// long forgotten by the time the next player actually rolled. It is now the
+// first thing a new round does: the board is up, the camera is free to swoop to
+// the tile, and the very next thing that happens is somebody taking a turn.
+//
+// Returns true when it took the screen, in which case startPreRoll() steps back
+// and lets the card's own callback restart it.
+// currentRound counts rounds COMPLETED, so the last round being PLAYED is the
+// one where that count is one short of the total.
+let _finalRoundAnnounced = false;
+function _finalRoundDue() {
+    if (state.selectedMap === 'hundred_block_dash') return false;
+    if (_finalRoundAnnounced) return false;
+    const total = _cityRounds();
+    return total > 1 && state.currentRound === total - 1;
+}
+
 let _buddyRemindedRound = -1;
-function _remindBuddyAtRoundStart() {
-    if (!ActiveMap.has('buddies')) return;
-    if (!state.allyOnMap) return;
-    if (_buddyRemindedRound === state.currentRound) return;
+function _buddyReportDue() {
+    if (!ActiveMap.has('buddies')) return false;
+    if (_buddyRemindedRound === state.currentRound) return false;
+    const rep = buddyReport();
+    return !!(rep.onMap || rep.departed || rep.held.some(h => h.buddies.length));
+}
+function _showBuddyReportThen(then) {
     _buddyRemindedRound = state.currentRound;
-    const b = ALLIES[state.allyOnMap.allyType];
-    if (!b) return;
-    const left  = state.allyOnMap.roundsLeft ?? BUDDY_MAP_ROUNDS;
-    const where = ActiveMap.regionName(ActiveMap.graph()[state.allyOnMap.nodeId]?.district) || 'the city';
-    UIManager.toast(
-        left <= 1 ? `${b.icon} ${b.name} leaves the ${where} after this round!`
-                  : `${b.icon} ${b.name} is waiting in the ${where} — ${left} rounds left.`,
-        left <= 1 ? '#fca5a5' : '#fbbf24', { urgent: true });
+    _afterAllyReveal(then);
 }
 
 // Everything the round report needs to say, gathered in one place so the card
@@ -1710,10 +1800,18 @@ export function buyItem(itemId, cost) {
 }
 
 export function closeShopModal() {
-    const wasPassThrough = state.pendingReturnState === 'pass_through_done';
     state.pendingReturnState = null;
     ModalManager.closeAllModals();
-    if (wasPassThrough) { _afterPassThroughShop(); return; }
+    // A MOVE STILL OWED OUTRANKS EVERYTHING. This used to decide between
+    // "carry on walking" and "end the turn" by comparing one string flag
+    // (`pendingReturnState === 'pass_through_done'`), and any path that opened a
+    // shop without setting it — or that cleared it in between — closed the shop
+    // straight into finishTurn(), ending the turn with steps still on the clock
+    // and every later interruption on the square skipped. That is the reported
+    // "hit the store, the game went to the end of their turn and skipped an
+    // ally". The pending continuation is now the authority: if one exists, the
+    // move is not finished, whatever any flag says.
+    if (_passThroughResumeHop) { _afterPassThroughShop(); return; }
     if (state.gameState === 'SHOP') { state.gameState = 'ACKNOWLEDGE'; Director.hold('POST_RESULT', finishTurn); }
 }
 
@@ -1725,6 +1823,11 @@ export function shopOfferEnter() {
 }
 
 export function shopOfferSkip() { ModalManager.closeAllModals(); _afterPassThroughShop(); }
+
+// Drop a continuation that no longer belongs to the move in progress. A slot
+// left set from an abandoned move would make the NEXT shop close resume a walk
+// that finished several turns ago.
+function _clearPassThroughResume() { _passThroughResumeHop = null; }
 
 function _afterPassThroughShop() {
     state.pendingReturnState = null;
@@ -1916,6 +2019,31 @@ function _scheduleAllySpawn(turnsDelay) {
     state.allySpawnCountdown = turnsDelay;
 }
 
+// How many board steps forward from `fromId` to every node the player can reach,
+// taking BOTH roads at every junction. A lap-order index difference is not this:
+// the districts branch, so "twelve places along the flat list" can be a road the
+// player would have to choose and then walk, or a road they cannot reach at all
+// this lap. Capped, because the far side of the ring is not worth measuring.
+export function stepsFrom(fromId, cap = BUDDY_MAX_STEPS) {
+    const dist = {};
+    const G = ActiveMap.graph();
+    if (!G[fromId]) return dist;
+    let frontier = [fromId];
+    dist[fromId] = 0;
+    for (let d = 1; d <= cap && frontier.length; d++) {
+        const next = [];
+        for (const id of frontier) {
+            for (const n of (G[id]?.next || [])) {
+                if (dist[n] !== undefined) continue;
+                dist[n] = d;
+                next.push(n);
+            }
+        }
+        frontier = next;
+    }
+    return dist;
+}
+
 export function spawnAlly() {
     if (state.allyOnMap) return;
     const allyTypes  = Object.keys(ALLIES);
@@ -1923,7 +2051,28 @@ export function spawnAlly() {
     const realNodes  = ActiveMap.ordered();
     // Prefer nodes not occupied by players
     const occupied = new Set(state.players.map(p => p.pos));
-    const candidates = realNodes.filter(id => !occupied.has(id) && state.board[id]?.type !== 'gate');
+    let candidates = realNodes.filter(id => !occupied.has(id) && state.board[id]?.type !== 'gate');
+
+    // A buddy nobody can reach is a buddy nobody plays for. Placed at random on a
+    // 60-node lap, most spawns landed most of a circuit away — the report told
+    // you where they were, the countdown told you they were leaving in three
+    // rounds, and the two facts did not fit together.
+    //
+    // Two tiers. Preferred: within BUDDY_NEAR_STEPS of somebody, which is a
+    // couple of turns of ordinary rolling. Hard limit: BUDDY_MAX_STEPS, six
+    // maximum rolls, so a claim is always at least theoretically possible in the
+    // rounds the buddy is around for. Junction distances count both roads, so a
+    // node "twenty along the flat list" is only twenty if a real route gets there.
+    const reach = state.players.map(p => stepsFrom(p.pos));
+    const stepsTo = id => Math.min(...reach.map(r => r[id] === undefined ? Infinity : r[id]));
+    const near = candidates.filter(id => stepsTo(id) <= BUDDY_NEAR_STEPS);
+    const ok   = candidates.filter(id => stepsTo(id) <= BUDDY_MAX_STEPS);
+    // Fall back down the tiers rather than off a cliff: on a board where nobody
+    // can reach anything (a player parked at a shut gate, say) an unreachable
+    // buddy still beats no buddy.
+    if (near.length)    candidates = near;
+    else if (ok.length) candidates = ok;
+
     const nodeId = candidates[Math.floor(Math.random() * candidates.length)] || realNodes[0];
 
     state.allyOnMap = { nodeId, allyType, roundsLeft: BUDDY_MAP_ROUNDS };

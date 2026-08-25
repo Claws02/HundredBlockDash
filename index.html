@@ -454,6 +454,21 @@
         </div>
     </div>
 
+    <!-- The roll. The number you rolled is the single most important thing on
+         screen for the DICE_READ beat, and it was a line of toast text on the
+         rail with everything else. The token does not move for that beat
+         anyway, so the beat belongs to the number. -->
+    <!-- No inline display:none here. The visibility is driven by the `up`
+         class, and an inline style beats a class rule — a first pass had
+         both, so the callout was toggled correctly and never rendered. -->
+    <div id="roll-callout">
+        <div class="rc-card">
+            <div class="rc-cap bfont" id="rc-cap">YOU ROLLED</div>
+            <div class="rc-num bfont" id="rc-num">6</div>
+            <div class="rc-pips" id="rc-pips"></div>
+        </div>
+    </div>
+
     <div id="toast-box"></div>
 
     <!-- Shield marker. A Shield is bought a turn or more before it matters, and
@@ -469,6 +484,10 @@
     <div id="hbd-story-overlay"></div>
     <!-- Realm-entry cinematic banner (content built by UIManager) -->
     <div id="realm-banner"></div>
+
+    <!-- The last round. Both players need it — it is the point at which every
+         remaining plan changes — so it is drawn twice in tabletop. -->
+    <div id="final-round"></div>
 
     <!-- Onboarding & settings overlays (content built by Onboarding.js) -->
     <div id="howto-overlay" class="fs-overlay" style="display:none;"></div>
