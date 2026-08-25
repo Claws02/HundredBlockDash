@@ -2544,3 +2544,24 @@ body:not(.tabletop-mode) #turn-banner.tb-show .tb-bottom.tb-mine {
 #btn-lobby-ready.is-ready { background: rgba(74,222,128,.22); border-color: rgba(74,222,128,.6); }
 .lobby-status { font-size: 12px; color: rgba(255,255,255,.55); text-align: center; min-height: 16px; }
 .lobby-status.is-error { color: #ff9d9d; }
+
+/* Watching somebody else's turn. A quiet strip rather than a card: it is
+   status, not an event, and it sits for as long as their turn takes. Pinned
+   just above the (empty) action row so it never covers the board's middle. */
+#net-waiting {
+    position: absolute; left: 50%; transform: translateX(-50%);
+    bottom: calc(var(--hud-h) + 18px);
+    display: none; align-items: center; gap: 8px;
+    padding: 8px 16px; border-radius: 999px;
+    background: rgba(8, 6, 18, .82);
+    border: 1px solid color-mix(in srgb, var(--nw, #fff) 45%, transparent);
+    font-family: 'Nunito', system-ui, sans-serif; font-size: 13px; font-weight: 800;
+    color: rgba(255,255,255,.88); white-space: nowrap;
+    pointer-events: none; z-index: 40;
+}
+#net-waiting .nw-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--nw, #fff); box-shadow: 0 0 10px var(--nw, #fff);
+    animation: nwPulse 1.5s ease-in-out infinite;
+}
+@keyframes nwPulse { 0%,100% { opacity: .35; } 50% { opacity: 1; } }

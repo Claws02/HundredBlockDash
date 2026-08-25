@@ -31,6 +31,7 @@ import * as Sync from './NetSync.js';
 import { MSG, PROTOCOL_VERSION } from './NetProtocol.js';
 import * as T from './NetTransport.js';
 import { PLAYER_SLOTS } from '../config/GameConfig.js';
+import { SCENE } from '../config/SceneTiming.js';
 
 export { ROLE } from './NetSession.js';
 
@@ -257,6 +258,18 @@ function _replayScene(kind, p, Modal, UI) {
                 const { calculateWinner } = await import('../core/WinScreen.js');
                 calculateWinner(false);
             }, 500);
+            return;
+        case 'fx': {
+            // The board's own animations. Fired and forgotten: the host owns
+            // what happens next and it arrives as a snapshot.
+            import('../engine/Fx.js').then(F => F.replay(p.fx, p.args));
+            return;
+        }
+        case 'rollCallout':
+            UI.showRollCallout(p.n);
+            // The host takes it down when the token sets off; a client has no
+            // such moment, so it holds for the same beat and then clears.
+            setTimeout(() => UI.hideRollCallout(), SCENE.DICE_READ);
             return;
         case 'turnBanner':
             UI.showTurnBanner(p.seat, { sub: p.sub });

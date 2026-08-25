@@ -179,6 +179,41 @@ function _paintBar(dom, seat) {
     }
 }
 
+// Watching somebody else's turn used to be a still board and no explanation.
+// The snapshot already carries everything needed to narrate it — whose turn it
+// is and what beat the game is on — so this needs no new messages: it is read
+// off state that was arriving anyway.
+//
+// Online only. On your own turn the controls say what to do, and in every local
+// mode the device is in front of whoever is up.
+const WAITING_FOR = {
+    ROLLING:  n => `🎲 ${n} is rolling…`,
+    MOVING:   n => `${n} is on the move`,
+    SHOP:     n => `🏪 ${n} is at the shop`,
+    GATE:     n => `🚪 ${n} is at the gate`,
+    BRANCH:   n => `${n} is choosing a road`,
+    PRE_ROLL: n => `Waiting for ${n} to roll`,
+    MINIGAME: n => 'Minigame in progress',
+    MINIGAME_INTRO: () => 'Minigame starting',
+};
+
+function _updateWaitingLine() {
+    const el = document.getElementById('net-waiting');
+    if (!el) return;
+    const tx = document.getElementById('net-waiting-tx');
+    const p  = state.players[state.activePlayer];
+    const mine = isMySeat(state.activePlayer);
+    const online = state.playStyle === 'online';
+    const phrase = WAITING_FOR[state.gameState];
+    // Never over a card the player has to read or press.
+    const modalUp = document.body.classList.contains('modal-open');
+    const on = online && !mine && !modalUp && !!p && !!phrase;
+    el.style.display = on ? '' : 'none';
+    if (!on) return;
+    el.style.setProperty('--nw', PLAYER_SLOTS[p.id].hex);
+    if (tx) tx.textContent = phrase(p.name);
+}
+
 // Where a player is, in the words that board uses.
 function _posLabel(p) {
     if (ActiveMap.isLinear()) {
@@ -249,6 +284,7 @@ export function updateUI() {
         _paintRivalStrip(f);
     }
 
+    _updateWaitingLine();
     updateShieldMarker();
 
     if (state.gameState === 'PRE_ROLL' || state.gameState === 'ACKNOWLEDGE') {
