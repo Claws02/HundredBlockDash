@@ -258,6 +258,9 @@ function _replayScene(kind, p, Modal, UI) {
                 calculateWinner(false);
             }, 500);
             return;
+        case 'turnBanner':
+            UI.showTurnBanner(p.seat, { sub: p.sub });
+            return;
         case 'gateEnd':
             document.getElementById('gate-overlay').style.display = 'none';
             document.getElementById('ui-layer').style.display = 'block';
