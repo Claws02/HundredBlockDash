@@ -24,6 +24,7 @@ export const MSG = {
     HELLO:  'hello',    // client → host: I am here, this is my name
     LOBBY:  'lobby',    // host → all:   the roster as it stands
     PICK:   'pick',     // client → host: my character
+    NAME:   'name',     // client → host: what to call me
     READY:  'ready',    // client → host: I am ready / not ready
     START:  'start',    // host → all:   the match is beginning, with this setup
     SNAP:   'snap',     // host → all:   the game

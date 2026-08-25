@@ -112,21 +112,33 @@ const snap = page => page.evaluate(async () => {
         const before = await snap(host);
         errors.length = 0;   // only what the DUEL produces counts
 
-        // ---- start a duel on the active player ------------------------------
-        await host.evaluate(async () => {
+        // ---- start a duel on the chosen seat ---------------------------------
+        //
+        // Whose duel it is decides which device owns the wager card, and those
+        // are different code paths: the host's own is a local call, a client's
+        // has to be routed to another device as an OWNER scene and its press
+        // forwarded back. The first pass of this probe only ever exercised
+        // whichever seat the random start happened to pick. Default to the
+        // CLIENT so the wire is actually in the loop.
+        const LANDER = Number(process.env.QA_DUEL_SEAT ?? 1);
+        await host.evaluate(async seat => {
             const GC = await import('/src/core/GameController.js');
             const S = (await import('/src/core/GameState.js')).state;
+            S.activePlayer = seat;
             S.gameState = 'ACKNOWLEDGE';
-            GC.resolveSpaceEffect(S.players[S.activePlayer], 'duel', {});
-        });
+            GC.resolveSpaceEffect(S.players[seat], 'duel', {});
+        }, LANDER);
+        notes.push(`the duel was landed by seat ${LANDER}`);
 
         // Watch the whole beat and drive whatever it puts up.
         const seen = new Set();
+        const sawWager = new Set();
         const t0 = Date.now();
         while (Date.now() - t0 < 40000) {
-            for (const p of pages) {
-                const s = await snap(p);
+            for (let i = 0; i < pages.length; i++) {
+                const s = await snap(pages[i]);
                 s.modal.forEach(m => seen.add(m));
+                if (s.modal.includes('duel-modal')) sawWager.add(i === 0 ? 'host' : 'client');
             }
             // Take the wager on whichever page owns it.
             await Promise.all(pages.map(pg => pg.evaluate(() => {
@@ -151,6 +163,10 @@ const snap = page => page.evaluate(async () => {
         notes.push(`host  ${before.gs} -> ${after.gs}, coins ${JSON.stringify(before.coins)} -> ${JSON.stringify(after.coins)}`);
         notes.push(`client ${afterClient.gs}, modals ${JSON.stringify(afterClient.modal)}`);
 
+        notes.push(`the wager card was on: ${[...sawWager].join(', ') || 'nobody'}`);
+        ok('the wager card reaches the device whose duel it is',
+            sawWager.has(LANDER === 0 ? 'host' : 'client'),
+            `seat ${LANDER} duelled; card appeared on: ${[...sawWager].join(', ') || 'nobody'}`);
         ok('a duel raises its wager card', seen.has('duel-modal'),
             `modals seen: ${[...seen].join(', ') || 'none'}`);
         ok('the match is playable again afterwards', after.gs === 'PRE_ROLL',

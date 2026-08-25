@@ -24,6 +24,7 @@
 
 import { state } from '../core/GameState.js';
 import * as Session from '../net/NetSession.js';
+import * as Renderer from '../engine/Renderer.js';
 import * as NetGame from '../net/NetGame.js';
 import { normaliseCode, isValidCode, CODE_LENGTH } from '../net/NetTransport.js';
 import { ALL_CHAR_TYPES, CHAR_ICONS, CHAR_NAMES, PLAYER_SLOTS, MIN_PLAYERS, MAX_PLAYERS } from '../config/GameConfig.js';
@@ -44,6 +45,24 @@ export function init(controller, onHostSetup) {
     document.getElementById('btn-lobby-join')?.addEventListener('click', _join);
     document.getElementById('btn-lobby-start')?.addEventListener('click', _start);
     document.getElementById('btn-lobby-ready')?.addEventListener('click', _toggleReady);
+
+    // The name field is in the ROOM, so every keystroke is a rename of a seat
+    // that already exists — not a value read once on the way in. Debounced so
+    // holding down a key does not put a broadcast on the wire per character.
+    const nameInput = document.getElementById('lobby-name');
+    let nameTimer = null;
+    const pushName = () => {
+        const nm = _myName();
+        try { localStorage.setItem('hbd_name', nm); } catch (e) {}
+        if (Session.mySeat() === null) return;
+        if (Session.isHost()) _hostSetOwn({ name: nm });
+        else Session.sendName(nm);
+    };
+    nameInput?.addEventListener('input', () => {
+        clearTimeout(nameTimer);
+        nameTimer = setTimeout(pushName, 250);
+    });
+    nameInput?.addEventListener('blur', pushName);
 
     const codeInput = document.getElementById('lobby-code-input');
     codeInput?.addEventListener('input', () => {
@@ -66,6 +85,14 @@ export function init(controller, onHostSetup) {
 export function open() {
     document.getElementById('splash').style.display = 'none';
     document.getElementById('lobby').style.display = 'flex';
+    // Nobody is asked their name before they are in a room, so carry the last
+    // one over — the common case is the same people playing again.
+    const nameInput = document.getElementById('lobby-name');
+    if (nameInput && !nameInput.value) {
+        let saved = '';
+        try { saved = localStorage.getItem('hbd_name') || ''; } catch (e) {}
+        nameInput.value = saved;
+    }
     _setPhase('pick');
 }
 
@@ -78,9 +105,13 @@ function _setPhase(phase) {
     document.getElementById('lobby').dataset.phase = phase;
 }
 
+// The name box is inside the room, so at HOST/JOIN time it is usually empty —
+// and empty is the honest thing to send. Whoever knows the seat number names
+// the seat: the host for itself, and the host again for anyone who arrives.
+// The player renames themselves the moment the roster is on screen.
 function _myName() {
     const v = (document.getElementById('lobby-name') || {}).value;
-    return (v || '').trim().slice(0, 14) || 'Player';
+    return (v || '').trim().slice(0, 14);
 }
 
 // ── Host / join ─────────────────────────────────────────────────────────────
@@ -189,6 +220,13 @@ function _paintRoster(rows) {
     const list = document.getElementById('lobby-seats');
     if (!list) return;
     const mySeat = Session.mySeat();
+    // The box starts empty and the seat gets named for you, so show that name
+    // — otherwise the field reads as blank while the roster says "Player 2",
+    // and it is not obvious the two are the same thing.
+    const nameInput = document.getElementById('lobby-name');
+    if (nameInput && !nameInput.value && mySeat !== null && rows[mySeat]) {
+        nameInput.value = rows[mySeat].name;
+    }
     list.innerHTML = rows.map((r, i) => {
         const slot = PLAYER_SLOTS[i];
         const mine = i === mySeat;
@@ -223,34 +261,88 @@ function _paintRoster(rows) {
         startBtn.style.display = Session.isHost() ? '' : 'none';
         startBtn.disabled = !Session.canStart();
         startBtn.textContent = rows.length < MIN_PLAYERS
-            ? `WAITING FOR ${MIN_PLAYERS - rows.length} MORE`
-            : Session.canStart() ? `START · ${rows.length} PLAYERS`
-            : 'WAITING FOR EVERYONE';
+            ? `NEED ${MIN_PLAYERS - rows.length} MORE`
+            : Session.canStart() ? `START · ${rows.length}P`
+            : 'WAITING…';
     }
     const readyBtn = document.getElementById('btn-lobby-ready');
     if (readyBtn) {
         const me = mySeat === null ? null : rows[mySeat];
         readyBtn.disabled = !me || !me.char;
-        readyBtn.textContent = me && me.ready ? '✓ READY — TAP TO UNDO' : 'I AM READY';
+        // Short enough to sit beside START on a phone without wrapping.
+        readyBtn.textContent = me && me.ready ? '✓ READY' : 'I AM READY';
         readyBtn.classList.toggle('is-ready', !!(me && me.ready));
     }
 }
 
+// The real pieces, in your own colour.
+//
+// Rendering them costs a throwaway WebGL context, and the roster repaints on
+// every keystroke somebody types into their name box — so the shots are cached
+// against the one thing that changes them, which is which seat you are sitting
+// in (the colour comes from the seat, not the character). Local char-select
+// does the same job in GameController._paintCharPortraits; this is the online
+// half of the same idea.
+let _shots = null;
+let _shotsSeat = null;
+
+function _charShots(seat) {
+    if (_shots && _shotsSeat === seat) return _shots;
+    const slot = PLAYER_SLOTS[seat] || PLAYER_SLOTS[0];
+    _shots = Renderer.renderCharacterPortraits(ALL_CHAR_TYPES, slot.color, 148) || {};
+    _shotsSeat = seat;
+    return _shots;
+}
+
+// The roster repaints on every change — somebody joins, somebody renames
+// themselves, somebody marks ready — and the character grid is painted from it.
+// Rebuilding the grid's DOM each time meant the button under your finger could
+// be replaced between press and release, and the tap went nowhere. That is not
+// a rare race: blurring the name box to reach the cards is itself a roster
+// change, so it fired on the most ordinary path through the screen.
+//
+// So the cards are built ONCE and then patched in place. Nothing under a finger
+// is ever replaced.
 function _paintCharGrid(rows) {
     const grid = document.getElementById('lobby-chars');
     if (!grid) return;
     const mySeat = Session.mySeat();
     const mine = mySeat === null ? null : rows[mySeat];
+    // No seat yet means no colour to render in — the emoji stands in until the
+    // roster arrives, which is a moment later.
+    const shots = mySeat === null ? {} : _charShots(mySeat);
+
+    if (grid.dataset.builtFor !== String(mySeat)) {
+        grid.dataset.builtFor = String(mySeat);
+        grid.innerHTML = ALL_CHAR_TYPES.map(t => {
+            const shot = shots[t];
+            // No WebGL, or a context we could not get: the emoji stays. A
+            // picker that renders nothing is worse than one that renders the
+            // old thing.
+            const face = shot
+                ? `<img class="lc-shot" src="${shot}" alt="">`
+                : `<span class="lc-ic">${CHAR_ICONS[t] || '❔'}</span>`;
+            return `<button class="lobby-char${shot ? ' has-shot' : ''}" data-lobby-char="${t}">` +
+                   `${face}<span class="lc-nm">${CHAR_NAMES[t] || t}</span>` +
+                   `<span class="lc-by"></span></button>`;
+        }).join('');
+    }
+
     const takenBy = {};
     rows.forEach((r, i) => { if (r.char) takenBy[r.char] = i; });
-    grid.innerHTML = ALL_CHAR_TYPES.map(t => {
-        const owner = takenBy[t];
-        const isMine = owner === mySeat && owner !== undefined;
+    grid.querySelectorAll('[data-lobby-char]').forEach(btn => {
+        const owner  = takenBy[btn.dataset.lobbyChar];
+        const isMine = owner !== undefined && owner === mySeat;
         const taken  = owner !== undefined && !isMine;
-        return `<button class="lobby-char${isMine ? ' sel' : ''}${taken ? ' taken' : ''}" data-lobby-char="${t}"` +
-               `${taken ? ' disabled' : ''}><span class="lc-ic">${CHAR_ICONS[t] || '❔'}</span>` +
-               `<span class="lc-nm">${CHAR_NAMES[t] || t}</span></button>`;
-    }).join('');
+        btn.classList.toggle('sel', isMine);
+        btn.classList.toggle('taken', taken);
+        btn.disabled = taken;
+        // A taken character says WHO has it — "already taken" leaves you
+        // guessing which of the three other names on screen it was.
+        const by = btn.querySelector('.lc-by');
+        if (by) by.textContent = taken ? rows[owner].name : '';
+    });
+
     const hint = document.getElementById('lobby-char-hint');
     if (hint) hint.textContent = mine && mine.char ? 'Tap another to change, then mark yourself ready.'
                                                    : 'Pick who you are playing.';

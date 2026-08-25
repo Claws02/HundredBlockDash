@@ -74,14 +74,22 @@
                 <div style="width:64px;"></div>
             </div>
 
+            <!-- The front door is TWO choices and nothing else: open a room, or
+                 go to one. Who you are is a question for the room, where you can
+                 see who else is already there. -->
             <div class="lobby-pick">
-                <label class="lobby-label bfont" for="lobby-name">YOUR NAME</label>
-                <input id="lobby-name" class="lobby-input" maxlength="14" placeholder="Player" autocomplete="off">
-                <button class="btn-primary bfont lobby-cta" id="btn-lobby-host">🎮 HOST A GAME</button>
-                <div class="lobby-or bfont">OR JOIN ONE</div>
-                <input id="lobby-code-input" class="lobby-input lobby-code-entry bfont" maxlength="4"
-                       placeholder="CODE" autocomplete="off" autocapitalize="characters" inputmode="text">
-                <button class="btn-primary bfont lobby-cta" id="btn-lobby-join" disabled>JOIN →</button>
+                <div class="lobby-door">
+                    <button class="btn-primary bfont lobby-cta lobby-door-cta" id="btn-lobby-host">🎮 HOST A GAME</button>
+                    <div class="lobby-door-note">Open a room and read out the code.</div>
+                </div>
+                <div class="lobby-or bfont"><span>OR</span></div>
+                <div class="lobby-door">
+                    <label class="lobby-label bfont" for="lobby-code-input">JOIN A GAME</label>
+                    <input id="lobby-code-input" class="lobby-input lobby-code-entry bfont" maxlength="4"
+                           placeholder="CODE" autocomplete="off" autocapitalize="characters" inputmode="text">
+                    <button class="btn-primary bfont lobby-cta lobby-door-cta" id="btn-lobby-join" disabled>JOIN →</button>
+                    <div class="lobby-door-note">Type the host's four-character code.</div>
+                </div>
             </div>
 
             <div class="lobby-room">
@@ -90,6 +98,12 @@
                     <button class="lobby-share bfont" id="btn-lobby-share">🔗 SEND THE LINK</button>
                 </div>
                 <div class="lobby-share-note" id="lobby-share-note"></div>
+                <!-- Naming yourself belongs HERE, next to the roster you are
+                     joining: you can see the other names before you pick your own. -->
+                <div class="lobby-name-row">
+                    <label class="lobby-label bfont" for="lobby-name">YOUR NAME</label>
+                    <input id="lobby-name" class="lobby-input" maxlength="14" placeholder="Player" autocomplete="off">
+                </div>
                 <div id="lobby-seats" class="lobby-seats"></div>
                 <div class="lobby-label bfont">CHOOSE YOUR CHARACTER</div>
                 <div id="lobby-chars" class="lobby-chars"></div>

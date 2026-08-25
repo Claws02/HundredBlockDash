@@ -19,7 +19,7 @@
 
 import * as T from './NetTransport.js';
 import { MSG, PROTOCOL_VERSION, KICK_REASON } from './NetProtocol.js';
-import { MAX_PLAYERS, MIN_PLAYERS } from '../config/GameConfig.js';
+import { MAX_PLAYERS, MIN_PLAYERS, PLAYER_SLOTS } from '../config/GameConfig.js';
 
 export const ROLE = { OFFLINE: 'offline', HOST: 'host', CLIENT: 'client' };
 
@@ -76,7 +76,11 @@ export async function host(displayName) {
 }
 
 export async function join(code, displayName) {
-    _name = displayName || 'Player';
+    // Deliberately NOT defaulted here. Names are typed in the room, so this is
+    // usually empty — and empty is the useful thing to send, because only the
+    // host knows which seat this peer is about to land in and can therefore
+    // name it something that is not the same as everybody else's default.
+    _name = String(displayName || '').slice(0, 14);
     _wire();
     const info = await T.connect(code);
     _role = ROLE.CLIENT;
@@ -166,10 +170,27 @@ function _hostRecv(msg, peerId) {
             }
             if (_started)                { T.send({ t: MSG.KICK, reason: KICK_REASON.STARTED }, peerId); return; }
             if (_roster.length >= MAX_PLAYERS) { T.send({ t: MSG.KICK, reason: KICK_REASON.FULL }, peerId); return; }
+            // Names are typed in the ROOM now, so a HELLO usually arrives with
+            // nothing to go on. The seat number is the one fact available at
+            // this moment, and it is the host that has it — so it names them.
             _roster.push({
-                peerId, name: String(msg.name || 'Player').slice(0, 14),
+                peerId,
+                name: String(msg.name || '').trim().slice(0, 14)
+                      || (PLAYER_SLOTS[_roster.length] || {}).name || 'Player',
                 char: null, ready: false, connected: true, bot: false,
             });
+            _broadcastLobby();
+            _emit('roster', roster());
+            return;
+        }
+        case MSG.NAME: {
+            // Naming happens in the ROOM now, not before it. Somebody who has
+            // joined and is looking at the roster can see the other names and
+            // wants to be "Dad" rather than the "Player 3" they typed at a
+            // screen that had not told them who else was here.
+            const slot = _roster.find(r => r.peerId === peerId);
+            if (!slot || _started) return;
+            slot.name = String(msg.name || 'Player').slice(0, 14);
             _broadcastLobby();
             _emit('roster', roster());
             return;
@@ -301,4 +322,11 @@ export function sendIntent(name, args) {
 }
 
 export function sendPick(char)   { if (isClient()) T.send({ t: MSG.PICK,  v: PROTOCOL_VERSION, char }); }
+export function sendName(name)   {
+    // Keep the local copy in step too: a reconnect re-sends HELLO, and it
+    // should say the name the player actually chose, not the one they had
+    // before they renamed themselves in the room.
+    _name = String(name || 'Player').slice(0, 14);
+    if (isClient()) T.send({ t: MSG.NAME, v: PROTOCOL_VERSION, name: _name });
+}
 export function sendReady(ready) { if (isClient()) T.send({ t: MSG.READY, v: PROTOCOL_VERSION, ready: !!ready }); }

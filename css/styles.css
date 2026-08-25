@@ -2480,7 +2480,26 @@ body:not(.tabletop-mode) #turn-banner.tb-show .tb-bottom.tb-mine {
 .lobby-input:focus { outline: none; border-color: var(--gold); }
 .lobby-code-entry { text-align: center; font-size: 30px; letter-spacing: 12px; text-indent: 12px; }
 .lobby-cta { width: 100%; margin: 0; }
-.lobby-or { text-align: center; font-size: 13px; color: rgba(255,255,255,.42); letter-spacing: 2px; margin: 2px 0; }
+/* Two doors, each a card of its own, so HOST and JOIN read as a choice
+   between two things rather than as one form with a button halfway down. */
+.lobby-pick { gap: 12px; }
+.lobby-door {
+    display: flex; flex-direction: column; gap: 8px;
+    padding: 14px; border-radius: 14px;
+    background: rgba(255,255,255,.045); border: 1px solid rgba(255,255,255,.11);
+}
+.lobby-door-cta { margin: 0; }
+.lobby-door-note { font-size: 12px; color: rgba(255,255,255,.45); text-align: center; }
+.lobby-or {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 12px; color: rgba(255,255,255,.38); letter-spacing: 2px; margin: 0;
+}
+.lobby-or::before, .lobby-or::after {
+    content: ''; flex: 1; height: 1px; background: rgba(255,255,255,.12);
+}
+/* Naming yourself, in the room, above the roster you are joining. */
+.lobby-name-row { display: flex; flex-direction: column; gap: 5px; }
+.lobby-name-row .lobby-label { margin-top: 0; }
 
 /* Phase switch */
 #lobby[data-phase="pick"] .lobby-room { display: none; }
@@ -2526,7 +2545,7 @@ body:not(.tabletop-mode) #turn-banner.tb-show .tb-bottom.tb-mine {
 .ls-tag.ls-bot { background: rgba(168,85,247,.26); color: #c99cff; }
 .ls-tag.ls-gone { background: rgba(239,68,68,.24); color: #ff9d9d; }
 
-.lobby-chars { display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 6px; }
+.lobby-chars { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 .lobby-char {
     display: flex; flex-direction: column; align-items: center; gap: 2px;
     padding: 8px 4px; border-radius: 10px;
@@ -2534,13 +2553,33 @@ body:not(.tabletop-mode) #turn-banner.tb-show .tb-bottom.tb-mine {
     color: #fff; font-family: 'Nunito', system-ui, sans-serif;
 }
 .lobby-char .lc-ic { font-size: 22px; }
+/* The real mesh, rendered in this seat's colour. Sized so nine of them still
+   fit on a phone without scrolling the ready button off the bottom. */
+.lobby-char .lc-shot {
+    width: 100%; max-width: 62px; aspect-ratio: 1; object-fit: contain;
+    display: block; filter: drop-shadow(0 3px 5px rgba(0,0,0,.45));
+}
 .lobby-char .lc-nm { font-size: 11px; font-weight: 700; opacity: .8; }
+/* The chip is always in the DOM (the cards are patched, never rebuilt), so it
+   has to take up no room at all when the character is free. */
+.lobby-char .lc-by:empty { display: none; }
+.lobby-char .lc-by {
+    font-size: 9px; letter-spacing: .4px; padding: 1px 5px; border-radius: 5px; margin-top: 1px;
+    background: rgba(255,255,255,.13); color: rgba(255,255,255,.7);
+    max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .lobby-char.sel   { border-color: var(--gold); background: rgba(245,200,66,.15); }
-.lobby-char.taken { opacity: .3; }
+.lobby-char.sel .lc-shot { filter: drop-shadow(0 0 9px rgba(245,200,66,.6)); }
+/* Taken is dimmed, not invisible — you still need to read whose it is. */
+.lobby-char.taken { opacity: .45; }
+.lobby-char.taken .lc-shot { filter: grayscale(1) brightness(.7); }
 .lobby-char-hint  { font-size: 12px; color: rgba(255,255,255,.45); text-align: center; }
 
 .lobby-actions { display: flex; gap: 8px; }
-.lobby-actions .btn-primary { flex: 1; margin: 0; }
+.lobby-actions .btn-primary {
+    flex: 1; margin: 0; font-size: 15px; padding: 13px 8px;
+    line-height: 1.15; white-space: nowrap;
+}
 #btn-lobby-ready.is-ready { background: rgba(74,222,128,.22); border-color: rgba(74,222,128,.6); }
 .lobby-status { font-size: 12px; color: rgba(255,255,255,.55); text-align: center; min-height: 16px; }
 .lobby-status.is-error { color: #ff9d9d; }
