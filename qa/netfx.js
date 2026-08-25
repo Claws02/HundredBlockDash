@@ -342,12 +342,20 @@ function peak(samples, key) {
         await host.waitForTimeout(600);
         const camDuring = await client.evaluate(async () =>
             (await import('/src/core/GameState.js')).state.cameraState);
-        // Long enough for the set piece to finish AND for a snapshot to have
-        // re-asserted the host's camera mode if the continuation failed.
-        await host.waitForTimeout(4000);
-        const camAfter = await client.evaluate(async () =>
-            (await import('/src/core/GameState.js')).state.cameraState);
+        // Trace it rather than sampling the ends. Two readings say "it did not
+        // recover" without saying WHEN it was supposed to, and the recovery has
+        // three independent paths at very different timings: the replay's own
+        // continuation (~1.3 s), the host's camera mode arriving in a snapshot,
+        // and the 18 s watchdog. Which one caught it is the whole diagnosis.
+        const camTrace = [];
+        for (let i = 0; i < 12; i++) {
+            await host.waitForTimeout(500);
+            camTrace.push(await Promise.all(pages.map(pg => pg.evaluate(async () =>
+                (await import('/src/core/GameState.js')).state.cameraState))));
+        }
+        const camAfter = camTrace[camTrace.length - 1][1];
         notes.push(`client camera through a set piece: ${camDuring} -> ${camAfter}`);
+        notes.push(`camera trace [host,client]: ${camTrace.map(c => c.join('/')).join(' ')}`);
         ok('the client plays the set piece', camDuring === 'CINEMATIC',
             `camera was ${camDuring} while it ran`);
         ok('the client gets its camera back afterwards', camAfter === 'FOLLOW',

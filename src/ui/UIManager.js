@@ -1700,7 +1700,20 @@ function _wireSwipeEvents() {
     });
 }
 
-export function showSwipeZone()  { document.getElementById('swipe-zone').classList.add('act'); }
+/**
+ * Arm the swipe-to-roll zone.
+ *
+ * Online this defers to the derived rule instead of arming blindly. The host
+ * runs the turn engine for EVERY seat, so `startPreRoll()` fires on the host
+ * when it is a client's go — and armed the host's own swipe for a turn that
+ * was not its own. The press would have been refused by the authority check,
+ * which is the worst shape of bug in this system: a control that looks live and
+ * silently does nothing.
+ */
+export function showSwipeZone() {
+    if (state.playStyle === 'online') { _updateSwipeZone(); return; }
+    document.getElementById('swipe-zone').classList.add('act');
+}
 export function hideSwipeZone()  { document.getElementById('swipe-zone').classList.remove('act'); }
 export function hideActionRows() {
     document.getElementById('p1-actions').style.display = 'none';
