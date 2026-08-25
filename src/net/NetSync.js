@@ -74,7 +74,13 @@ export function applyIntent({ seat, name, args }) {
     // A ready-gate vote is the one intent that is ABOUT the seat rather than
     // performed by it, and Commands.runLocal() drops the envelope's seat. So it
     // is answered here, where the seat is still in hand.
-    if (name === 'gateAck') { ReadyGate.ack(args[0], seat); return; }
+    // A ready vote is ABOUT a seat rather than performed by it, and
+    // Commands.runLocal() drops the envelope's seat — so running it through the
+    // ordinary path made the host re-run its OWN press, find it already spent,
+    // and silently discard the client's vote. Answered here, where the seat is
+    // still in hand.
+    if (name === 'briefingReady') { ReadyGate.voteBriefing(seat); return; }
+    if (name === 'gateAck')       { ReadyGate.ack(args[0], seat); return; }
     if (!Commands.has(name)) return;
     if (!authorised(seat, name, args)) return;
     Commands.runLocal(name, ...args);

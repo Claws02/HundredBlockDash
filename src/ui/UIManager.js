@@ -923,11 +923,17 @@ function _renderBountyList() {
 
 let _briefingOpen = false;
 let _briefingDone = null;
+// Whether THIS player has voted on the briefing. Purely local: nothing on the
+// wire says it, and the shared count must never be read as an answer to it —
+// doing that disabled the button belonging to the one player the table was
+// waiting for.
+let _briefingVoted = false;
 
 export function showCityBriefing(onDone) {
     const el = document.getElementById('city-briefing');
     if (!el || !ActiveMap.has('routeChoice')) { if (onDone) onDone(); return; }
     _briefingOpen = true;
+    _briefingVoted = false;
     _briefingDone = onDone || null;
 
     // One card per road you can actually choose, in lap order, so the briefing
@@ -976,6 +982,10 @@ export function showCityBriefing(onDone) {
 function _pressBriefingReady() {
     const btn = document.getElementById('btn-cb-start');
     if (btn && btn.disabled) return;
+    _briefingVoted = true;
+    // Repaint before the vote leaves, so a client sees its press land even
+    // though the authoritative count is a round trip away.
+    markBriefingWaiting(null);
     Commands.run('briefingReady');
 }
 
@@ -1002,7 +1012,8 @@ function _closeBriefing() {
  * back; it still has to read as "you are in", because a button that has quietly
  * stopped responding is indistinguishable from one that is broken.
  */
-export function markBriefingWaiting(waiting, iHaveVoted) {
+export function markBriefingWaiting(waiting) {
+    const iHaveVoted = _briefingVoted;
     const btn = document.getElementById('btn-cb-start');
     if (!btn) return;
 
@@ -1032,7 +1043,7 @@ export function briefingIsOpen() { return _briefingOpen; }
  * begins. Not a Command — nobody "runs" this, it is the consequence of the last
  * player pressing, and it fires on every device at once.
  */
-export function closeBriefingNow() { if (_briefingOpen) _closeBriefing(); }
+export function closeBriefingNow() { _briefingVoted = false; if (_briefingOpen) _closeBriefing(); }
 
 function _wirePanelEvents() {
     document.getElementById('btn-ally-arrival')?.addEventListener('click', () => Commands.run('buddyReportAck'));

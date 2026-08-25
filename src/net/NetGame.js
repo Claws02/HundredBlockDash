@@ -38,26 +38,22 @@ export { ROLE } from './NetSession.js';
 
 // The opening briefing — the four roads, read by everybody before anybody
 // rolls. One id because it is one gate; more will want their own.
-export const BRIEFING_GATE = 'briefing';
+export const BRIEFING_GATE = ReadyGate.BRIEFING;
 
 // The one beat the whole table has to acknowledge before anybody rolls.
 // Registered here rather than in UIManager because only this layer knows
 // whether "ready" is a press or a vote — offline it closes the card, online it
 // waits for everybody.
+// A client never reaches this: the dispatcher forwards the press, and the host
+// applies it for that seat through the same ReadyGate.voteBriefing() this uses.
+// Offline there is no gate to hold — one player, one press, straight through.
 Commands.define({
     briefingReady: () => {
-        const closeHere = () => _closeBriefingHere();
-        // Whoever presses first opens the gate; the host's own continuation is
-        // closing its own card, and `gateOpen` closes everybody else's.
-        ReadyGate.ensure(BRIEFING_GATE, closeHere);
-        ReadyGate.press(BRIEFING_GATE, closeHere);
-        // Reflect it on THIS device immediately. The `gateCount` scene only
-        // travels outward, so without this the presser's own button just stops
-        // responding — which looks identical to a button that is broken.
-        if (Session.isOnline() && _ui) {
-            _ui.UI.markBriefingWaiting(
-                Session.isHost() ? ReadyGate.pending(BRIEFING_GATE) : null, true);
-        }
+        if (!Session.isOnline()) { _closeBriefingHere(); return; }
+        ReadyGate.voteBriefing(Session.mySeat());
+        // The host's own `gateCount` only travels outward, so its button is
+        // repainted here.
+        if (_ui) _ui.UI.markBriefingWaiting(ReadyGate.pending(BRIEFING_GATE));
     },
 });
 
@@ -311,14 +307,12 @@ function _replayScene(kind, p, Modal, UI) {
             // The count is the table's; whether the button is spent is this
             // device's. Passing only the count disabled the button belonging to
             // the very player everybody was waiting for.
-            if (p.id === BRIEFING_GATE) {
-                UI.markBriefingWaiting(p.waiting, ReadyGate.pressedHere(BRIEFING_GATE));
-            }
+            if (p.id === BRIEFING_GATE) UI.markBriefingWaiting(p.waiting);
             return;
         case 'gateOpen':
             // Everybody is in. Every device moves on at the same instant,
             // which is the whole point of the gate.
-            if (p.id === BRIEFING_GATE) { ReadyGate.release(p.id); UI.closeBriefingNow(); }
+            if (p.id === BRIEFING_GATE) UI.closeBriefingNow();
             return;
         case 'turnBanner':
             UI.showTurnBanner(p.seat, { sub: p.sub });

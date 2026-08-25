@@ -21,12 +21,13 @@
 import { state } from '../core/GameState.js';
 import * as Session from './NetSession.js';
 import * as Scenes from '../ui/Scenes.js';
+import * as UIManager from '../ui/UIManager.js';
+
+/** The opening briefing: the one gate there is so far. */
+export const BRIEFING = 'briefing';
 
 // Gates the host is holding: id → { seats: Set, done, total }
 const _open = new Map();
-// What THIS device has pressed, so a second press is not a second vote and the
-// UI can show "waiting" rather than an armed button.
-const _pressedHere = new Set();
 
 /** Who still has to press. Drives the waiting copy on the card. */
 export function pending(id) {
@@ -35,7 +36,7 @@ export function pending(id) {
     return Math.max(0, g.total - g.seats.size);
 }
 
-export function pressedHere(id) { return _pressedHere.has(id); }
+
 
 /**
  * Host: hold `id` until every seat has pressed, then run `done` once.
@@ -64,14 +65,21 @@ export function ensure(id, done) {
     open(id, done);
 }
 
-/** This device pressed. Offline or host, it counts here; a client sends it. */
-export function press(id, fallback) {
-    if (_pressedHere.has(id)) return;
-    _pressedHere.add(id);
-
-    if (!Session.isOnline()) { if (fallback) fallback(); return; }
-    if (Session.isClient()) { Session.sendIntent('gateAck', [id]); return; }
-    ack(id, Session.mySeat());
+/**
+ * A seat has voted on the briefing.
+ *
+ * ONE entry point for both routes into this, which is what the first version
+ * got wrong. A client's press is forwarded by the command bus and applied by
+ * the host — but `Commands.runLocal` drops the envelope's seat, so the host ran
+ * its OWN press path instead, found it already spent, and dropped the client's
+ * vote on the floor. The gate then waited forever on a player who had pressed.
+ *
+ * So the seat is always passed explicitly, and whoever is calling — the host
+ * for itself, or the host on behalf of an intent — goes through here.
+ */
+export function voteBriefing(seat) {
+    ensure(BRIEFING, () => UIManager.closeBriefingNow());
+    ack(BRIEFING, seat);
 }
 
 /** Host: a seat has pressed. */
@@ -90,18 +98,9 @@ function _maybeFinish(id) {
     const g = _open.get(id);
     if (!g || g.seats.size < g.total) return;
     _open.delete(id);
-    _pressedHere.delete(id);
     Scenes.emit('gateOpen', { id });
     if (g.done) g.done();
 }
 
-/** A gate the host has opened: this device may move on. */
-export function release(id) {
-    _pressedHere.delete(id);
-}
-
 /** A match is over or abandoned; nothing may still be holding. */
-export function reset() {
-    _open.clear();
-    _pressedHere.clear();
-}
+export function reset() { _open.clear(); }
