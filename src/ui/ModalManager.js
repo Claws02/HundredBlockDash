@@ -4,6 +4,8 @@
 // ============================================================
 
 import { state } from '../core/GameState.js';
+import * as Scenes from './Scenes.js';
+import * as Commands from '../core/Commands.js';
 import { ITEMS, MAX_INV, DISTRICT_SHOPS, BA_DISCOUNT, GRAND_MALL_DISCOUNT, DUEL_BET_OPTIONS } from '../config/GameConfig.js';
 import * as DualRead from './DualRead.js';
 
@@ -33,6 +35,7 @@ export function showModal(id) {
 }
 
 export function closeAllModals() {
+    Scenes.emit('closeAll', {});
     document.getElementById('modal-overlay').classList.remove('act');
     document.querySelectorAll('.modal-box').forEach(b => b.style.display = 'none');
     document.body.classList.remove('modal-open');
@@ -48,6 +51,7 @@ export function closeAllModals() {
 //              the card; the opponent gets a headline strip on their own edge.
 // Default is 'owner', which is what the great majority of these are.
 export function showMessage(title, desc, icon, opts = {}) {
+    Scenes.emit('message', { title, desc, icon, tier: opts.tier || 'owner', ticker: opts.ticker });
     state.msgModalResolving = false;
     document.getElementById('msg-icon').textContent  = icon || '';
     document.getElementById('msg-title').textContent = title;
@@ -64,6 +68,7 @@ export function showMessage(title, desc, icon, opts = {}) {
 // ---- Shop ----
 
 export function openShop(district, discount) {
+    Scenes.emit('shop', { district, discount, seat: state.activePlayer });
     const p           = state.players[state.activePlayer];
     const distKey     = district || 'ring';
     const disc        = discount || 1.0;
@@ -142,6 +147,7 @@ export function openShop(district, discount) {
 // afford the smallest bet; this handles the other half, where the OPPONENT is
 // the one who is broke and no stake to the lander can fix it.
 export function showDuelModal(p, opp, callback) {
+    Scenes.emit('duelBet', { seat: p.id, foe: opp.id });
     const maxBet = Math.min(p.coins, opp.coins);
     const canWager = maxBet >= Math.min(...DUEL_BET_OPTIONS);
 
@@ -193,6 +199,17 @@ export function showDuelModal(p, opp, callback) {
 
 // Leave a duel that cannot be wagered. Calls back with 0, which _startDuel
 // already treats as "no duel" — it just never had a way to be told so.
+// The bet picker's continuation lives in this module, so — like the branch
+// choice and the two buddy modals in UIManager — it is registered as a command
+// rather than called from the click handler.
+Commands.define({
+    duelBet: amount => {
+        closeAllModals();
+        if (_duelBetCb) { const cb = _duelBetCb; _duelBetCb = null; cb(amount); return; }
+        if (_controller) _controller.confirmDuelBet(amount);
+    },
+});
+
 export function resolveDuelSkip() {
     closeAllModals();
     const cb = _duelBetCb; _duelBetCb = null;
@@ -213,6 +230,7 @@ let _dropSel    = null;   // index into inv, or -1 for the incoming item
 let _dropPlayer = null;
 
 export function openDropModal(player, newItemId, cost, returnState) {
+    Scenes.emit('dropPick', { seat: player.id, newItemId, cost, returnState });
     state.pendingBuyId         = newItemId;
     if (cost !== undefined && cost !== null) state.pendingBuyCost = cost;
     state.pendingReturnState   = returnState || (state.gameState === 'SHOP' ? 'shop' : 'finish_turn');
@@ -270,6 +288,7 @@ function _selectDrop(idx) { _dropSel = idx; _paintDropChoice(); }
 // ---- Use item modal ----
 
 export function openUseModal() {
+    Scenes.emit('useItems', { seat: state.activePlayer });
     const p = state.players[state.activePlayer];
     if (p.inv.length === 0) {
         import('../ui/UIManager.js').then(({ toast }) => toast('Inventory empty!', '#fff'));
@@ -294,12 +313,14 @@ export function showPassModal(desc, gateNext = false) {
 // ---- Custom dice modal ----
 
 export function openCustomDiceModal() {
+    Scenes.emit('customDice', { seat: state.activePlayer });
     showModal('custom-dice-modal');
 }
 
 // ---- Shop offer (pass-through) ----
 
 export function showShopOffer() {
+    Scenes.emit('shopOffer', { seat: state.activePlayer });
     state.gameState = 'SHOP';
     showModal('shop-offer-modal');
 }
@@ -308,30 +329,30 @@ export function showShopOffer() {
 
 function _wireStaticButtons() {
     // Message continue
-    document.getElementById('btn-msg-continue').addEventListener('click', () => _controller.resolveMsgModal());
+    document.getElementById('btn-msg-continue').addEventListener('click', () => Commands.run('msgContinue'));
 
     // Shop close
-    document.getElementById('btn-close-shop').addEventListener('click', () => _controller.closeShopModal());
+    document.getElementById('btn-close-shop').addEventListener('click', () => Commands.run('closeShop'));
 
     // Shop buy buttons (delegated on shop-modal)
     document.getElementById('shop-modal').addEventListener('click', e => {
         const btn = e.target.closest('[data-item]');
-        if (btn && !btn.disabled) _controller.buyItem(btn.dataset.item, parseInt(btn.dataset.cost));
+        if (btn && !btn.disabled) Commands.run('buy', btn.dataset.item, parseInt(btn.dataset.cost));
     });
 
     // Shop offer
-    document.getElementById('btn-shop-offer-enter').addEventListener('click', () => _controller.shopOfferEnter());
-    document.getElementById('btn-shop-offer-skip').addEventListener('click',  () => _controller.shopOfferSkip());
+    document.getElementById('btn-shop-offer-enter').addEventListener('click', () => Commands.run('shopEnter'));
+    document.getElementById('btn-shop-offer-skip').addEventListener('click',  () => Commands.run('shopSkip'));
 
     // Custom dice
     document.getElementById('custom-dice-modal').addEventListener('click', e => {
         const btn = e.target.closest('[data-pick]');
-        if (btn) _controller.confirmCustomDice(parseInt(btn.dataset.pick));
+        if (btn) Commands.run('customDice', parseInt(btn.dataset.pick));
     });
     document.getElementById('btn-cancel-custom-dice').addEventListener('click', () => closeAllModals());
 
     // Pass modal
-    document.getElementById('btn-resolve-pass').addEventListener('click', () => _controller.resolvePassModal());
+    document.getElementById('btn-resolve-pass').addEventListener('click', () => Commands.run('passContinue'));
 
     // Duel escape hatch — shown only when the opponent has nothing to stake, so
     // there is no bet to set. Without it the duel modal has no exit at all.
@@ -344,15 +365,15 @@ function _wireStaticButtons() {
     });
     document.getElementById('btn-confirm-drop').addEventListener('click', () => {
         if (_dropSel === null) return;
-        _controller.confirmDrop((_dropPlayer || state.players[state.activePlayer]).id,
-                                _dropSel, state.pendingBuyId);
+        Commands.run('dropConfirm', (_dropPlayer || state.players[state.activePlayer]).id,
+                     _dropSel, state.pendingBuyId);
     });
-    document.getElementById('btn-cancel-drop').addEventListener('click', () => _controller.cancelDrop());
+    document.getElementById('btn-cancel-drop').addEventListener('click', () => Commands.run('dropCancel'));
 
     // Use modal
     document.getElementById('use-inv-row').addEventListener('click', e => {
         const btn = e.target.closest('[data-use-pid]');
-        if (btn) _controller.executeUseItem(parseInt(btn.dataset.usePid), parseInt(btn.dataset.useIdx));
+        if (btn) Commands.run('useItem', parseInt(btn.dataset.usePid), parseInt(btn.dataset.useIdx));
     });
     document.getElementById('btn-cancel-use').addEventListener('click', () => closeAllModals());
 
@@ -362,7 +383,6 @@ function _wireStaticButtons() {
         if (!btn || btn.disabled) return;
         const amount = parseInt(btn.dataset.bet);
         closeAllModals();
-        if (_duelBetCb) { const cb = _duelBetCb; _duelBetCb = null; cb(amount); }
-        else _controller.confirmDuelBet(amount);
+        Commands.run('duelBet', amount);
     });
 }

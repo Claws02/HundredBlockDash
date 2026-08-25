@@ -3,6 +3,61 @@
 // ============================================================
 
 import { MAPS, DEFAULT_MAP } from '../config/maps/index.js';
+import { PLAYER_SLOTS, DEFAULT_PLAYERS, MIN_PLAYERS, MAX_PLAYERS } from '../config/GameConfig.js';
+
+// ============================================================
+// PLAYER FACTORY
+// ============================================================
+// One seat, built from its slot. This replaced two hand-written literals that
+// had drifted apart once already; every field a player carries is now declared
+// in exactly one place, so a third and fourth seat cost nothing to add and
+// cannot be built subtly differently from the first two.
+export function makePlayer(id) {
+    const slot = PLAYER_SLOTS[id] || PLAYER_SLOTS[0];
+    return {
+        id, name: slot.name, color: slot.color, charType: slot.charType, isBot: false,
+        coins: 10, coinsEarned: 10, mgWins: 0,
+        pos: 'r1',           // string node ID
+        prevPos: 'r1',       // for camera direction
+        inv: [], mesh: null,
+        _shielded: false,
+        // City Circuit tracking
+        allies: [],          // up to MAX_ALLIES: { type, turnsRemaining, shieldCharges?, mesh }
+        districtsVisited: { fin: 0, ba: 0, shop: 0, ind: 0 },
+        districtHQsThisLoop: new Set(),
+        fullCircuitsCompleted: 0,
+        contractsClaimed: 0,
+        alliesClaimed: 0,
+        duelsWon: 0,
+        itemsBought: 0,
+        shopsVisitedThisLap: 0,
+        coinsEarnedThisRound: 0,
+        consecutiveMgWins: 0,
+        cabbieUsedThisRound: false,
+        _lastDistrictEntered: null,
+    };
+}
+
+// How many seats are in play. Everything that used to say `% 2` asks this.
+export function playerCount() { return state.players.length; }
+
+// Resize the table to `n` seats, keeping any choices already made in the seats
+// that survive. Called by the mode/lobby screens before a match is set up —
+// never mid-match, which is why it rebuilds rather than patching.
+export function setPlayerCount(n) {
+    const count = Math.max(MIN_PLAYERS, Math.min(MAX_PLAYERS, n | 0));
+    const kept  = state.players.slice(0, count);
+    while (kept.length < count) kept.push(makePlayer(kept.length));
+    state.players = kept;
+    state.charSelections    = state.charSelections.slice(0, count);
+    while (state.charSelections.length < count) {
+        state.charSelections.push(PLAYER_SLOTS[state.charSelections.length].charType);
+    }
+    state.cursedTarget          = state.players.map(() => false);
+    state.investorUsedThisRound = state.players.map(() => false);
+    state.mgReady               = state.players.map(() => false);
+    return count;
+}
 
 export const state = {
     // Flow
@@ -18,21 +73,27 @@ export const state = {
     totalTurns:          0,
     currentRound:        0,
     gameStarted:         false,
+    // Online play. `localSeat` is which seat THIS device is playing (null for
+    // every local mode, where the device is passed around). `netReplica` is the
+    // one flag that keeps a client out of the turn engine — see NetGame.js.
+    localSeat:           null,
+    netReplica:          false,
 
     // Roll flags
     rollAgainPending:    false,
     rollAgainSamePlayer: false,
     currentRollMode:     'normal',
-    cursedTarget:        [false, false],
+    cursedTarget:        [],   // per seat; sized by setPlayerCount()
 
     // Gate
     gateOpen:    false,
     gateRolling: false,
 
     // Character selection
-    charSelectStep:  1,
-    p1CharSelection: 'slime',
-    p2CharSelection: 'boxy',
+    charSelectStep:  1,   // 1-based seat currently choosing
+    // One entry per seat. Was p1CharSelection / p2CharSelection — two named
+    // fields that could not grow a third.
+    charSelections:  PLAYER_SLOTS.slice(0, DEFAULT_PLAYERS).map(s => s.charType),
 
     // Modal / shop flow helpers
     pendingBuyId:          null,
@@ -62,6 +123,10 @@ export const state = {
 
     // Duel
     pendingDuelBet:        0,
+    // Which player the active duel is against. Fixed when the duel space
+    // resolves so the face-off, the bet screen and the payout can never
+    // disagree about who the two duellists are.
+    pendingDuelTarget:     null,
 
     // Minigame
     mgActive:            false,
@@ -72,7 +137,7 @@ export const state = {
     // often than not.
     mgBag:               [],
     mgLastType:          '',
-    mgReady:             [false, false],
+    mgReady:             [],   // per seat; sized by setPlayerCount()
     lastMinigameWinner:  -1,
     lastMinigameTied:    false,
     minigameTimeout:     null,
@@ -92,54 +157,12 @@ export const state = {
     // City contracts
     activeContracts:     [],    // up to CONTRACT_COUNT active contracts
     contractPool:        [],    // remaining shuffled contracts
-    investorUsedThisRound: [false, false], // per player, resets each round
+    investorUsedThisRound: [], // per seat, resets each round
 
-    // Players
-    players: [
-        {
-            id: 0, name: 'Player 1', color: 0xff3b3b, charType: 'slime', isBot: false,
-            coins: 10, coinsEarned: 10, mgWins: 0,
-            pos: 'r1',           // string node ID
-            prevPos: 'r1',       // for camera direction
-            inv: [], mesh: null,
-            _shielded: false,
-            // City Circuit tracking
-            allies: [],          // up to MAX_ALLIES: { type, turnsRemaining, shieldCharges?, mesh }
-            districtsVisited: { fin: 0, ba: 0, shop: 0, ind: 0 },
-            districtHQsThisLoop: new Set(),
-            fullCircuitsCompleted: 0,
-            contractsClaimed: 0,
-            alliesClaimed: 0,
-            duelsWon: 0,
-            itemsBought: 0,
-            shopsVisitedThisLap: 0,
-            coinsEarnedThisRound: 0,
-            consecutiveMgWins: 0,
-            cabbieUsedThisRound: false,
-            _lastDistrictEntered: null,
-        },
-        {
-            id: 1, name: 'Player 2', color: 0x3b8eff, charType: 'boxy', isBot: false,
-            coins: 10, coinsEarned: 10, mgWins: 0,
-            pos: 'r1',
-            prevPos: 'r1',
-            inv: [], mesh: null,
-            _shielded: false,
-            allies: [],
-            districtsVisited: { fin: 0, ba: 0, shop: 0, ind: 0 },
-            districtHQsThisLoop: new Set(),
-            fullCircuitsCompleted: 0,
-            contractsClaimed: 0,
-            alliesClaimed: 0,
-            duelsWon: 0,
-            itemsBought: 0,
-            shopsVisitedThisLap: 0,
-            coinsEarnedThisRound: 0,
-            consecutiveMgWins: 0,
-            cabbieUsedThisRound: false,
-            _lastDistrictEntered: null,
-        },
-    ],
+    // Players — 2, 3 or 4 seats. Built by makePlayer(), resized by
+    // setPlayerCount(). Two seats is the default so every existing mode
+    // (1P vs bot, tabletop, pass-and-play) starts exactly as it always did.
+    players: Array.from({ length: DEFAULT_PLAYERS }, (_, i) => makePlayer(i)),
 
     // Turn-by-turn record for the end-of-match graph. One entry per completed
     // turn: { turn, prog: [p1, p2], coins: [p1, p2] }. `prog` is normalised
@@ -176,7 +199,7 @@ export function resetPlayers() {
     });
     state.gateOpen           = false;
     state.gateRolling        = false;
-    state.cursedTarget       = [false, false];
+    state.cursedTarget       = state.players.map(() => false);
     state.totalTurns         = 0;
     state.currentRound       = 0;
     state.rollAgainPending   = false;
@@ -193,9 +216,10 @@ export function resetPlayers() {
     state.pendingBuddyDeparture = null;
     state.activeContracts    = [];
     state.contractPool       = [];
-    state.investorUsedThisRound = [false, false];
+    state.investorUsedThisRound = state.players.map(() => false);
     state.mgContext          = null;
     state.pendingDuelBet     = 0;
+    state.pendingDuelTarget  = null;
     state.pendingShopDistrict = null;
     state.pendingShopDiscount = 1.0;
     state.pendingForcedMove   = 0;

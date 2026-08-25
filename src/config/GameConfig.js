@@ -32,6 +32,28 @@ export function buildHbdConfig(length) {
 
 // Back-compat default config (full 100-block run). Live games read state.hbd.
 export const HBD_DEFAULT_CONFIG = buildHbdConfig(HBD_DEFAULT_LENGTH);
+// ============================================================
+// PLAYER SLOTS — 2, 3 or 4
+// ============================================================
+// The game shipped with two hand-written player objects. Everything a player
+// slot needs that is NOT gameplay state lives here instead, so adding the third
+// and fourth seat is a data change rather than another pair of literals.
+//
+// `hex` and `color` are the same colour twice: CSS wants the string, three.js
+// wants the number. Keeping them side by side is how they stay in step — the
+// two-player version had the number in GameState.js and the string in
+// styles.css, three files apart.
+export const PLAYER_SLOTS = [
+    { name: 'Player 1', color: 0xff3b3b, hex: '#ff3b3b', icon: '🚗', charType: 'slime' },
+    { name: 'Player 2', color: 0x3b8eff, hex: '#3b8eff', icon: '🎩', charType: 'boxy'  },
+    { name: 'Player 3', color: 0x22c55e, hex: '#22c55e', icon: '🌿', charType: 'bunny' },
+    { name: 'Player 4', color: 0xf5c842, hex: '#f5c842', icon: '⭐', charType: 'ghost' },
+];
+
+export const MIN_PLAYERS     = 2;
+export const MAX_PLAYERS     = PLAYER_SLOTS.length;
+export const DEFAULT_PLAYERS = 2;
+
 export const MAX_INV             = 3;
 export const MINIGAME_REWARD     = 10;
 export const MINIGAME_EVERY_N_TURNS = 4;

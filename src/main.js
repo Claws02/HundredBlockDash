@@ -5,7 +5,11 @@ import * as MinigameManager from './minigames/MinigameManager.js';
 import * as Settings from './core/Settings.js';
 import * as Onboarding from './ui/Onboarding.js';
 import * as Storage from './core/Storage.js';
+import * as Commands from './core/Commands.js';
 import { MG_INFO, MG_TYPES } from './config/MinigameRegistry.js';
+import * as Lobby from './ui/Lobby.js';
+import * as NetGame from './net/NetGame.js';
+import * as Session from './net/NetSession.js';
 
 window.addEventListener('error', e => {
     console.error('[HundredBlockDash] Uncaught error:', e.message, e.filename, e.lineno);
@@ -21,6 +25,33 @@ ModalManager.init(GameController);
 MinigameManager.init(GameController);
 Onboarding.init();
 Onboarding.refreshSplashStats();
+
+// ============================================================
+// ONLINE
+// ============================================================
+// The lobby settles WHO is playing; the map screens that already exist settle
+// WHAT is being played. So START in the lobby does not begin a match — it hands
+// the host to the map picker, and the match begins when that is confirmed,
+// which is also the moment every client learns the setup.
+NetGame.init(GameController);
+Lobby.init(GameController, () => {
+    GameController.selectMode('online');
+    GameController.selectPlayerCount(Session.seatCount());
+    GameController.goToMapSelect();
+});
+
+// A link with #join=CODE in it drops straight into that room.
+{
+    const joinCode = Lobby.codeFromUrl();
+    if (joinCode) {
+        Lobby.open();
+        const input = document.getElementById('lobby-code-input');
+        if (input) {
+            input.value = joinCode;
+            input.dispatchEvent(new Event('input'));
+        }
+    }
+}
 
 // ============================================================
 // REMATCH FAST-PATH & FIRST-RUN ONBOARDING
@@ -53,6 +84,20 @@ document.querySelectorAll('[data-mode]').forEach(btn => {
         // Bot difficulty only applies when playing against the bot
         document.getElementById('difficulty-select').style.display =
             btn.dataset.mode === '1p' ? 'block' : 'none';
+        // Seats: pass-and-play only (see the note on #players-select). Changing
+        // mode resets the count, so the chips are put back to 2 with it.
+        const seats = document.getElementById('players-select');
+        seats.style.display = btn.dataset.mode === 'pass' ? 'block' : 'none';
+        document.querySelectorAll('[data-players]').forEach(b2 =>
+            b2.classList.toggle('sel', b2.dataset.players === '2'));
+    });
+});
+
+document.querySelectorAll('[data-players]').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('[data-players]').forEach(b => b.classList.remove('sel'));
+        btn.classList.add('sel');
+        GameController.selectPlayerCount(parseInt(btn.dataset.players));
     });
 });
 
@@ -91,7 +136,17 @@ document.getElementById('map-select-grid').addEventListener('click', e => {
     if (card && !card.hasAttribute('aria-disabled')) GameController.selectMap(card.dataset.mapId);
 });
 
-document.getElementById('btn-map-confirm').addEventListener('click', () => GameController.confirmMapSelect());
+document.getElementById('btn-map-confirm').addEventListener('click', () => {
+    // Online: the host's confirmation is what starts everybody. NetGame.START
+    // carries the setup, and every device (the host included) begins the match
+    // from the same message, so nobody starts a beat ahead of anybody else.
+    if (Session.isHost() && !Session.started()) {
+        document.getElementById('map-select').style.display = 'none';
+        NetGame.hostStartMatch();
+        return;
+    }
+    GameController.confirmMapSelect();
+});
 
 // HBD run-length chips (50 / 75 / 100)
 document.querySelectorAll('[data-hbd-len]').forEach(btn => {
@@ -121,7 +176,10 @@ document.querySelectorAll('[data-roll]').forEach(btn => {
         if (!GameController.isMyTurn(pid)) return;
         btn.disabled = true;
         setTimeout(() => { btn.disabled = false; }, 1500);
-        GameController.executeRoll(1.2);
+        // Through the bus, not straight into the controller: online this leaves
+        // the phone as an intent and the HOST throws the dice. Calling
+        // executeRoll here would have every client simulate its own roll.
+        Commands.run('roll', 1.2);
     });
 });
 
@@ -153,7 +211,7 @@ document.querySelectorAll('[data-cabbie]').forEach(btn => {
     btn.addEventListener('click', () => {
         const pid = parseInt(btn.dataset.cabbie);
         if (!GameController.isMyTurn(pid)) return;
-        GameController.activateCabbie(pid);
+        Commands.run('cabbie', pid);
     });
 });
 
@@ -161,8 +219,8 @@ document.querySelectorAll('[data-cabbie]').forEach(btn => {
 // GATE OVERLAY  (not managed by ModalManager)
 // ============================================================
 
-document.getElementById('gate-roll-btn').addEventListener('click', () => GameController.rollGate());
-document.getElementById('gate-continue-btn').addEventListener('click', () => GameController.closeGate());
+document.getElementById('gate-roll-btn').addEventListener('click', () => Commands.run('gateRoll'));
+document.getElementById('gate-continue-btn').addEventListener('click', () => Commands.run('gateClose'));
 
 // ============================================================
 // WIN SCREEN

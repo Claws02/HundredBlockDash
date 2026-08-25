@@ -344,18 +344,30 @@ window.__QA = (function () {
         setTimeout(() => clearInterval(iv), 90000);
     }
 
+    // The character each seat picks, in seat order. Nine are available; taking
+    // them off the front guarantees no two seats want the same one, which the
+    // screen forbids.
+    const SEAT_CHARS = ['slime', 'ghost', 'boxy', 'bunny', 'cabbie', 'vendor', 'banker', 'bodyguard', 'investor'];
+
     function startRun(opts) {
         if (!opts.keepBriefing) _autoDismissBriefing();
         const modeBtn = document.querySelector(`[data-mode="${opts.mode}"]`);
         tap(modeBtn, 'mode ' + opts.mode);
-        if (opts.mode === '1p' && opts.difficulty) tap(document.querySelector(`[data-diff="${opts.difficulty}"]`), 'diff');
+        if (opts.mode === '1p' && opts.difficulty) tap(document.querySelector(`[data-diff="${opts.diff || opts.difficulty}"]`), 'diff');
+        // Seat count, for the modes that offer it. Anything else is two.
+        const seats = Math.max(2, Math.min(4, opts.players || 2));
+        if (seats > 2) {
+            const pc = document.querySelector(`[data-players="${seats}"]`);
+            if (pc) tap(pc, 'players ' + seats);
+        }
         tap(byId('btn-next'), 'next');
-        // char select (1 or 2 steps)
-        tap(document.querySelector(`[data-char="${opts.char1 || 'slime'}"]`), 'char1');
-        tap(byId('btn-char-confirm'), 'confirm char1');
-        if (opts.mode !== '1p') {
-            tap(document.querySelector(`[data-char="${opts.char2 || 'ghost'}"]`), 'char2');
-            tap(byId('btn-char-confirm'), 'confirm char2');
+        // Character select: one step per human seat. 1P picks for the bot.
+        const humanSeats = opts.mode === '1p' ? 1 : seats;
+        for (let i = 0; i < humanSeats; i++) {
+            const want = (i === 0 ? opts.char1 : i === 1 ? opts.char2 : null) || SEAT_CHARS[i];
+            const cardEl = document.querySelector(`[data-char="${want}"]`);
+            tap(cardEl || document.querySelector(`[data-char="${SEAT_CHARS[i]}"]`), 'char' + (i + 1));
+            tap(byId('btn-char-confirm'), 'confirm char' + (i + 1));
         }
         // map select
         const card = document.querySelector(`[data-map-id="${opts.map}"]`);
@@ -363,6 +375,13 @@ window.__QA = (function () {
         if (opts.map === 'hundred_block_dash' && opts.len) {
             const c = document.querySelector(`[data-hbd-len="${opts.len}"]`);
             if (c) tap(c, 'len ' + opts.len);
+        }
+        // City match length. A four-player match at 12 rounds is 48 board turns
+        // plus 12 minigames — too long for a probe budget, so the seat-count
+        // configs ask for the short one.
+        if (opts.map === 'city_circuit' && opts.rounds) {
+            const c = document.querySelector(`[data-city-rounds="${opts.rounds}"]`);
+            if (c) tap(c, 'rounds ' + opts.rounds);
         }
         tap(byId('btn-map-confirm'), 'go');
     }

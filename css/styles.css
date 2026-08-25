@@ -5,6 +5,12 @@
     --panel: rgba(18, 14, 38, 0.97);
     --border: rgba(255, 255, 255, 0.22);
     --hud-h: 78px;
+    /* Three- and four-player seats. Numbers mirror PLAYER_SLOTS in
+       src/config/GameConfig.js — the JS wants them as ints, CSS wants strings,
+       and the two are kept in step by hand in exactly these two places. */
+    --p3: #22c55e;
+    --p4: #f5c842;
+    --rival-h: 46px;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -115,9 +121,56 @@ body, html {
 
 /* HUD */
 .hud-bar { pointer-events: auto; position: absolute; left: 0; right: 0; height: var(--hud-h); background: var(--panel); display: flex; justify-content: space-between; align-items: center; padding: 0 16px; border: 1px solid var(--border); }
-#hud-p2 { top: 0; border-bottom: 4px solid var(--p2); }
-#hud-p1 { bottom: 0; border-top: 4px solid var(--p1); }
+/* `--seat` is set per bar by UIManager: in the solo layout the bottom bar
+   changes owner every turn, so its accent has to follow the seat rather than
+   be baked in. The fallbacks keep two-player matches exactly as they were. */
+#hud-p2 { top: 0; border-bottom: 4px solid var(--seat, var(--p2)); }
+#hud-p1 { bottom: 0; border-top: 4px solid var(--seat, var(--p1)); }
 .tabletop-mode #hud-p2 { transform: rotate(180deg); }
+
+/* ---- Rival strip: the 3-and-4-player HUD ------------------------------------
+   Four full bars leave no board, so above two seats every player except the one
+   holding this device collapses into one scrollable row of chips along the top.
+   The strip is laid out to be READ, not operated: nothing in it is tappable, so
+   it can be dense in a way an action bar cannot. */
+#hud-rivals {
+    pointer-events: auto; position: absolute; top: 0; left: 0; right: 0;
+    display: none; gap: 6px; padding: 6px 8px;
+    min-height: var(--rival-h);
+    background: var(--panel); border-bottom: 1px solid var(--border);
+    overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+}
+#hud-rivals::-webkit-scrollbar { display: none; }
+body[data-hud-mode="solo"] #hud-rivals { display: flex; }
+
+.rival-chip {
+    flex: 0 0 auto; display: flex; align-items: center; gap: 7px;
+    padding: 5px 10px; border-radius: 10px;
+    background: rgba(255,255,255,.05);
+    border: 1px solid rgba(255,255,255,.12);
+    border-left: 4px solid var(--rc);
+    font-family: 'Nunito', system-ui, sans-serif; font-size: 12px; font-weight: 700;
+    color: rgba(255,255,255,.82); white-space: nowrap;
+    transition: background .18s ease, border-color .18s ease;
+}
+/* Whose go it is. The only state in the strip worth a colour. */
+.rival-chip.rival-up {
+    background: color-mix(in srgb, var(--rc) 22%, transparent);
+    border-color: var(--rc);
+    box-shadow: 0 0 12px color-mix(in srgb, var(--rc) 45%, transparent);
+}
+.rival-chip .rc-name  { color: var(--rc); font-weight: 900; letter-spacing: .2px; }
+.rival-chip .rc-coins { font-variant-numeric: tabular-nums; }
+.rival-chip .rc-pos   { opacity: .55; font-weight: 600; max-width: 96px; overflow: hidden; text-overflow: ellipsis; }
+.rival-chip .rc-bag,
+.rival-chip .rc-bud   { opacity: .8; }
+.rival-chip .bot-badge { margin-left: 4px; }
+
+/* The solo bar is the seat's own colour, set inline from PLAYER_SLOTS, and the
+   board has to start below the strip rather than under the (absent) top bar. */
+body[data-hud-mode="solo"] #round-counter { top: calc(var(--rival-h) + 8px); }
+body[data-hud-mode="solo"] #contracts-strip { top: calc(var(--rival-h) + 40px); }
 
 /* Tabletop mode: flip center UI and the 3D canvas when P2 is the active player */
 .tabletop-p2-turn #game-container canvas { transform: rotate(180deg); }
@@ -2332,3 +2385,108 @@ body:not(.tabletop-mode) #turn-banner.tb-show .tb-bottom { transform: translate(
     0%, 100% { filter: drop-shadow(0 0 30px rgba(239,68,68,.75)); }
     50%      { filter: drop-shadow(0 0 46px rgba(239,68,68,1)); }
 }
+
+
+/* Three or four result cards do not fit the two-across row the win screen was
+   built for; they scroll in a column instead, ranked best first. */
+.win-cards.win-cards-many { flex-wrap: wrap; overflow-y: auto; max-height: 46vh; align-content: flex-start; }
+.win-cards.win-cards-many .win-card { flex: 1 1 46%; min-width: 200px; }
+
+/* ============================================================
+   ONLINE LOBBY
+   ============================================================
+   One screen, two phases. `data-phase` on #lobby switches between picking a
+   role (host / join) and the room itself, so there is no second overlay to
+   keep in sync and no way for both to be on screen at once. */
+.sbtn-online { border-color: rgba(74,222,128,.55); box-shadow: 0 0 18px rgba(74,222,128,.16); }
+
+#lobby {
+    position: fixed; inset: 0; z-index: 120;
+    display: flex; align-items: center; justify-content: center;
+    background: radial-gradient(circle at 50% 20%, #241a4d 0%, #140c2b 70%);
+    padding: 14px; overflow-y: auto;
+}
+.lobby-sheet {
+    width: 100%; max-width: 440px;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 18px;
+    padding: 14px 16px 18px; display: flex; flex-direction: column; gap: 10px;
+}
+.lobby-head { display: flex; align-items: center; justify-content: space-between; }
+.lobby-title { font-size: 22px; color: var(--gold); letter-spacing: 1px; }
+.lobby-back {
+    background: rgba(255,255,255,.08); border: 1px solid var(--border); color: #fff;
+    border-radius: 9px; padding: 6px 10px; font-size: 13px; width: 64px;
+}
+.lobby-label { font-size: 13px; letter-spacing: 1.4px; color: rgba(255,255,255,.62); margin-top: 4px; }
+.lobby-input {
+    width: 100%; padding: 12px 14px; border-radius: 11px;
+    background: rgba(255,255,255,.07); border: 1px solid var(--border);
+    color: #fff; font-family: 'Nunito', system-ui, sans-serif; font-size: 16px; font-weight: 700;
+}
+.lobby-input:focus { outline: none; border-color: var(--gold); }
+.lobby-code-entry { text-align: center; font-size: 30px; letter-spacing: 12px; text-indent: 12px; }
+.lobby-cta { width: 100%; margin: 0; }
+.lobby-or { text-align: center; font-size: 13px; color: rgba(255,255,255,.42); letter-spacing: 2px; margin: 2px 0; }
+
+/* Phase switch */
+#lobby[data-phase="pick"] .lobby-room { display: none; }
+#lobby[data-phase="room"] .lobby-pick { display: none; }
+.lobby-pick, .lobby-room { display: flex; flex-direction: column; gap: 9px; }
+
+.lobby-code-row { display: flex; align-items: center; gap: 10px; }
+.lobby-code {
+    flex: 1; text-align: center; font-size: 40px; letter-spacing: 9px; text-indent: 9px;
+    color: var(--gold); text-shadow: 0 0 18px rgba(245,200,66,.45);
+    background: rgba(245,200,66,.08); border: 1px solid rgba(245,200,66,.32);
+    border-radius: 12px; padding: 6px 4px;
+}
+.lobby-share {
+    flex: 0 0 auto; background: rgba(255,255,255,.09); border: 1px solid var(--border);
+    color: #fff; border-radius: 11px; padding: 11px 12px; font-size: 12px; letter-spacing: .6px;
+}
+.lobby-share-note { font-size: 12px; color: rgba(255,255,255,.5); text-align: center; }
+
+/* One row per seat, in that seat's colour, plus the empty ones. */
+.lobby-seats { display: flex; flex-direction: column; gap: 6px; }
+.lobby-seat {
+    display: grid; grid-template-columns: 22px 1fr auto auto; align-items: center; gap: 8px;
+    padding: 8px 10px; border-radius: 10px;
+    background: rgba(255,255,255,.045); border: 1px solid rgba(255,255,255,.1);
+    border-left: 4px solid var(--ls, rgba(255,255,255,.2));
+    font-size: 13px; font-weight: 700; color: rgba(255,255,255,.85);
+}
+.lobby-seat.ls-mine  { background: rgba(255,255,255,.1); }
+.lobby-seat.ls-ready { border-color: rgba(74,222,128,.5); }
+.lobby-seat.ls-empty { opacity: .38; border-left-color: rgba(255,255,255,.14); font-weight: 600; font-style: italic; }
+.ls-num   { color: rgba(255,255,255,.4); font-size: 12px; }
+.ls-name  { display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ls-char  { font-size: 12px; opacity: .85; white-space: nowrap; }
+.ls-char.ls-none { opacity: .4; font-style: italic; }
+.ls-state { font-size: 11px; letter-spacing: .5px; color: rgba(74,222,128,.9); white-space: nowrap; }
+.lobby-seat:not(.ls-ready) .ls-state { color: rgba(255,255,255,.3); }
+.ls-tag {
+    font-size: 9px; letter-spacing: .8px; padding: 1px 5px; border-radius: 5px;
+    background: rgba(255,255,255,.14); color: rgba(255,255,255,.75);
+}
+.ls-tag.ls-you { background: rgba(245,200,66,.24); color: var(--gold); }
+.ls-tag.ls-bot { background: rgba(168,85,247,.26); color: #c99cff; }
+.ls-tag.ls-gone { background: rgba(239,68,68,.24); color: #ff9d9d; }
+
+.lobby-chars { display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 6px; }
+.lobby-char {
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    padding: 8px 4px; border-radius: 10px;
+    background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.12);
+    color: #fff; font-family: 'Nunito', system-ui, sans-serif;
+}
+.lobby-char .lc-ic { font-size: 22px; }
+.lobby-char .lc-nm { font-size: 11px; font-weight: 700; opacity: .8; }
+.lobby-char.sel   { border-color: var(--gold); background: rgba(245,200,66,.15); }
+.lobby-char.taken { opacity: .3; }
+.lobby-char-hint  { font-size: 12px; color: rgba(255,255,255,.45); text-align: center; }
+
+.lobby-actions { display: flex; gap: 8px; }
+.lobby-actions .btn-primary { flex: 1; margin: 0; }
+#btn-lobby-ready.is-ready { background: rgba(74,222,128,.22); border-color: rgba(74,222,128,.6); }
+.lobby-status { font-size: 12px; color: rgba(255,255,255,.55); text-align: center; min-height: 16px; }
+.lobby-status.is-error { color: #ff9d9d; }

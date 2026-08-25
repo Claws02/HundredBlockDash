@@ -18,6 +18,12 @@ const CONFIGS = {
     city_1p:     { mode: '1p', difficulty: 'medium', map: 'city_circuit' },
     city_pass:   { mode: 'pass', map: 'city_circuit' },
     city_hard:   { mode: '1p', difficulty: 'hard', map: 'city_circuit' },
+    // Three- and four-seat hot-seat matches. These are the Phase A gate: the
+    // board has to reach a win screen with more than two players before any of
+    // the networking work is worth starting.
+    city_3p:     { mode: 'pass', map: 'city_circuit', players: 3, rounds: 6 },
+    city_4p:     { mode: 'pass', map: 'city_circuit', players: 4, rounds: 6 },
+    hbd50_4p:    { mode: 'pass', map: 'hundred_block_dash', len: 50, players: 4 },
 };
 
 (async () => {

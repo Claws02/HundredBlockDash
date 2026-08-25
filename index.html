@@ -26,7 +26,20 @@
             <div style="display:flex;flex-direction:column;width:100%;">
                 <button class="sbtn bfont" data-mode="1p">1 PLAYER vs BOT<br><span style="font-size:13px;font-family:'Nunito'">Play against Borat the Bot</span></button>
                 <button class="sbtn bfont" data-mode="tabletop">2 PLAYER (TABLETOP)<br><span style="font-size:13px;font-family:'Nunito'">Device flat between 2 players</span></button>
-                <button class="sbtn bfont" data-mode="pass">2 PLAYER (PASS &amp; PLAY)<br><span style="font-size:13px;font-family:'Nunito'">Hand device back &amp; forth</span></button>
+                <button class="sbtn bfont" data-mode="pass">2–4 PLAYER (PASS &amp; PLAY)<br><span style="font-size:13px;font-family:'Nunito'">Hand device back &amp; forth</span></button>
+            </div>
+            <button class="sbtn bfont sbtn-online" id="btn-online">📶 ONLINE · 2–4 PHONES<br><span style="font-size:13px;font-family:'Nunito'">Everyone plays on their own phone</span></button>
+            <!-- Seat count. Pass-and-play is the only local mode that can seat
+                 more than two: tabletop puts two people at opposite edges of one
+                 screen, which does not extend to four, and 1P is by definition
+                 one human. -->
+            <div id="players-select" style="display:none;width:100%;max-width:300px;margin-top:4px;">
+                <div style="color:rgba(255,255,255,.7);font-size:13px;font-family:'Nunito';font-weight:bold;margin-bottom:8px;letter-spacing:1px;">HOW MANY PLAYERS?</div>
+                <div class="diff-chips">
+                    <button class="diff-chip bfont sel" data-players="2">2</button>
+                    <button class="diff-chip bfont" data-players="3">3</button>
+                    <button class="diff-chip bfont" data-players="4">4</button>
+                </div>
             </div>
             <div id="difficulty-select" style="display:none;width:100%;max-width:300px;margin-top:4px;">
                 <div style="color:rgba(255,255,255,.7);font-size:13px;font-family:'Nunito';font-weight:bold;margin-bottom:8px;letter-spacing:1px;">BOT DIFFICULTY</div>
@@ -43,6 +56,51 @@
                 <button class="splash-link bfont" id="btn-settings">⚙️ SETTINGS</button>
             </div>
             <div id="splash-stats" class="splash-stats" style="display:none;"></div>
+        </div>
+    </div>
+
+    <!-- ONLINE LOBBY.
+         Two phases on one screen, switched by data-phase:
+           pick — host a room or type a code
+           room — the roster, the character grid, READY / START
+         Everything about the count is deliberately soft: two, three and four
+         all start, and the empty seats are shown so a room of two reads as
+         "there is space" rather than as the whole game. -->
+    <div id="lobby" style="display:none;" data-phase="pick">
+        <div class="lobby-sheet">
+            <div class="lobby-head">
+                <button class="lobby-back bfont" id="btn-lobby-back">← BACK</button>
+                <div class="lobby-title bfont">📶 PLAY ONLINE</div>
+                <div style="width:64px;"></div>
+            </div>
+
+            <div class="lobby-pick">
+                <label class="lobby-label bfont" for="lobby-name">YOUR NAME</label>
+                <input id="lobby-name" class="lobby-input" maxlength="14" placeholder="Player" autocomplete="off">
+                <button class="btn-primary bfont lobby-cta" id="btn-lobby-host">🎮 HOST A GAME</button>
+                <div class="lobby-or bfont">OR JOIN ONE</div>
+                <input id="lobby-code-input" class="lobby-input lobby-code-entry bfont" maxlength="4"
+                       placeholder="CODE" autocomplete="off" autocapitalize="characters" inputmode="text">
+                <button class="btn-primary bfont lobby-cta" id="btn-lobby-join" disabled>JOIN →</button>
+            </div>
+
+            <div class="lobby-room">
+                <div class="lobby-code-row">
+                    <div class="lobby-code bfont" id="lobby-code">----</div>
+                    <button class="lobby-share bfont" id="btn-lobby-share">🔗 SEND THE LINK</button>
+                </div>
+                <div class="lobby-share-note" id="lobby-share-note"></div>
+                <div id="lobby-seats" class="lobby-seats"></div>
+                <div class="lobby-label bfont">CHOOSE YOUR CHARACTER</div>
+                <div id="lobby-chars" class="lobby-chars"></div>
+                <div class="lobby-char-hint" id="lobby-char-hint"></div>
+                <div class="lobby-actions">
+                    <button class="btn-primary bfont" id="btn-lobby-ready" disabled>I AM READY</button>
+                    <button class="btn-primary bfont lobby-start" id="btn-lobby-start" disabled>START</button>
+                </div>
+            </div>
+
+            <div class="lobby-status" id="lobby-status"></div>
         </div>
     </div>
 
@@ -222,6 +280,13 @@
 
         <!-- Contracts strip (below round counter) -->
         <div id="contracts-strip" style="display:none;"></div>
+
+        <!-- Rival strip: three-and-four-player HUD. Four full-height bars leave
+             no board, so above two seats (and in online play at any count) the
+             other players collapse to one compact row along the top and the
+             single full bar below belongs to whoever this device is playing.
+             Empty and unused in two-player matches. -->
+        <div id="hud-rivals"></div>
 
         <div class="hud-bar" id="hud-p2">
             <div class="hud-info">
