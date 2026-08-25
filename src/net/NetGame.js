@@ -221,6 +221,23 @@ function _replayScene(kind, p, Modal, UI) {
             document.getElementById('ui-layer').style.display = 'none';
             document.getElementById('gate-overlay').style.display = 'flex';
             return;
+        case 'winScreen':
+            // Render the HOST's final figures, never re-score. `false` skips
+            // the end-of-match bonuses, which the host has already paid and
+            // which arrive in a snapshot — paying them twice would inflate
+            // every number on the card. The short wait is for that snapshot:
+            // the scene and the state it describes are separate messages and
+            // arrive in whichever order they arrive.
+            setTimeout(async () => {
+                const { calculateWinner } = await import('../core/WinScreen.js');
+                calculateWinner(false);
+            }, 500);
+            return;
+        case 'gateEnd':
+            document.getElementById('gate-overlay').style.display = 'none';
+            document.getElementById('ui-layer').style.display = 'block';
+            document.body.classList.remove('gate-scene');
+            return;
         default:
             return;
     }

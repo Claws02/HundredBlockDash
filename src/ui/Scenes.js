@@ -34,10 +34,14 @@ export const TIER = { SHARED: 'shared', OWNER: 'owner' };
 export const SCENE_TIER = {
     message:      TIER.SHARED,   // the result / announcement card
     buddyReport:  TIER.SHARED,
-    gate:         TIER.SHARED,
-    gateResult:   TIER.SHARED,
+    gate:         TIER.SHARED,   // the gate scene opens
+    gateEnd:      TIER.SHARED,   // ...and closes. A scene that can be raised on
+                                 // another device has to be dismissable there
+                                 // too, or it sits over the board forever.
     minigameIntro:TIER.SHARED,
-    winScreen:    TIER.SHARED,
+    winScreen:    TIER.SHARED,   // the match is over — see NetGame's replay:
+                                 // clients render the host's final figures
+                                 // rather than re-scoring the match.
     closeAll:     TIER.SHARED,   // "whatever was up, take it down"
 
     shop:         TIER.OWNER,

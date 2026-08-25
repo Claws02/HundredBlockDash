@@ -12,8 +12,19 @@ import * as Stats from './Stats.js';
 import * as ModalManager from '../ui/ModalManager.js';
 import { sfx } from '../engine/AudioManager.js';
 import * as ActiveMap from '../config/ActiveMap.js';
+import * as Scenes from '../ui/Scenes.js';
 
-export function calculateWinner() {
+/**
+ * Score the match and put the result on screen.
+ *
+ * `applyBonuses` exists for online play. This function does two things — it
+ * MUTATES (City's district-dominance bonuses are paid here, at the end) and it
+ * RENDERS. On a networked client the mutation has already happened on the host
+ * and arrived in a snapshot, so paying the bonuses again would inflate every
+ * number on the card. Clients pass false and render the host's figures.
+ */
+export function calculateWinner(applyBonuses = true) {
+    Scenes.emit('winScreen', {});
     const players = state.players;
     const HBD_FIN = state.hbd ? state.hbd.finish : 99;
     let subtitle;
@@ -25,12 +36,14 @@ export function calculateWinner() {
         // three or four players a district is controlled by whoever visited it
         // MOST, and a tie at the top pays nobody — splitting the bonus would
         // reward two players for failing to take it off each other.
-        ActiveMap.regionKeys().forEach(dk => {
-            const best = Math.max(...players.map(q => q.districtsVisited[dk] || 0));
-            if (best <= 0) return;
-            const holders = players.filter(q => (q.districtsVisited[dk] || 0) === best);
-            if (holders.length === 1) earnCoins(holders[0], DISTRICT_DOMINANCE_BONUS);
-        });
+        if (applyBonuses) {
+            ActiveMap.regionKeys().forEach(dk => {
+                const best = Math.max(...players.map(q => q.districtsVisited[dk] || 0));
+                if (best <= 0) return;
+                const holders = players.filter(q => (q.districtsVisited[dk] || 0) === best);
+                if (holders.length === 1) earnCoins(holders[0], DISTRICT_DOMINANCE_BONUS);
+            });
+        }
         subtitle = 'WINS THE CITY!';
     }
 

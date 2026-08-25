@@ -1775,6 +1775,7 @@ export function resolveGateRoll() {
 }
 
 export function closeGate() {
+    Scenes.emit('gateEnd', {});
     document.getElementById('gate-overlay').style.display = 'none';
     document.body.classList.remove('gate-scene');
     document.getElementById('ui-layer').style.display = 'block';
