@@ -179,6 +179,31 @@ function _paintBar(dom, seat) {
     }
 }
 
+/**
+ * The swipe-to-roll zone, decided from state rather than announced.
+ *
+ * `showSwipeZone()` is called from exactly one place — `startPreRoll()`, deep
+ * inside the turn engine — and a networked client never enters that engine.
+ * So the joined player had a ROLL button that worked and a swipe that did
+ * nothing, because the zone it needs was never armed. Reported as "the player
+ * that joined isn't able to swipe to roll".
+ *
+ * Online it is derived here instead, from facts every device already has: it is
+ * my seat, it is my turn, and the game is waiting for a roll. Offline nothing
+ * changes — the imperative calls still own it, because the device is in front
+ * of whoever is up and the existing flow is what every QA probe reads.
+ */
+function _updateSwipeZone() {
+    if (state.playStyle !== 'online') return;
+    const zone = document.getElementById('swipe-zone');
+    if (!zone) return;
+    const p = state.players[state.activePlayer];
+    const mine = isMySeat(state.activePlayer);
+    const armed = mine && state.gameState === 'PRE_ROLL' && !!p && !p.isBot
+                  && !document.body.classList.contains('modal-open');
+    zone.classList.toggle('act', armed);
+}
+
 // Watching somebody else's turn used to be a still board and no explanation.
 // The snapshot already carries everything needed to narrate it — whose turn it
 // is and what beat the game is on — so this needs no new messages: it is read
@@ -284,6 +309,7 @@ export function updateUI() {
         _paintRivalStrip(f);
     }
 
+    _updateSwipeZone();
     _updateWaitingLine();
     updateShieldMarker();
 
@@ -854,6 +880,19 @@ function _closeAllyArrival() {
 }
 
 export function allyArrivalPending() { return !!_allyArrivalCb; }
+
+/**
+ * Take the buddy report down because the host has.
+ *
+ * Not the same as pressing GOT IT — that is a decision and it travels to the
+ * host. This is the consequence arriving back: the table has moved on, so the
+ * card goes, through the real close so its mirrored copy and the body class go
+ * with it rather than being orphaned by a raw `display: none`.
+ */
+export function closeBuddyReportNow() {
+    const el = document.getElementById('ally-arrival');
+    if (el && getComputedStyle(el).display !== 'none') _closeAllyArrival();
+}
 
 // ---- Bounty panel ----------------------------------------------------------
 //
@@ -1661,7 +1700,20 @@ function _wireSwipeEvents() {
     });
 }
 
-export function showSwipeZone()  { document.getElementById('swipe-zone').classList.add('act'); }
+/**
+ * Arm the swipe-to-roll zone.
+ *
+ * Online this defers to the derived rule instead of arming blindly. The host
+ * runs the turn engine for EVERY seat, so `startPreRoll()` fires on the host
+ * when it is a client's go — and armed the host's own swipe for a turn that
+ * was not its own. The press would have been refused by the authority check,
+ * which is the worst shape of bug in this system: a control that looks live and
+ * silently does nothing.
+ */
+export function showSwipeZone() {
+    if (state.playStyle === 'online') { _updateSwipeZone(); return; }
+    document.getElementById('swipe-zone').classList.add('act');
+}
 export function hideSwipeZone()  { document.getElementById('swipe-zone').classList.remove('act'); }
 export function hideActionRows() {
     document.getElementById('p1-actions').style.display = 'none';

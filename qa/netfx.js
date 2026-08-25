@@ -47,6 +47,19 @@ async function newPage(ctx, label, errors) {
     await page.waitForFunction(() => !!window.__QA, null, { timeout: 20000 });
     await page.waitForFunction(() => !!window.CITY_GRAPH_REF, null, { timeout: 30000 });
     await page.evaluate(() => window.__QA.bind());
+    // The roll callout is up for ~1.5 s and each sample costs two cross-page
+    // round trips, so polling for it catches it perhaps three times in four —
+    // it has now failed once on the client and once on the HOST, which is what
+    // finally showed the flap was in the measurement. Record it at the source
+    // instead: an observer on the class that shows it cannot miss it.
+    await page.evaluate(() => {
+        window.__calloutSeen = false;
+        const el = document.getElementById('roll-callout');
+        if (!el) return;
+        const note = () => { if (el.classList.contains('up')) window.__calloutSeen = true; };
+        note();
+        new MutationObserver(note).observe(el, { attributes: true, attributeFilter: ['class'] });
+    });
     return page;
 }
 
@@ -239,8 +252,8 @@ function peak(samples, key) {
         const cliDice   = peak(trace.client, 'dice');
         const hostAnims = peak(trace.host, 'anims');
         const cliAnims  = peak(trace.client, 'anims');
-        const hostCallout = trace.host.some(s => s && s.rollCallout);
-        const cliCallout  = trace.client.some(s => s && s.rollCallout);
+        const hostCallout = await host.evaluate(() => !!window.__calloutSeen);
+        const cliCallout  = await client.evaluate(() => !!window.__calloutSeen);
         const cliBanner   = trace.client.some(s => s && s.turnBanner);
         const cliCam    = new Set(trace.client.filter(Boolean).map(s => (s.cam || []).join(','))).size;
         const hostCam   = new Set(trace.host.filter(Boolean).map(s => (s.cam || []).join(','))).size;
@@ -329,16 +342,118 @@ function peak(samples, key) {
         await host.waitForTimeout(600);
         const camDuring = await client.evaluate(async () =>
             (await import('/src/core/GameState.js')).state.cameraState);
-        // Long enough for the set piece to finish AND for a snapshot to have
-        // re-asserted the host's camera mode if the continuation failed.
-        await host.waitForTimeout(4000);
-        const camAfter = await client.evaluate(async () =>
-            (await import('/src/core/GameState.js')).state.cameraState);
+        // Trace it rather than sampling the ends. Two readings say "it did not
+        // recover" without saying WHEN it was supposed to, and the recovery has
+        // three independent paths at very different timings: the replay's own
+        // continuation (~1.3 s), the host's camera mode arriving in a snapshot,
+        // and the 18 s watchdog. Which one caught it is the whole diagnosis.
+        const camTrace = [];
+        for (let i = 0; i < 12; i++) {
+            await host.waitForTimeout(500);
+            camTrace.push(await Promise.all(pages.map(pg => pg.evaluate(async () =>
+                (await import('/src/core/GameState.js')).state.cameraState))));
+        }
+        const camAfter = camTrace[camTrace.length - 1][1];
         notes.push(`client camera through a set piece: ${camDuring} -> ${camAfter}`);
+        notes.push(`camera trace [host,client]: ${camTrace.map(c => c.join('/')).join(' ')}`);
         ok('the client plays the set piece', camDuring === 'CINEMATIC',
             `camera was ${camDuring} while it ran`);
         ok('the client gets its camera back afterwards', camAfter === 'FOLLOW',
             `camera left on ${camAfter}`);
+
+        // ---- the buddy report must be dismissable from the joined device ----
+        // Reported: the host could press GOT IT, the client could not, and the
+        // client's card then sat there forever. Two separate things had to be
+        // true and neither was: the press has to REACH the host, and the host
+        // moving on has to take the client's card down with it.
+        await host.evaluate(async () => {
+            const UI = await import('/src/ui/UIManager.js');
+            UI.showBuddyReport({ onMap: null, held: [], round: 1 }, false, () => {});
+        });
+        await host.waitForTimeout(1400);
+        const cardUp = await Promise.all(pages.map(p => p.evaluate(() => {
+            const el = document.getElementById('ally-arrival');
+            return !!el && getComputedStyle(el).display !== 'none';
+        })));
+        ok('the buddy report reaches the joined device', cardUp[1] === true,
+            `host ${cardUp[0]}, client ${cardUp[1]}`);
+
+        // Press it from the CLIENT — the case that was stuck.
+        await client.evaluate(async () => {
+            const C = await import('/src/core/Commands.js');
+            C.run('buddyReportAck');
+        });
+        await host.waitForTimeout(2000);
+        const cardAfter = await Promise.all(pages.map(p => p.evaluate(() => {
+            const el = document.getElementById('ally-arrival');
+            return !!el && getComputedStyle(el).display !== 'none';
+        })));
+        ok('the joined player can dismiss it, and it clears everywhere',
+            cardAfter.every(up => up === false), `still up: ${JSON.stringify(cardAfter)}`);
+
+        // ---- swipe-to-roll has to be armed on the joined device -------------
+        // `showSwipeZone()` lives inside the turn engine, which a client never
+        // enters, so the zone was never armed and the swipe did nothing.
+        // Wait for the moment the swipe is ACTUALLY due, on the device that
+        // owns it. Waiting for the host to reach PRE_ROLL and then sleeping
+        // measured the client mid-shop — where an unarmed swipe is correct —
+        // and read that as the feature being broken.
+        let turnOwner = 0, swipeWindow = null;
+        const swipeDeadline = Date.now() + 180000;
+        while (Date.now() < swipeDeadline) {
+            turnOwner = await host.evaluate(async () =>
+                (await import('/src/core/GameState.js')).state.activePlayer);
+            swipeWindow = await pages[turnOwner].evaluate(async () => {
+                const S = (await import('/src/core/GameState.js')).state;
+                return {
+                    ready: S.gameState === 'PRE_ROLL'
+                        && S.localSeat === S.activePlayer
+                        && !document.body.classList.contains('modal-open'),
+                    gs: S.gameState,
+                };
+            });
+            if (swipeWindow.ready) break;
+            // DRIVE it, do not just watch it. By this point the probe has run a
+            // roll, a banner check, a set piece and a buddy report, and the
+            // game is parked on a result card waiting for a press nobody is
+            // making — so PRE_ROLL never arrives and the loop times out on a
+            // board that was never going to move. The agent presses through
+            // exactly the cards a player would.
+            await Promise.all(pages.map(pg =>
+                pg.evaluate(() => window.__QA.step()).catch(() => {})));
+            await host.waitForTimeout(400);
+        }
+        notes.push(`swipe checked at gs=${swipeWindow && swipeWindow.gs} on seat ${turnOwner}`);
+
+        const swipe = await pages[turnOwner].evaluate(async () => {
+            const S = (await import('/src/core/GameState.js')).state;
+            const z = document.getElementById('swipe-zone');
+            const p = S.players[S.activePlayer];
+            // Report the CONDITIONS, not just the outcome. "armed=false" alone
+            // says nothing about which of the four reasons it is.
+            return {
+                armed: !!z && z.classList.contains('act'),
+                visible: !!z && getComputedStyle(z).display !== 'none',
+                why: {
+                    online:   S.playStyle === 'online',
+                    mySeat:   S.localSeat === S.activePlayer,
+                    localSeat: S.localSeat, active: S.activePlayer,
+                    gs:       S.gameState,
+                    notBot:   !!p && !p.isBot,
+                    modalUp:  document.body.classList.contains('modal-open'),
+                },
+            };
+        });
+        notes.push(`swipe zone on seat ${turnOwner} (${turnOwner ? 'client' : 'host'}): armed=${swipe.armed} why=${JSON.stringify(swipe.why)}`);
+        ok('the seat whose turn it is can swipe to roll', swipe.armed === true,
+            `seat ${turnOwner}: ${JSON.stringify(swipe)}`);
+        // And nobody else's is armed — a live swipe on the wrong phone is a
+        // control that looks usable and is refused.
+        const otherSeat = turnOwner === 0 ? 1 : 0;
+        const otherSwipe = await pages[otherSeat].evaluate(() =>
+            !!document.getElementById('swipe-zone')?.classList.contains('act'));
+        ok('and the player waiting has no live swipe', otherSwipe === false,
+            `seat ${otherSeat} armed=${otherSwipe}`);
 
         ok('no page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
         await client.screenshot({ path: path.join(__dirname, 'shot-netfx-client.png') });
