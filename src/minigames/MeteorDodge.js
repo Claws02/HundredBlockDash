@@ -14,6 +14,7 @@
 import { state } from '../core/GameState.js';
 import { sfx, haptic } from '../engine/AudioManager.js';
 import { registerMinigameCleanup } from './MinigameManager.js';
+import * as Solo from './SoloArena.js';
 
 // ── Tunables (all positions are 0..1 fractions of a half) ───────────────────────
 const ROUND_TIME   = 30;
@@ -91,7 +92,8 @@ function _build() {
     _overlay.appendChild(_canvas);
     _ctx = _canvas.getContext('2d');
 
-    const pidAt = ly => (ly > _overlay.clientHeight / 2 ? 0 : 1);
+    // Alone on your own phone there is no other half to be in.
+    const pidAt = ly => (Solo.isSolo() ? 0 : (ly > _overlay.clientHeight / 2 ? 0 : 1));
     const setShip = (pid, lx) => {
         const w = _overlay.clientWidth;
         const fx = pid === 0 ? lx / w : (w - lx) / w;     // top half is rotated 180°
@@ -146,13 +148,23 @@ function _resize() {
 }
 
 // ── Gameplay ────────────────────────────────────────────────────────────────
+// Every device has to get the SAME storm — where each meteor falls, how big it
+// is, how fast — or the scores being compared were earned against different
+// games. Drawn BY INDEX rather than from a running stream: spawns happen on a
+// timer inside an animation frame, so two phones consume a shared stream at
+// different points and drift apart within seconds. The 6th meteor is the 6th
+// meteor everywhere, whether it left at 4.9 seconds or 5.1.
+let _spawned = 0;
+function _rnd(k) { return Solo.isSolo() ? Solo.draw(_spawned * 4 + k) : Math.random(); }
+
 function _spawn(pid) {
     _meteors[pid].push({
-        x: 0.1 + Math.random() * 0.8,
+        x: 0.1 + _rnd(0) * 0.8,
         y: -0.04,
-        r: 0.045 + Math.random() * 0.025,
-        vy: (FALL_HI + (FALL_LO - FALL_HI) * _diff()) * (0.85 + Math.random() * 0.4),
+        r: 0.045 + _rnd(1) * 0.025,
+        vy: (FALL_HI + (FALL_LO - FALL_HI) * _diff()) * (0.85 + _rnd(2) * 0.4),
     });
+    _spawned++;
 }
 
 function _hit(pid) {
@@ -161,7 +173,10 @@ function _hit(pid) {
     _inv[pid] = INVULN;
     _hitFx[pid] = 0.45;
     sfx('land_bad'); haptic([80, 40, 80]);
-    if (_lives[pid] <= 0) _finish((pid + 1) % 2);
+    if (_lives[pid] <= 0) {
+        if (Solo.isSolo()) _finishSolo();
+        else _finish((pid + 1) % 2);
+    }
 }
 
 function _updateSide(pid, dt) {
@@ -169,7 +184,7 @@ function _updateSide(pid, dt) {
     _spawnT[pid] -= dt;
     if (_spawnT[pid] <= 0) {
         _spawn(pid);
-        _spawnT[pid] = SPAWN_HI + (SPAWN_LO - SPAWN_HI) * _diff() + Math.random() * 0.25;
+        _spawnT[pid] = SPAWN_HI + (SPAWN_LO - SPAWN_HI) * _diff() + _rnd(3) * 0.25;
     }
     // move + collide
     const arr = _meteors[pid];
@@ -218,8 +233,9 @@ function _tick() {
 
     if (_isBot) _botUpdate(dt);
     _updateSide(0, dt);
-    if (!_done) _updateSide(1, dt);
+    if (!_done && !Solo.isSolo()) _updateSide(1, dt);
 
+    if (!_done && Solo.isSolo() && _elapsed >= ROUND_TIME) { _finishSolo(); return; }
     if (!_done && _elapsed >= ROUND_TIME) {
         // Survived: most lives, then most dodged.
         let winner = _lives[0] > _lives[1] ? 0 : _lives[1] > _lives[0] ? 1
@@ -234,6 +250,16 @@ function _tick() {
 function _draw() {
     const w = _overlay.clientWidth, h = _overlay.clientHeight;
     _ctx.clearRect(0, 0, w, h);
+
+    if (Solo.isSolo()) {
+        // No divider, no second half, no rotation: the sky is the whole screen.
+        _drawHalf(0, w, h);
+        const left = Math.max(0, ROUND_TIME - _elapsed);
+        _ctx.fillStyle = left < 5 ? '#ef4444' : 'rgba(255,255,255,0.5)';
+        _ctx.font = '900 22px "Bebas Neue", sans-serif'; _ctx.textAlign = 'center';
+        _ctx.fillText(`${left.toFixed(1)}s`, w / 2, h - 18);
+        return;
+    }
 
     _ctx.strokeStyle = 'rgba(255,255,255,0.12)';
     _ctx.lineWidth = 2;
@@ -283,7 +309,8 @@ function _drawHalf(pid, w, h) {
     _ctx.fillStyle = 'rgba(255,255,255,0.55)';
     _ctx.font = '700 14px Nunito, sans-serif';
     _ctx.textAlign = 'center';
-    _ctx.fillText(`P${pid + 1} · dodged ${_dodges[pid]}`, w / 2, h * 0.26);
+    _ctx.fillText(Solo.isSolo() ? `dodged ${_dodges[pid]}` : `P${pid + 1} · dodged ${_dodges[pid]}`,
+                  w / 2, h * 0.26);
 
     if (_hitFx[pid] > 0) {
         _ctx.fillStyle = `rgba(239,68,68,${0.30 * (_hitFx[pid] / 0.45)})`;
@@ -297,6 +324,26 @@ function _drawHalf(pid, w, h) {
 }
 
 // ── End ───────────────────────────────────────────────────────────────────────
+
+/**
+ * Lives first, dodges as the tiebreak — the same order the 1v1 result uses,
+ * folded into one number so the scores can be compared without the ranking
+ * needing to know anything about this particular game.
+ */
+export function soloScore() { return _lives[0] * 1000 + _dodges[0]; }
+
+function _finishSolo() {
+    if (_done) return;
+    _done = true;
+    const neutral = document.getElementById('mg-neutral');
+    if (neutral) neutral.textContent = _lives[0] > 0
+        ? `SURVIVED — ${_lives[0]} LIVES, ${_dodges[0]} DODGED`
+        : `OUT — ${_dodges[0]} DODGED`;
+    sfx(_lives[0] > 0 ? 'mg_win' : 'land_bad');
+    const banked = soloScore();
+    _after(() => { _destroy(); Solo.soloFinish(banked); }, 1400);
+}
+
 function _finish(winner) {
     if (_done) return;
     _done = true;
@@ -316,5 +363,5 @@ function _destroy() {
     if (_af) { cancelAnimationFrame(_af); _af = null; }
     _ctx = null; _canvas = null;
     if (_overlay) { _overlay.remove(); _overlay = null; }
-    _last = 0; _meteors = [[], []];
+    _last = 0; _meteors = [[], []]; _spawned = 0;
 }

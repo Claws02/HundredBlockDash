@@ -409,6 +409,30 @@
         </div>
     </div>
 
+    <!-- A ROUND PLAYED ON EVERY PHONE AT ONCE
+         The parallel games are solitaires racing a clock: same seed, same
+         challenge, played alone, scores compared. So the screens either side of
+         the game are not the split-screen ones — there is a card that says what
+         is coming and who is in it, a waiting screen for anyone not playing,
+         and a scoreboard everybody reads at the end. -->
+    <div id="solo-layer" style="display:none;">
+        <div class="solo-card" id="solo-card">
+            <div class="solo-kicker bfont" id="solo-kicker">EVERYONE PLAYS</div>
+            <div class="solo-icon" id="solo-icon">🎮</div>
+            <div class="solo-title bfont" id="solo-title">MINIGAME</div>
+            <div class="solo-desc" id="solo-desc"></div>
+            <div class="solo-players" id="solo-players"></div>
+            <div class="solo-note" id="solo-note"></div>
+            <button class="btn-primary bfont" id="btn-solo-go">I'M READY</button>
+        </div>
+        <div class="solo-board" id="solo-board" style="display:none;">
+            <div class="solo-kicker bfont">RESULTS</div>
+            <div class="solo-title bfont" id="solo-board-title">MINIGAME</div>
+            <div class="solo-rows" id="solo-rows"></div>
+            <div class="solo-note" id="solo-board-note"></div>
+        </div>
+    </div>
+
     <!-- Win Screen -->
     <div id="win-screen">
         <div class="win-confetti" id="win-confetti"></div>

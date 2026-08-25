@@ -1228,9 +1228,14 @@ export function announceMinigameIncoming(pair) {
     // Above two seats the round's minigame is a duel between two of them, so
     // the banner has to say WHICH two — otherwise four people all pick the
     // phone up and two of them find out afterwards it was not their turn.
-    const who = Array.isArray(pair) && pair.length === 2 && state.players.length > 2
-        ? `${state.players[pair[0]].name} vs ${state.players[pair[1]].name}`
-        : 'Winner takes the coins — and rolls first';
+    const n = Array.isArray(pair) ? pair.length : 0;
+    // Across phones everybody plays at once, so a banner naming two of four
+    // would be telling the other two to sit down when they are not.
+    const who = n > 2
+        ? `All ${n} of you — highest score wins`
+        : (n === 2 && state.players.length > 2
+            ? `${state.players[pair[0]].name} vs ${state.players[pair[1]].name}`
+            : 'Winner takes the coins — and rolls first');
     el.innerHTML = DualRead.dualHTML(
         '<div class="rb-ic">⚔️</div><div class="rb-name">MINIGAME NEXT</div>' +
         `<div class="rb-tag">${who}</div>`);

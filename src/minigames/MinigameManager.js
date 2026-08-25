@@ -918,6 +918,18 @@ export function registerMinigameCleanup(fn) {
     if (typeof fn === 'function') _minigameCleanups.push(fn);
 }
 
+/**
+ * Tear down whatever game is on screen, right now.
+ *
+ * A networked round is decided by the host, and the host can decide it while
+ * this device is still playing — somebody was slow, or the grace period ran
+ * out. When that happens the game has to come off the screen, or the scoreboard
+ * goes up over a game that is still running and the board underneath never
+ * comes back. Every game registers its own destroy on the way in (R3), which is
+ * exactly what is wanted here.
+ */
+export function forceEndMinigame() { _runMinigameCleanups(); }
+
 function _runMinigameCleanups() {
     while (_minigameCleanups.length) {
         try { _minigameCleanups.pop()(); } catch (e) { console.warn('[MinigameManager] cleanup failed:', e); }

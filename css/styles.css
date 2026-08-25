@@ -2613,3 +2613,63 @@ body:not(.tabletop-mode) #turn-banner.tb-show .tb-bottom.tb-mine {
     border-color: rgba(74,222,128,.55);
     color: #b9f6cd;
 }
+
+/* ============================================================
+   A ROUND PLAYED ON EVERY PHONE AT ONCE
+   ============================================================
+   The split-screen minigame chrome (#minigame-layer) is two players sharing
+   one device. These are the screens around a game played alone on four of
+   them: the card that announces it, and the scoreboard that ends it. */
+#solo-layer {
+    position: fixed; inset: 0; z-index: 260;
+    display: flex; align-items: center; justify-content: center;
+    background: radial-gradient(circle at 50% 35%, #1d1b3a 0%, #0d0c1c 70%);
+    padding: 22px;
+}
+.solo-card, .solo-board {
+    width: 100%; max-width: 420px; text-align: center;
+    display: flex; flex-direction: column; align-items: center; gap: 10px;
+}
+.solo-kicker {
+    font-size: 13px; letter-spacing: 3px; color: var(--gold);
+    text-shadow: 0 0 14px rgba(245,200,66,.5);
+}
+.solo-icon { font-size: 58px; line-height: 1; }
+.solo-title { font-size: 34px; letter-spacing: 1.5px; color: #fff; }
+.solo-desc {
+    font-size: 14px; line-height: 1.5; color: rgba(255,255,255,.72);
+    max-height: 30vh; overflow-y: auto;
+}
+.solo-note { font-size: 12px; color: rgba(255,255,255,.5); min-height: 16px; }
+.solo-players { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+.solo-players .sp {
+    display: flex; align-items: center; gap: 5px;
+    padding: 5px 10px; border-radius: 999px;
+    background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.14);
+    border-left: 3px solid var(--sp, rgba(255,255,255,.3));
+    font-size: 12px; font-weight: 700; color: rgba(255,255,255,.85);
+}
+.solo-players .sp.is-me { background: rgba(245,200,66,.16); border-color: rgba(245,200,66,.5); }
+#btn-solo-go { width: 100%; margin: 6px 0 0; }
+
+/* The scoreboard. One row per player, ordered by score, the winner marked. */
+.solo-rows { width: 100%; display: flex; flex-direction: column; gap: 7px; }
+.solo-row {
+    display: grid; grid-template-columns: 26px 1fr auto; align-items: center; gap: 9px;
+    padding: 11px 13px; border-radius: 12px;
+    background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.11);
+    border-left: 4px solid var(--sp, rgba(255,255,255,.25));
+    font-size: 14px; font-weight: 700; color: rgba(255,255,255,.86);
+}
+.solo-row.is-win {
+    background: rgba(245,200,66,.16); border-color: rgba(245,200,66,.55);
+    color: #fff;
+}
+.solo-row .sr-rank { font-size: 12px; color: rgba(255,255,255,.42); }
+.solo-row.is-win .sr-rank { color: var(--gold); }
+.solo-row .sr-score { font-family: 'Bebas Neue', sans-serif; font-size: 21px; letter-spacing: .5px; }
+.solo-row .sr-you {
+    font-size: 9px; letter-spacing: .8px; padding: 1px 5px; border-radius: 5px; margin-left: 5px;
+    background: rgba(245,200,66,.24); color: var(--gold);
+}
+.solo-row.is-quiet { opacity: .55; font-style: italic; }

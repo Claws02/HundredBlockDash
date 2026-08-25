@@ -164,6 +164,26 @@ export const MG_NET = {
     treeclimb:   'parallel',
 };
 
+// The parallel games whose SCORE is also a coin haul.
+//
+// Loot Catch and Tree Climb are the roster's payday games: what you catch or
+// climb past is money, and everybody keeps theirs whether they win the round or
+// not. Offline the game hands the manager a payout array. Played across phones
+// there is no such array — each device reports one number — so this says which
+// games' numbers are coins, and what the most any one round may pay is.
+//
+// The cap matters. A score is reported by a client, and a client is a device
+// somebody else is holding: an uncapped payout would make "how many coins do I
+// have" a thing another player's phone gets to assert.
+export const MG_PAYOUT = {
+    // Each game's own ceiling, matched to the MAX_PAYOUT it enforces offline —
+    // a cap here that is higher than the one the game applies would pay out
+    // amounts the game cannot actually produce, and would only ever be reached
+    // by a score that did not come from playing it.
+    lootcatch: 30,
+    treeclimb: 30,
+};
+
 /** The games that can be played across phones, in registry order. */
 export const MG_PARALLEL = MG_TYPES.filter(t => MG_NET[t] === 'parallel');
 

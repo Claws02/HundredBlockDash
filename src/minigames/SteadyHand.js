@@ -9,6 +9,7 @@
 import { state } from '../core/GameState.js';
 import { sfx, haptic } from '../engine/AudioManager.js';
 import { registerMinigameCleanup } from './MinigameManager.js';
+import * as Solo from './SoloArena.js';
 
 // ── Tunables ─────────────────────────────────────────────────────────────────
 const GAME_TIME = 22;     // s
@@ -48,10 +49,15 @@ export function start(isBot, onWin, botSkill = 0.55) {
 }
 
 function _initTargets() {
-    const w = _overlay.clientWidth, hh = _overlay.clientHeight / 2;
-    for (const pid of [0, 1]) {
+    const w = _overlay.clientWidth, hh = Solo.soloHalf(_overlay);
+    for (const pid of Solo.pids()) {
         _tx[pid] = w / 2; _ty[pid] = hh / 2;
-        const a = Math.random() * Math.PI * 2;
+        // The target has to set off in the same direction on every phone, or
+        // the "same challenge" the scores are compared on is not the same
+        // challenge. By index like everything else, even though there is only
+        // one draw here — a rule with an exception in it is a rule somebody
+        // will get wrong next time.
+        const a = (Solo.isSolo() ? Solo.draw(pid) : Math.random()) * Math.PI * 2;
         const sp = SPEED0 * hh;
         _vx[pid] = Math.cos(a) * sp; _vy[pid] = Math.sin(a) * sp;
     }
@@ -75,6 +81,9 @@ function _build() {
     // Convert a client point to a half + local coords (top half is rotated 180°).
     const localize = e => {
         const w = _overlay.clientWidth, hh = _overlay.clientHeight / 2;
+        // Alone on your own phone there is no other half to be in: every touch
+        // is yours and the coordinates are the screen's own.
+        if (Solo.isSolo()) return { pid: 0, lx: e.clientX, ly: e.clientY };
         const top = e.clientY < hh;
         const pid = top ? 1 : 0;
         const lx = top ? w - e.clientX : e.clientX;
@@ -138,11 +147,11 @@ function _tick() {
     const dt  = _last === 0 ? 1/60 : Math.min((now - _last) / 1000, 0.1);
     _last = now; _elapsed += dt;
 
-    const w = _overlay.clientWidth, hh = _overlay.clientHeight / 2;
+    const w = _overlay.clientWidth, hh = Solo.soloHalf(_overlay);
     const R = Math.min(w, hh) * R_FRAC;
     const speed = (SPEED0 + SPEED_GROW * _elapsed) * hh;
 
-    for (const pid of [0, 1]) {
+    for (const pid of Solo.pids()) {
         // Move + bounce target within margins.
         const m = R + 6;
         const v = Math.hypot(_vx[pid], _vy[pid]) || 1;
@@ -165,12 +174,16 @@ function _tick() {
     }
 
     // Score time-on-target.
-    for (const pid of [0, 1]) {
+    for (const pid of Solo.pids()) {
         if (_fx[pid] === null) continue;
         if (Math.hypot(_fx[pid] - _tx[pid], _fy[pid] - _ty[pid]) <= R) _score[pid] += dt;
     }
 
     if (_elapsed >= GAME_TIME) {
+        // Played across phones this is not a duel — it is one score, compared
+        // afterwards with everybody else's. Tenths of a second, so the number
+        // people are ranked on is a whole number.
+        if (Solo.isSolo()) return _finishSolo();
         const d = _score[0] - _score[1];
         return _finish(d > 0.15 ? 0 : d < -0.15 ? 1 : -1);
     }
@@ -182,6 +195,15 @@ function _tick() {
 function _draw(R) {
     const w = _overlay.clientWidth, h = _overlay.clientHeight;
     _ctx.clearRect(0, 0, w, h);
+    if (Solo.isSolo()) {
+        // No divider, no second half, no rotation: the playfield is the screen.
+        _drawHalf(0, w, h, R);
+        const left = Math.max(0, GAME_TIME - _elapsed);
+        _ctx.fillStyle = left < 4 ? '#ef4444' : 'rgba(255,255,255,0.55)';
+        _ctx.font = '900 22px "Bebas Neue", sans-serif'; _ctx.textAlign = 'center';
+        _ctx.fillText(`${left.toFixed(1)}s`, w / 2, h - 18);
+        return;
+    }
     _ctx.strokeStyle = 'rgba(255,255,255,0.10)'; _ctx.lineWidth = 2;
     _ctx.beginPath(); _ctx.moveTo(0, h / 2); _ctx.lineTo(w, h / 2); _ctx.stroke();
 
@@ -215,13 +237,27 @@ function _drawHalf(pid, w, hh, R) {
     // Tag + score
     _ctx.fillStyle = accent;
     _ctx.font = '700 18px Nunito, sans-serif'; _ctx.textAlign = 'center'; _ctx.textBaseline = 'alphabetic';
-    _ctx.fillText(`P${pid + 1}`, w / 2, hh * 0.10);
+    _ctx.fillText(Solo.isSolo() ? 'YOU' : `P${pid + 1}`, w / 2, hh * 0.10);
     _ctx.fillStyle = 'rgba(255,255,255,0.9)';
     _ctx.font = '900 26px "Bebas Neue", sans-serif';
     _ctx.fillText(`${_score[pid].toFixed(1)}s`, w / 2, hh * 0.18);
 }
 
 // ── End / cleanup ─────────────────────────────────────────────────────────────
+
+/** Time held on target, in tenths — see SoloArena: higher is always better. */
+export function soloScore() { return Math.round(_score[0] * 10); }
+
+function _finishSolo() {
+    if (_done) return;
+    _done = true;
+    const neutral = document.getElementById('mg-neutral');
+    if (neutral) neutral.textContent = `${_score[0].toFixed(1)}s ON TARGET`;
+    sfx('mg_win');
+    const banked = soloScore();
+    _after(() => { _destroy(); Solo.soloFinish(banked); }, 1200);
+}
+
 function _finish(winnerId) {
     if (_done) return;
     _done = true;

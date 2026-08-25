@@ -38,7 +38,8 @@ import { state } from '../core/GameState.js';
 import * as Scenes from '../ui/Scenes.js';
 import * as Session from './NetSession.js';
 import * as SoloArena from '../minigames/SoloArena.js';
-import { MG_INFO, MG_NET, MG_PARALLEL } from '../config/MinigameRegistry.js';
+import * as SoloRound from '../ui/SoloRound.js';
+import { MG_INFO, MG_NET, MG_PARALLEL, MG_PAYOUT } from '../config/MinigameRegistry.js';
 
 // How long the host will keep waiting after the last expected score fails to
 // arrive. Long enough for a phone that is merely slow, short enough that the
@@ -47,6 +48,10 @@ const GRACE_MS = 12000;
 // A whole round of any parallel game fits inside this comfortably; it is the
 // backstop for a device that answered nothing at all.
 const ROUND_CAP_MS = 90000;
+// How long the scoreboard holds before the board carries on. It is the first
+// time anybody sees how they did against the rest, which is the thing that
+// makes four solitaires into a round — pulling it away immediately wastes it.
+const BOARD_HOLD_MS = 3800;
 
 let _round = null;     // host: the round in progress
 let _localSeats = [];  // every device: the seats this beat is being played by
@@ -120,13 +125,43 @@ function _settle() {
     // can all agree on by looking at it.
     const winner = tied.sort((a, b) => a.seat - b.seat)[0].seat;
 
-    Scenes.emit('soloResult', {
+    // A payday game pays everybody their own haul, win or lose — that is what
+    // makes it a payday game, and dropping it online would quietly turn two of
+    // the roster's games into something else. Capped by the registry: the score
+    // arrived from a device somebody else is holding.
+    const cap = MG_PAYOUT[r.type];
+    const paid = [];
+    if (cap) {
+        table.forEach(t => {
+            const coins = Math.max(0, Math.min(Math.round(t.score), cap));
+            if (!coins) return;
+            const p = state.players[t.seat];
+            if (!p) return;
+            p.coins += coins; p.coinsEarned += coins;
+            paid.push({ seat: t.seat, coins });
+        });
+    }
+
+    const payload = {
         game: r.type,
+        paid,
         table: table.map(t => ({ seat: t.seat, score: t.score, name: state.players[t.seat]?.name || `Player ${t.seat + 1}` })),
         winner,
         tied: tied.length > 1,
-    });
-    if (r.done) r.done(winner, table);
+    };
+    // The announcement reaches the other phones; the host is looking at its own
+    // screen and has to be told the same thing directly.
+    Scenes.emit('soloResult', payload);
+    showResults(payload);
+    // The host drives what happens next, and the scoreboard is the last thing
+    // this round owns. Clients take theirs down off the host's overlay list
+    // (NetProtocol's `ov`), which is how a screen raised on another device is
+    // guaranteed to be dismissable there even if this path never runs.
+    setTimeout(() => {
+        Scenes.emit('soloClose', {});
+        clearScreens();
+        if (r.done) r.done(winner, table);
+    }, BOARD_HOLD_MS);
 }
 
 /** Drop a round in progress — a match ending mid-game, a host leaving. */
@@ -149,13 +184,32 @@ export function abort() {
 export function playLocally(type, seed, seats) {
     _localSeats = Array.isArray(seats) ? seats.slice() : [];
     const me = state.localSeat;
-    if (!_localSeats.includes(me)) return false;
-    SoloArena.play(type, seed, score => {
-        SoloArena.reset();
-        report(me, score);
-    }, ROUND_CAP_MS);
-    return true;
+    const playing = _localSeats.includes(me);
+
+    // The card goes up on every device, including the ones not playing: a phone
+    // that goes quiet for thirty seconds with no explanation reads as a crash,
+    // and a spectator who cannot see who is playing cannot follow the match.
+    SoloRound.showIntro(type, _localSeats, playing, () => {
+        SoloArena.play(type, seed, score => {
+            SoloArena.reset();
+            report(me, score);
+        }, ROUND_CAP_MS);
+    });
+    return playing;
 }
+
+/** Show the round's scores. Every device runs this off the same announcement. */
+export function showResults(payload) {
+    // The round is decided. If this device is somehow still playing — it
+    // started late, or the host's grace period ran out first — the game has to
+    // come off the screen now, or the scoreboard goes up over a running game
+    // and the board underneath never comes back.
+    SoloArena.forceEnd(0);
+    SoloRound.showResults(payload.game, payload.table, payload.winner, payload.tied, payload.paid);
+}
+
+/** Take the round's screens down. */
+export function clearScreens() { SoloRound.hide(); }
 
 /** Send a score to whoever is counting — which on the host is itself. */
 function report(seat, score) {

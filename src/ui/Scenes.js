@@ -58,6 +58,11 @@ export const SCENE_TIER = {
     // announced seed, which is the whole point of a parallel game.
     soloGame:     TIER.SHARED,
     soloResult:   TIER.SHARED,   // the scoreboard, which everybody reads
+    // ...and the instruction to put it away. A round's screens are the one
+    // beat the devices are deliberately out of step on — each player dismisses
+    // their own card when they start playing — so the host cannot say "it is
+    // over" merely by not having it up any more. It has to say so.
+    soloClose:    TIER.SHARED,
     winScreen:    TIER.SHARED,   // the match is over — see NetGame's replay:
                                  // clients render the host's final figures
                                  // rather than re-scoring the match.
