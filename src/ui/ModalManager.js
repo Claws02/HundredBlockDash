@@ -21,6 +21,10 @@ export function init(controller) {
 // ---- Low-level helpers ----
 
 export function showModal(id) {
+    // The one place every modal goes up, and therefore the one place worth
+    // announcing from. Openers that carry content a client cannot rebuild
+    // announce themselves instead (Scenes.SELF_ANNOUNCING).
+    if (!Scenes.SELF_ANNOUNCING.has(id)) Scenes.emit('modal', { id, seat: state.activePlayer });
     document.querySelectorAll('.modal-box').forEach(b => b.style.display = 'none');
     const box = document.getElementById(id);
     box.style.display = 'block';
@@ -322,14 +326,12 @@ export function showPassModal(desc, gateNext = false) {
 // ---- Custom dice modal ----
 
 export function openCustomDiceModal() {
-    Scenes.emit('customDice', { seat: state.activePlayer });
     showModal('custom-dice-modal');
 }
 
 // ---- Shop offer (pass-through) ----
 
 export function showShopOffer() {
-    Scenes.emit('shopOffer', { seat: state.activePlayer });
     state.gameState = 'SHOP';
     showModal('shop-offer-modal');
 }

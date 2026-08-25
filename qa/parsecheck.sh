@@ -135,5 +135,53 @@ if (bad) process.exitCode = 1;
 NODE
 [ $? -ne 0 ] && fail=1
 
-[ $fail -eq 0 ] && echo "static sweep clean (module parse + dead local refs + command bus)"
+# ============================================================
+#   4. EVERY MIRRORED SCENE IS ROUTABLE
+#
+# A full-screen beat announces itself through Scenes.emit(). Online, the host
+# forwards it: SHARED beats to everybody, OWNER beats to the ONE phone named by
+# `seat` on the payload. An owner beat with no seat has nowhere to go, and an
+# unclassified name is not forwarded at all.
+#
+# Both failures are silent, and both freeze a networked match: the player whose
+# decision it is sits looking at a board with nothing to press. That has now
+# happened three times — the result card with no seat, and twice a modal raised
+# through a path that never announced it — so it is checked rather than
+# remembered.
+# ============================================================
+node - "$DIR" <<'NODE'
+const fs = require('fs'), path = require('path');
+const root = process.argv[2];
+function walk(d) {
+  return fs.readdirSync(d, { withFileTypes: true }).flatMap(e => {
+    const p = path.join(d, e.name);
+    return e.isDirectory() ? walk(p) : (e.name.endsWith('.js') ? [p] : []);
+  });
+}
+const scenesFile = path.join(root, 'ui', 'Scenes.js');
+if (!fs.existsSync(scenesFile)) process.exit(0);
+const block = /SCENE_TIER = \{([\s\S]*?)\n\};/.exec(fs.readFileSync(scenesFile, 'utf8'));
+const tier = {};
+if (block) for (const m of block[1].matchAll(/^ {4}([A-Za-z]\w*):\s*TIER\.(\w+)/gm)) tier[m[1]] = m[2];
+
+let bad = 0;
+for (const file of walk(root)) {
+  if (file.includes('/archived/') || file.endsWith('Scenes.js')) continue;
+  const src = fs.readFileSync(file, 'utf8');
+  for (const m of src.matchAll(/Scenes\.emit\('([A-Za-z]\w*)',\s*(\{[\s\S]*?\})\s*\)/g)) {
+    const [, name, payload] = m;
+    if (!tier[name]) {
+      console.log(`UNCLASSIFIED SCENE: ${file} emits "${name}", absent from SCENE_TIER — it is never mirrored`);
+      bad++;
+    } else if (tier[name] === 'OWNER' && !/\bseat\b/.test(payload)) {
+      console.log(`UNSEATED SCENE: ${file} emits owner scene "${name}" with no seat — it has no phone to go to`);
+      bad++;
+    }
+  }
+}
+if (bad) process.exitCode = 1;
+NODE
+[ $? -ne 0 ] && fail=1
+
+[ $fail -eq 0 ] && echo "static sweep clean (module parse + dead local refs + command bus + scene routing)"
 exit $fail

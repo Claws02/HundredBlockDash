@@ -205,15 +205,15 @@ function _replayScene(kind, p, Modal, UI) {
         case 'shop':
             Modal.openShop(p.district, p.discount);
             return;
-        case 'shopOffer':
-            Modal.showShopOffer();
+        case 'modal':
+            // Reproduced from its id alone. Everything with content a snapshot
+            // cannot carry has its own case below.
+            Modal.showModal(p.id);
             return;
         case 'useItems':
             Modal.openUseModal();
             return;
-        case 'customDice':
-            Modal.openCustomDiceModal();
-            return;
+
         case 'dropPick': {
             const player = state.players[p.seat];
             if (player) Modal.openDropModal(player, p.newItemId, p.cost, p.returnState);

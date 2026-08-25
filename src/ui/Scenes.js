@@ -44,16 +44,33 @@ export const SCENE_TIER = {
                                  // rather than re-scoring the match.
     closeAll:     TIER.SHARED,   // "whatever was up, take it down"
 
+    // Any modal raised through showModal() that needs nothing but its own id
+    // to be reproduced — the shop offer, the dice picker, the pass prompt.
+    modal:        TIER.OWNER,
     shop:         TIER.OWNER,
-    shopOffer:    TIER.OWNER,
     useItems:     TIER.OWNER,
     dropPick:     TIER.OWNER,
     duelBet:      TIER.OWNER,
-    customDice:   TIER.OWNER,
     junction:     TIER.OWNER,
     allyEncounter:TIER.OWNER,
     allySteal:    TIER.OWNER,
 };
+
+// Modals whose OPENER announces them with content the client cannot rebuild
+// from a snapshot — the shop's stock and discount, the bag's contents, the
+// wager's limits, the card's own text. Those keep their own scene above and are
+// skipped by the generic announcement in showModal(), or they would go out
+// twice.
+//
+// Everything NOT in here is announced by showModal() itself. That is the point:
+// three separate stalls in networked play were a modal raised through a path
+// that forgot to announce it, the last one because `_checkPassThroughShop`
+// calls showModal('shop-offer-modal') directly rather than going through
+// showShopOffer(). Announcing at the single place a modal actually goes up is
+// the only version of this that cannot be forgotten.
+export const SELF_ANNOUNCING = new Set([
+    'msg-modal', 'shop-modal', 'use-modal', 'drop-modal', 'duel-modal',
+]);
 
 const _subs = [];
 let _replaying = false;
