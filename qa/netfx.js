@@ -379,12 +379,26 @@ function peak(samples, key) {
         const turnOwner = await host.evaluate(async () =>
             (await import('/src/core/GameState.js')).state.activePlayer);
         await host.waitForTimeout(700);
-        const swipe = await pages[turnOwner].evaluate(() => {
+        const swipe = await pages[turnOwner].evaluate(async () => {
+            const S = (await import('/src/core/GameState.js')).state;
             const z = document.getElementById('swipe-zone');
-            return { armed: !!z && z.classList.contains('act'),
-                     visible: !!z && getComputedStyle(z).display !== 'none' };
+            const p = S.players[S.activePlayer];
+            // Report the CONDITIONS, not just the outcome. "armed=false" alone
+            // says nothing about which of the four reasons it is.
+            return {
+                armed: !!z && z.classList.contains('act'),
+                visible: !!z && getComputedStyle(z).display !== 'none',
+                why: {
+                    online:   S.playStyle === 'online',
+                    mySeat:   S.localSeat === S.activePlayer,
+                    localSeat: S.localSeat, active: S.activePlayer,
+                    gs:       S.gameState,
+                    notBot:   !!p && !p.isBot,
+                    modalUp:  document.body.classList.contains('modal-open'),
+                },
+            };
         });
-        notes.push(`swipe zone on seat ${turnOwner} (${turnOwner ? 'client' : 'host'}): ${JSON.stringify(swipe)}`);
+        notes.push(`swipe zone on seat ${turnOwner} (${turnOwner ? 'client' : 'host'}): armed=${swipe.armed} why=${JSON.stringify(swipe.why)}`);
         ok('the seat whose turn it is can swipe to roll', swipe.armed === true,
             `seat ${turnOwner}: ${JSON.stringify(swipe)}`);
         // And nobody else's is armed — a live swipe on the wrong phone is a
