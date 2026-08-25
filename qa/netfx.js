@@ -47,6 +47,19 @@ async function newPage(ctx, label, errors) {
     await page.waitForFunction(() => !!window.__QA, null, { timeout: 20000 });
     await page.waitForFunction(() => !!window.CITY_GRAPH_REF, null, { timeout: 30000 });
     await page.evaluate(() => window.__QA.bind());
+    // The roll callout is up for ~1.5 s and each sample costs two cross-page
+    // round trips, so polling for it catches it perhaps three times in four —
+    // it has now failed once on the client and once on the HOST, which is what
+    // finally showed the flap was in the measurement. Record it at the source
+    // instead: an observer on the class that shows it cannot miss it.
+    await page.evaluate(() => {
+        window.__calloutSeen = false;
+        const el = document.getElementById('roll-callout');
+        if (!el) return;
+        const note = () => { if (el.classList.contains('up')) window.__calloutSeen = true; };
+        note();
+        new MutationObserver(note).observe(el, { attributes: true, attributeFilter: ['class'] });
+    });
     return page;
 }
 
@@ -239,8 +252,8 @@ function peak(samples, key) {
         const cliDice   = peak(trace.client, 'dice');
         const hostAnims = peak(trace.host, 'anims');
         const cliAnims  = peak(trace.client, 'anims');
-        const hostCallout = trace.host.some(s => s && s.rollCallout);
-        const cliCallout  = trace.client.some(s => s && s.rollCallout);
+        const hostCallout = await host.evaluate(() => !!window.__calloutSeen);
+        const cliCallout  = await client.evaluate(() => !!window.__calloutSeen);
         const cliBanner   = trace.client.some(s => s && s.turnBanner);
         const cliCam    = new Set(trace.client.filter(Boolean).map(s => (s.cam || []).join(','))).size;
         const hostCam   = new Set(trace.host.filter(Boolean).map(s => (s.cam || []).join(','))).size;
@@ -373,12 +386,29 @@ function peak(samples, key) {
         // ---- swipe-to-roll has to be armed on the joined device -------------
         // `showSwipeZone()` lives inside the turn engine, which a client never
         // enters, so the zone was never armed and the swipe did nothing.
-        await host.waitForFunction(async () =>
-            (await import('/src/core/GameState.js')).state.gameState === 'PRE_ROLL',
-            null, { timeout: 120000 }).catch(() => {});
-        const turnOwner = await host.evaluate(async () =>
-            (await import('/src/core/GameState.js')).state.activePlayer);
-        await host.waitForTimeout(700);
+        // Wait for the moment the swipe is ACTUALLY due, on the device that
+        // owns it. Waiting for the host to reach PRE_ROLL and then sleeping
+        // measured the client mid-shop — where an unarmed swipe is correct —
+        // and read that as the feature being broken.
+        let turnOwner = 0, swipeWindow = null;
+        const swipeDeadline = Date.now() + 180000;
+        while (Date.now() < swipeDeadline) {
+            turnOwner = await host.evaluate(async () =>
+                (await import('/src/core/GameState.js')).state.activePlayer);
+            swipeWindow = await pages[turnOwner].evaluate(async () => {
+                const S = (await import('/src/core/GameState.js')).state;
+                return {
+                    ready: S.gameState === 'PRE_ROLL'
+                        && S.localSeat === S.activePlayer
+                        && !document.body.classList.contains('modal-open'),
+                    gs: S.gameState,
+                };
+            });
+            if (swipeWindow.ready) break;
+            await host.waitForTimeout(400);
+        }
+        notes.push(`swipe checked at gs=${swipeWindow && swipeWindow.gs} on seat ${turnOwner}`);
+
         const swipe = await pages[turnOwner].evaluate(async () => {
             const S = (await import('/src/core/GameState.js')).state;
             const z = document.getElementById('swipe-zone');
