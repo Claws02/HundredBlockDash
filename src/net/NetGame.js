@@ -70,8 +70,22 @@ export function init(controller) {
     // whose decision it is; SHARED beats go to everybody.
     Scenes.onScene((name, payload, tier) => {
         if (!Session.isHost()) return;
-        const target = tier === 'owner' ? _peerForSeat(payload.seat) : undefined;
-        if (tier === 'owner' && !target) return;    // it is the host's own beat
+        let target;
+        if (tier === 'owner') {
+            // An owner beat with no seat on it used to fall through this and be
+            // dropped in silence, which is how every result card stopped
+            // reaching the player it was about. Default to whoever is up —
+            // that is what an owner beat means — and say so when it happens,
+            // because a beat that has to be guessed at is a missing `seat`.
+            let seat = payload.seat;
+            if (typeof seat !== 'number') {
+                console.warn(`[net] owner scene "${name}" carried no seat; assuming the active player`);
+                seat = state.activePlayer;
+            }
+            if (seat === Session.mySeat()) return;   // it is the host's own beat
+            target = _peerForSeat(seat);
+            if (!target) return;                     // that seat has no phone on it
+        }
         T.send({ t: MSG.SCENE, v: PROTOCOL_VERSION, k: name, p: _stripPayload(payload) }, target);
     });
 

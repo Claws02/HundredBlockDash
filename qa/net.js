@@ -209,8 +209,8 @@ async function snap(page) {
         const disagreements = [];
         let rollsFromClients = 0;
         let lastCheckedTurn = -1;
-        // Default budget assumes ~175 s per turn with three pages (see the pace
-        // note below) and asks for enough headroom to clear the two-turn bar.
+        // Budget for four turns with headroom. Measured pace once the stall
+        // described below was fixed is the number to check this against.
         const loopStart = Date.now();
         const deadline = loopStart + parseInt(process.env.QA_BUDGET || '700', 10) * 1000;
 
@@ -268,22 +268,26 @@ async function snap(page) {
 
         // How far it got, and how fast.
         //
-        // The bar is TWO completed turns, and it is set by this container
-        // rather than by the game. A one-page local match paces at ~58 s per
-        // turn on software GL (dice physics alone has a ~7 s median); three
-        // pages rendering the same board contend for the same four cores and
-        // measure at roughly three times that. Runs here have produced 1–2
-        // turns inside a 6–7 minute budget, which is the machine, not a stall.
+        // FOUR turns, so the rotation is exercised rather than sampled: at three
+        // seats that is every player taking one and the turn coming back round.
         //
-        // What a real stall looks like is different and this still catches it:
-        // zero hand-overs, or a pace that has collapsed relative to the numbers
-        // above. The property that networked play is CORRECT is carried by the
-        // convergence assertion, which by construction only fires on turns that
-        // actually happened.
+        // This assertion earned its keep. I once read a low count here as this
+        // container being slow and relaxed the bar accordingly — and the low
+        // count was a real stall. Owner-tier scenes are routed to one phone by
+        // the `seat` on their payload, the result card was emitted without one,
+        // and so the most common beat in the game was dropped instead of
+        // delivered. A client's turn reached "here is what happened to you" and
+        // stopped there with nothing to press. The host's own turns completed
+        // normally, which is exactly why the count was low rather than zero,
+        // and why it looked like slowness.
+        //
+        // So: a shortfall here is a stall until proven otherwise. The pace is
+        // printed to make that judgement from evidence rather than from a
+        // guess about the hardware.
         const played = await snap(pages[0]);
         const secs = Math.round((Date.now() - loopStart) / 1000);
         const pace = played.turns ? Math.round(secs / played.turns) : Infinity;
-        ok('the match advances through networked turns', played.turns >= 2,
+        ok('the match advances through networked turns', played.turns >= 4,
             `${played.turns} turns in ${secs}s (${pace === Infinity ? 'no' : pace + 's per'} turn)`);
 
         // ---- 6. shared beats travel; owner beats do not -----------------------

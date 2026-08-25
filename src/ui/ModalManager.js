@@ -51,7 +51,16 @@ export function closeAllModals() {
 //              the card; the opponent gets a headline strip on their own edge.
 // Default is 'owner', which is what the great majority of these are.
 export function showMessage(title, desc, icon, opts = {}) {
-    Scenes.emit('message', { title, desc, icon, tier: opts.tier || 'owner', ticker: opts.ticker });
+    // `seat` matters as much as the text. An owner-tier card is routed to ONE
+    // phone, and a card with no seat on it has nowhere to go — it was being
+    // dropped rather than delivered. That is the RESULT CARD, the most common
+    // beat in the game, so a client's turn reached "what happened to you" and
+    // simply stopped: nothing to press, no way to end the turn.
+    Scenes.emit('message', {
+        title, desc, icon, ticker: opts.ticker,
+        tier: opts.tier || 'owner',
+        seat: state.activePlayer,
+    });
     state.msgModalResolving = false;
     document.getElementById('msg-icon').textContent  = icon || '';
     document.getElementById('msg-title').textContent = title;
