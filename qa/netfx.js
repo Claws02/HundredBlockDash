@@ -219,6 +219,33 @@ function peak(samples, key) {
         // waiting line while the host's dice settle.
         notes.push(`dice on client: ${cliDice} (host ${hostDice}) — not mirrored by design`);
 
+        // ---- the hand-over announcement -------------------------------------
+        // Sampled above only by luck: the banner fires at the START of a turn,
+        // which is before this probe's window opens. So raise one deliberately
+        // and check it lands on the other device — it is a SHARED scene and
+        // was host-only until this session, which is exactly the kind of thing
+        // that goes unnoticed because the host always looks correct.
+        await host.evaluate(async () => {
+            const UI = await import('/src/ui/UIManager.js');
+            UI.showTurnBanner(1, { sub: 'mirror check' });
+        });
+        await host.waitForTimeout(1200);
+        const banner = [];
+        for (const [who, pg] of [['host', host], ['client', client]]) {
+            banner.push([who, await pg.evaluate(() => {
+                const el = document.getElementById('turn-banner');
+                if (!el || getComputedStyle(el).display === 'none') return null;
+                const card = el.querySelector('.tb-card.tb-active') || el.querySelector('.tb-card');
+                return card ? (card.textContent || '').replace(/\s+/g, ' ').trim() : null;
+            })]);
+        }
+        notes.push(`turn banner: ${banner.map(([w, v]) => `${w}=${JSON.stringify(v)}`).join(' ')}`);
+        ok('the turn announcement reaches the other device',
+            !!banner[1][1], `host ${JSON.stringify(banner[0][1])}, client ${JSON.stringify(banner[1][1])}`);
+        // The client is seat 1, so the banner it was just shown is about IT.
+        ok('the announcement says YOU on the device it is about',
+            /YOU/i.test(banner[1][1] || ''), banner[1][1] || '(nothing)');
+
         ok('no page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
         await client.screenshot({ path: path.join(__dirname, 'shot-netfx-client.png') });
         await host.screenshot({ path: path.join(__dirname, 'shot-netfx-host.png') });
