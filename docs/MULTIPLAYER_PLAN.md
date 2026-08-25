@@ -269,7 +269,7 @@ src/ui/Lobby.js            host / join / roster / character pick / START.
 vendor/trystero-*.min.js   two bundled strategies + a rebuild note.
 ```
 
-**Three decisions worth knowing about.**
+**Four decisions worth knowing about.**
 
 1. **The host polls its own state at 20 Hz rather than emitting from the turn
    flow.** There are ~40 places that mutate state during a turn; the first one
@@ -283,7 +283,13 @@ vendor/trystero-*.min.js   two bundled strategies + a rebuild note.
    that entry, so a client's copy is inert for the whole match and has nothing
    to fight the snapshots with.
 
-3. **Owner beats do not travel.** A snapshot says what the game *is*; it cannot
+3. **The host is checked like everybody else.** A client's intent goes through
+   `NetSync.authorised()`; the host's own presses originally went straight
+   through, because locally a control is only rendered for the seat whose turn
+   it is. Over the wire that guarantees nothing — the probe caught the host
+   rolling on another player's go — so the same function now gates both.
+
+4. **Owner beats do not travel.** A snapshot says what the game *is*; it cannot
    say that the shop is open, headed *Back Alley*, at 20% off. So beats are
    mirrored separately — and classified. The shop, the item bag, the discard
    picker, the wager and the junction fork go to *one* phone. Putting them on
@@ -310,6 +316,7 @@ vendor/trystero-*.min.js   two bundled strategies + a rebuild note.
 |---|---|
 | `qa/fourlocal.js` | Real 3- and 4-seat hot-seat matches to the win screen: seat/array sizing, turn rotation, the solo HUD (including the stale-`data-roll` soft lock), token spread, minigames as duels with untouched bystanders, ranked result cards. |
 | `qa/net.js` | N pages in one browser over the loopback transport: one room, ordered seats, the match starting everywhere, **every page agreeing with the host at every turn boundary**, a client rolling its own dice, a press from the wrong page being refused, and shared-vs-owner beat routing. |
+| `qa/parsecheck.sh` | Now also checks the **command bus agrees with itself**: no command invoked without an implementation, none implemented that nothing invokes, and no name registered twice (whichever module body runs last would silently win). Nothing in JavaScript connects `Commands.run('roll')` to its registration, and on a client a broken name fails on the HOST, where nobody is looking. |
 
 `qa/net.js` substitutes the WebRTC hop, and nothing run in one browser can
 prove two phones will find each other. **Two real devices on real WiFi is the

@@ -46,9 +46,20 @@ export function init(controller) {
     // one that has arrived over the wire, so this only ever sees a press made
     // on this device.
     Commands.setDispatcher((name, args) => {
-        if (!Session.isClient()) return false;      // host and offline: run it
-        Session.sendIntent(name, args);
-        return true;                                // handled — do not run locally
+        if (Session.isClient()) { Session.sendIntent(name, args); return true; }
+
+        // The HOST is a player too, and its presses were the one path into the
+        // game with no authority behind them at all: a client's intent is
+        // checked by Sync.authorised(), but the host called straight through.
+        // Locally that was invisible, because a control is only rendered for
+        // the seat whose turn it is — over the wire "the button was not on
+        // screen" guarantees nothing, and the host could roll on somebody
+        // else's go. Same rule, same function, applied to its own seat.
+        if (Session.isHost() && !Sync.authorised(Session.mySeat(), name, args)) return true;
+
+        // Offline: every local mode passes one device around, so the seat that
+        // may act is whichever one is up — there is nothing to check here.
+        return false;
     });
 
     Session.on('intent', payload => Sync.applyIntent(payload));

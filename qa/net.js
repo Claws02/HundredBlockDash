@@ -208,6 +208,7 @@ async function snap(page) {
         // ---- 3 + 4. play, and check everybody agrees --------------------------
         const disagreements = [];
         let rollsFromClients = 0;
+        let lastCheckedTurn = -1;
         const deadline = Date.now() + parseInt(process.env.QA_BUDGET || '420', 10) * 1000;
 
         while (Date.now() < deadline) {
@@ -230,7 +231,11 @@ async function snap(page) {
             // was, then read the clients, then confirm the host has STILL not
             // moved. Only a mismatch inside a window where the host was
             // provably idle counts.
-            if (host.gs === 'PRE_ROLL') {
+            // Once per TURN, not once per poll. The settle-and-compare below
+            // costs a second and four cross-page round trips, and running it on
+            // every iteration ate the whole budget for two turns of play.
+            if (host.gs === 'PRE_ROLL' && host.turns !== lastCheckedTurn) {
+                lastCheckedTurn = host.turns;
                 await pages[0].waitForTimeout(500);
                 const settled = await snap(pages[0]);
                 if (settled.gs === 'PRE_ROLL' && settled.turns === host.turns

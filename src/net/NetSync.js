@@ -70,7 +70,7 @@ export function stop() {
 export function applyIntent({ seat, name, args }) {
     if (!Session.isHost()) return;
     if (!Commands.has(name)) return;
-    if (!_authorised(seat, name, args)) return;
+    if (!authorised(seat, name, args)) return;
     Commands.runLocal(name, ...args);
 }
 
@@ -97,7 +97,7 @@ const ONLY_IN = {
     pathChoice: new Set(['MOVING', 'BRANCH', 'MAP', 'PRE_ROLL']),
 };
 
-function _authorised(seat, name, args) {
+export function authorised(seat, name, args) {
     if (typeof seat !== 'number' || !state.players[seat]) return false;
     const beats = ONLY_IN[name];
     if (beats && !beats.has(state.gameState)) return false;
