@@ -4,9 +4,11 @@
 // ============================================================
 
 import { state } from '../core/GameState.js';
+import * as Commands from '../core/Commands.js';
+import * as Scenes from './Scenes.js';
 import { ITEMS, ALLIES, SPACE_META, SPACE_DESCS, DISTRICT_BIOMES, HQ_META, CHAR_ICONS,
          getActiveRealms, HBD_FINISH_BONUS, CITY_DEFAULT_ROUNDS,
-         hbdSpaceLabel, getRealmForSpace } from '../config/GameConfig.js';
+         hbdSpaceLabel, getRealmForSpace, PLAYER_SLOTS } from '../config/GameConfig.js';
 import { COUNTED_TYPES } from '../config/ContractPool.js';
 import { SCENE } from '../config/SceneTiming.js';
 import * as DualRead from './DualRead.js';
@@ -18,8 +20,8 @@ import * as ActiveMap from '../config/ActiveMap.js';
 const MAP_DRAG_GAIN = 0.055;
 
 let _controller = null;
-const _coinTargets = [0, 0];
-const _coinCurrent = [0, 0];
+const _coinTargets = [];
+const _coinCurrent = [];
 let   _coinFrame   = null;
 
 // Path choice overlay — one stored callback handles both branch choice and Cabbie picker
@@ -46,65 +48,190 @@ export function init(controller) {
 
 // ---- HUD ----
 
+// ============================================================
+// HUD LAYOUT — two seats, or three-to-four
+// ============================================================
+// Two players get the layout the game shipped with: a full bar pinned to each
+// edge of the screen, one per seat. That is what tabletop needs (the top bar is
+// rotated 180° for the player on the far side) and what every existing QA probe
+// reads, so it is left exactly as it was.
+//
+// Three or four seats do not fit that way — four full-height bars leave no
+// board. So above two, and in online play at any count, the HUD switches to
+// ONE full bar for the seat this device is playing, plus a compact strip of
+// rival chips along the top. It is also the correct shape for online: on your
+// phone you are always the player at the bottom.
+function hudMode() {
+    return (state.playStyle === 'online' || state.players.length > 2) ? 'solo' : 'duo';
+}
+
+// Which seat owns the full bar on THIS device. Online it is fixed — the seat
+// this phone was given in the lobby. Locally the device is passed around, so it
+// follows whoever is up.
+export function focusSeat() {
+    if (typeof state.localSeat === 'number' && state.players[state.localSeat]) return state.localSeat;
+    return state.activePlayer;
+}
+
+// Where seat `i`'s coin readout lives right now: its own bar in duo mode or
+// when it is the focus seat, otherwise its chip in the rival strip.
+function _coinEl(i) {
+    if (hudMode() === 'duo') return document.getElementById(`p${i + 1}-coins`);
+    if (i === focusSeat())   return document.getElementById('p1-coins');
+    return document.getElementById(`rival-coins-${i}`);
+}
+
+// The controls in an action row, and the dataset key each one answers to.
+// Looked up by CLASS, never by the seat already on them: the whole point is
+// that the seat is what changes.
+const ROW_CONTROLS = [
+    ['.roll-btn',   'roll'],
+    ['.map-btn',    'map'],
+    ['.items-btn',  'items'],
+    ['.bounty-btn', 'bounties'],
+    ['.cabbie-btn', 'cabbie'],
+];
+
+// Stamp an action row with the seat it acts for — or, with `seat === null`,
+// take the seat off it entirely.
+//
+// That null case is not tidiness. `#p2-actions` comes BEFORE `#p1-actions` in
+// the document, so while it still carried `data-roll="1"` a plain
+// `querySelector('[data-roll="1"]')` returned the hidden row's button and every
+// caller concluded there was no roll button on screen. In a three- or
+// four-player match that is a soft lock on the first turn seat 1 takes.
+function _assignRow(dom, seat) {
+    const row = document.getElementById(`p${dom}-actions`);
+    if (!row) return;
+    ROW_CONTROLS.forEach(([sel, key]) => {
+        const b = row.querySelector(sel);
+        if (!b) return;
+        if (seat === null) delete b.dataset[key];
+        else b.dataset[key] = String(seat);
+    });
+}
+
+// Paint one full HUD bar. `dom` is which bar (1 = bottom, 2 = top), `seat` is
+// whose data goes in it. In duo mode those are the same number; in solo mode
+// bar 1 carries whichever seat this device is playing.
+function _paintBar(dom, seat) {
+    const p = state.players[seat];
+    if (!p) return;
+    const isActive = seat === state.activePlayer;
+
+    document.getElementById(`p${dom}-inv`).innerHTML = p.inv
+        .map(it => `<div class="inv-slot" title="${ITEMS[it]?.name || it}">${ITEMS[it]?.icon || '?'}</div>`)
+        .join('');
+    const bar = document.getElementById(`hud-p${dom}`);
+    bar.classList.toggle('active-turn', isActive);
+    // A custom property, not the border colours directly: each bar accents a
+    // different edge and the other three sides are the panel's own hairline.
+    // Setting borderTopColor/borderBottomColor here repainted that hairline too.
+    bar.style.setProperty('--seat', PLAYER_SLOTS[seat].hex);
+
+    // The action row belongs to the SEAT, not to the bar it is drawn under, so
+    // its buttons carry the seat on their dataset and main.js reads it at click
+    // time. In solo mode that is how the bottom row acts for seat 2 or 3.
+    const row = document.getElementById(`p${dom}-actions`);
+    row.style.display = (isActive && state.gameState === 'PRE_ROLL' && !p.isBot) ? 'flex' : 'none';
+    _assignRow(dom, seat);
+
+    // The bag carries its own count. Players were reaching the end of a
+    // match holding three unused items because nothing on screen said they
+    // had any — the button looked identical full or empty.
+    const itemsBtn = row.querySelector('.items-btn');
+    if (itemsBtn) {
+        // Only the label span — the button also holds its icon, and
+        // rewriting textContent would throw both away.
+        const tx = itemsBtn.querySelector('.ba-tx');
+        if (tx) tx.textContent = p.inv.length ? `ITEMS ${p.inv.length}` : 'ITEMS';
+        itemsBtn.classList.toggle('empty', p.inv.length === 0);
+    }
+
+    document.getElementById(`p${dom}-pos-badge`).textContent = _posLabel(p);
+    _updateAllySlots(dom - 1, p);
+
+    // The map view works on both boards, so the button is always available
+    // on your own turn. (It used to be a dead control on HBD.)
+    const mapBtn = row.querySelector('.map-btn');
+    if (mapBtn) mapBtn.style.display = '';
+
+    // Bounties are a City Circuit rule, so the button only exists there.
+    const bqBtn = row.querySelector('.bounty-btn');
+    if (bqBtn) bqBtn.style.display = ActiveMap.has('bounties') ? '' : 'none';
+
+    // Show Cabbie button if player has Cabbie ally and hasn't used it this round
+    const cabbieBtn = row.querySelector('.cabbie-btn');
+    if (cabbieBtn) {
+        const hasCabbie = p.allies.some(a => a.type === 'cabbie') && !p.cabbieUsedThisRound;
+        cabbieBtn.style.display = (isActive && state.gameState === 'PRE_ROLL' && !p.isBot && hasCabbie) ? '' : 'none';
+    }
+}
+
+// Where a player is, in the words that board uses.
+function _posLabel(p) {
+    if (ActiveMap.isLinear()) {
+        // Read the finish from the live layout — a 50- or 75-block run never
+        // reaches space 99, so a hardcoded 99 never showed "FINISHED!".
+        const finish = state.hbd ? state.hbd.finish : 99;
+        return typeof p.pos === 'number'
+            ? (p.pos >= finish ? 'FINISHED!' : `Space ${p.pos} / ${finish}`)
+            : 'Space 0';
+    }
+    const node = ActiveMap.graph()[p.pos];
+    const key  = node?.district || 'ring';
+    return DISTRICT_BIOMES[key]?.name || ActiveMap.regionName(key) || key;
+}
+
+// The compact strip: one chip per rival, in seat order so nothing jumps around
+// between turns. Carries the four things you actually check on someone else —
+// who, how rich, how many items, and whether it is their go.
+function _paintRivalStrip(focus) {
+    const host = document.getElementById('hud-rivals');
+    if (!host) return;
+    host.innerHTML = state.players.filter(p => p.id !== focus).map(p => {
+        const slot = PLAYER_SLOTS[p.id];
+        const up   = p.id === state.activePlayer ? ' rival-up' : '';
+        const bot  = p.isBot ? '<span class="bot-badge">BOT</span>' : '';
+        const bag  = p.inv.length ? `<span class="rc-bag">🎒${p.inv.length}</span>` : '';
+        const bud  = (ActiveMap.has('bounties') && p.allies.length)
+            ? `<span class="rc-bud">${p.allies.map(a => ALLIES[a.type]?.icon || '?').join('')}</span>` : '';
+        return `<div class="rival-chip${up}" style="--rc:${slot.hex}">` +
+               `<span class="rc-name">${slot.icon} ${p.name}${bot}</span>` +
+               `<span class="rc-coins">💰<span id="rival-coins-${p.id}">${p.coins}</span></span>` +
+               `${bag}${bud}<span class="rc-pos">${_posLabel(p)}</span></div>`;
+    }).join('');
+}
+
 export function updateUI() {
+    const mode = hudMode();
+    document.body.dataset.hudMode = mode;
+
+    // Coin readouts animate for every seat, wherever that seat is drawn.
     state.players.forEach((p, i) => {
         if (_coinTargets[i] !== p.coins) animateCoinDisplay(i, p.coins);
-        document.getElementById(`p${i + 1}-inv`).innerHTML = p.inv
-            .map(it => `<div class="inv-slot" title="${ITEMS[it]?.name || it}">${ITEMS[it]?.icon || '?'}</div>`)
-            .join('');
-        const isActive = i === state.activePlayer;
-        document.getElementById(`hud-p${i + 1}`).classList.toggle('active-turn', isActive);
-        document.getElementById(`p${i + 1}-actions`).style.display =
-            (isActive && state.gameState === 'PRE_ROLL' && !p.isBot) ? 'flex' : 'none';
-
-        // The bag carries its own count. Players were reaching the end of a
-        // match holding three unused items because nothing on screen said they
-        // had any — the button looked identical full or empty.
-        const itemsBtn = document.querySelector(`[data-items="${i}"]`);
-        if (itemsBtn) {
-            // Only the label span — the button also holds its icon, and
-            // rewriting textContent would throw both away.
-            const tx = itemsBtn.querySelector('.ba-tx');
-            if (tx) tx.textContent = p.inv.length ? `ITEMS ${p.inv.length}` : 'ITEMS';
-            itemsBtn.classList.toggle('empty', p.inv.length === 0);
-        }
-
-        // Position badge
-        let districtLabel;
-        if (ActiveMap.isLinear()) {
-            // Read the finish from the live layout — a 50- or 75-block run never
-            // reaches space 99, so a hardcoded 99 never showed "FINISHED!".
-            const finish = state.hbd ? state.hbd.finish : 99;
-            districtLabel = typeof p.pos === 'number'
-                ? (p.pos >= finish ? 'FINISHED!' : `Space ${p.pos} / ${finish}`)
-                : 'Space 0';
-        } else {
-            const node = ActiveMap.graph()[p.pos];
-            const districtKey = node?.district || 'ring';
-            const biome = DISTRICT_BIOMES[districtKey];
-            districtLabel = biome?.name || ActiveMap.regionName(districtKey) || districtKey;
-        }
-        document.getElementById(`p${i + 1}-pos-badge`).textContent = districtLabel;
-
-        // Ally HUD slots
-        _updateAllySlots(i, p);
-
-        // The map view works on both boards, so the button is always available
-        // on your own turn. (It used to be a dead control on HBD.)
-        const mapBtn = document.querySelector(`[data-map="${i}"]`);
-        if (mapBtn) mapBtn.style.display = '';
-
-        // Bounties are a City Circuit rule, so the button only exists there.
-        const bqBtn = document.querySelector(`[data-bounties="${i}"]`);
-        if (bqBtn) bqBtn.style.display = ActiveMap.has('bounties') ? '' : 'none';
-
-        // Show Cabbie button if player has Cabbie ally and hasn't used it this round
-        const cabbieBtn = document.querySelector(`[data-cabbie="${i}"]`);
-        if (cabbieBtn) {
-            const hasCabbie = p.allies.some(a => a.type === 'cabbie') && !p.cabbieUsedThisRound;
-            cabbieBtn.style.display = (isActive && state.gameState === 'PRE_ROLL' && !p.isBot && hasCabbie) ? '' : 'none';
-        }
     });
+
+    if (mode === 'duo') {
+        document.getElementById('hud-p2').style.display = '';
+        const strip = document.getElementById('hud-rivals');
+        if (strip) strip.innerHTML = '';
+        _paintBar(1, 0);
+        _paintBar(2, 1);
+    } else {
+        // One bar, always at the bottom, always this device's player. The
+        // second bar and its action row are stood down entirely — leaving them
+        // hidden but populated is how a stale ROLL button ends up live.
+        document.getElementById('hud-p2').style.display = 'none';
+        document.getElementById('p2-actions').style.display = 'none';
+        _assignRow(2, null);
+        const f = focusSeat();
+        // The bottom bar changes owner every turn in local hot-seat, so the
+        // name on it has to be repainted here rather than once at match start.
+        _paintBar(1, f);
+        setPlayerNames();
+        _paintRivalStrip(f);
+    }
 
     updateShieldMarker();
 
@@ -201,10 +328,25 @@ function _updateAllySlots(playerIdx, p) {
     slotsEl.innerHTML = html;
 }
 
+// The name on each full bar. In duo mode that is seat 0 on the bottom and seat
+// 1 on the top; in solo mode the bottom bar names whichever seat this device is
+// playing and the top bar is not on screen at all.
 export function setPlayerNames() {
-    document.getElementById('hud-name-p1').textContent = `🚗 ${state.players[0].name.toUpperCase()}`;
-    document.getElementById('hud-name-p2').innerHTML   =
-        `🎩 ${state.players[1].name.toUpperCase()}${state.players[1].isBot ? ' <span class="bot-badge">BOT</span>' : ''}`;
+    const label = seat => {
+        const p = state.players[seat];
+        if (!p) return '';
+        return `${PLAYER_SLOTS[seat].icon} ${p.name.toUpperCase()}` +
+               (p.isBot ? ' <span class="bot-badge">BOT</span>' : '');
+    };
+    const paint = (dom, seat) => {
+        const el = document.getElementById(`hud-name-p${dom}`);
+        if (!el || !state.players[seat]) return;
+        el.innerHTML = label(seat);
+        el.style.color = PLAYER_SLOTS[seat].hex;
+        el.style.textShadow = `0 0 10px ${PLAYER_SLOTS[seat].hex}`;
+    };
+    if (hudMode() === 'duo') { paint(1, 0); paint(2, 1); }
+    else                     { paint(1, focusSeat()); }
 }
 
 // ---- Round Counter ----
@@ -309,14 +451,7 @@ function _wireBranchChoiceEvents() {
         const btn = e.target.closest('[data-node]');
         if (!btn) return;
         overlay.style.display = 'none';
-        const nodeId = btn.dataset.node;
-        if (_pathChoiceCb) {
-            const cb = _pathChoiceCb;
-            _pathChoiceCb = null;
-            cb(nodeId);
-        } else {
-            _controller.onBranchChosen(nodeId);
-        }
+        Commands.run('pathChoice', btn.dataset.node);
     });
 }
 
@@ -334,6 +469,7 @@ let _junction = null;   // { junctionId, fromNodeId, options, frame }
 let _seenAFork = false; // the primer under the banner shows once per match
 
 export function showJunctionArrows(junctionId, fromNodeId, options, stepsLeft) {
+    Scenes.emit('junction', { junctionId, fromNodeId, options, stepsLeft, seat: state.activePlayer });
     const layer = document.getElementById('junction-layer');
     const box   = document.getElementById('junction-arrows');
     if (!layer || !box) return;
@@ -487,7 +623,7 @@ function _wireJunctionEvents() {
             const nodeId = btn.dataset.node;
             hideJunctionArrows();
             state.cameraState = 'FOLLOW';
-            _controller.onBranchChosen(nodeId);
+            Commands.run('pathChoice', nodeId);
             return;
         }
         if (e.target.closest('#btn-junction-map')) {
@@ -599,6 +735,7 @@ export function rollCalloutUp() {
 let _allyArrivalCb = null;
 
 export function showBuddyReport(rep, isNew, onDone) {
+    Scenes.emit('buddyReport', { rep, isNew });
     const el = document.getElementById('ally-arrival');
     if (!el || !rep) { if (onDone) onDone(); return; }
     _allyArrivalCb = onDone || null;
@@ -790,7 +927,7 @@ function _closeBriefing() {
 }
 
 function _wirePanelEvents() {
-    document.getElementById('btn-ally-arrival')?.addEventListener('click', () => _closeAllyArrival());
+    document.getElementById('btn-ally-arrival')?.addEventListener('click', () => Commands.run('buddyReportAck'));
     document.getElementById('btn-close-bounties')?.addEventListener('click', () => closeBounties());
     document.getElementById('btn-cb-start')?.addEventListener('click', () => _closeBriefing());
     document.getElementById('btn-cb-tour')?.addEventListener('click', () => {
@@ -802,6 +939,7 @@ function _wirePanelEvents() {
 // ---- Ally Encounter Modal ----
 
 export function showAllyEncounterModal(ally, playerAllies, callback) {
+    Scenes.emit('allyEncounter', { ally, playerAllies, seat: state.activePlayer });
     _allyEncounterCb = callback;
     const modal = document.getElementById('ally-encounter-modal');
     if (!modal) return;
@@ -824,6 +962,7 @@ export function showAllyEncounterModal(ally, playerAllies, callback) {
 // ---- Ally Steal Modal ----
 
 export function showAllyStealModal(target, callback) {
+    Scenes.emit('allySteal', { targetSeat: target.id, allies: target.allies.map(a => a.type), seat: state.activePlayer });
     _allyStealCb = callback;
     const modal = document.getElementById('ally-steal-modal');
     if (!modal) return;
@@ -849,16 +988,8 @@ export function showAllyStealModal(target, callback) {
 
 function _wireAllyModalEvents() {
     // Ally encounter buttons
-    document.getElementById('btn-ally-claim')?.addEventListener('click', () => {
-        document.getElementById('modal-overlay').classList.remove('act');
-        document.getElementById('ally-encounter-modal').style.display = 'none';
-        if (_allyEncounterCb) { const cb = _allyEncounterCb; _allyEncounterCb = null; cb(true); }
-    });
-    document.getElementById('btn-ally-pass')?.addEventListener('click', () => {
-        document.getElementById('modal-overlay').classList.remove('act');
-        document.getElementById('ally-encounter-modal').style.display = 'none';
-        if (_allyEncounterCb) { const cb = _allyEncounterCb; _allyEncounterCb = null; cb(false); }
-    });
+    document.getElementById('btn-ally-claim')?.addEventListener('click', () => Commands.run('allyEncounter', true));
+    document.getElementById('btn-ally-pass')?.addEventListener('click',  () => Commands.run('allyEncounter', false));
 
     // Ally steal list (event delegation)
     document.getElementById('ally-steal-list')?.addEventListener('click', e => {
@@ -866,15 +997,42 @@ function _wireAllyModalEvents() {
         if (!btn) return;
         document.getElementById('modal-overlay').classList.remove('act');
         document.getElementById('ally-steal-modal').style.display = 'none';
-        const idx = parseInt(btn.dataset.allyIdx);
-        if (_allyStealCb) { const cb = _allyStealCb; _allyStealCb = null; cb(idx); }
+        Commands.run('allySteal', parseInt(btn.dataset.allyIdx));
     });
-    document.getElementById('btn-ally-steal-cancel')?.addEventListener('click', () => {
+    document.getElementById('btn-ally-steal-cancel')?.addEventListener('click', () => Commands.run('allySteal', -1));
+}
+
+// ============================================================
+// COMMAND REGISTRATION — the decisions UIManager is holding
+// ============================================================
+// These live here rather than in GameController because the continuation IS a
+// closure this module is holding: the branch callback, the buddy-report
+// hand-back, the two ally modals. Naming them makes them reachable from the
+// net layer without any of them having to be re-plumbed through the
+// controller.
+//
+// Each one hides its own modal first, so a command that arrives from the host
+// clears the screen on every device, not just on the one that pressed.
+Commands.define({
+    pathChoice: nodeId => {
+        const overlay = document.getElementById('branch-choice-overlay');
+        if (overlay) overlay.style.display = 'none';
+        hideJunctionArrows();
+        if (_pathChoiceCb) { const cb = _pathChoiceCb; _pathChoiceCb = null; cb(nodeId); }
+        else if (_controller) _controller.onBranchChosen(nodeId);
+    },
+    allyEncounter: fight => {
+        document.getElementById('modal-overlay').classList.remove('act');
+        document.getElementById('ally-encounter-modal').style.display = 'none';
+        if (_allyEncounterCb) { const cb = _allyEncounterCb; _allyEncounterCb = null; cb(!!fight); }
+    },
+    allySteal: idx => {
         document.getElementById('modal-overlay').classList.remove('act');
         document.getElementById('ally-steal-modal').style.display = 'none';
-        if (_allyStealCb) { const cb = _allyStealCb; _allyStealCb = null; cb(-1); }
-    });
-}
+        if (_allyStealCb) { const cb = _allyStealCb; _allyStealCb = null; cb(idx); }
+    },
+    buddyReportAck: () => _closeAllyArrival(),
+});
 
 // ---- Hundred Block Dash: story intro + realm-entry banner ----
 
@@ -906,14 +1064,18 @@ export function showHbdStory(onBegin) {
 
 // Fills the PRE_MINIGAME beat: says what is about to happen so the gap between
 // the turn's payoff and the minigame reads as a scene change, not a stall.
-export function announceMinigameIncoming() {
+export function announceMinigameIncoming(pair) {
     const el = document.getElementById('realm-banner');
     if (!el) return;
-    // Shared beat: both players are about to play. dualHTML draws it twice in
-    // tabletop mode, the top copy rotated, so neither has to read it upside down.
+    // Above two seats the round's minigame is a duel between two of them, so
+    // the banner has to say WHICH two — otherwise four people all pick the
+    // phone up and two of them find out afterwards it was not their turn.
+    const who = Array.isArray(pair) && pair.length === 2 && state.players.length > 2
+        ? `${state.players[pair[0]].name} vs ${state.players[pair[1]].name}`
+        : 'Winner takes the coins — and rolls first';
     el.innerHTML = DualRead.dualHTML(
         '<div class="rb-ic">⚔️</div><div class="rb-name">MINIGAME NEXT</div>' +
-        '<div class="rb-tag">Winner takes the coins — and rolls first</div>');
+        `<div class="rb-tag">${who}</div>`);
     el.style.display = 'flex';
     el.style.animation = 'none'; void el.offsetWidth; el.style.animation = '';
     clearTimeout(el._hideTimer);
@@ -953,12 +1115,17 @@ export function showTurnBanner(playerIdx, opts = {}) {
     const p = state.players[playerIdx];
     if (!p) return;
 
-    const icon = CHAR_ICONS[p.charType] || (playerIdx === 0 ? '🚗' : '🎩');
-    const col  = playerIdx === 0 ? '#ff6b6b' : '#6ba7ff';
+    const icon = CHAR_ICONS[p.charType] || PLAYER_SLOTS[playerIdx].icon;
+    const col  = PLAYER_SLOTS[playerIdx].hex;
     const sub  = opts.sub || (p.isBot ? 'thinking…' : 'your move');
 
     el.querySelectorAll('.tb-card').forEach(card => {
-        const mine = Number(card.dataset.tb) === playerIdx;
+        // The banner is drawn twice, once at each edge, for tabletop's two
+        // seats. `data-tb` is the EDGE, not a seat id, so above two players
+        // only the near copy can claim the turn — the far edge belongs to
+        // nobody in particular.
+        const edge = Number(card.dataset.tb);
+        const mine = hudMode() === 'duo' ? edge === playerIdx : edge === 0;
         card.innerHTML =
             `<span class="tb-ic">${icon}</span>` +
             `<span class="tb-txt"><span class="tb-name bfont">${p.name.toUpperCase()}</span>` +
@@ -1352,7 +1519,7 @@ function _wireSwipeEvents() {
         // for P1, downward for P2). Accept either direction so both players can flick.
         const dy  = state.playStyle === 'tabletop' ? Math.abs(rawDy) : rawDy;
         const vel = dy / dt;
-        if (dy > 20 && vel > 0.2) _controller.executeRoll(Math.min(vel, 3.5));
+        if (dy > 20 && vel > 0.2) Commands.run('roll', Math.min(vel, 3.5));
     });
     zone.addEventListener('mousedown', e => { sy = e.clientY; st = Date.now(); });
     zone.addEventListener('mouseup', e => {
@@ -1361,7 +1528,7 @@ function _wireSwipeEvents() {
         const dt    = Math.max(Date.now() - st, 16);
         const dy    = state.playStyle === 'tabletop' ? Math.abs(rawDy) : rawDy;
         const vel   = dy / dt;
-        if (dy > 20 && vel > 0.2) _controller.executeRoll(Math.min(vel, 3.5));
+        if (dy > 20 && vel > 0.2) Commands.run('roll', Math.min(vel, 3.5));
     });
 }
 
@@ -1386,7 +1553,7 @@ export function animateCoinDisplay(pid, target) {
 }
 
 function _spawnCoinParticles(pid, gained) {
-    const el = document.getElementById(`p${pid + 1}-coins`);
+    const el = _coinEl(pid);
     if (!el) return;
     const rect = el.getBoundingClientRect();
     const count = gained >= 8 ? 7 : gained >= 3 ? 5 : 3;
@@ -1412,7 +1579,7 @@ function _tickCoin() {
         const step = Math.sign(diff) * Math.max(1, Math.round(Math.abs(diff) * 0.2));
         const next = Math.abs(diff) <= Math.abs(step) ? tgt : cur + step;
         _coinCurrent[i] = next;
-        const el = document.getElementById(`p${i + 1}-coins`);
+        const el = _coinEl(i);
         if (el) { el.textContent = next; el.classList.remove('coin-changed'); void el.offsetWidth; el.classList.add('coin-changed'); }
         if (next !== tgt) going = true;
     });

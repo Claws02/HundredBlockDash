@@ -83,5 +83,105 @@ if (bad) process.exit(1);
 NODE
 [ $? -ne 0 ] && fail=1
 
-[ $fail -eq 0 ] && echo "static sweep clean (module parse + dead local refs)"
+# ============================================================
+#   3. THE COMMAND BUS AGREES WITH ITSELF
+#
+# Every player decision is a NAME now (src/core/Commands.js): UI handlers call
+# Commands.run('roll'), and GameController / UIManager / ModalManager register
+# the implementations. The names are also the online wire protocol.
+#
+# Nothing in JavaScript connects the two. A renamed or deleted command is a
+# console warning at the moment somebody presses the button — and on a client
+# it is worse than that, because the press leaves as an intent and the failure
+# happens on the HOST, where nobody is looking. Both directions are checked:
+# a command invoked with no implementation, and an implementation nothing
+# invokes (which is usually half of a rename).
+# ============================================================
+node - "$DIR" <<'NODE'
+const fs = require('fs'), path = require('path');
+const root = process.argv[2];
+function walk(d) {
+  return fs.readdirSync(d, { withFileTypes: true }).flatMap(e => {
+    const p = path.join(d, e.name);
+    return e.isDirectory() ? walk(p) : (e.name.endsWith('.js') ? [p] : []);
+  });
+}
+const invoked = new Map(), defined = new Map();
+for (const file of walk(root)) {
+  if (file.includes('/archived/')) continue;
+  const src = fs.readFileSync(file, 'utf8');
+  for (const m of src.matchAll(/Commands\.run\(\s*'([A-Za-z_]\w*)'/g)) {
+    if (!invoked.has(m[1])) invoked.set(m[1], file);
+  }
+  for (const block of src.matchAll(/Commands\.define\(\{([\s\S]*?)\n\}\);/g)) {
+    for (const k of block[1].matchAll(/^ {4}([A-Za-z_]\w*)\s*:/gm)) {
+      if (defined.has(k[1])) {
+        console.log(`DUPLICATE COMMAND: "${k[1]}" registered in both ${defined.get(k[1])} and ${file}` +
+                    ` — whichever module body runs last silently wins`);
+        process.exitCode = 1;
+      }
+      defined.set(k[1], file);
+    }
+  }
+}
+let bad = 0;
+for (const [name, file] of invoked) {
+  if (!defined.has(name)) { console.log(`UNKNOWN COMMAND: ${file} runs "${name}" with no implementation`); bad++; }
+}
+for (const [name, file] of defined) {
+  if (!invoked.has(name)) { console.log(`ORPHAN COMMAND: ${file} implements "${name}" and nothing runs it`); bad++; }
+}
+if (bad) process.exitCode = 1;
+NODE
+[ $? -ne 0 ] && fail=1
+
+# ============================================================
+#   4. EVERY MIRRORED SCENE IS ROUTABLE
+#
+# A full-screen beat announces itself through Scenes.emit(). Online, the host
+# forwards it: SHARED beats to everybody, OWNER beats to the ONE phone named by
+# `seat` on the payload. An owner beat with no seat has nowhere to go, and an
+# unclassified name is not forwarded at all.
+#
+# Both failures are silent, and both freeze a networked match: the player whose
+# decision it is sits looking at a board with nothing to press. That has now
+# happened three times — the result card with no seat, and twice a modal raised
+# through a path that never announced it — so it is checked rather than
+# remembered.
+# ============================================================
+node - "$DIR" <<'NODE'
+const fs = require('fs'), path = require('path');
+const root = process.argv[2];
+function walk(d) {
+  return fs.readdirSync(d, { withFileTypes: true }).flatMap(e => {
+    const p = path.join(d, e.name);
+    return e.isDirectory() ? walk(p) : (e.name.endsWith('.js') ? [p] : []);
+  });
+}
+const scenesFile = path.join(root, 'ui', 'Scenes.js');
+if (!fs.existsSync(scenesFile)) process.exit(0);
+const block = /SCENE_TIER = \{([\s\S]*?)\n\};/.exec(fs.readFileSync(scenesFile, 'utf8'));
+const tier = {};
+if (block) for (const m of block[1].matchAll(/^ {4}([A-Za-z]\w*):\s*TIER\.(\w+)/gm)) tier[m[1]] = m[2];
+
+let bad = 0;
+for (const file of walk(root)) {
+  if (file.includes('/archived/') || file.endsWith('Scenes.js')) continue;
+  const src = fs.readFileSync(file, 'utf8');
+  for (const m of src.matchAll(/Scenes\.emit\('([A-Za-z]\w*)',\s*(\{[\s\S]*?\})\s*\)/g)) {
+    const [, name, payload] = m;
+    if (!tier[name]) {
+      console.log(`UNCLASSIFIED SCENE: ${file} emits "${name}", absent from SCENE_TIER — it is never mirrored`);
+      bad++;
+    } else if (tier[name] === 'OWNER' && !/\bseat\b/.test(payload)) {
+      console.log(`UNSEATED SCENE: ${file} emits owner scene "${name}" with no seat — it has no phone to go to`);
+      bad++;
+    }
+  }
+}
+if (bad) process.exitCode = 1;
+NODE
+[ $? -ne 0 ] && fail=1
+
+[ $fail -eq 0 ] && echo "static sweep clean (module parse + dead local refs + command bus + scene routing)"
 exit $fail

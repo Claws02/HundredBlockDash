@@ -6,42 +6,75 @@
 // ============================================================
 
 import { state } from './GameState.js';
-import { DISTRICT_DOMINANCE_BONUS, HQ_META, HBD_FINISH_BONUS } from '../config/GameConfig.js';
+import { DISTRICT_DOMINANCE_BONUS, HQ_META, HBD_FINISH_BONUS, PLAYER_SLOTS } from '../config/GameConfig.js';
 import { earnCoins } from './Economy.js';
 import * as Stats from './Stats.js';
 import * as ModalManager from '../ui/ModalManager.js';
 import { sfx } from '../engine/AudioManager.js';
 import * as ActiveMap from '../config/ActiveMap.js';
+import * as Scenes from '../ui/Scenes.js';
 
-export function calculateWinner() {
-    const p1 = state.players[0], p2 = state.players[1];
-
+/**
+ * Score the match and put the result on screen.
+ *
+ * `applyBonuses` exists for online play. This function does two things — it
+ * MUTATES (City's district-dominance bonuses are paid here, at the end) and it
+ * RENDERS. On a networked client the mutation has already happened on the host
+ * and arrived in a snapshot, so paying the bonuses again would inflate every
+ * number on the card. Clients pass false and render the host's figures.
+ */
+export function calculateWinner(applyBonuses = true) {
+    Scenes.emit('winScreen', {});
+    const players = state.players;
     const HBD_FIN = state.hbd ? state.hbd.finish : 99;
-    let p1s, p2s, subtitle;
+    let subtitle;
+
     if (ActiveMap.has('finishBonus')) {
-        const p1f = p1.pos >= HBD_FIN ? HBD_FINISH_BONUS : 0, p2f = p2.pos >= HBD_FIN ? HBD_FINISH_BONUS : 0;
-        p1s = p1.coins + p1f; p2s = p2.coins + p2f;
         subtitle = 'WINS THE HUSTLE!';
     } else {
-        // City Circuit: district dominance bonuses
-        ActiveMap.regionKeys().forEach(dk => {
-            if (p1.districtsVisited[dk] > p2.districtsVisited[dk]) earnCoins(p1, DISTRICT_DOMINANCE_BONUS);
-            else if (p2.districtsVisited[dk] > p1.districtsVisited[dk]) earnCoins(p2, DISTRICT_DOMINANCE_BONUS);
-        });
-        p1s = p1.coins; p2s = p2.coins;
+        // City Circuit: district dominance. Was a pairwise comparison; with
+        // three or four players a district is controlled by whoever visited it
+        // MOST, and a tie at the top pays nobody — splitting the bonus would
+        // reward two players for failing to take it off each other.
+        if (applyBonuses) {
+            ActiveMap.regionKeys().forEach(dk => {
+                const best = Math.max(...players.map(q => q.districtsVisited[dk] || 0));
+                if (best <= 0) return;
+                const holders = players.filter(q => (q.districtsVisited[dk] || 0) === best);
+                if (holders.length === 1) earnCoins(holders[0], DISTRICT_DOMINANCE_BONUS);
+            });
+        }
         subtitle = 'WINS THE CITY!';
     }
 
-    const tiebreaker = ActiveMap.isLinear()
-        ? (p1.pos >= p2.pos ? p1 : p2)
-        : (p1.fullCircuitsCompleted >= p2.fullCircuitsCompleted ? p1 : p2);
-    const winner = p1s > p2s ? p1 : p2s > p1s ? p2 : tiebreaker;
-    const isTie  = p1s === p2s && (ActiveMap.isLinear() ? p1.pos === p2.pos : p1.fullCircuitsCompleted === p2.fullCircuitsCompleted);
+    // Final score per seat. The finish bonus is added on the linear map only,
+    // and after dominance so City's bonuses are already in `coins`.
+    const scoreOf = p => ActiveMap.has('finishBonus')
+        ? p.coins + (p.pos >= HBD_FIN ? HBD_FINISH_BONUS : 0)
+        : p.coins;
+    const scores = new Map(players.map(p => [p.id, scoreOf(p)]));
+
+    // Tiebreak: how far round / how far along, then seat order so the result is
+    // identical on every device in an online match.
+    const tieValue = p => ActiveMap.isLinear()
+        ? (typeof p.pos === 'number' ? p.pos : 0)
+        : p.fullCircuitsCompleted;
+    const ranked = players.slice().sort((a, b) =>
+        (scores.get(b.id) - scores.get(a.id)) || (tieValue(b) - tieValue(a)) || (a.id - b.id));
+
+    const winner = ranked[0];
+    const runnerUp = ranked[1];
+    // A tie is only a tie if the tiebreak could not separate them either.
+    const isTie = !!runnerUp
+        && scores.get(runnerUp.id) === scores.get(winner.id)
+        && tieValue(runnerUp) === tieValue(winner);
 
     ModalManager.closeAllModals();
     document.getElementById('ui-layer').style.display = 'none';
     document.getElementById('win-name').textContent = isTie ? 'TIE GAME!' : winner.name.toUpperCase();
-    document.getElementById('win-subtitle').textContent = isTie ? 'Both players finish equal.' : subtitle;
+    document.getElementById('win-subtitle').textContent = isTie
+        ? (players.length > 2 ? 'The top of the table finishes equal.' : 'Both players finish equal.')
+        : subtitle;
 
     // Each stat is one tile in a two-across grid rather than a full-width row.
     // Ten stacked label/value rows per card did not fit the landscape screen —
@@ -53,11 +86,13 @@ export function calculateWinner() {
                `<span class="ws-v">${val}</span><span class="ws-l">${label}</span></div>`;
     }
     function districtStrip(pl) {
-        const o = state.players[(pl.id + 1) % 2];
         const chips = ActiveMap.regionKeys().map(dk => {
             const icon = HQ_META[dk]?.icon || '🏛️';
             const mine = pl.districtsVisited[dk] || 0;
-            const held = mine > (o.districtsVisited[dk] || 0);
+            // Held outright — matching the bonus rule above, so the crown on
+            // the card and the coins actually paid never disagree.
+            const held = mine > 0 && state.players.every(q =>
+                q.id === pl.id || (q.districtsVisited[dk] || 0) < mine);
             return `<span class="ws-chip${held ? ' ws-held' : ''}" title="${ActiveMap.regionName(dk)}${held ? ' — controlled' : ''}">` +
                    `${icon}<b>${mine}</b>${held ? '<i>👑</i>' : ''}</span>`;
         }).join('');
@@ -88,7 +123,10 @@ export function calculateWinner() {
                `<div class="win-card-score">${s}</div></div>` +
                `<div class="win-card-stats">${details}</div></div>`;
     }
-    document.getElementById('win-cards').innerHTML = card(p1, p1s) + card(p2, p2s);
+    // Best first, so a four-way result reads as a table rather than as seat order.
+    document.getElementById('win-cards').innerHTML =
+        ranked.map(p => card(p, scores.get(p.id))).join('');
+    document.getElementById('win-cards').classList.toggle('win-cards-many', players.length > 2);
 
     // Persist 1-player record and surface a streak/record line.
     const statsEl = document.getElementById('win-stats');
@@ -176,12 +214,14 @@ function _renderRaceChart() {
     const maxX = Math.max(...series.map(e => e.x), 1);
     const minX = Math.min(...series.map(e => e.x), 0);
     const spanX = Math.max(1, maxX - minX);
-    const maxV = Math.max(1, ...series.map(e => Math.max(e.v[0], e.v[1])));
+    const maxV = Math.max(1, ...series.map(e => Math.max(...e.v)));
     const x = t => padL + ((t - minX) / spanX) * iw;
     const y = v => padT + ih - (v / maxV) * ih;
 
-    const colors = ['#ff5a5a', '#5a9bff'];
-    const paths = [0, 1].map(pi => {
+    // One line per seat, in that seat's colour. Was two hard-coded strings.
+    const colors = PLAYER_SLOTS.map(sl => sl.hex);
+    const seats  = state.players.map(p => p.id);
+    const paths = seats.map(pi => {
         const pts = series.map(e => `${x(e.x).toFixed(1)},${y(e.v[pi]).toFixed(1)}`);
         const line = `<polyline fill="none" stroke="${colors[pi]}" stroke-width="2.5" ` +
                      `stroke-linejoin="round" stroke-linecap="round" points="${pts.join(' ')}"/>`;
@@ -194,11 +234,21 @@ function _renderRaceChart() {
     }).join('');
 
     // Mark where the lead changed hands — the story beat people argue about.
+    // At more than two seats "the lead" is whoever is top, so a flip is the
+    // top seat changing rather than a sign change between two numbers.
+    const leaderAt = e => {
+        let best = -Infinity, who = -1, tied = false;
+        seats.forEach(pi => {
+            const v = e.v[pi];
+            if (v > best) { best = v; who = pi; tied = false; }
+            else if (v === best) { tied = true; }
+        });
+        return tied ? -1 : who;
+    };
     const flips = [];
     for (let i = 1; i < series.length; i++) {
-        const a = Math.sign(series[i - 1].v[0] - series[i - 1].v[1]);
-        const b = Math.sign(series[i].v[0] - series[i].v[1]);
-        if (a !== 0 && b !== 0 && a !== b) flips.push(series[i]);
+        const a = leaderAt(series[i - 1]), b = leaderAt(series[i]);
+        if (a >= 0 && b >= 0 && a !== b) flips.push(series[i]);
     }
     const flipMarks = flips.map(e =>
         `<line x1="${x(e.x).toFixed(1)}" y1="${padT}" x2="${x(e.x).toFixed(1)}" y2="${padT + ih}" ` +
@@ -225,7 +275,7 @@ function _renderRaceChart() {
 
     host.innerHTML =
         `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" ` +
-        `aria-label="${isHBD ? 'Board progress per turn' : 'Coin totals at the end of each round'} for both players">` +
+        `aria-label="${isHBD ? 'Board progress per turn' : 'Coin totals at the end of each round'} for all players">` +
         `<rect x="${padL}" y="${padT}" width="${iw}" height="${ih}" fill="rgba(255,255,255,.03)"/>` +
         flipMarks + finishLine + paths + yLabels +
         ticks.join('') + `</svg>`;
@@ -238,8 +288,8 @@ function _renderRaceChart() {
             ? `<span><span class="wc-swatch" style="background:rgba(251,191,36,.8)"></span>lead changed <b>${flips.length}×</b></span>`
             : '<span>lead never changed</span>';
         legend.innerHTML =
-            `<span><span class="wc-swatch" style="background:${colors[0]}"></span><b>${state.players[0].name}</b></span>` +
-            `<span><span class="wc-swatch" style="background:${colors[1]}"></span><b>${state.players[1].name}</b></span>` +
+            state.players.map(pl =>
+                `<span><span class="wc-swatch" style="background:${colors[pl.id]}"></span><b>${pl.name}</b></span>`).join('') +
             `<span>${unit.toLowerCase()}s: <b>${maxX}</b></span>` + flipTxt;
     }
 }

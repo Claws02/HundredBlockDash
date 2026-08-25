@@ -37,7 +37,7 @@ export function initContracts() {
 // Contracts come out of a shared pool object; give each active card its own
 // per-player progress so a re-drawn card never inherits stale counters.
 function _fresh(c) {
-    return { ...c, _prog: [0, 0] };
+    return { ...c, _prog: state.players.map(() => 0) };
 }
 
 export function checkContract(player, eventType, param, count) {
@@ -51,7 +51,10 @@ export function checkContract(player, eventType, param, count) {
 
         if (COUNTED_TYPES.has(c.type)) {
             const target = Math.max(1, c.param || 1);
-            if (!c._prog) c._prog = [0, 0];
+            // Sized to the table, and re-sized if a card outlived a seat
+            // count change — a short array reads `undefined` and NaNs the tick.
+            if (!c._prog) c._prog = state.players.map(() => 0);
+            while (c._prog.length < state.players.length) c._prog.push(0);
             // An absolute total from the caller wins; otherwise tick by one.
             c._prog[player.id] = typeof count === 'number'
                 ? Math.max(c._prog[player.id], count)

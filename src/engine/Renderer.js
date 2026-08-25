@@ -1331,6 +1331,24 @@ function _mkMat(color, rough = 0.42, metal = 0) {
     return new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: metal });
 }
 
+// Where a seat's token stands relative to the centre of its tile.
+//
+// Two seats keep the exact left/right offsets the game shipped with — every
+// camera probe and every screenshot in qa/ is framed around them, and a
+// gratuitous change would invalidate all of it for no gain. Three and four
+// spread around a small ring instead: four tokens on one lateral line overlap
+// on a tile this size, and a token you cannot see is a token you cannot follow.
+//
+// `unit` is the board's own idea of "one token to the side" — 0.7 along the
+// linear track, 1.2 on a city block.
+export function seatOffset(seatId, unit) {
+    const n = state.players.length;
+    if (n <= 2) return { lat: seatId === 0 ? -unit : unit, fwd: 0 };
+    const r = unit * 1.35;
+    const a = (Math.PI * 2 * seatId) / n - Math.PI / 2;
+    return { lat: Math.cos(a) * r, fwd: Math.sin(a) * r };
+}
+
 function buildPlayerMeshes() {
     const isHBD = ActiveMap.isLinear();
     state.players.forEach(p => {
@@ -1340,11 +1358,13 @@ function buildPlayerMeshes() {
             const pos = getPos(idx).clone();
             const tangent = boardCurve.getTangent(Math.max(0, Math.min(1, idx / _hbdMax)));
             const right   = new THREE.Vector3(0, 1, 0).cross(tangent).normalize();
-            pos.addScaledVector(right, p.id === 0 ? -0.7 : 0.7);
+            const off = seatOffset(p.id, 0.7);
+            pos.addScaledVector(right, off.lat).addScaledVector(tangent, off.fwd);
             p.mesh.position.set(pos.x, 0, pos.z);
         } else {
             const pos = getPos(p.pos || 'r1').clone();
-            pos.x += p.id === 0 ? -1.2 : 1.2;
+            const off = seatOffset(p.id, 1.2);
+            pos.x += off.lat; pos.z += off.fwd;
             p.mesh.position.set(pos.x, 0, pos.z);
         }
         scene.add(p.mesh);
@@ -1580,7 +1600,8 @@ export function animatePlayerHop(player, targetNodeId, onComplete, opts = {}) {
             const t = Math.max(0.001, Math.min(targetNodeId / _hbdMax, 0.999));
             const tangent = boardCurve.getTangent(t).normalize();
             const right   = new THREE.Vector3(0, 1, 0).cross(tangent).normalize();
-            dest.addScaledVector(right, player.id === 0 ? -0.7 : 0.7);
+            const off = seatOffset(player.id, 0.7);
+            dest.addScaledVector(right, off.lat).addScaledVector(tangent, off.fwd);
             player.mesh.lookAt(dest.clone().add(tangent));
         }
     } else {
@@ -1591,7 +1612,10 @@ export function animatePlayerHop(player, targetNodeId, onComplete, opts = {}) {
             const nextPos = getPos(nextId);
             const fwd     = new THREE.Vector3().subVectors(nextPos, dest).normalize();
             const right   = new THREE.Vector3(0, 1, 0).cross(fwd).normalize();
-            if (right.lengthSq() > 0.001) dest.addScaledVector(right, player.id === 0 ? -0.7 : 0.7);
+            if (right.lengthSq() > 0.001) {
+                const off = seatOffset(player.id, 0.7);
+                dest.addScaledVector(right, off.lat).addScaledVector(fwd, off.fwd);
+            }
             player.mesh.lookAt(dest.clone().add(fwd));
         }
     }

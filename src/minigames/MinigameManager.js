@@ -46,6 +46,59 @@ export function loadMinigame(type) {
     return loader();
 }
 
+// ============================================================
+// THE ROSTER — which two seats are playing this minigame
+// ============================================================
+// Every minigame in the roster is 1v1: two halves of one screen, `_p1`/`_p2`,
+// a bot in slot 1. Making all 22 of them four-player is Phase C/D work
+// (docs/MULTIPLAYER_PLAN.md); it is not a prerequisite for playing the BOARD
+// with three or four people.
+//
+// So a minigame keeps its two SLOTS, and this table says which real SEAT is
+// sitting in each. At two players it is the identity mapping and nothing about
+// the existing behaviour changes. At three or four the round's minigame is a
+// duel between two of them, picked by a fixed rotation so everybody gets the
+// same number of turns and every device computes the same pairing.
+//
+// The contract, because getting it backwards is the obvious bug here:
+//   • a minigame module calls winMinigame(SLOT)  — 0 or 1
+//   • endMinigame() and _onComplete take a real SEAT id
+let _seats = [0, 1];
+
+/** Real seat id sitting in minigame slot `slot`. */
+export function seatFor(slot) {
+    const id = _seats[slot];
+    return (typeof id === 'number' && state.players[id]) ? id : slot;
+}
+/** The player object in slot `slot`. */
+function _sp(slot) { return state.players[seatFor(slot)] || state.players[0]; }
+/** The two seats playing, in slot order. */
+export function roster() { return _seats.slice(); }
+
+function _setRoster(seats) {
+    const n = state.players.length;
+    const ok = Array.isArray(seats) && seats.length === 2
+        && seats.every(i => typeof i === 'number' && i >= 0 && i < n)
+        && seats[0] !== seats[1];
+    _seats = ok ? seats.slice() : [0, Math.min(1, n - 1)];
+}
+
+// Round-robin pairings. Every pair appears the same number of times, and the
+// cycle is indexed off the round counter so the host and every client pick the
+// same two players without exchanging a message about it.
+const PAIR_CYCLE = {
+    3: [[0, 1], [0, 2], [1, 2]],
+    4: [[0, 1], [2, 3], [0, 2], [1, 3], [0, 3], [1, 2]],
+};
+
+/** Who plays this round's minigame when nobody named a pair. */
+export function chooseParticipants() {
+    const n = state.players.length;
+    if (n <= 2) return [0, 1];
+    const cyc = PAIR_CYCLE[n] || PAIR_CYCLE[4];
+    return cyc[(state.currentRound || 0) % cyc.length].slice();
+}
+
 let _controller   = null;
 let _onComplete   = null;
 let _botTraceInt  = null;
@@ -132,6 +185,7 @@ export function triggerPractice(mgType, isBotOpponent, onDone) {
     state.gameState   = 'MINIGAME_INTRO';
     state.cameraState = 'MINIGAME';
     state.mgType      = mgType;
+    _setRoster([0, 1]);
     state.players[1].isBot = !!isBotOpponent;
 
     document.getElementById('mg-select-overlay').style.display = 'none';
@@ -174,6 +228,7 @@ export function triggerStandalone(mgType, isBotOpponent = false) {
     state.gameState   = 'MINIGAME_INTRO';
     state.cameraState = 'MINIGAME';
     state.mgType      = mgType;
+    _setRoster([0, 1]);
     state.players[1].isBot = !!isBotOpponent;
 
     document.getElementById('mg-select-overlay').style.display = 'none';
@@ -303,7 +358,7 @@ function _setPracticeButton(on) {
 // so the real match can start when the player is ready.
 function _startInMatchPractice() {
     const type = state.mgType;
-    const wasBot = state.players[1].isBot;
+    const wasBot = _sp(1).isBot;
     const resume = _onComplete;              // the real match's continuation
     const wasStandalone = _standaloneMode;
     triggerPractice(type, wasBot, () => {
@@ -315,7 +370,7 @@ function _startInMatchPractice() {
         state.gameState = 'MINIGAME_INTRO';
         state.cameraState = 'MINIGAME';
         state.mgType    = type;
-        state.players[1].isBot = wasBot;
+        _sp(1).isBot = wasBot;
         _showIntroCard(type);
         _setPracticeButton(true);
         _presentIntroCard();          // the practice button changed the card
@@ -361,9 +416,13 @@ function _shuffled(list) {
 
 // ---- Entry point called by GameController ----
 
-export function trigger(onComplete) {
+// `seats` names the two players. A duel and a buddy fight both know exactly who
+// is involved and pass it; the round-end minigame does not, and takes the
+// rotation. Two-player matches always resolve to [0, 1].
+export function trigger(onComplete, seats) {
     _practiceMode = false;
     _standaloneMode = false;
+    _setRoster(seats || chooseParticipants());
     _onComplete = onComplete;
     state.gameState  = 'MINIGAME_INTRO';
     state.cameraState = 'MINIGAME';
@@ -478,7 +537,7 @@ function _startMinigameLayer() {
     });
     document.getElementById('mg-neutral').textContent = 'BOTH PLAYERS TAP READY!';
 
-    if (state.players[1].isBot) _botReadyTimeout = setTimeout(() => { _botReadyTimeout = null; setReady(1); }, 800);
+    if (_sp(1).isBot) _botReadyTimeout = setTimeout(() => { _botReadyTimeout = null; setReady(1); }, 800);
 }
 
 // ---- Ready + countdown ----
@@ -530,7 +589,7 @@ async function _launchGame() {
                 winMinigame(-1);
             }
         }, MG_WATCHDOG_MS[state.mgType] || 90000);
-        mod.start(state.players[1].isBot, winMinigame, Bot.skill());
+        mod.start(_sp(1).isBot, winMinigame, Bot.skill());
     } catch (e) {
         console.error('[MinigameManager] _launchGame failed:', e);
         endMinigame(-1);
@@ -554,7 +613,8 @@ function _creditPayouts(payouts) {
     for (let i = 0; i < 2; i++) {
         const n = Math.max(0, Math.round(payouts[i] || 0));
         out[i] = n;
-        if (n > 0) { state.players[i].coins += n; state.players[i].coinsEarned += n; }
+        // Indexed by SLOT and paid to the SEAT sitting in it.
+        if (n > 0) { const q = _sp(i); q.coins += n; q.coinsEarned += n; }
     }
     if (out[0] || out[1]) {
         sfx('coin_gain');
@@ -571,6 +631,9 @@ function _creditPayouts(payouts) {
 // the winner. The winner still takes the standard reward on top and still rolls
 // first, so winning is worth something beyond the haul. Games that don't pass it
 // behave exactly as before.
+// `winnerId` is a SLOT (0, 1, or -1 for a tie) — that is what the minigame
+// modules speak. Everything below translates it to a real seat before anything
+// the board reads is touched.
 export function winMinigame(winnerId, payouts) {
     if (_practiceMode) return _finishPractice(winnerId);
     // The arcade is a place to play the minigames, not a way to earn. It used to
@@ -588,9 +651,13 @@ export function winMinigame(winnerId, payouts) {
     state.mgActive = false;
     _lastPayouts = _creditPayouts(payouts);
     if (winnerId < 0) {
-        // TIE — both players get coins, coin flip decides who goes first
-        const flipWinner = Math.random() < 0.5 ? 0 : 1;
-        state.players.forEach(p => {
+        // TIE — both players get coins, coin flip decides who goes first.
+        // "Both" means the two who played: in a four-player match the two
+        // spectators did not draw anything and must not be paid for it.
+        const flipSlot   = Math.random() < 0.5 ? 0 : 1;
+        const flipWinner = seatFor(flipSlot);
+        [0, 1].forEach(slot => {
+            const p = _sp(slot);
             p.coins += MINIGAME_TIE_REWARD;
             p.coinsEarned += MINIGAME_TIE_REWARD;
         });
@@ -617,12 +684,13 @@ export function winMinigame(winnerId, payouts) {
         }, 700);
         return;
     }
-    const winner = state.players[winnerId];
+    const winSeat = seatFor(winnerId);
+    const winner  = state.players[winSeat];
     winner.mgWins++;
     winner.coins += MINIGAME_REWARD;
     winner.coinsEarned += MINIGAME_REWARD;
     import('../ui/UIManager.js').then(({ animateCoinDisplay, updateUI }) => {
-        animateCoinDisplay(winnerId, winner.coins);
+        animateCoinDisplay(winSeat, winner.coins);
         updateUI();
     });
     sfx('mg_win');
@@ -638,7 +706,7 @@ export function winMinigame(winnerId, payouts) {
             const haul = _lastPayouts[winnerId]
                 ? ` (+${_lastPayouts[winnerId]} caught — both players keep theirs)` : '';
             _resultToast(`🏆 ${winner.name} wins ${MINIGAME_REWARD} coins and goes first!${haul}`, '#f5c842');
-            endMinigame(winnerId);
+            endMinigame(winSeat);
         });
     }, 800);
 }
@@ -676,7 +744,10 @@ function _showScoreboard(winnerId, payouts, practice, done) {
     // money at all, because nothing was ever at stake there.
     const arcade = practice === 'arcade';
 
-    const cardsHTML = () => state.players.map((p, i) => {
+    // Two cards, for the two SLOTS that played — not one per seat. A
+    // four-player match has two spectators and they have no result to show.
+    const cardsHTML = () => [0, 1].map((i) => {
+        const p = arcade ? state.players[i] : _sp(i);
         const isWin  = winnerId === i;
         const isTie  = winnerId < 0;
         const rank   = isTie ? '🤝 DRAW' : isWin ? '🥇 WINNER' : '🥈 SECOND';
@@ -710,7 +781,7 @@ function _showScoreboard(winnerId, payouts, practice, done) {
         ? (winnerId < 0 ? 'DRAWN ROUND' : `${state.players[winnerId].name.toUpperCase()} WINS THE ROUND`)
         : practice ? 'PRACTICE ROUND'
         : winnerId < 0 ? 'IT\'S A TIE!'
-                       : `${state.players[winnerId].name.toUpperCase()} WINS!`;
+                       : `${_sp(winnerId).name.toUpperCase()} WINS!`;
     const total = _arcadeWins[0] + _arcadeWins[1] + _arcadeDraws;
     const sub = arcade
         ? `Arcade series ${_arcadeWins[0]}–${_arcadeWins[1]}${_arcadeDraws ? ` (${_arcadeDraws} drawn)` : ''} · round ${total} · no coins at stake`

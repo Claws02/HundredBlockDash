@@ -12,6 +12,7 @@
 // ============================================================
 
 import { state } from './GameState.js';
+import * as Targeting from './Targeting.js';
 import { ITEMS, DISTRICT_SHOPS, MAX_INV, MAX_ALLIES, DUEL_BET_OPTIONS } from '../config/GameConfig.js';
 import * as Renderer from '../engine/Renderer.js';
 import * as ActiveMap from '../config/ActiveMap.js';
@@ -28,7 +29,11 @@ export function skill()   { return profile().skill; }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const _rand = n => Math.floor(Math.random() * n);
-const _opp  = p => state.players[(p.id + 1) % 2];
+// The bot's mental model of "them". With two seats it is the other player; with
+// three or four the bot plays against whoever is winning, which is both the
+// right heuristic and the same target the hostile items pick (Targeting.js), so
+// its item valuations stay honest about who they will actually hit.
+const _opp = p => Targeting.leadingRival(p) || p;
 
 // Forward progress along the track (works for both int HBD and string City positions).
 function _progress(pos) {

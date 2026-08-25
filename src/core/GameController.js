@@ -1,14 +1,18 @@
-import { state, resetPlayers } from './GameState.js';
+import { state, resetPlayers, setPlayerCount, playerCount } from './GameState.js';
+import * as Targeting from './Targeting.js';
+import * as Commands from './Commands.js';
+import * as Scenes from '../ui/Scenes.js';
 import {
     GATE_NUM_DICE, FINE_AMOUNT, BIG_FINE_AMOUNT, TRAP_AMOUNT, DUEL_STAKE,
     MAX_INV, MAX_ALLIES, ALLY_TURNS, ALLY_SPAWN_DELAY_TURNS, BUDDY_MAP_ROUNDS,
     BUDDY_NEAR_STEPS, BUDDY_MAX_STEPS,
-    MINIGAME_EVERY_N_TURNS, ITEMS, SPACE_META, SPACE_DESCS,
+    MINIGAME_EVERY_N_TURNS, MINIGAME_REWARD, ITEMS, SPACE_META, SPACE_DESCS,
     DISTRICT_HQ_FIRST_BONUS, DISTRICT_HQ_REVISIT_BONUS,
     FULL_CIRCUIT_BONUSES,
     ALLIES, BA_DISCOUNT, GRAND_MALL_DISCOUNT,
     ALL_CHAR_TYPES, HQ_META, CHAR_ICONS, CHAR_NAMES, DISTRICT_BIOMES,
     CITY_LENGTHS, CITY_DEFAULT_ROUNDS, HBD_LENGTHS,
+    PLAYER_SLOTS, MIN_PLAYERS, MAX_PLAYERS,
     buildHbdConfig, setHbdRealmCount, HBD_DEFAULT_CONFIG, HBD_FINISH_BONUS,
     hbdSpaceLabel, hbdShopKey, getRealmForSpace,
 } from '../config/GameConfig.js';
@@ -49,7 +53,16 @@ let _skipStory = false;   // rematch fast-path skips the HBD story intro
 // FLOW ENTRY POINTS
 // ============================================================
 
-export function selectMode(m) { state.playStyle = m; }
+export function selectMode(m) {
+    state.playStyle = m;
+    // Every local mode is two seats. Online sets its own count from the lobby
+    // (selectPlayerCount), so it is deliberately not touched here.
+    if (m !== 'online') setPlayerCount(2);
+}
+
+// How many seats this match is played with. Online lobbies call this once the
+// room roster is settled; local modes never do.
+export function selectPlayerCount(n) { return setPlayerCount(n); }
 
 export function selectDifficulty(level) {
     if (['easy', 'medium', 'hard'].includes(level)) state.botDifficulty = level;
@@ -89,40 +102,65 @@ export function goToCharSelect() {
     document.getElementById('splash').style.display = 'none';
     document.getElementById('char-select').style.display = 'flex';
     state.charSelectStep = 1;
-    document.getElementById('cs-title').textContent = 'PLAYER 1: CHOOSE CHARACTER';
-    document.getElementById('cs-title').style.color = 'var(--p1)';
-    _paintCharPortraits(0);
+    _paintCharSelectStep(0);
     state.players[1].isBot = (state.playStyle === '1p');
     if (state.players[1].isBot) state.players[1].name = 'Borat the Bot';
 }
 
+// Dress the character screen for seat `idx`: whose turn it is to pick, in their
+// colour, with everything already claimed marked as taken. Was two hard-coded
+// blocks that named Player 1 and Player 2 by hand.
+function _paintCharSelectStep(idx) {
+    const slot = PLAYER_SLOTS[idx] || PLAYER_SLOTS[0];
+    const t = document.getElementById('cs-title');
+    t.textContent  = `${slot.name.toUpperCase()}: CHOOSE CHARACTER`;
+    t.style.color  = slot.hex;
+    _paintCharPortraits(idx);
+    const taken = new Set(state.charSelections.slice(0, idx));
+    document.querySelectorAll('#char-select [data-char]').forEach(c => {
+        c.classList.toggle('taken', taken.has(c.dataset.char));
+    });
+}
+
+// First character not already spoken for, so seat N never opens on a taken pick.
+function _firstFreeChar(taken) {
+    return ALL_CHAR_TYPES.find(t => !taken.includes(t)) || ALL_CHAR_TYPES[0];
+}
+
 export function selectChar(type) {
-    if (state.charSelectStep === 1) state.p1CharSelection = type;
-    else state.p2CharSelection = type;
+    state.charSelections[state.charSelectStep - 1] = type;
 }
 
 export function confirmCharSelect() {
-    if (state.charSelectStep === 1) {
-        state.players[0].charType = state.p1CharSelection;
-        if (state.playStyle === '1p') {
-            const types = ALL_CHAR_TYPES.filter(t => t !== state.p1CharSelection);
-            state.players[1].charType = types[Math.floor(Math.random() * types.length)];
-            goToMapSelect();
-        } else {
-            state.charSelectStep = 2;
-            document.getElementById('cs-title').textContent = 'PLAYER 2: CHOOSE CHARACTER';
-            document.getElementById('cs-title').style.color = 'var(--p2)';
-            state.p2CharSelection = state.p1CharSelection === 'slime' ? 'boxy' : 'slime';
-            // Re-render in Player 2's colour, and mark whatever Player 1 took.
-            _paintCharPortraits(1);
-            document.querySelectorAll('#char-select [data-char]').forEach(c => {
-                c.classList.toggle('taken', c.dataset.char === state.p1CharSelection);
-            });
-        }
-    } else {
-        state.players[1].charType = state.p2CharSelection;
+    const idx = state.charSelectStep - 1;
+    state.players[idx].charType = state.charSelections[idx];
+
+    // vs-bot: seat 1 is Borat and picks for itself, so there is no second step.
+    if (idx === 0 && state.playStyle === '1p') {
+        const types = ALL_CHAR_TYPES.filter(t => t !== state.charSelections[0]);
+        state.players[1].charType = types[Math.floor(Math.random() * types.length)];
         goToMapSelect();
+        return;
     }
+
+    // Hand the picker to the next human seat. Bots choose for themselves.
+    let next = idx + 1;
+    while (next < playerCount() && state.players[next].isBot) {
+        const types = ALL_CHAR_TYPES.filter(t => !state.charSelections.includes(t));
+        state.players[next].charType = types[Math.floor(Math.random() * types.length)] || 'slime';
+        state.charSelections[next] = state.players[next].charType;
+        next++;
+    }
+    if (next >= playerCount()) { goToMapSelect(); return; }
+
+    state.charSelectStep = next + 1;
+    state.charSelections[next] = _firstFreeChar(state.charSelections.slice(0, next));
+    _paintCharSelectStep(next);
+    // The card for the pre-selected character has to light up too, or the
+    // CONFIRM button commits a choice nothing on screen is showing.
+    document.querySelectorAll('#char-select [data-char]').forEach(c => {
+        c.classList.toggle('sel', c.dataset.char === state.charSelections[next]);
+    });
 }
 
 // ============================================================
@@ -211,35 +249,52 @@ export function confirmMapSelect() {
 }
 
 // Remember this game's setup so REMATCH can skip the menus.
+//
+// Online matches are deliberately NOT remembered. REMATCH reloads the page, and
+// a saved online setup would come back up with playStyle 'online' and no room
+// behind it — a hot-seat match wearing the online HUD, with three seats nobody
+// is holding. Coming back to online means going through the lobby again, which
+// is correct: the room has to be re-made anyway.
 function _savePrefs() {
+    if (state.playStyle === 'online') { Storage.remove('prefs'); return; }
     Storage.save('prefs', {
         mode:       state.playStyle,
         difficulty: state.botDifficulty,
         map:        state.selectedMap,
         hbdLength:  state.hbdLength,
         cityRounds: state.cityRounds,
-        charP1:     state.players[0].charType,
-        charP2:     state.players[1].charType,
+        players:    playerCount(),
+        chars:      state.players.map(p => p.charType),
     });
 }
 
 // Re-launch straight into a game with a saved setup (used by REMATCH).
 export function quickStart(prefs) {
     if (!prefs || !prefs.mode) return false;
+    if (prefs.mode === 'online') return false;   // see _savePrefs
     state.playStyle     = prefs.mode;
     state.botDifficulty = prefs.difficulty || 'medium';
     state.selectedMap   = prefs.map || 'city_circuit';
     state.hbdLength     = prefs.hbdLength || 100;
     state.cityRounds    = prefs.cityRounds || CITY_DEFAULT_ROUNDS;
-    state.players[0].charType = prefs.charP1 || 'slime';
-    state.players[1].isBot    = (prefs.mode === '1p');
-    if (state.players[1].isBot) {
-        state.players[1].name = 'Borat the Bot';
-        const types = ALL_CHAR_TYPES.filter(t => t !== prefs.charP1);
-        state.players[1].charType = types[Math.floor(Math.random() * types.length)];
-    } else {
-        state.players[1].name = 'Player 2';
-        state.players[1].charType = prefs.charP2 || 'boxy';
+    // `chars` replaced charP1/charP2 when seats became variable; a prefs blob
+    // saved by the two-player build still has the old keys, so read both.
+    const savedChars = Array.isArray(prefs.chars)
+        ? prefs.chars
+        : [prefs.charP1 || 'slime', prefs.charP2 || 'boxy'];
+    setPlayerCount(prefs.players || savedChars.length || 2);
+    state.players.forEach((p, i) => {
+        p.charType = savedChars[i] || PLAYER_SLOTS[i].charType;
+        p.name     = PLAYER_SLOTS[i].name;
+        p.isBot    = false;
+        state.charSelections[i] = p.charType;
+    });
+    if (prefs.mode === '1p') {
+        const bot = state.players[1];
+        bot.isBot = true;
+        bot.name  = 'Borat the Bot';
+        const types = ALL_CHAR_TYPES.filter(t => t !== state.players[0].charType);
+        bot.charType = types[Math.floor(Math.random() * types.length)];
     }
     document.getElementById('splash').style.display = 'none';
     _skipStory = true;   // rematch jumps straight back into the action
@@ -265,7 +320,7 @@ export function startGame() {
     setTimeout(() => {
         if (!state.gameStarted) return;
         UIManager.setPlayerNames();
-        state.activePlayer = Math.floor(Math.random() * 2);
+        state.activePlayer = Math.floor(Math.random() * playerCount());
         resetPlayers();
         UIManager.resetTurnAnnouncer();   // a new match announces its first turn
         UIManager.resetForkPrimer();      // ...and explains its first fork
@@ -284,7 +339,14 @@ export function startGame() {
             state.cameraState = 'FOLLOW';
             const begin = () => {
                 UIManager.toast(`${state.players[state.activePlayer].name} goes first!`,
-                    state.activePlayer === 0 ? '#ff3b3b' : '#3b8eff');
+                    PLAYER_SLOTS[state.activePlayer].hex);
+                // A networked client is a replica: it draws the match but never
+                // advances it. This is the ONE place the turn engine is
+                // entered, so not entering it here is what keeps a client's
+                // copy of GameController inert for the whole match — no bot
+                // timers, no dice, no turn hand-over, nothing to fight the
+                // snapshots with.
+                if (state.netReplica) { UIManager.updateUI(); return; }
                 proceedTurn();
             };
             if (ActiveMap.isGraph()) {
@@ -323,7 +385,15 @@ export function startGame() {
 // ============================================================
 
 export function isMyTurn(pIdx) {
-    return state.gameState === 'PRE_ROLL' && state.activePlayer === pIdx && !state.players[pIdx].isBot;
+    if (state.gameState !== 'PRE_ROLL') return false;
+    if (state.activePlayer !== pIdx) return false;
+    if (state.players[pIdx].isBot) return false;
+    // Online: the controls only answer to the phone that seat belongs to. The
+    // HUD already only paints one seat's row, but the check has to be here too
+    // — the row is the same DOM on every device and a stale dataset would
+    // otherwise let the wrong phone roll.
+    if (typeof state.localSeat === 'number' && state.localSeat !== pIdx) return false;
+    return true;
 }
 
 // Is this player standing in front of a gate that is still shut? Both maps have
@@ -629,7 +699,10 @@ const PASS_STEPS = ['hq', 'steal', 'buddy', 'shop'];
 
 function _checkPassThroughShop(player, nodeId, stepsLeft, continueMove) {
     const b   = state.board[nodeId];
-    const opp = state.players[(player.id + 1) % 2];
+    // Whoever else is standing on this square with a buddy to lose. At two
+    // seats this is the other player; at four it is the one you actually
+    // brushed past, which is the rule the effect always meant.
+    const mark = Targeting.stealableRivalOn(player, nodeId);
     const hasBuddies = ActiveMap.has('buddies');
 
     // Which of them actually apply here. Decided ONCE, up front, from the board
@@ -638,7 +711,7 @@ function _checkPassThroughShop(player, nodeId, stepsLeft, continueMove) {
     const due = PASS_STEPS.filter(k => {
         if (stepsLeft <= 0) return false;
         if (k === 'hq')    return b?.type === 'hq' && !!ActiveMap.regionOf(nodeId);
-        if (k === 'steal') return hasBuddies && opp.pos === nodeId && opp.allies.length > 0;
+        if (k === 'steal') return hasBuddies && !!mark;
         if (k === 'buddy') return hasBuddies && state.allyOnMap && state.allyOnMap.nodeId === nodeId;
         if (k === 'shop')  return b?.type === 'shop';
         return false;
@@ -675,12 +748,12 @@ function _checkPassThroughShop(player, nodeId, stepsLeft, continueMove) {
             // one turn they happened to be holding something.
             state.gameState = 'ACKNOWLEDGE';
             if (player.isBot) {
-                if (Bot.shouldAttemptAllySteal()) _startAllySteal(player, opp, Bot.allyStealIndex(opp), next);
+                if (Bot.shouldAttemptAllySteal()) _startAllySteal(player, mark, Bot.allyStealIndex(mark), next);
                 else next();
                 return;
             }
-            UIManager.toast(`🥷 You brushed past ${opp.name} — go for a Buddy?`, '#f97316', { urgent: true });
-            _offerAllySteal(player, opp, next);
+            UIManager.toast(`🥷 You brushed past ${mark.name} — go for a Buddy?`, '#f97316', { urgent: true });
+            _offerAllySteal(player, mark, next);
             return;
         }
 
@@ -722,13 +795,13 @@ function _checkPassThroughShop(player, nodeId, stepsLeft, continueMove) {
 
 function _onLand(player) {
     // Check for same-space ally steal BEFORE resolving the space
-    const opp = state.players[(player.id + 1) % 2];
-    if (player.pos === opp.pos && opp.allies.length > 0 && !player.isBot) {
-        _offerAllySteal(player, opp, () => resolveSpace(player));
+    const mark = Targeting.stealableRivalOn(player, player.pos);
+    if (mark && !player.isBot) {
+        _offerAllySteal(player, mark, () => resolveSpace(player));
         return;
     }
-    if (player.pos === opp.pos && opp.allies.length > 0 && player.isBot) {
-        if (Bot.shouldAttemptAllySteal()) _startAllySteal(player, opp, Bot.allyStealIndex(opp), () => resolveSpace(player));
+    if (mark && player.isBot) {
+        if (Bot.shouldAttemptAllySteal()) _startAllySteal(player, mark, Bot.allyStealIndex(mark), () => resolveSpace(player));
         else resolveSpace(player);
         return;
     }
@@ -950,7 +1023,10 @@ export function resolveSpace(p) {
 }
 
 export function resolveSpaceEffect(p, spaceType, space) {
-    const opp = state.players[(p.id + 1) % 2];
+    // "The opponent" at two seats. At three or four, each hostile space names
+    // the rule it wants (Targeting.js) — this stays only as the fallback for
+    // effects that genuinely do not care which rival they mention.
+    const opp = Targeting.anyRival(p) || p;
     switch (spaceType) {
         case 'start':      return ActiveMap.isLinear() ? 'Back at the start!' : 'Back at the city start!';
         // Landing here is handled by the win check in _resolveHBDSpace before the
@@ -1019,10 +1095,14 @@ export function resolveSpaceEffect(p, spaceType, space) {
             // than an event. The state swaps here (so the rules stay consistent
             // from this instant) but the MESHES are left where they are and
             // handed to the cinematic, which flies them across itself.
-            const tmp = p.pos; p.pos = opp.pos; opp.pos = tmp;
+            // Trades places with whoever is winning, not with whoever happens
+            // to sit next in the array — see Targeting.js. At two seats these
+            // are the same player.
+            const mark = Targeting.leadingRival(p) || opp;
+            const tmp = p.pos; p.pos = mark.pos; mark.pos = tmp;
             _checkContract(p, 'land_type', 'swap_space');
             haptic([50, 30, 50]);
-            _playSwap(p, opp, `🛸 Abducted and re-filed — ${p.name} and ${opp.name} have traded places.`);
+            _playSwap(p, mark, `🛸 Abducted and re-filed — ${p.name} and ${mark.name} have traded places.`);
             return null;   // the cinematic owns the screen and raises its own card
         }
         case 'anchor_trap': {
@@ -1045,23 +1125,31 @@ export function resolveSpaceEffect(p, spaceType, space) {
             return 'Your own Anchor.';
         }
         case 'magnet': {
-            const stolen = Math.min(5, opp.coins);
-            loseCoins(opp, stolen); earnCoins(p, stolen);
+            // Reaches into the fullest pocket in the game, which at two seats
+            // is the only other pocket.
+            const mark   = Targeting.richestRival(p) || opp;
+            const stolen = Math.min(5, mark.coins);
+            loseCoins(mark, stolen); earnCoins(p, stolen);
             _checkContract(p, 'land_type', 'magnet');
             // The satisfying half of a magnet is watching the OTHER number go
             // down, so the coins have to be seen leaving them.
             if (stolen > 0) {
-                _playSetPiece(done => SetPieces.magnetPull(p, opp, stolen, done),
-                              'MAGNET', `🧲 Pulled ${stolen} coins straight out of ${opp.name}'s pocket.`, p, 'owner');
+                _playSetPiece(done => SetPieces.magnetPull(p, mark, stolen, done),
+                              'MAGNET', `🧲 Pulled ${stolen} coins straight out of ${mark.name}'s pocket.`, p, 'owner');
                 return null;
             }
-            return `${opp.name} had nothing left to take.`;
+            return `${mark.name} had nothing left to take.`;
         }
         case 'truce': {
-            earnCoins(state.players[0], 5); earnCoins(state.players[1], 5);
-            SetPieces.trucePop(Renderer.getPos(state.players[0].pos), Renderer.getPos(state.players[1].pos));
+            // A truce is a truce with the whole table, not with seat 1.
+            state.players.forEach(q => earnCoins(q, 5));
+            // The pop is drawn between the two players furthest apart, so the
+            // effect still reads as a handshake across the board rather than
+            // three overlapping bursts on one tile.
+            const near = Targeting.nearestRival(p) || p;
+            SetPieces.trucePop(Renderer.getPos(p.pos), Renderer.getPos(near.pos));
             _checkContract(p, 'land_type', 'truce');
-            return 'Both players gain 5 coins!';
+            return playerCount() > 2 ? 'Everyone gains 5 coins!' : 'Both players gain 5 coins!';
         }
         case 'player_trap': {
             if (space?.owner !== undefined && space.owner !== p.id) {
@@ -1114,10 +1202,17 @@ export function resolveSpaceEffect(p, spaceType, space) {
             // Stage it. The bet picker used to appear with no lead-in at all,
             // which made the biggest voluntary risk on the board feel like a
             // form. This costs nothing: the minigame follows either way.
-            SetPieces.duelFaceoff(p, opp, () => {
+            // The challenger is picked ONCE, here, and remembered on state.
+            // The bet screen, the face-off and the payout all read that one
+            // field — recomputing "the opponent" in each of them was safe at
+            // two seats and would let a duel pay out against a different
+            // player than the one it staged at four.
+            const foe = Targeting.nearestRival(p) || opp;
+            state.pendingDuelTarget = foe.id;
+            SetPieces.duelFaceoff(p, foe, () => {
                 Renderer.endCinematic();
                 if (state.gameState !== 'ACKNOWLEDGE') return;
-                if (p.isBot) _startDuel(p, Bot.duelBet(p, opp));
+                if (p.isBot) _startDuel(p, Bot.duelBet(p, foe));
                 else Director.hold('DUEL_OPEN', () => _openDuelModal(p));
             });
             return null;
@@ -1229,7 +1324,7 @@ export function resolveMsgModal() {
     if (state.gameState === 'GAME_OVER') return;
     if (state.gameState === 'MINIGAME_ACK') {
         Director.hold('POST_MINIGAME', () => {
-            state.activePlayer = state.lastMinigameWinner >= 0 ? state.lastMinigameWinner : (state.activePlayer+1)%2;
+            state.activePlayer = state.lastMinigameWinner >= 0 ? state.lastMinigameWinner : (state.activePlayer+1)%playerCount();
             state.lastMinigameWinner = -1;
             state.lastMinigameTied   = false;
             proceedTurn();
@@ -1297,7 +1392,7 @@ export function finishTurn() {
         return;
     }
     state.rollAgainSamePlayer = false;
-    state.activePlayer = (state.activePlayer + 1) % 2;
+    state.activePlayer = (state.activePlayer + 1) % playerCount();
     maybeTriggerMinigame();
 }
 
@@ -1315,7 +1410,7 @@ export function maybeTriggerMinigame() {
                 // Beat: the board is allowed to breathe before the minigame
                 // takes the screen. Without this the payoff for the turn that
                 // just happened is cut off mid-read.
-                Director.hold('PRE_MINIGAME', () => MinigameManager.trigger((winnerId) => {
+                Director.hold('PRE_MINIGAME', () => _runRoundContest(winnerId => {
                     _resolveMinigameResult(winnerId);
                     Director.hold('WIN_SCREEN', calculateWinner);
                 }));
@@ -1327,9 +1422,13 @@ export function maybeTriggerMinigame() {
         // the minigame is the round's payoff and should not be queued behind
         // news about the round that has not started yet, and a card read four
         // turns before anybody can act on it is a card people forget.
-        UIManager.announceMinigameIncoming();
+        // Decide the pair BEFORE the banner so it can name them, and hand the
+        // same pair to the contest — deriving it twice would risk the banner
+        // and the game disagreeing about who is playing.
+        const pair = MinigameManager.chooseParticipants();
+        UIManager.announceMinigameIncoming(pair);
         Director.hold('PRE_MINIGAME', () =>
-            MinigameManager.trigger((winnerId) => _resolveMinigameResult(winnerId)));
+            _runRoundContest(winnerId => _resolveMinigameResult(winnerId), pair));
     } else {
         Director.hold('TURN_HANDOFF', proceedTurn);
     }
@@ -1345,6 +1444,58 @@ export function maybeTriggerMinigame() {
 // report — who is on the board, where, how many rounds before they leave, and
 // what each player is holding with the turns left on it. Both players are about
 // to race for the same buddy, so it is a shared card.
+// The round's contest between two players.
+//
+// OFFLINE this is the minigame, exactly as it always was.
+//
+// ONLINE it is not — yet. All 22 minigames are 1v1 split-screen games that
+// read local touches and simulate locally; making them play across devices is
+// Phase C (docs/MULTIPLAYER_PLAN.md), and it is a bigger job than the whole
+// board was. Launching one anyway would put a playable game on the host's
+// phone and a frozen board on everybody else's, which is worse than not
+// launching it: a client would hang at every round end with nothing to press.
+//
+// So online, the round is decided by a draw between the two players whose turn
+// it is in the rotation, announced as exactly that. The board match is whole
+// and playable end to end; the round's payoff is honest about being a
+// placeholder rather than pretending to be a contest of skill.
+function _runRoundContest(done, pair) {
+    _contest(pair || MinigameManager.chooseParticipants(), done, {
+        title: '🎲 ROUND DRAW',
+        award: true,
+    });
+}
+
+// EVERY route into a minigame goes through here.
+//
+// There are three — the round-end contest, a Duel space, and a fight over a
+// Buddy — and online mode has to intercept all three, not one. Handling only
+// the round-end one is what left a networked match frozen on MINIGAME_INTRO
+// the first time anybody landed on a Duel tile: the host launched a real 1v1
+// split-screen game, every phone showed the intro card, and nothing could
+// finish it. qa/net.js caught it as a stall.
+//
+// `opts.award` pays the standard minigame reward, which the round-end contest
+// does and the other two do not — a duel settles its own wager and a buddy
+// fight hands over the buddy.
+function _contest(pair, done, opts = {}) {
+    if (state.playStyle !== 'online') { MinigameManager.trigger(done, pair); return; }
+
+    const [a, b] = pair.map(id => state.players[id]);
+    const winner = pair[Math.floor(Math.random() * pair.length)];
+    ModalManager.showMessage(
+        opts.title || '🎲 DRAW',
+        `${a.name} vs ${b.name} — minigames arrive across phones in the next update. ` +
+        `${state.players[winner].name} takes it.`,
+        '🎲', { tier: 'shared' });
+    if (opts.award) {
+        state.players[winner].mgWins++;
+        earnCoins(state.players[winner], MINIGAME_REWARD);
+    }
+    UIManager.updateUI();
+    Director.hold('POST_RESULT', () => { ModalManager.closeAllModals(); done(winner); });
+}
+
 function _afterAllyReveal(then) {
     const reveal = state.pendingAllyReveal; state.pendingAllyReveal = null;
     const rep    = buddyReport();
@@ -1369,16 +1520,23 @@ function _resolveMinigameResult(winnerId) {
     let msg, icon;
     if (state.lastMinigameTied) {
         state.lastMinigameTied = false;
-        msg = `It's a tie! Both players got coins — ${state.players[winnerId].name} goes first!`;
+        msg = playerCount() > 2
+            ? `It's a tie! Everyone got coins — ${state.players[winnerId].name} goes first!`
+            : `It's a tie! Both players got coins — ${state.players[winnerId].name} goes first!`;
         icon = '🪙';
     } else {
         msg = `${state.players[winnerId].name} wins — they roll first next turn!`;
         icon = '🏆';
     }
-    // Track consecutive wins for contracts
-    state.players.forEach((p, i) => {
-        if (i === winnerId) { p.consecutiveMgWins++; }
-        else { p.consecutiveMgWins = 0; }
+    // Track consecutive wins for contracts. Only the two who actually played
+    // move: in a three- or four-player match the spectators neither won nor
+    // lost, and breaking their streak for a game they were not in is wrong.
+    const played = MinigameManager.roster();
+    played.forEach(seat => {
+        const q = state.players[seat];
+        if (!q) return;
+        if (seat === winnerId) q.consecutiveMgWins++;
+        else q.consecutiveMgWins = 0;
     });
     if (ActiveMap.has('bounties')) {
         _checkContract(state.players[winnerId], 'win_minigame');
@@ -1387,11 +1545,13 @@ function _resolveMinigameResult(winnerId) {
     ModalManager.showMessage('MINIGAME OVER', msg, icon, { tier: 'shared' });
     Renderer.startPostMinigameFlyover(() => { state.cameraState = 'FOLLOW'; });
     if (ActiveMap.has('roundLimit')) UIManager.updateRoundCounter(state.currentRound, _cityRounds());
-    if (state.players[1].isBot) {
+    // Nobody is going to press CONTINUE for a bot, so the card dismisses
+    // itself in any match where no human is watching for it.
+    if (state.players.every(pl => pl.isBot) || (playerCount() === 2 && state.players[1].isBot)) {
         Director.hold('BOT_RESULT', () => { if (state.gameState === 'MINIGAME_ACK') resolveMsgModal(); });
     }
     // Reset per-round state
-    state.investorUsedThisRound = [false, false];
+    state.investorUsedThisRound = state.players.map(() => false);
     state.players.forEach(p => { p.coinsEarnedThisRound = 0; p.shopsVisitedThisLap = 0; p.cabbieUsedThisRound = false; });
 }
 
@@ -1522,6 +1682,7 @@ export function resolvePassModal() {
 // ============================================================
 
 export function triggerGateChallenge(p) {
+    Scenes.emit('gate', { seat: p.id });
     state.msgModalResolving = false;
     state.gameState = 'GATE'; state.gateRolling = false;
     // The gate is a full-screen scene that never called updateUI(), so in
@@ -1634,6 +1795,7 @@ export function resolveGateRoll() {
 }
 
 export function closeGate() {
+    Scenes.emit('gateEnd', {});
     document.getElementById('gate-overlay').style.display = 'none';
     document.body.classList.remove('gate-scene');
     document.getElementById('ui-layer').style.display = 'block';
@@ -1910,11 +2072,11 @@ export function executeUseItem(pid, itemIdx) {
     // bag is unreachable anyway, but the gate is meant to be a straight test of
     // the dice and that should not depend on a display property.
     if (state.gameState === 'GATE') { UIManager.toast('No items at the gate.', '#ef4444', { urgent: true }); return; }
-    const p = state.players[pid], opp = state.players[(pid+1)%2];
+    const p = state.players[pid];
     const itemId = p.inv[itemIdx]; p.inv.splice(itemIdx, 1);
     UIManager.toast(`Used ${ITEMS[itemId].name}!`, '#f5c842'); sfx('buy');
     _checkContract(p, 'use_item', itemId);
-    _applyItemEffect(p, itemId, false, opp);
+    _applyItemEffect(p, itemId, false);
     if (itemId === 'rocket' || itemId === 'custom_dice') return;
     UIManager.updateUI(); ModalManager.closeAllModals();
 }
@@ -1924,12 +2086,23 @@ export function executeUseItem(pid, itemIdx) {
 // use-path and the bot pre-roll path so Mirror works consistently in all modes.
 
 
-function _applyItemEffect(p, itemId, isBot, opp) {
-    opp = opp || state.players[(p.id+1)%2];
-    if (itemId === 'cursed_die')  { state.cursedTarget[(p.id+1)%2] = true; UIManager.toast(`💀 Cursed Die!`, '#ef4444'); }
+// `override` forces a target; nothing passes it today. Left in the signature
+// because the Mirror rework and the online path both need a way to say "this
+// item was aimed at THIS player" rather than re-deriving it.
+function _applyItemEffect(p, itemId, isBot, override) {
+    // Each hostile item names the rule it wants. At two seats every rule below
+    // resolves to the only other player, so nothing about a 1v1 match changes.
+    const leader  = override || Targeting.leadingRival(p) || p;
+    const richest = override || Targeting.richestRival(p) || p;
+    const opp     = leader;   // for the shared cinematic/toast copy below
+
+    if (itemId === 'cursed_die')  {
+        state.cursedTarget[leader.id] = true;
+        UIManager.toast(`💀 Cursed Die on ${leader.name}!`, '#ef4444');
+    }
     if (itemId === 'shield')        p._shielded = true;
     if (itemId === 'rocket')      { _doMove(p, 8); UIManager.updateUI(); ModalManager.closeAllModals(); }
-    if (itemId === 'anchor')      { if (state.board[opp.pos]) { state.board[opp.pos].type = 'anchor_trap'; state.board[opp.pos].owner = p.id; Renderer.updateSingleTile(); UIManager.toast('⚓ Anchor placed!', '#f97316'); } }
+    if (itemId === 'anchor')      { if (state.board[leader.pos]) { state.board[leader.pos].type = 'anchor_trap'; state.board[leader.pos].owner = p.id; Renderer.updateSingleTile(); UIManager.toast(`⚓ Anchor set under ${leader.name}!`, '#f97316'); } }
     if (itemId === 'swap')        {
         // The same event as the SWAP ZONE space, so the same set piece — a
         // player should not have to learn two visual languages for one thing.
@@ -1956,7 +2129,7 @@ function _applyItemEffect(p, itemId, isBot, opp) {
             }
         });
     }
-    if (itemId === 'steal')       { const s = Math.min(10, opp.coins); loseCoins(opp, s); earnCoins(p, s); }
+    if (itemId === 'steal')       { const s = Math.min(10, richest.coins); loseCoins(richest, s); earnCoins(p, s); if (s > 0) UIManager.toast(`🕵️ Lifted ${s} coins from ${richest.name}.`, '#f5c842'); }
     if (itemId === 'custom_dice') {
         if (isBot) {
             const pick = Bot.customDice(p);
@@ -2127,7 +2300,13 @@ function _startAllySteal(stealer, target, allyIdx, onDone) {
 
 function _startAllyMinigame(player, allyType, isSteal, stealCtx, onDone) {
     state.mgContext = isSteal ? 'ally_steal' : 'ally_claim';
-    MinigameManager.trigger((winnerId) => {
+    // A steal is against the player being robbed. A claim is a fight for a
+    // buddy nobody owns yet, so the challenger takes on whoever is winning —
+    // at two seats both rules pick the only other player, as they always did.
+    const foe = isSteal && stealCtx?.target
+        ? stealCtx.target
+        : (Targeting.leadingRival(player) || state.players[(player.id + 1) % playerCount()]);
+    _contest([player.id, foe.id], (winnerId) => {
         state.mgContext = null;
         // endMinigame() hands the camera over in 'FLYOVER' and expects whoever
         // asked for the minigame to put it back. The board-minigame handler does
@@ -2166,7 +2345,7 @@ function _startAllyMinigame(player, allyType, isSteal, stealCtx, onDone) {
         }
         UIManager.updateUI();
         if (onDone) setTimeout(onDone, 400);
-    });
+    }, { title: '🤝 BUDDY DRAW' });
 }
 
 function _grantAlly(player, allyType, turnsRemaining, shieldCharges) {
@@ -2264,41 +2443,56 @@ function _allyPassive(player, powerType) {
 // DUEL SYSTEM
 // ============================================================
 
+// Who `p` is duelling. Set when the duel space resolves; falls back to the
+// nearest rival so a duel raised by any other route still has a challenger.
+function _duelFoe(p) {
+    const id = state.pendingDuelTarget;
+    if (id !== null && id !== undefined && state.players[id] && id !== p.id) return state.players[id];
+    return Targeting.nearestRival(p) || state.players[(p.id + 1) % playerCount()];
+}
+
 function _openDuelModal(p) {
-    const opp = state.players[(p.id+1)%2];
+    const opp = _duelFoe(p);
     ModalManager.showDuelModal(p, opp, (betAmount) => {
         _startDuel(p, betAmount);
     });
 }
 
 function _startDuel(p, betAmount) {
-    const opp  = state.players[(p.id+1)%2];
+    const opp  = _duelFoe(p);
+    state.pendingDuelTarget = opp.id;
     const safe = Math.min(betAmount, Math.min(p.coins, opp.coins), 10);
     if (safe <= 0) {
         // A duel needs two stakes. The lander is handed DUEL_STAKE on arrival so
         // this can only mean the opponent is broke — say so rather than ending
         // the turn in silence right after the faceoff.
         UIManager.toast(`No wager — ${opp.name} has nothing to stake.`, '#94a3b8', { urgent: true });
+        state.pendingDuelTarget = null;
         Director.hold('POST_RESULT', finishTurn);
         return;
     }
     state.pendingDuelBet = safe;
     state.mgContext = 'duel';
-    UIManager.toast(`⚔️ DUEL! Both players bet ${safe} coins!`, '#ef4444');
-    MinigameManager.trigger((winnerId) => {
+    const duelSeats = [p.id, opp.id];
+    UIManager.toast(`⚔️ DUEL! ${p.name} and ${opp.name} bet ${safe} coins!`, '#ef4444');
+    _contest(duelSeats, (winnerId) => {
         state.mgContext = null;
-        const winner  = state.players[winnerId];
-        const loser   = state.players[(winnerId+1)%2];
+        // A duel is between exactly these two, whoever else is in the match:
+        // the loser is the other duellist, not "whoever did not win".
+        const winner  = state.players[winnerId] === p || state.players[winnerId] === opp
+            ? state.players[winnerId] : p;
+        const loser   = winner === p ? opp : p;
         const actual  = Math.min(state.pendingDuelBet, loser.coins);
         loseCoins(loser, actual); earnCoins(winner, actual);
         winner.duelsWon++;
         UIManager.toast(`${winner.name} wins the duel! +${actual} coins!`, '#fbbf24');
         _checkContract(winner, 'duel_win');
         state.pendingDuelBet = 0;
+        state.pendingDuelTarget = null;
         state.gameState = 'ACKNOWLEDGE';
         Renderer.startPostMinigameFlyover(() => { state.cameraState = 'FOLLOW'; });
         Director.hold('POST_RESULT', finishTurn);
-    });
+    }, { title: '⚔️ DUEL DRAW' });
 }
 
 export function confirmDuelBet(betAmount) {
@@ -2322,3 +2516,34 @@ export function mainMenu() { Storage.remove('intent'); window.location.reload();
 // ============================================================
 
 export function openMapView() { UIManager.openMap(); }
+
+// ============================================================
+// COMMAND REGISTRATION
+// ============================================================
+// Every player decision the board understands, named. UI handlers go through
+// Commands.run(); online, the net layer intercepts the same names and forwards
+// them to the host, which applies them here with Commands.runLocal().
+//
+// The names are the wire protocol. Renaming one is a breaking change for a
+// client on an older build, which is what NetProtocol's version check is for.
+// `pathChoice` and `duelBet` are deliberately NOT here. Both have a
+// continuation the UI is holding (the Cabbie picker, the bet callback), so
+// UIManager and ModalManager register those two themselves. Registering them
+// here as well would silently win the race — GameController's body runs after
+// theirs — and drop the callback path.
+Commands.define({
+    roll:          executeRoll,
+    useItem:       executeUseItem,
+    buy:           buyItem,
+    closeShop:     closeShopModal,
+    shopEnter:     shopOfferEnter,
+    shopSkip:      shopOfferSkip,
+    dropConfirm:   confirmDrop,
+    dropCancel:    cancelDrop,
+    customDice:    confirmCustomDice,
+    msgContinue:   resolveMsgModal,
+    passContinue:  resolvePassModal,
+    gateRoll:      rollGate,
+    gateClose:     closeGate,
+    cabbie:        activateCabbie,
+});
