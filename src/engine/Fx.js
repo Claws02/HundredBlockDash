@@ -84,12 +84,28 @@ export function play(name, args, done) {
     fn(args || {}, done);
 }
 
-/** Replay an effect that arrived from the host. Continuations are not ours. */
+/**
+ * Replay an effect that arrived from the host.
+ *
+ * The host's continuation is not ours — it advances the turn — but a replay
+ * still needs ONE thing from it: the camera back.
+ *
+ * Most of these set pieces call `_takeCamera`, which parks `cameraState` on
+ * 'CINEMATIC' precisely so the render loop stops driving it. On the host the
+ * continuation ends with `endCinematic()`. Passing `null` here meant a client
+ * that replayed a buddy arrival parked its camera and never moved it again —
+ * reported from two devices as "the joined player's camera got stuck". So the
+ * replay's continuation is exactly that one line and nothing else.
+ *
+ * This is belt; the braces are in NetSync, which mirrors the host's camera mode
+ * on every snapshot and would fix a stuck camera even if this were forgotten.
+ */
 export function replay(name, args) {
     const fn = FX[name];
     if (!fn) return;
+    const giveTheCameraBack = () => Renderer.endCinematic();
     // A set piece that throws on a client must not take the render loop with
-    // it: the client is a spectator here and a missing prop is cosmetic.
-    try { fn(args || {}, null); }
-    catch (e) { console.warn('[fx] replay failed:', name, e); }
+    // it — nor may it strand the camera on the way out.
+    try { fn(args || {}, giveTheCameraBack); }
+    catch (e) { console.warn('[fx] replay failed:', name, e); giveTheCameraBack(); }
 }

@@ -970,6 +970,16 @@ export function showCityBriefing(onDone) {
     DualRead.present(document.getElementById('cb-sheet'), { tier: 'shared' });
 }
 
+// The briefing is the one screen the whole table reads at once, so pressing
+// START does not move THIS device on — it says this player is ready, and the
+// card waits until everybody has. Offline that is one press and no wait.
+function _pressBriefingReady() {
+    const btn = document.getElementById('btn-cb-start');
+    if (btn && btn.disabled) return;
+    Commands.run('briefingReady');
+}
+
+// Called when the gate actually opens: everybody has pressed.
 function _closeBriefing() {
     const el = document.getElementById('city-briefing');
     DualRead.unmirror(document.getElementById('cb-sheet'));
@@ -979,10 +989,42 @@ function _closeBriefing() {
     if (done) done();
 }
 
+/**
+ * Show that this player is in and the table is still gathering.
+ *
+ * `waiting` is a count on the host, which is counting, and null on a client,
+ * which has pressed but has not heard back yet. Both have to read as "you are
+ * in, we are waiting on others" — a button that simply stopped responding is
+ * indistinguishable from one that is broken.
+ */
+export function markBriefingWaiting(waiting) {
+    const btn = document.getElementById('btn-cb-start');
+    if (!btn) return;
+    if (waiting === null || waiting > 0) {
+        btn.disabled = true;
+        btn.textContent = waiting ? `✓ READY — WAITING FOR ${waiting} MORE`
+                                  : '✓ READY — WAITING FOR THE OTHERS';
+        btn.classList.add('cb-waiting');
+    } else {
+        btn.disabled = false;
+        btn.textContent = 'START THE MATCH';
+        btn.classList.remove('cb-waiting');
+    }
+}
+
+export function briefingIsOpen() { return _briefingOpen; }
+
+/**
+ * The gate opened: everybody has pressed, so the card comes down and the match
+ * begins. Not a Command — nobody "runs" this, it is the consequence of the last
+ * player pressing, and it fires on every device at once.
+ */
+export function closeBriefingNow() { if (_briefingOpen) _closeBriefing(); }
+
 function _wirePanelEvents() {
     document.getElementById('btn-ally-arrival')?.addEventListener('click', () => Commands.run('buddyReportAck'));
     document.getElementById('btn-close-bounties')?.addEventListener('click', () => closeBounties());
-    document.getElementById('btn-cb-start')?.addEventListener('click', () => _closeBriefing());
+    document.getElementById('btn-cb-start')?.addEventListener('click', () => _pressBriefingReady());
     document.getElementById('btn-cb-tour')?.addEventListener('click', () => {
         document.getElementById('city-briefing').style.display = 'none';
         openMap();

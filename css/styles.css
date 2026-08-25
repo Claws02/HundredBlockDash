@@ -2565,3 +2565,12 @@ body:not(.tabletop-mode) #turn-banner.tb-show .tb-bottom.tb-mine {
     animation: nwPulse 1.5s ease-in-out infinite;
 }
 @keyframes nwPulse { 0%,100% { opacity: .35; } 50% { opacity: 1; } }
+
+/* The briefing's START is a ready vote online: pressed, it says so and waits
+   for the rest of the table rather than going quiet. */
+.cb-actions .cb-go.cb-waiting {
+    opacity: .78; cursor: default;
+    background: rgba(74,222,128,.18);
+    border-color: rgba(74,222,128,.55);
+    color: #b9f6cd;
+}

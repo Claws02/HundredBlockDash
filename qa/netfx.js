@@ -132,12 +132,54 @@ function peak(samples, key) {
         await host.click('#btn-map-confirm');
 
         const pages = [host, client];
+
+        // ---- the briefing is a READY GATE ------------------------------------
+        // One press no longer moves one device on: every seat votes and the
+        // card lifts on all of them at once. Check the waiting state exists
+        // before voting the second time, or the assertion proves nothing.
+        await host.waitForFunction(() =>
+            getComputedStyle(document.getElementById('city-briefing')).display !== 'none',
+            null, { timeout: 240000 }).catch(() => {});
+        await client.waitForFunction(() =>
+            getComputedStyle(document.getElementById('city-briefing')).display !== 'none',
+            null, { timeout: 240000 }).catch(() => {});
+
+        await host.click('#btn-cb-start');
+        await host.waitForTimeout(900);
+        const gateMid = {
+            host: await host.evaluate(() => {
+                const b = document.getElementById('btn-cb-start');
+                const ov = document.getElementById('city-briefing');
+                return { txt: b ? b.textContent.trim() : null, disabled: b ? b.disabled : null,
+                         up: !!ov && getComputedStyle(ov).display !== 'none' };
+            }),
+            client: await client.evaluate(() => {
+                const ov = document.getElementById('city-briefing');
+                return { up: !!ov && getComputedStyle(ov).display !== 'none' };
+            }),
+        };
+        ok('one press does not start the match',
+            gateMid.host.up === true && gateMid.client.up === true,
+            `host card up ${gateMid.host.up}, client card up ${gateMid.client.up}`);
+        ok('the presser is told the table is still gathering',
+            gateMid.host.disabled === true && /READY/i.test(gateMid.host.txt || ''),
+            `button: ${JSON.stringify(gateMid.host.txt)} disabled=${gateMid.host.disabled}`);
+
+        await client.click('#btn-cb-start');
+        await host.waitForTimeout(1200);
+        const gateEnd = await Promise.all(pages.map(p => p.evaluate(() => {
+            const ov = document.getElementById('city-briefing');
+            return !!ov && getComputedStyle(ov).display !== 'none';
+        })));
+        ok('the last press lifts the card on every device',
+            gateEnd.every(up => up === false), `still up: ${JSON.stringify(gateEnd)}`);
+
         const deadline = Date.now() + 240000;
         while (Date.now() < deadline) {
             await Promise.all(pages.map(p => p.evaluate(() => {
                 const ov = document.getElementById('city-briefing');
                 const go = document.getElementById('btn-cb-start');
-                if (go && ov && getComputedStyle(ov).display !== 'none') go.click();
+                if (go && ov && getComputedStyle(ov).display !== 'none' && !go.disabled) go.click();
             }).catch(() => {})));
             const gs = await Promise.all(pages.map(p => p.evaluate(async () =>
                 (await import('/src/core/GameState.js')).state.gameState)));
@@ -217,7 +259,16 @@ function peak(samples, key) {
         // and faking one would be a lie about a number that has already been
         // decided. The client gets the callout — the number at size — and a
         // waiting line while the host's dice settle.
-        notes.push(`dice on client: ${cliDice} (host ${hostDice}) — not mirrored by design`);
+        // The client throws its OWN dice while the host is rolling — not the
+        // host's throw (cannon.js is not deterministic and a client cannot
+        // reproduce it), just the seven seconds of not knowing. Nothing is ever
+        // read off them: they are cleared the moment the real number arrives,
+        // and a die is only readable at rest.
+        ok('the client sees dice while the host is rolling', cliDice > 0,
+            `client spawned ${cliDice}, host ${hostDice}`);
+        const diceGone = (lastOf(trace.client).dice ?? 0) === 0;
+        ok('the client\'s dice are gone once the number lands', diceGone,
+            `${lastOf(trace.client).dice} still in the scene`);
 
         // ---- the hand-over announcement -------------------------------------
         // Sampled above only by luck: the banner fires at the START of a turn,
@@ -245,6 +296,30 @@ function peak(samples, key) {
         // The client is seat 1, so the banner it was just shown is about IT.
         ok('the announcement says YOU on the device it is about',
             /YOU/i.test(banner[1][1] || ''), banner[1][1] || '(nothing)');
+
+        // ---- a set piece must not strand the client's camera ---------------
+        // The reported failure: a buddy arrived, and the joined player's camera
+        // stayed looking at it for the rest of the match. Every camera-taking
+        // set piece hands the camera back through a continuation that belongs
+        // to the host, and a client replaying one had no such continuation.
+        await host.evaluate(async () => {
+            const Fx = await import('/src/engine/Fx.js');
+            const S = (await import('/src/core/GameState.js')).state;
+            Fx.play('allyArrival', { node: S.players[0].pos }, () => {});
+        });
+        await host.waitForTimeout(600);
+        const camDuring = await client.evaluate(async () =>
+            (await import('/src/core/GameState.js')).state.cameraState);
+        // Long enough for the set piece to finish AND for a snapshot to have
+        // re-asserted the host's camera mode if the continuation failed.
+        await host.waitForTimeout(4000);
+        const camAfter = await client.evaluate(async () =>
+            (await import('/src/core/GameState.js')).state.cameraState);
+        notes.push(`client camera through a set piece: ${camDuring} -> ${camAfter}`);
+        ok('the client plays the set piece', camDuring === 'CINEMATIC',
+            `camera was ${camDuring} while it ran`);
+        ok('the client gets its camera back afterwards', camAfter === 'FOLLOW',
+            `camera left on ${camAfter}`);
 
         ok('no page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
         await client.screenshot({ path: path.join(__dirname, 'shot-netfx-client.png') });

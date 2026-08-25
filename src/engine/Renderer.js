@@ -1873,6 +1873,37 @@ export function endSwapCinematic() {
     }
 }
 
+// ============================================================
+// CAMERA WATCHDOG — the last line, when everything else has failed
+// ============================================================
+// 'CINEMATIC' is a mode the render loop does not drive, on purpose: whatever
+// set piece took the camera owns it, and hands it back when it finishes. That
+// is a contract, and a contract has a way of not being kept — a continuation
+// that never fires, an animation interrupted by a force-end, a client
+// replaying a set piece whose exit path belonged to somebody else. When it is
+// broken the symptom is total: the camera stops moving for the rest of the
+// match and the board looks frozen even though the game is fine.
+//
+// The longest set piece in the game is the Swap, at ~5.9 s. Anything still
+// holding the camera at three times that is not holding it, it has dropped it.
+//
+// Nothing should ever reach this. It is here because something did, and
+// because "the scene forgot to hand back" is invisible until somebody is
+// staring at a dead screen wondering whether the game crashed.
+const CINEMATIC_MAX_S = 18;
+let _cinematicHeld = 0;
+
+function _cameraWatchdog(dt) {
+    if (state.cameraState !== 'CINEMATIC') { _cinematicHeld = 0; return; }
+    _cinematicHeld += dt;
+    if (_cinematicHeld < CINEMATIC_MAX_S) return;
+    console.warn(`[renderer] camera held on CINEMATIC for ${_cinematicHeld.toFixed(1)}s — taking it back`);
+    _cinematicHeld = 0;
+    state.cameraState = 'FOLLOW';
+    resetCameraSmoothing();
+    snapCameraToActive();
+}
+
 // Hand the camera back after any set piece that parked it on 'CINEMATIC'.
 // Snapping rather than easing: the shot could be anywhere on the board, and
 // easing back across it is a long drift with nothing happening in it.
@@ -2279,6 +2310,8 @@ function _loop() {
             });
         });
     }
+
+    _cameraWatchdog(dt);
 
     const cs = state.cameraState;
     if (cs === 'FOLLOW') {
