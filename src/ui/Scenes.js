@@ -35,6 +35,11 @@ export const SCENE_TIER = {
     message:      TIER.SHARED,   // the result / announcement card
     buddyReport:  TIER.SHARED,
     turnBanner:   TIER.SHARED,   // whose go it is — everybody needs to know
+    // A beat the whole table has to acknowledge before anybody moves on.
+    // `gateCount` keeps the waiting visible; `gateOpen` releases it. See
+    // net/ReadyGate.js.
+    gateCount:    TIER.SHARED,
+    gateOpen:     TIER.SHARED,
     // Every animation on the board: the coin burst, the magnet, the saucer,
     // the gate shattering. SHARED because the board belongs to the table —
     // watching somebody else's turn is most of what a party game is, and a

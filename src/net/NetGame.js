@@ -28,12 +28,39 @@ import * as Commands from '../core/Commands.js';
 import * as Scenes from '../ui/Scenes.js';
 import * as Session from './NetSession.js';
 import * as Sync from './NetSync.js';
+import * as ReadyGate from './ReadyGate.js';
 import { MSG, PROTOCOL_VERSION } from './NetProtocol.js';
 import * as T from './NetTransport.js';
 import { PLAYER_SLOTS } from '../config/GameConfig.js';
 import { SCENE } from '../config/SceneTiming.js';
 
 export { ROLE } from './NetSession.js';
+
+// The opening briefing — the four roads, read by everybody before anybody
+// rolls. One id because it is one gate; more will want their own.
+export const BRIEFING_GATE = ReadyGate.BRIEFING;
+
+// The one beat the whole table has to acknowledge before anybody rolls.
+// Registered here rather than in UIManager because only this layer knows
+// whether "ready" is a press or a vote — offline it closes the card, online it
+// waits for everybody.
+// A client never reaches this: the dispatcher forwards the press, and the host
+// applies it for that seat through the same ReadyGate.voteBriefing() this uses.
+// Offline there is no gate to hold — one player, one press, straight through.
+Commands.define({
+    briefingReady: () => {
+        if (!Session.isOnline()) { _closeBriefingHere(); return; }
+        ReadyGate.voteBriefing(Session.mySeat());
+        // The host's own `gateCount` only travels outward, so its button is
+        // repainted here.
+        if (_ui) _ui.UI.markBriefingWaiting(ReadyGate.pending(BRIEFING_GATE));
+    },
+});
+
+function _closeBriefingHere() {
+    if (_ui) { _ui.UI.closeBriefingNow(); return; }
+    _uiReady.then(() => _ui && _ui.UI.closeBriefingNow());
+}
 
 let _controller = null;
 let _wired = false;
@@ -266,10 +293,26 @@ function _replayScene(kind, p, Modal, UI) {
             return;
         }
         case 'rollCallout':
+            // The real number has landed, so the spectator's props come down.
+            // A die is only readable at rest and these never reach it — which
+            // is what makes throwing them honest.
+            import('./NetDice.js').then(D => D.stop());
             UI.showRollCallout(p.n);
             // The host takes it down when the token sets off; a client has no
             // such moment, so it holds for the same beat and then clears.
             setTimeout(() => UI.hideRollCallout(), SCENE.DICE_READ);
+            return;
+        case 'gateCount':
+            // Somebody pressed; say how many the table is still waiting on.
+            // The count is the table's; whether the button is spent is this
+            // device's. Passing only the count disabled the button belonging to
+            // the very player everybody was waiting for.
+            if (p.id === BRIEFING_GATE) UI.markBriefingWaiting(p.waiting);
+            return;
+        case 'gateOpen':
+            // Everybody is in. Every device moves on at the same instant,
+            // which is the whole point of the gate.
+            if (p.id === BRIEFING_GATE) UI.closeBriefingNow();
             return;
         case 'turnBanner':
             UI.showTurnBanner(p.seat, { sub: p.sub });

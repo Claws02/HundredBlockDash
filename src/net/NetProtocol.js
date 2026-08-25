@@ -61,6 +61,14 @@ export function snapshot(state) {
         v: PROTOCOL_VERSION,
         // Flow
         gs:    state.gameState,
+        // The camera MODE, not its position. A set piece parks the camera on
+        // 'CINEMATIC' — a mode the render loop deliberately does not drive —
+        // and hands it back through a continuation that belongs to the host. A
+        // client replaying that set piece has no such continuation, so its
+        // camera stayed parked and the board froze while the game carried on.
+        // Sending the mode makes the host's camera authoritative and the
+        // client self-corrects on the very next snapshot.
+        cam:   state.cameraState,
         ap:    state.activePlayer,
         turns: state.totalTurns,
         round: state.currentRound,
@@ -122,7 +130,7 @@ function _boardOf(state) {
 // without diffing two object graphs.
 export function signature(snap) {
     return JSON.stringify([
-        snap.gs, snap.ap, snap.turns, snap.round, snap.gate,
+        snap.gs, snap.cam, snap.ap, snap.turns, snap.round, snap.gate,
         snap.p.map(p => [p.pos, p.coins, p.inv.length, p.allies.length, p.shield, p.mgWins, p.cab]),
         snap.buddy && [snap.buddy.nodeId, snap.buddy.roundsLeft],
         snap.bounties.map(b => [b.id, b.prog.join('/')]),

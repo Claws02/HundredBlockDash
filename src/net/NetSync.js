@@ -33,6 +33,8 @@ import { snapshot, signature } from './NetProtocol.js';
 import { CONTRACT_POOL } from '../config/ContractPool.js';
 import * as Renderer from '../engine/Renderer.js';
 import * as UIManager from '../ui/UIManager.js';
+import * as NetDice from './NetDice.js';
+import * as ReadyGate from './ReadyGate.js';
 
 const SNAP_HZ = 20;
 
@@ -69,6 +71,16 @@ export function stop() {
  */
 export function applyIntent({ seat, name, args }) {
     if (!Session.isHost()) return;
+    // A ready-gate vote is the one intent that is ABOUT the seat rather than
+    // performed by it, and Commands.runLocal() drops the envelope's seat. So it
+    // is answered here, where the seat is still in hand.
+    // A ready vote is ABOUT a seat rather than performed by it, and
+    // Commands.runLocal() drops the envelope's seat — so running it through the
+    // ordinary path made the host re-run its OWN press, find it already spent,
+    // and silently discard the client's vote. Answered here, where the seat is
+    // still in hand.
+    if (name === 'briefingReady') { ReadyGate.voteBriefing(seat); return; }
+    if (name === 'gateAck')       { ReadyGate.ack(args[0], seat); return; }
     if (!Commands.has(name)) return;
     if (!authorised(seat, name, args)) return;
     Commands.runLocal(name, ...args);
@@ -82,7 +94,15 @@ export function applyIntent({ seat, name, args }) {
 // result cards can be dismissed by anyone who is looking at them, because
 // holding a match up because one person put their phone down is worse than
 // letting the other three move it along.
-const ANY_SEAT = new Set(['msgContinue', 'passContinue', 'buddyReportAck', 'mgIntroNext', 'mgLaunch']);
+const ANY_SEAT = new Set([
+    'msgContinue', 'passContinue', 'buddyReportAck', 'mgIntroNext', 'mgLaunch',
+    // A ready vote is not a turn action — it is every seat's to cast, and the
+    // whole point is that the beat waits for all of them. Left out of this set
+    // it fell through to "it has to be your turn", so only whichever seat won
+    // the random start could vote and every other press was refused in
+    // silence: the briefing sat there and the match never began.
+    'briefingReady',
+]);
 
 // Commands that are only legal at a particular beat. Locally the control simply
 // is not on screen at any other time, which is why these were never checked —
@@ -168,7 +188,68 @@ function _apply(s) {
     _syncPlayers(s.p);
 
     if (tilesChanged) Renderer.updateSingleTile();
+    _reconcile(s);
     UIManager.updateUI();
+}
+
+// ============================================================
+// RECONCILE — every snapshot is a chance to notice we drifted
+// ============================================================
+// A snapshot is not only new state, it is a statement about what the host is
+// DOING. That is enough to check a client is showing the same kind of screen,
+// and to put it right when it is not.
+//
+// This exists because of a specific failure and a general lesson. The failure:
+// a buddy arrival parks the camera on 'CINEMATIC' and hands it back through a
+// continuation that only the host has, so a client's camera stuck looking at
+// the buddy for the rest of the match. The lesson: every mirrored beat has a
+// way in and needs a way out, and "the client replays the way in" is only half
+// of it. Rather than chase each beat's exit path one at a time — which is the
+// same mistake three times over already — the host's presentation state is
+// treated as authoritative and re-asserted continuously.
+//
+// Deliberately narrow. It corrects things that are WRONG, never things that
+// are merely different: a client's own map view, its scroll position, which
+// card it has open for its own decision, are all its business.
+function _reconcile(s) {
+    // 0. THE DICE. A spectator's own tumble, started and stopped from the
+    //    host's rolling state — no extra message, and nothing is read off it.
+    NetDice.syncFromSnapshot(s.gs);
+
+    // 1. THE CAMERA. Cheap, and the one that actually broke.
+    if (s.cam === 'FOLLOW' && state.cameraState === 'CINEMATIC') {
+        Renderer.endCinematic();
+    } else if (s.cam && s.cam !== state.cameraState && s.cam !== 'CINEMATIC') {
+        // Never copy CINEMATIC across: that mode belongs to a set piece that
+        // is playing HERE, and stealing it mid-animation would stutter. Every
+        // other mode is just "where should this be pointing".
+        state.cameraState = s.cam;
+        if (s.cam === 'FOLLOW') Renderer.snapCameraToActive();
+    }
+
+    // 2. FULL-SCREEN SCENES THE HOST HAS LEFT. Each of these is raised by a
+    //    mirrored beat and taken down by one, and a dropped take-down leaves a
+    //    client staring at a screen the rest of the table has moved past.
+    const gs = s.gs;
+    const inMinigame = gs === 'MINIGAME' || gs === 'MINIGAME_INTRO' || gs === 'MINIGAME_ACK';
+    _hideIfStale('gate-overlay', gs !== 'GATE');
+    _hideIfStale('minigame-layer', !inMinigame);
+    _hideIfStale('mg-intro-overlay', !inMinigame);
+    // The board is playable again, so nothing may still be covering it.
+    if (gs === 'PRE_ROLL' || gs === 'MOVING' || gs === 'ROLLING') {
+        const ui = document.getElementById('ui-layer');
+        if (ui && ui.style.display === 'none') ui.style.display = 'block';
+    }
+}
+
+// Only touches something that is actually on screen when it should not be, so
+// a healthy client does no DOM work at 20 Hz.
+function _hideIfStale(id, shouldBeGone) {
+    if (!shouldBeGone) return;
+    const el = document.getElementById(id);
+    if (el && el.style.display !== 'none' && getComputedStyle(el).display !== 'none') {
+        el.style.display = 'none';
+    }
 }
 
 function _syncPlayers(list) {

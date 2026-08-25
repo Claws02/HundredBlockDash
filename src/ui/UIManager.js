@@ -923,11 +923,17 @@ function _renderBountyList() {
 
 let _briefingOpen = false;
 let _briefingDone = null;
+// Whether THIS player has voted on the briefing. Purely local: nothing on the
+// wire says it, and the shared count must never be read as an answer to it —
+// doing that disabled the button belonging to the one player the table was
+// waiting for.
+let _briefingVoted = false;
 
 export function showCityBriefing(onDone) {
     const el = document.getElementById('city-briefing');
     if (!el || !ActiveMap.has('routeChoice')) { if (onDone) onDone(); return; }
     _briefingOpen = true;
+    _briefingVoted = false;
     _briefingDone = onDone || null;
 
     // One card per road you can actually choose, in lap order, so the briefing
@@ -970,6 +976,20 @@ export function showCityBriefing(onDone) {
     DualRead.present(document.getElementById('cb-sheet'), { tier: 'shared' });
 }
 
+// The briefing is the one screen the whole table reads at once, so pressing
+// START does not move THIS device on — it says this player is ready, and the
+// card waits until everybody has. Offline that is one press and no wait.
+function _pressBriefingReady() {
+    const btn = document.getElementById('btn-cb-start');
+    if (btn && btn.disabled) return;
+    _briefingVoted = true;
+    // Repaint before the vote leaves, so a client sees its press land even
+    // though the authoritative count is a round trip away.
+    markBriefingWaiting(null);
+    Commands.run('briefingReady');
+}
+
+// Called when the gate actually opens: everybody has pressed.
 function _closeBriefing() {
     const el = document.getElementById('city-briefing');
     DualRead.unmirror(document.getElementById('cb-sheet'));
@@ -979,10 +999,56 @@ function _closeBriefing() {
     if (done) done();
 }
 
+/**
+ * The state of the ready vote, on this device.
+ *
+ * TWO facts, and conflating them broke it: how many the table is still waiting
+ * on, and whether THIS player has voted. The count is shared — it reaches every
+ * device — but the button state is personal. Reading only the count disabled
+ * the button on a player who had not pressed yet, which is the one person whose
+ * press the table was waiting for.
+ *
+ * `waiting` is null on a client that has voted but not yet heard the count
+ * back; it still has to read as "you are in", because a button that has quietly
+ * stopped responding is indistinguishable from one that is broken.
+ */
+export function markBriefingWaiting(waiting) {
+    const iHaveVoted = _briefingVoted;
+    const btn = document.getElementById('btn-cb-start');
+    if (!btn) return;
+
+    if (iHaveVoted) {
+        btn.disabled = true;
+        btn.classList.add('cb-waiting');
+        btn.textContent = waiting ? `✓ READY — WAITING FOR ${waiting} MORE`
+                                  : '✓ READY — WAITING FOR THE OTHERS';
+        return;
+    }
+
+    // Not voted: the button stays live, because this player is the hold-up.
+    // Saying how many are already in turns waiting into a nudge.
+    btn.disabled = false;
+    btn.classList.remove('cb-waiting');
+    const total = state.players.length;
+    const ready = (typeof waiting === 'number') ? Math.max(0, total - waiting) : 0;
+    btn.textContent = ready > 0
+        ? `START THE MATCH · ${ready}/${total} READY`
+        : 'START THE MATCH';
+}
+
+export function briefingIsOpen() { return _briefingOpen; }
+
+/**
+ * The gate opened: everybody has pressed, so the card comes down and the match
+ * begins. Not a Command — nobody "runs" this, it is the consequence of the last
+ * player pressing, and it fires on every device at once.
+ */
+export function closeBriefingNow() { _briefingVoted = false; if (_briefingOpen) _closeBriefing(); }
+
 function _wirePanelEvents() {
     document.getElementById('btn-ally-arrival')?.addEventListener('click', () => Commands.run('buddyReportAck'));
     document.getElementById('btn-close-bounties')?.addEventListener('click', () => closeBounties());
-    document.getElementById('btn-cb-start')?.addEventListener('click', () => _closeBriefing());
+    document.getElementById('btn-cb-start')?.addEventListener('click', () => _pressBriefingReady());
     document.getElementById('btn-cb-tour')?.addEventListener('click', () => {
         document.getElementById('city-briefing').style.display = 'none';
         openMap();
