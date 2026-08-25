@@ -29,10 +29,11 @@
 import { state } from '../core/GameState.js';
 import * as Commands from '../core/Commands.js';
 import * as Session from './NetSession.js';
-import { snapshot, signature } from './NetProtocol.js';
+import { snapshot, signature, BEAT_OVERLAYS } from './NetProtocol.js';
 import { CONTRACT_POOL } from '../config/ContractPool.js';
 import * as Renderer from '../engine/Renderer.js';
 import * as UIManager from '../ui/UIManager.js';
+import * as ModalManager from '../ui/ModalManager.js';
 import * as NetDice from './NetDice.js';
 import * as ReadyGate from './ReadyGate.js';
 
@@ -227,29 +228,48 @@ function _reconcile(s) {
         if (s.cam === 'FOLLOW') Renderer.snapCameraToActive();
     }
 
-    // 2. FULL-SCREEN SCENES THE HOST HAS LEFT. Each of these is raised by a
-    //    mirrored beat and taken down by one, and a dropped take-down leaves a
-    //    client staring at a screen the rest of the table has moved past.
+    // 2. BEATS THE HOST HAS LEFT.
+    //
+    //    The host names what is on its screen; anything up here that is not up
+    //    there is over. This replaced a per-beat list that was wrong four
+    //    times: the buddy report had no take-down at all, so a client's card
+    //    sat there with an OK button whose press went to a host that had long
+    //    since moved on.
+    //
+    //    ONE DIRECTION ONLY. Closing is safe because the host having left a
+    //    beat is a fact about the game. Opening is not: a card needs content
+    //    the snapshot does not carry, which is what the scene mirror is for.
+    if (Array.isArray(s.ov)) {
+        const up = new Set(s.ov);
+        BEAT_OVERLAYS.forEach(id => { if (!up.has(id)) _hideIfStale(id, true); });
+    }
+
+    // 3. The board is playable again, so nothing may still be covering it.
     const gs = s.gs;
-    const inMinigame = gs === 'MINIGAME' || gs === 'MINIGAME_INTRO' || gs === 'MINIGAME_ACK';
-    _hideIfStale('gate-overlay', gs !== 'GATE');
-    _hideIfStale('minigame-layer', !inMinigame);
-    _hideIfStale('mg-intro-overlay', !inMinigame);
-    // The board is playable again, so nothing may still be covering it.
     if (gs === 'PRE_ROLL' || gs === 'MOVING' || gs === 'ROLLING') {
         const ui = document.getElementById('ui-layer');
         if (ui && ui.style.display === 'none') ui.style.display = 'block';
     }
 }
 
+// Some beats are more than an element. A raw `display: none` on the modal
+// container leaves `body.modal-open` set and the toast rail shoved aside; on
+// the buddy report it orphans the mirrored copy DualRead made. Each of those
+// has a real close, and it is used.
+const CLOSERS = {
+    'modal-overlay': () => ModalManager.closeAllModals(),
+    'ally-arrival':  () => UIManager.closeBuddyReportNow(),
+    'city-briefing': () => UIManager.closeBriefingNow(),
+};
+
 // Only touches something that is actually on screen when it should not be, so
 // a healthy client does no DOM work at 20 Hz.
 function _hideIfStale(id, shouldBeGone) {
     if (!shouldBeGone) return;
     const el = document.getElementById(id);
-    if (el && el.style.display !== 'none' && getComputedStyle(el).display !== 'none') {
-        el.style.display = 'none';
-    }
+    if (!el || el.style.display === 'none' || getComputedStyle(el).display === 'none') return;
+    const closer = CLOSERS[id];
+    if (closer) closer(); else el.style.display = 'none';
 }
 
 function _syncPlayers(list) {

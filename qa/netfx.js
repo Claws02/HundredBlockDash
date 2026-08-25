@@ -340,6 +340,61 @@ function peak(samples, key) {
         ok('the client gets its camera back afterwards', camAfter === 'FOLLOW',
             `camera left on ${camAfter}`);
 
+        // ---- the buddy report must be dismissable from the joined device ----
+        // Reported: the host could press GOT IT, the client could not, and the
+        // client's card then sat there forever. Two separate things had to be
+        // true and neither was: the press has to REACH the host, and the host
+        // moving on has to take the client's card down with it.
+        await host.evaluate(async () => {
+            const UI = await import('/src/ui/UIManager.js');
+            UI.showBuddyReport({ onMap: null, held: [], round: 1 }, false, () => {});
+        });
+        await host.waitForTimeout(1400);
+        const cardUp = await Promise.all(pages.map(p => p.evaluate(() => {
+            const el = document.getElementById('ally-arrival');
+            return !!el && getComputedStyle(el).display !== 'none';
+        })));
+        ok('the buddy report reaches the joined device', cardUp[1] === true,
+            `host ${cardUp[0]}, client ${cardUp[1]}`);
+
+        // Press it from the CLIENT — the case that was stuck.
+        await client.evaluate(async () => {
+            const C = await import('/src/core/Commands.js');
+            C.run('buddyReportAck');
+        });
+        await host.waitForTimeout(2000);
+        const cardAfter = await Promise.all(pages.map(p => p.evaluate(() => {
+            const el = document.getElementById('ally-arrival');
+            return !!el && getComputedStyle(el).display !== 'none';
+        })));
+        ok('the joined player can dismiss it, and it clears everywhere',
+            cardAfter.every(up => up === false), `still up: ${JSON.stringify(cardAfter)}`);
+
+        // ---- swipe-to-roll has to be armed on the joined device -------------
+        // `showSwipeZone()` lives inside the turn engine, which a client never
+        // enters, so the zone was never armed and the swipe did nothing.
+        await host.waitForFunction(async () =>
+            (await import('/src/core/GameState.js')).state.gameState === 'PRE_ROLL',
+            null, { timeout: 120000 }).catch(() => {});
+        const turnOwner = await host.evaluate(async () =>
+            (await import('/src/core/GameState.js')).state.activePlayer);
+        await host.waitForTimeout(700);
+        const swipe = await pages[turnOwner].evaluate(() => {
+            const z = document.getElementById('swipe-zone');
+            return { armed: !!z && z.classList.contains('act'),
+                     visible: !!z && getComputedStyle(z).display !== 'none' };
+        });
+        notes.push(`swipe zone on seat ${turnOwner} (${turnOwner ? 'client' : 'host'}): ${JSON.stringify(swipe)}`);
+        ok('the seat whose turn it is can swipe to roll', swipe.armed === true,
+            `seat ${turnOwner}: ${JSON.stringify(swipe)}`);
+        // And nobody else's is armed — a live swipe on the wrong phone is a
+        // control that looks usable and is refused.
+        const otherSeat = turnOwner === 0 ? 1 : 0;
+        const otherSwipe = await pages[otherSeat].evaluate(() =>
+            !!document.getElementById('swipe-zone')?.classList.contains('act'));
+        ok('and the player waiting has no live swipe', otherSwipe === false,
+            `seat ${otherSeat} armed=${otherSwipe}`);
+
         ok('no page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
         await client.screenshot({ path: path.join(__dirname, 'shot-netfx-client.png') });
         await host.screenshot({ path: path.join(__dirname, 'shot-netfx-host.png') });

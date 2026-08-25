@@ -69,6 +69,17 @@ export function snapshot(state) {
         // Sending the mode makes the host's camera authoritative and the
         // client self-corrects on the very next snapshot.
         cam:   state.cameraState,
+        // Which full-screen beats are on the host's screen right now.
+        //
+        // Every mirrored beat has a way IN — a scene that raises it — and every
+        // one also needs a way out. Chasing those one at a time has now missed
+        // four of them, each ending the same way: a client staring at a card
+        // the rest of the table has moved past, with a button that sends its
+        // press to a host which has already gone on. So the way out stops being
+        // per-beat and becomes a fact about the host's screen, re-asserted
+        // continuously. Clients only ever CLOSE from this list, never open —
+        // opening needs content, which is what the scene mirror is for.
+        ov:    _overlaysOf(),
         ap:    state.activePlayer,
         turns: state.totalTurns,
         round: state.currentRound,
@@ -112,6 +123,33 @@ function _playerOf(p) {
     };
 }
 
+// The full-screen beats worth reconciling. Deliberately not everything with a
+// `display` property:
+//
+//   • The map and the bounty sheet are LOCAL views. Scouting the board on
+//     somebody else's turn is a legitimate thing to be doing and no other
+//     device gets a say in it.
+//   • A beat only belongs here if the host raises it for the whole table or
+//     mirrors it to one player — which means the host has its own copy open,
+//     which means its absence from this list genuinely means "it is over".
+export const BEAT_OVERLAYS = [
+    'ally-arrival',      // the buddy report — the one that stranded a client
+    'gate-overlay',
+    'minigame-layer',
+    'mg-intro-overlay',
+    'city-briefing',
+    'modal-overlay',     // the shared container for every card
+    'win-screen',
+];
+
+function _overlaysOf() {
+    if (typeof document === 'undefined') return [];
+    return BEAT_OVERLAYS.filter(id => {
+        const el = document.getElementById(id);
+        return !!el && getComputedStyle(el).display !== 'none';
+    });
+}
+
 // Only the squares whose type or owner can change during a match — traps,
 // bought tiles, the gate. Sending all 100 every snapshot is affordable but
 // pointless; sending the ones that move is both.
@@ -134,5 +172,6 @@ export function signature(snap) {
         snap.p.map(p => [p.pos, p.coins, p.inv.length, p.allies.length, p.shield, p.mgWins, p.cab]),
         snap.buddy && [snap.buddy.nodeId, snap.buddy.roundsLeft],
         snap.bounties.map(b => [b.id, b.prog.join('/')]),
+        snap.ov.join('|'),
     ]);
 }
