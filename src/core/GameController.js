@@ -1460,18 +1460,38 @@ export function maybeTriggerMinigame() {
 // and playable end to end; the round's payoff is honest about being a
 // placeholder rather than pretending to be a contest of skill.
 function _runRoundContest(done, pair) {
-    pair = pair || MinigameManager.chooseParticipants();
+    _contest(pair || MinigameManager.chooseParticipants(), done, {
+        title: '🎲 ROUND DRAW',
+        award: true,
+    });
+}
+
+// EVERY route into a minigame goes through here.
+//
+// There are three — the round-end contest, a Duel space, and a fight over a
+// Buddy — and online mode has to intercept all three, not one. Handling only
+// the round-end one is what left a networked match frozen on MINIGAME_INTRO
+// the first time anybody landed on a Duel tile: the host launched a real 1v1
+// split-screen game, every phone showed the intro card, and nothing could
+// finish it. qa/net.js caught it as a stall.
+//
+// `opts.award` pays the standard minigame reward, which the round-end contest
+// does and the other two do not — a duel settles its own wager and a buddy
+// fight hands over the buddy.
+function _contest(pair, done, opts = {}) {
     if (state.playStyle !== 'online') { MinigameManager.trigger(done, pair); return; }
 
+    const [a, b] = pair.map(id => state.players[id]);
     const winner = pair[Math.floor(Math.random() * pair.length)];
-    const a = state.players[pair[0]], b = state.players[pair[1]];
     ModalManager.showMessage(
-        '🎲 ROUND DRAW',
+        opts.title || '🎲 DRAW',
         `${a.name} vs ${b.name} — minigames arrive across phones in the next update. ` +
-        `This round's bonus goes to ${state.players[winner].name}.`,
+        `${state.players[winner].name} takes it.`,
         '🎲', { tier: 'shared' });
-    state.players[winner].mgWins++;
-    earnCoins(state.players[winner], MINIGAME_REWARD);
+    if (opts.award) {
+        state.players[winner].mgWins++;
+        earnCoins(state.players[winner], MINIGAME_REWARD);
+    }
     UIManager.updateUI();
     Director.hold('POST_RESULT', () => { ModalManager.closeAllModals(); done(winner); });
 }
@@ -2286,7 +2306,7 @@ function _startAllyMinigame(player, allyType, isSteal, stealCtx, onDone) {
     const foe = isSteal && stealCtx?.target
         ? stealCtx.target
         : (Targeting.leadingRival(player) || state.players[(player.id + 1) % playerCount()]);
-    MinigameManager.trigger((winnerId) => {
+    _contest([player.id, foe.id], (winnerId) => {
         state.mgContext = null;
         // endMinigame() hands the camera over in 'FLYOVER' and expects whoever
         // asked for the minigame to put it back. The board-minigame handler does
@@ -2325,7 +2345,7 @@ function _startAllyMinigame(player, allyType, isSteal, stealCtx, onDone) {
         }
         UIManager.updateUI();
         if (onDone) setTimeout(onDone, 400);
-    }, [player.id, foe.id]);
+    }, { title: '🤝 BUDDY DRAW' });
 }
 
 function _grantAlly(player, allyType, turnsRemaining, shieldCharges) {
@@ -2455,7 +2475,7 @@ function _startDuel(p, betAmount) {
     state.mgContext = 'duel';
     const duelSeats = [p.id, opp.id];
     UIManager.toast(`⚔️ DUEL! ${p.name} and ${opp.name} bet ${safe} coins!`, '#ef4444');
-    MinigameManager.trigger((winnerId) => {
+    _contest(duelSeats, (winnerId) => {
         state.mgContext = null;
         // A duel is between exactly these two, whoever else is in the match:
         // the loser is the other duellist, not "whoever did not win".
@@ -2472,7 +2492,7 @@ function _startDuel(p, betAmount) {
         state.gameState = 'ACKNOWLEDGE';
         Renderer.startPostMinigameFlyover(() => { state.cameraState = 'FOLLOW'; });
         Director.hold('POST_RESULT', finishTurn);
-    }, duelSeats);
+    }, { title: '⚔️ DUEL DRAW' });
 }
 
 export function confirmDuelBet(betAmount) {
