@@ -405,6 +405,14 @@ function peak(samples, key) {
                 };
             });
             if (swipeWindow.ready) break;
+            // DRIVE it, do not just watch it. By this point the probe has run a
+            // roll, a banner check, a set piece and a buddy report, and the
+            // game is parked on a result card waiting for a press nobody is
+            // making — so PRE_ROLL never arrives and the loop times out on a
+            // board that was never going to move. The agent presses through
+            // exactly the cards a player would.
+            await Promise.all(pages.map(pg =>
+                pg.evaluate(() => window.__QA.step()).catch(() => {})));
             await host.waitForTimeout(400);
         }
         notes.push(`swipe checked at gs=${swipeWindow && swipeWindow.gs} on seat ${turnOwner}`);
