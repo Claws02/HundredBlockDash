@@ -108,6 +108,65 @@ export const MG_WATCHDOG_MS = {
     penalty:     240000,   // no shot clock — the taker shoots when ready
 };
 
+// ============================================================
+// WHICH GAMES CAN BE PLAYED ACROSS PHONES
+// ============================================================
+// Every game in the roster was built as ONE screen shared by two people: the
+// bottom half is P1, the top half is P2, and both are simulated in the same
+// browser. That is a fine design for two people on a sofa and a useless one for
+// four people each holding their own phone.
+//
+// Two kinds of game, and only one of them crosses the wire cheaply:
+//
+//   'parallel'  The two halves never touch. Nothing P1 does changes anything on
+//               P2's side — they are two solitaires racing a clock, compared at
+//               the end. Meteor Dodge, Loot Catch, Steady Hand, Odd One Out,
+//               Snap Strike and Tree Climb are all of this shape, and every one
+//               of them says so in its own description: "most caught", "highest
+//               when it runs out", "most correct in 30 seconds".
+//
+//               A game like that needs no netcode at all. Every phone plays the
+//               same challenge from the same seed at the same time, alone, and
+//               the scores are compared — which is also the only version that
+//               scales past two players, because there is no reason four
+//               solitaires cannot run at once.
+//
+//   'local'     Everything else. Air hockey, tank duels, sumo, Four in a Row —
+//               these are one simulation two people reach into. Playing them
+//               across devices means agreeing on a physics step and reconciling
+//               input latency, which is a different and much larger job. They
+//               remain two-player games on one phone, where they work.
+//
+// This table is the one place that distinction is written down. `_contest()`
+// in GameController asks it what to do with a round.
+export const MG_NET = {
+    sumospheres: 'local',
+    tankclash:   'local',
+    rhythmforge: 'local',
+    orbdeflect:  'local',
+    snapstrike:  'parallel',
+    quickdraw:   'local',      // "first finger wins" — a race, not two scores
+    gridrecall:  'local',      // likewise: the round goes to whoever finishes first
+    oddoneout:   'parallel',
+    steadyhand:  'parallel',
+    sortrush:    'local',
+    meteordodge: 'parallel',
+    lootcatch:   'parallel',
+    freeze:      'local',
+    clearout:    'local',
+    puck:        'local',
+    penalty:     'local',
+    lightcycles: 'local',
+    fourinarow:  'local',
+    memorymatch: 'local',
+    bombpass:    'local',
+    grandprix:   'local',
+    treeclimb:   'parallel',
+};
+
+/** The games that can be played across phones, in registry order. */
+export const MG_PARALLEL = MG_TYPES.filter(t => MG_NET[t] === 'parallel');
+
 export const MG_ORIENTATION_MAP = {
     sumospheres: 'faceoff',
     tankclash:   'faceoff',

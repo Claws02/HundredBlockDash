@@ -128,19 +128,65 @@ function _arcPts(startDeg, endDeg, count, radius) {
 // hardcoded here — which it can only do if it can run it on its own.
 export function buildLayout() { buildNodePositions(); return nodePositions; }
 
+// One point on a district's lobe. `t` runs 0 at the leaving junction to 1 at
+// the arriving one, so t=0 and t=1 are the tucked-in ends and t=0.5 is the far
+// point of the bow. The nodes sit strictly between the ends; the ground builder
+// samples the whole span including them, which is why this takes a raw `t`
+// rather than a node index.
+function _lobePoint(run, t, pow) {
+    const [a, b] = run.deg;
+    const rad = (a + (b - a) * t) * Math.PI / 180;
+    const [near, far] = run.lobe;
+    const r = near + (far - near) * Math.pow(Math.sin(Math.PI * t), pow);
+    return new THREE.Vector3(r * Math.cos(rad), 0, -r * Math.sin(rad));
+}
+
+/**
+ * A district lobe, sampled end to end.
+ *
+ * The road under a district has to be the same curve the tiles sit on, or the
+ * board looks like squares scattered near a road rather than a street with
+ * buildings along it. The old ground was a RingGeometry that happened to be
+ * wide enough to cover four quadrants of tiles; nothing tied the two together.
+ * Exported so _buildCityGround draws from the same source the layout does.
+ */
+export function lobeSamples(run, n = 40) {
+    const L = ActiveMap.layout() || {};
+    const pow = L.lobePow || 1.3;
+    const out = [];
+    for (let i = 0; i <= n; i++) out.push(_lobePoint(run, i / n, pow));
+    return out;
+}
+
+/** The district runs of the active map, or [] on a board that has none. */
+export function districtRuns() {
+    const L = ActiveMap.layout();
+    return (L && L.kind === 'city_arcs' && Array.isArray(L.arcs)) ? L.arcs : [];
+}
+
 function buildNodePositions() {
     nodePositions.clear();
     const L = ActiveMap.layout();
     if (!L || L.kind !== 'city_arcs') return;
     const radius = { R: L.R, DR: L.DR };
+    const pow = L.lobePow || 1.3;
 
     for (const [id, [rx, rz]] of Object.entries(L.junctions || {})) {
         nodePositions.set(id, new THREE.Vector3(rx * L.R, 0, rz * L.R));
     }
-    for (const run of [...(L.ring || []), ...(L.arcs || [])]) {
+    // The ring is a plain arc at a constant radius — it is the one part of the
+    // board that is still a circle, and it is the centre road.
+    for (const run of (L.ring || [])) {
         const [startDeg, endDeg, count, radiusKey, ...ids] = run;
         const pts = _arcPts(startDeg, endDeg, count, radius[radiusKey]);
         ids.forEach((id, i) => nodePositions.set(id, pts[i]));
+    }
+    // The districts bow away from it. `count` is not carried in the data: the
+    // id list IS the count, and two places to say the same number is two places
+    // for them to disagree.
+    for (const run of (L.arcs || [])) {
+        const n = run.ids.length;
+        run.ids.forEach((id, i) => nodePositions.set(id, _lobePoint(run, (i + 1) / (n + 1), pow)));
     }
 }
 
@@ -2377,6 +2423,11 @@ let _CM = null; // city materials
 function _initCityMaterials() {
     return {
         asphalt:    new THREE.MeshStandardMaterial({ color: 0x282828, roughness: 0.95, metalness: 0.0 }),
+        // What the city is BUILT ON, as opposed to what it is paved with. When
+        // the districts were one solid band this was never visible and could
+        // safely be asphalt too; now that there is ground between them, a road
+        // the same colour as the gaps between roads is no road at all.
+        ground:     new THREE.MeshStandardMaterial({ color: 0x232833, roughness: 0.98 }),
         concrete:   new THREE.MeshStandardMaterial({ color: 0x8a8680, roughness: 0.85 }),
         sidewalk:   new THREE.MeshStandardMaterial({ color: 0xb0a898, roughness: 0.80 }),
         grass:      new THREE.MeshStandardMaterial({ color: 0x3d8a28, roughness: 0.95 }),
@@ -2423,9 +2474,93 @@ function _facingAngle(pos) {
 
 // ---- Ground ----
 
+// Pavement tints, so the four districts differ in what they are MADE of and
+// not only in what has been built on them. Deliberately close in value — the
+// districts are told apart by shape first; this is the second signal, not the
+// first.
+let _DISTRICT_GROUND = {};
+
+function _buildDistrictGroundMaterials() {
+    const pave = c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.9 });
+    _DISTRICT_GROUND = {
+        // Darker than they look written down. The city's key light is strong
+        // and these are large flat areas facing straight up at it, so a stone
+        // that reads as mid-grey on paper renders as white and swallows the
+        // buildings standing on it.
+        fin:  { pave: pave(0x5c6470) },   // clean grey stone
+        ba:   { pave: pave(0x463c33) },   // stained brick dust
+        shop: { pave: pave(0x6b5563) },   // promenade paving, faintly pink
+        ind:  { pave: pave(0x565139) },   // dirty concrete
+    };
+}
+
+/**
+ * A flat road surface that follows a curve.
+ *
+ * Given the centre line and a width, this walks the points, works out which way
+ * is sideways at each one, and emits a strip. It is the only way to get a road
+ * that actually sits under the tiles: a RingGeometry can only ever be a circle,
+ * which is precisely why the old ground forced every district to be one.
+ *
+ * Corners on a tight curve overlap slightly on the inside. At these widths and
+ * radii that is invisible and cheaper than mitring every joint.
+ */
+function _ribbon(points, width, material, y) {
+    const half = width / 2;
+    const pos = [], idx = [];
+    for (let i = 0; i < points.length; i++) {
+        // The tangent, from whichever neighbours exist.
+        const a = points[Math.max(0, i - 1)];
+        const b = points[Math.min(points.length - 1, i + 1)];
+        const tx = b.x - a.x, tz = b.z - a.z;
+        const len = Math.hypot(tx, tz) || 1;
+        // Sideways is the tangent turned a quarter turn in the XZ plane.
+        const nx = -tz / len * half, nz = tx / len * half;
+        pos.push(points[i].x + nx, y, points[i].z + nz);
+        pos.push(points[i].x - nx, y, points[i].z - nz);
+        if (i < points.length - 1) {
+            const k = i * 2;
+            idx.push(k, k + 2, k + 1, k + 1, k + 2, k + 3);
+        }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setIndex(idx);
+    geo.computeVertexNormals();
+    const mesh = new THREE.Mesh(geo, material);
+    mesh.receiveShadow = true;
+    return mesh;
+}
+
+/** Where a district's lobe meets the city — end 0 is its start, end 1 its finish. */
+function _lobeEnd(run, end) {
+    return lobeSamples(run, 1)[end ? 1 : 0];
+}
+
+// Lane markings along a road, spaced by arc length so the dashes stay evenly
+// spread whether the curve is bowing out or tucking in.
+function _dashesAlong(points) {
+    const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.12 });
+    const STEP = 5.5;
+    let carried = 0;
+    for (let i = 0; i < points.length - 1; i++) {
+        const a = points[i], b = points[i + 1];
+        const seg = Math.hypot(b.x - a.x, b.z - a.z);
+        carried += seg;
+        if (carried < STEP || seg < 0.001) continue;
+        carried = 0;
+        const dash = new THREE.Mesh(new THREE.PlaneGeometry(0.25, 2.2), mat);
+        dash.rotation.x = -Math.PI / 2;
+        dash.rotation.z = -Math.atan2(b.z - a.z, b.x - a.x) + Math.PI / 2;
+        dash.position.set((a.x + b.x) / 2, -0.58, (a.z + b.z) / 2);
+        _cityEnvGroup.add(dash);
+    }
+}
+
 function _buildCityGround() {
-    // Base asphalt disk
-    const base = new THREE.Mesh(new THREE.CircleGeometry(130, 64), _CM.asphalt);
+    _buildDistrictGroundMaterials();
+    // The ground the whole city stands on.
+    const base = new THREE.Mesh(new THREE.CircleGeometry(130, 64), _CM.ground);
     base.rotation.x = -Math.PI / 2;
     base.position.y = -0.62;
     base.receiveShadow = true;
@@ -2447,20 +2582,42 @@ function _buildCityGround() {
     road1.rotation.x = -Math.PI / 2; road1.position.y = -0.61;
     _cityEnvGroup.add(road1);
 
-    // Sidewalk between ring and districts
-    const sw2 = new THREE.Mesh(new THREE.RingGeometry(42, 50, 64), _CM.sidewalk);
-    sw2.rotation.x = -Math.PI / 2; sw2.position.y = -0.60;
-    _cityEnvGroup.add(sw2);
+    // ---- The districts -------------------------------------------------
+    //
+    // This used to be three concentric rings: a sidewalk band, one wide road
+    // band, an outer sidewalk. Four districts sat on the same band and were
+    // told apart only by the colour of the buildings standing on them, which is
+    // why the board read as a bullseye rather than as a city.
+    //
+    // Now each district gets its own road, drawn along the lobe its tiles
+    // actually sit on, with its own pavement either side. The gaps between
+    // them are real gaps — you can see the ground between the Financial
+    // District and the Back Alley — and the ring road in the middle is the one
+    // thing that touches all four.
+    districtRuns().forEach(run => {
+        const pts = lobeSamples(run, 56);
+        const tint = _DISTRICT_GROUND[run.ids[0].split('_')[0]] || {};
+        _cityEnvGroup.add(_ribbon(pts, 23, tint.pave || _CM.sidewalk, -0.60));
+        // No asphalt or lane markings under a district: _buildDistrictSurfaces
+        // lays a slab per tile on top of this, and a road nobody can see is
+        // just triangles. The pavement is the part that shows, and its job is
+        // to draw the district's outline on the ground.
+    });
 
-    // District road band
-    const road2 = new THREE.Mesh(new THREE.RingGeometry(50, 72, 64), _CM.asphalt);
-    road2.rotation.x = -Math.PI / 2; road2.position.y = -0.61;
-    _cityEnvGroup.add(road2);
-
-    // Outer sidewalk
-    const sw3 = new THREE.Mesh(new THREE.RingGeometry(72, 82, 64), _CM.sidewalk);
-    sw3.rotation.x = -Math.PI / 2; sw3.position.y = -0.60;
-    _cityEnvGroup.add(sw3);
+    // ---- The spurs -------------------------------------------------------
+    //
+    // Four short roads from the ring out to where each district begins. The
+    // junctions were always there in the graph — turning off the ring into a
+    // district is the whole decision the board is built around — but on a solid
+    // band there was nothing to see, so the choice had no place attached to it.
+    districtRuns().forEach(run => {
+        [0, 1].forEach(end => {
+            const outer = _lobeEnd(run, end);
+            const inner = outer.clone().normalize().multiplyScalar(34);
+            _cityEnvGroup.add(_ribbon([inner, outer], 11, _CM.sidewalk, -0.60));
+            _cityEnvGroup.add(_ribbon([inner, outer], 6, _CM.asphalt, -0.605));
+        });
+    });
 
     // Road markings on ring road — dashed center line (white segments)
     const dashMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.15 });

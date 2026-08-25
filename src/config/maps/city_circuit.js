@@ -229,8 +229,12 @@ export const BOT_BIAS = { fin: 2, shop: 2, ind: 1, ring: 1, ba: -1 };
 //   DR — district arc radius
 export const LAYOUT = {
     kind: 'city_arcs',
-    R: 32,
-    DR: 58,
+    R: 32,      // the ring road — the city's central road
+    DR: 58,     // kept so anything still asking "how far out are the districts"
+                // gets a sensible middling answer; the lobes carry their own now.
+
+    // The centre road. A plain circle, and deliberately the only plain circle
+    // on the board — everything else hangs off it.
     // [startDeg, endDeg, count, radiusKey, ids...]
     ring: [
         [90,    0,   5, 'R',  'r1','r2','r3','r4','r5'],
@@ -238,12 +242,35 @@ export const LAYOUT = {
         [-90, -180,  5, 'R',  'r11','r12','r13','r14','r15'],
         [180,  90,   5, 'R',  'r16','r17','r18','r19','r20'],
     ],
+
+    // A DISTRICT IS A LOBE, NOT A QUADRANT OF A BAND.
+    //
+    // City used to be a bullseye: park, ring road, then one wide band cut into
+    // four quadrants that differed only in what colour the buildings on them
+    // were. Every district was the same shape, the same width, the same
+    // distance out. From above there was nothing to tell you where the
+    // Financial District ended and the Back Alley began, and "distinct
+    // districts" was a claim made entirely by the dressing.
+    //
+    // A lobe leaves the ring near one junction, bows away from the city through
+    // its middle, and comes back in to the next. `deg` is the angular span and
+    // `lobe` is [near, far] — how far out the ends sit and how far the middle
+    // swings. The span is inset from the full quadrant on both sides, which is
+    // what leaves the four gaps between districts for the spur roads to run
+    // through, and what makes the four neighbourhoods read as four separate
+    // things rather than as one ring somebody painted in stripes.
     arcs: [
-        [90,    0,  10, 'DR', 'fin_0','fin_1','fin_2','fin_3','fin_4','fin_5','fin_6','fin_7','fin_8','fin_9'],
-        [0,   -90,  12, 'DR', 'ba_0','ba_1','ba_2','ba_3','ba_4','ba_5','ba_6','ba_7','ba_8','ba_9','ba_10','ba_11'],
-        [-90,-180,  10, 'DR', 'shop_0','shop_1','shop_2','shop_3','shop_4','shop_5','shop_6','shop_7','shop_8','shop_9'],
-        [180,  90,   8, 'DR', 'ind_0','ind_1','ind_2','ind_3','ind_4','ind_5','ind_6','ind_7'],
+        { deg: [80,   10],  lobe: [50, 84], ids: ['fin_0','fin_1','fin_2','fin_3','fin_4','fin_5','fin_6','fin_7','fin_8','fin_9'] },
+        { deg: [-10, -80],  lobe: [50, 84], ids: ['ba_0','ba_1','ba_2','ba_3','ba_4','ba_5','ba_6','ba_7','ba_8','ba_9','ba_10','ba_11'] },
+        { deg: [-100,-170], lobe: [50, 84], ids: ['shop_0','shop_1','shop_2','shop_3','shop_4','shop_5','shop_6','shop_7','shop_8','shop_9'] },
+        { deg: [170, 100],  lobe: [50, 84], ids: ['ind_0','ind_1','ind_2','ind_3','ind_4','ind_5','ind_6','ind_7'] },
     ],
+
+    // How hard the lobe bows. 1 is a plain half-sine and leaves the ends too
+    // far out to read as "tucked in to the ring"; above 1 pulls the ends down
+    // and keeps the middle where it is, which is the shape wanted.
+    lobePow: 1.3,
+
     // junction id -> [x, 0, z] in units of R
     junctions: { bp_a: [0, -1], bp_b: [1, 0], bp_c: [0, 1], bp_d: [-1, 0] },
 };

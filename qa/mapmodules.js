@@ -19,28 +19,27 @@ const results = [];
 const ok = (name, cond, detail) => { results.push({ name, pass: !!cond, detail }); };
 
 // ---- the oracle: City Circuit's layout exactly as Renderer.js hardcoded it ----
-function expectedCityPositions() {
-    const R = 32, DR = 58, out = {};
-    const arc = (a, b, n, r) => {
-        const pts = [];
-        for (let i = 1; i <= n; i++) {
-            const t = i / (n + 1), deg = a + (b - a) * t, rad = deg * Math.PI / 180;
-            pts.push([r * Math.cos(rad), -r * Math.sin(rad)]);
-        }
-        return pts;
-    };
-    out.bp_a = [0, -R]; out.bp_b = [R, 0]; out.bp_c = [0, R]; out.bp_d = [-R, 0];
-    const put = (ids, pts) => ids.forEach((id, i) => { out[id] = pts[i]; });
-    put(['r1','r2','r3','r4','r5'],      arc(90, 0, 5, R));
-    put(['r6','r7','r8','r9','r10'],     arc(0, -90, 5, R));
-    put(['r11','r12','r13','r14','r15'], arc(-90, -180, 5, R));
-    put(['r16','r17','r18','r19','r20'], arc(180, 90, 5, R));
-    put(['fin_0','fin_1','fin_2','fin_3','fin_4','fin_5','fin_6','fin_7','fin_8','fin_9'], arc(90, 0, 10, DR));
-    put(['ba_0','ba_1','ba_2','ba_3','ba_4','ba_5','ba_6','ba_7','ba_8','ba_9','ba_10','ba_11'], arc(0, -90, 12, DR));
-    put(['shop_0','shop_1','shop_2','shop_3','shop_4','shop_5','shop_6','shop_7','shop_8','shop_9'], arc(-90, -180, 10, DR));
-    put(['ind_0','ind_1','ind_2','ind_3','ind_4','ind_5','ind_6','ind_7'], arc(180, 90, 8, DR));
-    return out;
-}
+// WHAT THIS USED TO CHECK, AND WHY IT NO LONGER CAN.
+//
+// There was an oracle here: a second, hand-written copy of City's geometry as
+// BoardGraph.js hardcoded it, asserted equal to the renderer's output to within
+// 1e-9 units. That was the right test for the job it was written for — proving
+// that moving the geometry out of the renderer and into map data changed
+// nothing — and it did that job.
+//
+// But it froze the board. Any change to City's shape failed it, and the failure
+// said "drift" as though the map had broken rather than been edited. A test
+// that can only ever be satisfied by never changing the thing it tests is not
+// protecting the thing, it is preventing it.
+//
+// So the geometry checks below assert PROPERTIES instead: the ring is a circle,
+// the districts are not, each district hangs off the ring near its own two
+// junctions, and the four of them do not overlap. Those hold for the bullseye
+// the board used to be and for the four lobes it is now — and they would still
+// catch the failures that actually happen, which are a run of nodes stacked at
+// the origin, a district laid out backwards, or an arc that has quietly lost
+// its radius.
+
 // Pool sizes as BoardGraph.js declared them, pre-refactor.
 const EXPECTED_POOLS = { ring: 17, fin: 8, ba: 10, shop: 8, ind: 5 };
 
@@ -116,33 +115,76 @@ const EXPECTED_POOLS = { ring: 17, fin: 8, ba: 10, shop: 8, ind: 5 };
     ok('gate node is ind_0', city.gateNode === 'ind_0', String(city.gateNode));
     ok('City gate threshold is still 15', city.gateThresh === 15, String(city.gateThresh));
 
-    // ---- 3. THE ONE THAT MATTERS: geometry is bit-identical ----------------
-    const got = await page.evaluate(async () => {
+    // ---- 3. THE GEOMETRY IS A CITY SHAPE -----------------------------------
+    const geo = await page.evaluate(async () => {
         const R = await import('/src/engine/Renderer.js');
         // Positions are only written during Renderer.init(), which stands up the
         // whole scene. buildLayout() is that step on its own — without it this
-        // probe compared the oracle against an empty map and every node read
-        // (0,0), which is a 58-unit "drift" that says nothing.
+        // probe read every node as (0,0), which is a 58-unit "drift" that says
+        // nothing.
         R.buildLayout();
         const M = (await import('/src/config/maps/city_circuit.js')).default;
-        const ids = [...M.ordered, ...M.junctions];
-        const out = {};
-        for (const id of ids) { const p = R.getPos(id); out[id] = [p.x, p.z]; }
+        const L = M.layout;
+        const at = id => { const p = R.getPos(id); return { x: p.x, z: p.z, r: Math.hypot(p.x, p.z),
+                                                           a: Math.atan2(-p.z, p.x) * 180 / Math.PI }; };
+        const ringIds = L.ring.flatMap(run => run.slice(4));
+        const out = {
+            ring: ringIds.map(at),
+            junctions: Object.keys(L.junctions).map(at),
+            districts: L.arcs.map(run => ({
+                key: run.ids[0].split('_')[0],
+                pts: run.ids.map(at),
+            })),
+            allIds: [...M.ordered, ...M.junctions],
+        };
+        out.atOrigin = out.allIds.filter(id => { const p = R.getPos(id); return p.x === 0 && p.z === 0; });
         return out;
     });
-    const want = expectedCityPositions();
-    let worst = 0, worstId = null, missing = [];
-    for (const id of Object.keys(want)) {
-        // getPos() returns a zero vector for an unknown node, so "it returned
-        // something" is not evidence. Only a node genuinely AT the origin could
-        // be a false positive here, and City has none.
-        if (!got[id] || (got[id][0] === 0 && got[id][1] === 0)) { missing.push(id); continue; }
-        const d = Math.hypot(got[id][0] - want[id][0], got[id][1] - want[id][1]);
-        if (d > worst) { worst = d; worstId = id; }
+
+    ok('no node sits at the origin', geo.atOrigin.length === 0, JSON.stringify(geo.atOrigin));
+
+    // The ring road is the centre road: a circle, all of it the same distance out.
+    const ringR = geo.ring.map(p => p.r);
+    const ringSpread = Math.max(...ringR) - Math.min(...ringR);
+    ok('the ring road is a circle', ringSpread < 1e-6,
+        `radius varies by ${ringSpread.toFixed(4)} across ${ringR.length} nodes`);
+    ok('the junctions sit on the ring',
+        geo.junctions.every(j => Math.abs(j.r - ringR[0]) < 1e-6),
+        JSON.stringify(geo.junctions.map(j => +j.r.toFixed(3))));
+
+    // Every district is OUTSIDE the ring — nothing may cut through the middle.
+    const inside = geo.districts.flatMap(d => d.pts.filter(p => p.r <= ringR[0]).map(() => d.key));
+    ok('every district is outside the ring road', inside.length === 0, JSON.stringify(inside));
+
+    // And every district BOWS: its middle is further out than its ends. This is
+    // the difference between four lobes and four quadrants of one band, and it
+    // is the thing that made the board read as a bullseye when it was missing.
+    geo.districts.forEach(d => {
+        const ends = Math.max(d.pts[0].r, d.pts[d.pts.length - 1].r);
+        const mid  = d.pts[Math.floor(d.pts.length / 2)].r;
+        ok(`${d.key} bows away from the ring rather than tracking it`, mid > ends + 5,
+            `ends at ${ends.toFixed(1)}, middle at ${mid.toFixed(1)}`);
+    });
+
+    // The four of them occupy four separate wedges, with a gap between each.
+    // Overlapping angular spans is what "quadrants of one band" looked like.
+    const spans = geo.districts.map(d => {
+        const angs = d.pts.map(p => p.a);
+        return { key: d.key, lo: Math.min(...angs), hi: Math.max(...angs) };
+    });
+    // Normalise onto a line so neighbours can be compared without wrap-around
+    // tripping the comparison at the -180/180 seam.
+    const norm = spans.map(s => ({ ...s, lo: ((s.lo % 360) + 360) % 360, hi: ((s.hi % 360) + 360) % 360 }))
+                      .filter(s => s.hi - s.lo < 180)
+                      .sort((a, b) => a.lo - b.lo);
+    let overlaps = [];
+    for (let i = 1; i < norm.length; i++) {
+        if (norm[i].lo < norm[i - 1].hi) overlaps.push(`${norm[i - 1].key}/${norm[i].key}`);
     }
-    ok('every pre-refactor node id has a real (non-origin) position', missing.length === 0, JSON.stringify(missing));
-    ok('layout is identical to the hardcoded original (<1e-9 u)', worst < 1e-9,
-        `worst drift ${worst.toExponential(2)} at ${worstId}`);
+    ok('the districts do not overlap each other', overlaps.length === 0, JSON.stringify(overlaps));
+    ok('there is a gap between neighbouring districts',
+        norm.length > 1 && norm.every((s, i) => i === 0 || s.lo - norm[i - 1].hi > 3),
+        JSON.stringify(norm.map(s => `${s.key} ${s.lo.toFixed(0)}..${s.hi.toFixed(0)}`)));
 
     // ---- 4. ActiveMap answers the two questions correctly -------------------
     const am = await page.evaluate(async () => {
