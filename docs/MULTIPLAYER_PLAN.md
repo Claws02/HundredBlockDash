@@ -296,6 +296,38 @@ vendor/trystero-*.min.js   two bundled strategies + a rebuild note.
    all four would not be "the same screen", it would be three people watching
    somebody else shop.
 
+### The three stalls, and what they had in common
+
+Getting a networked turn to complete took three fixes, and they are the same
+bug wearing different hats. Each one froze the match for exactly one player —
+the one whose decision it was — and each was **silent**: no error, no warning,
+just a phone with nothing on it to press.
+
+| # | What broke | Why it was invisible |
+|---|---|---|
+| 1 | The **result card** was emitted with no `seat`, so the mirror had no phone to send it to and dropped it. That card closes almost every turn. | The host raised its own copy locally, so the host's turns completed normally. Only a client's turn hung — which made the symptom look like slowness rather than a freeze. |
+| 2 | **Duels and Buddy fights** still launched a real minigame online. There are three routes into a minigame and only the round-end one was intercepted. | It froze on the first Duel or Buddy tile anybody landed on, so how far a match got was luck. That variance read as contention. |
+| 3 | The **shop offer** is raised by `showModal()` directly from `_checkPassThroughShop`, bypassing `showShopOffer()` and its announcement. | Same again: visible on the host, absent on the client. |
+
+The fixes were structural rather than three patches. All three minigame routes go
+through one `_contest()` helper. Every modal announces itself from `showModal()`
+— the one place a modal actually goes up — rather than from whichever helper
+somebody remembered.
+
+And because the class is silent by nature, `qa/parsecheck.sh` now guards it
+statically: **every emitted scene must be classified in `SCENE_TIER`, and every
+OWNER scene must carry a `seat`** (phase 4), alongside **every command
+resolving to exactly one implementation** (phase 3). Both are the difference
+between "delivered to one phone" and "dropped", and neither is visible at
+runtime until somebody is holding the other phone.
+
+> **A note for whoever debugs this next.** A low turn count in `qa/net.js` is a
+> stall until proven otherwise. It was misread as this container being slow
+> once, and the bar was relaxed on that reading — the relaxed bar then caught it
+> anyway, at zero. Measured pace with the stalls fixed is **87 s/turn at two
+> pages, 114 s at three**; anything far off that is a freeze, not hardware. The
+> probe prints the pace and dumps per-page state when it falls short.
+
 **Not built, deliberately:**
 
 - **Minigames across phones.** All 22 are 1v1 split-screen games reading local
@@ -315,7 +347,7 @@ vendor/trystero-*.min.js   two bundled strategies + a rebuild note.
 | Probe | What it drives |
 |---|---|
 | `qa/fourlocal.js` | Real 3- and 4-seat hot-seat matches to the win screen: seat/array sizing, turn rotation, the solo HUD (including the stale-`data-roll` soft lock), token spread, minigames as duels with untouched bystanders, ranked result cards. |
-| `qa/net.js` | N pages in one browser over the loopback transport: one room, ordered seats, the match starting everywhere, **every page agreeing with the host at every turn boundary**, a client rolling its own dice, a press from the wrong page being refused, and shared-vs-owner beat routing. |
+| `qa/net.js` | N pages in one browser over the loopback transport: one room, ordered seats, the match starting everywhere, **every page agreeing with the host at every turn boundary**, a client rolling its own dice, a press from the wrong page being refused, and shared-vs-owner beat routing. Green at 2 seats (16/16, 6 turns at 87 s/turn) and 3 seats (17/17, 7 turns at 114 s/turn). |
 | `qa/parsecheck.sh` | Now also checks the **command bus agrees with itself**: no command invoked without an implementation, none implemented that nothing invokes, and no name registered twice (whichever module body runs last would silently win). Nothing in JavaScript connects `Commands.run('roll')` to its registration, and on a client a broken name fails on the HOST, where nobody is looking. |
 
 `qa/net.js` substitutes the WebRTC hop, and nothing run in one browser can
