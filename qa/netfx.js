@@ -158,6 +158,10 @@ function peak(samples, key) {
                 return { up: !!ov && getComputedStyle(ov).display !== 'none' };
             }),
         };
+        // Both halves matter, and the first is worthless alone: "still up after
+        // one press" is equally true of a gate that works and of a press that
+        // was refused and did nothing. It is only meaningful next to the
+        // assertion below that the press REGISTERED.
         ok('one press does not start the match',
             gateMid.host.up === true && gateMid.client.up === true,
             `host card up ${gateMid.host.up}, client card up ${gateMid.client.up}`);

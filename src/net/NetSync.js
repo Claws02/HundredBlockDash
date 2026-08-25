@@ -88,7 +88,15 @@ export function applyIntent({ seat, name, args }) {
 // result cards can be dismissed by anyone who is looking at them, because
 // holding a match up because one person put their phone down is worse than
 // letting the other three move it along.
-const ANY_SEAT = new Set(['msgContinue', 'passContinue', 'buddyReportAck', 'mgIntroNext', 'mgLaunch']);
+const ANY_SEAT = new Set([
+    'msgContinue', 'passContinue', 'buddyReportAck', 'mgIntroNext', 'mgLaunch',
+    // A ready vote is not a turn action — it is every seat's to cast, and the
+    // whole point is that the beat waits for all of them. Left out of this set
+    // it fell through to "it has to be your turn", so only whichever seat won
+    // the random start could vote and every other press was refused in
+    // silence: the briefing sat there and the match never began.
+    'briefingReady',
+]);
 
 // Commands that are only legal at a particular beat. Locally the control simply
 // is not on screen at any other time, which is why these were never checked —
