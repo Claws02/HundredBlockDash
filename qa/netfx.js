@@ -51,11 +51,19 @@ async function newPage(ctx, label, errors) {
 }
 
 // One sample of everything worth knowing about what is on screen.
-const PROBE = `async () => {
+//
+// A real function, not a string. `page.evaluate` given a string evaluates it as
+// an EXPRESSION, so a string holding a function literal comes back as the
+// function object — which is not serialisable, so every sample arrived as
+// `undefined` and the first read of one threw. Passing the function itself
+// removes the ambiguity.
+async function probe() {
     const S = (await import('/src/core/GameState.js')).state;
     const R = await import('/src/engine/Renderer.js');
-    const cam = R.getCamera ? R.getCamera() : null;
+    const cam  = R.getCamera ? R.getCamera() : null;
     const dice = R.getDiceGroup ? R.getDiceGroup() : null;
+    const rc   = document.getElementById('roll-callout');
+    const tb   = document.getElementById('turn-banner');
     return {
         t: Math.round(performance.now()),
         gs: S.gameState,
@@ -67,24 +75,25 @@ const PROBE = `async () => {
         pos: S.players.map(p => p.mesh
             ? [+p.mesh.position.x.toFixed(2), +p.mesh.position.z.toFixed(2)] : null),
         node: S.players.map(p => p.pos),
-        rollCallout: (() => {
-            const el = document.getElementById('roll-callout');
-            if (!el) return null;
-            return getComputedStyle(el).display !== 'none' ? (el.textContent || '').trim() : null;
-        })(),
-        turnBanner: (() => {
-            const el = document.getElementById('turn-banner');
-            return !!el && getComputedStyle(el).display !== 'none';
-        })(),
+        rollCallout: rc && getComputedStyle(rc).display !== 'none' ? (rc.textContent || '').trim() : null,
+        turnBanner: !!tb && getComputedStyle(tb).display !== 'none',
     };
-}`;
+}
 
 // How many DISTINCT positions a token passed through. One jump from A to B is
 // a teleport; a dozen values in between is an animation.
 function distinct(samples, seat) {
     const seen = new Set();
-    samples.forEach(s => { const p = s.pos[seat]; if (p) seen.add(p.join(',')); });
+    samples.forEach(s => { const p = s && s.pos && s.pos[seat]; if (p) seen.add(p.join(',')); });
     return seen.size;
+}
+
+// Guard every read of a sample: a probe that fails should report what it saw,
+// not throw on the first undefined and tell you nothing at all.
+function lastOf(samples) { return samples.filter(Boolean).pop() || { node: [], pos: [] }; }
+function peak(samples, key) {
+    const vals = samples.filter(Boolean).map(s => s[key]).filter(v => typeof v === 'number');
+    return vals.length ? Math.max(...vals) : -1;
 }
 
 (async () => {
@@ -146,7 +155,7 @@ function distinct(samples, seat) {
         const driver = pages[active];
         notes.push(`turn belongs to seat ${active} (${active === 0 ? 'host' : 'client'})`);
 
-        const before = { host: await host.evaluate(PROBE), client: await client.evaluate(PROBE) };
+        const before = { host: await host.evaluate(probe), client: await client.evaluate(probe) };
 
         await driver.evaluate(async () => {
             const C = await import('/src/core/Commands.js');
@@ -157,28 +166,31 @@ function distinct(samples, seat) {
         const trace = { host: [], client: [] };
         const t0 = Date.now();
         while (Date.now() - t0 < 14000) {
-            trace.host.push(await host.evaluate(PROBE));
-            trace.client.push(await client.evaluate(PROBE));
+            trace.host.push(await host.evaluate(probe));
+            trace.client.push(await client.evaluate(probe));
             await host.waitForTimeout(100);
         }
 
         const seat = active;
         const hostSteps = distinct(trace.host, seat);
         const cliSteps  = distinct(trace.client, seat);
-        const hostDice  = Math.max(...trace.host.map(s => s.dice));
-        const cliDice   = Math.max(...trace.client.map(s => s.dice));
-        const hostAnims = Math.max(...trace.host.map(s => s.anims));
-        const cliAnims  = Math.max(...trace.client.map(s => s.anims));
-        const hostCallout = trace.host.some(s => s.rollCallout);
-        const cliCallout  = trace.client.some(s => s.rollCallout);
-        const cliCam    = new Set(trace.client.map(s => (s.cam || []).join(','))).size;
-        const cliCamState = [...new Set(trace.client.map(s => s.cameraState))].join('/');
-        const movedNode = trace.client[trace.client.length - 1].node[seat] !== before.client.node[seat];
+        const hostDice  = peak(trace.host, 'dice');
+        const cliDice   = peak(trace.client, 'dice');
+        const hostAnims = peak(trace.host, 'anims');
+        const cliAnims  = peak(trace.client, 'anims');
+        const hostCallout = trace.host.some(s => s && s.rollCallout);
+        const cliCallout  = trace.client.some(s => s && s.rollCallout);
+        const cliBanner   = trace.client.some(s => s && s.turnBanner);
+        const cliCam    = new Set(trace.client.filter(Boolean).map(s => (s.cam || []).join(','))).size;
+        const cliCamState = [...new Set(trace.client.filter(Boolean).map(s => s.cameraState))].join('/');
+        const cliLast   = lastOf(trace.client);
+        const movedNode = cliLast.node[seat] !== before.client.node[seat];
 
         notes.push(`host : ${hostSteps} distinct token positions, ${hostDice} dice, ${hostAnims} anims peak, callout ${hostCallout}`);
         notes.push(`client: ${cliSteps} distinct token positions, ${cliDice} dice, ${cliAnims} anims peak, callout ${cliCallout}`);
         notes.push(`client camera: ${cliCam} distinct positions, state ${cliCamState}`);
-        notes.push(`client token node ${before.client.node[seat]} -> ${trace.client[trace.client.length - 1].node[seat]}`);
+        notes.push(`client token node ${before.client.node[seat]} -> ${cliLast.node[seat]}`);
+        notes.push(`client turn banner seen: ${cliBanner}`);
 
         // The three groups.
         ok('client learns the move happened at all', movedNode,
