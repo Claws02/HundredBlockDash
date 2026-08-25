@@ -26,7 +26,6 @@
 import { state } from '../core/GameState.js';
 import { MG_INFO, MG_NET } from '../config/MinigameRegistry.js';
 import * as MinigameManager from './MinigameManager.js';
-const { loadMinigame } = MinigameManager;
 
 // ── The seeded random every device shares ───────────────────────────────────
 //
@@ -176,7 +175,7 @@ export async function play(type, seed, onScore, deadlineMs = 90000) {
     _onScore = settle;
 
     try {
-        mod = await loadMinigame(type);
+        mod = await MinigameManager.loadMinigame(type);
     } catch (e) {
         console.error('[solo] could not load', type, e);
         settle(0);
