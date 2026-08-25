@@ -1021,7 +1021,7 @@ export function resolveSpace(p) {
                 });
             }
         });
-        if (unboxAt) Fx.play('mysteryUnbox', { node: p.pos }, () => { Renderer.endCinematic(); thenShow(); });
+        if (unboxAt) Fx.play('mysteryUnbox', { node: p.pos, seat: p.id }, () => { Renderer.endCinematic(); thenShow(); });
         else thenShow();
     });
 }
@@ -1039,22 +1039,22 @@ export function resolveSpaceEffect(p, spaceType, space) {
         case 'coin': {
             const bonus = _allyPassive(p, 'coin_bonus');
             earnCoins(p, 3 + bonus);
-            Fx.play('coinPop', { node: p.pos, big: false });
+            Fx.play('coinPop', { node: p.pos, seat: p.id, big: false });
             _checkContract(p, 'land_coin'); _checkContract(p, 'land_type', 'coin');
             return `+${3+bonus} coins!${bonus ? ' (Vendor +'+bonus+')' : ''}`;
         }
         case 'coin_big': {
             const bonus = _allyPassive(p, 'coin_bonus');
             earnCoins(p, 8 + bonus);
-            Fx.play('coinPop', { node: p.pos, big: true });
+            Fx.play('coinPop', { node: p.pos, seat: p.id, big: true });
             _checkContract(p, 'land_coin_big'); _checkContract(p, 'land_type', 'coin_big');
             return `+${8+bonus} coins!${bonus ? ' (Vendor +'+bonus+')' : ''}`;
         }
         // A shield turning a fine into nothing is a good moment too; the seal
         // still stamps, but no coins fall out of it.
-        case 'lose':     { const l = loseCoins(p, FINE_AMOUNT);     Fx.play('finePop', { node: p.pos, big: false, lost: l > 0 }); return l === 0 ? '🛡️ Shielded!' : `-${l} coins!`; }
-        case 'lose_big': { const l = loseCoins(p, BIG_FINE_AMOUNT); Fx.play('finePop', { node: p.pos, big: true, lost: l > 0 }); return l === 0 ? '🛡️ Shielded!' : `-${l} coins!`; }
-        case 'trap':     { const l = loseCoins(p, TRAP_AMOUNT);     Fx.play('finePop', { node: p.pos, big: false, lost: l > 0 }); return l === 0 ? '🛡️ Shielded!' : `-${l} coins!`; }
+        case 'lose':     { const l = loseCoins(p, FINE_AMOUNT);     Fx.play('finePop', { node: p.pos, seat: p.id, big: false, lost: l > 0 }); return l === 0 ? '🛡️ Shielded!' : `-${l} coins!`; }
+        case 'lose_big': { const l = loseCoins(p, BIG_FINE_AMOUNT); Fx.play('finePop', { node: p.pos, seat: p.id, big: true, lost: l > 0 }); return l === 0 ? '🛡️ Shielded!' : `-${l} coins!`; }
+        case 'trap':     { const l = loseCoins(p, TRAP_AMOUNT);     Fx.play('finePop', { node: p.pos, seat: p.id, big: false, lost: l > 0 }); return l === 0 ? '🛡️ Shielded!' : `-${l} coins!`; }
         case 'mystery': {
             const ids  = Object.keys(ITEMS);
             const pick = ids[Math.floor(Math.random() * ids.length)];
@@ -1122,7 +1122,7 @@ export function resolveSpaceEffect(p, spaceType, space) {
                 // Springing it BEFORE the drag is the point: without this the
                 // token simply appears five spaces earlier and it is genuinely
                 // hard to tell why you moved backwards.
-                _playSetPiece(done => Fx.play('anchorSpring', { node: p.pos }, done),
+                _playSetPiece(done => Fx.play('anchorSpring', { node: p.pos, seat: p.id }, done),
                               '⚓ ANCHOR', `${owner.name}'s Anchor caught you — dragged back 5 spaces.`, p, 'owner');
                 return null;
             }
@@ -1200,7 +1200,7 @@ export function resolveSpaceEffect(p, spaceType, space) {
             // button — a hard lock, and the one place on the board where being
             // broke stopped the game rather than just costing you.
             earnCoins(p, DUEL_STAKE);
-            Fx.play('coinPop', { node: p.pos, big: false });
+            Fx.play('coinPop', { node: p.pos, seat: p.id, big: false });
             UIManager.updateUI();
             UIManager.toast(`⚔️ Ante up! +${DUEL_STAKE} coins to bet with.`, '#fbbf24', { urgent: true });
             // Stage it. The bet picker used to appear with no lead-in at all,
@@ -2166,7 +2166,7 @@ function _onDistrictHQReached(p, district) {
     // shot; a revisit is worth a third as much and gets a coin spray instead —
     // frequency sets the budget, and you can pass the same HQ every lap.
     if (visits === 1 && p.mesh) Fx.play('hqPayout', { seat: p.id, amount: bonus }, () => Renderer.endCinematic());
-    else if (p.mesh) Fx.play('coinPop', { node: p.pos, big: true });
+    else if (p.mesh) Fx.play('coinPop', { node: p.pos, seat: p.id, big: true });
     p.districtHQsThisLoop.add(district);
     _checkContract(p, 'visit_hq', district);
     // "Reach 2 different District HQs" counts DISTINCT districts, so send the

@@ -29,20 +29,38 @@ import * as Renderer from './Renderer.js';
 import * as Scenes from '../ui/Scenes.js';
 import { state } from '../core/GameState.js';
 
-const _pos  = node => Renderer.getPos(node);
 const _seat = id => state.players[id];
+
+/**
+ * Where an effect happens.
+ *
+ * A tile id resolves to the tile's centre, which is right for anything that
+ * belongs to the SQUARE — a shop's glow, the gate shattering. But a burst of
+ * coins belongs to the PLAYER, and above two seats the tokens stand offset
+ * around the tile rather than on it, so a tile-centre pop would detach from
+ * the piece it is about. Naming a seat uses that token's own position, which
+ * is identical on every device (qa/netfx.js measures exactly this: the
+ * client's token positions match the host's).
+ */
+function _pos(a) {
+    if (typeof a.seat === 'number') {
+        const p = state.players[a.seat];
+        if (p && p.mesh) return p.mesh.position.clone();
+    }
+    return Renderer.getPos(a.node);
+}
 
 // Every effect, and how to play one from its data. Anything not in here is not
 // mirrored — the same safe default as SCENE_TIER.
 const FX = {
-    coinPop:      (a, done) => { SetPieces.coinPop(_pos(a.node), !!a.big); done && done(); },
-    finePop:      (a, done) => { SetPieces.finePop(_pos(a.node), !!a.big, a.lost !== false); done && done(); },
-    trucePop:     (a, done) => { SetPieces.trucePop(_pos(a.a), _pos(a.b)); done && done(); },
-    shopGlow:     (a, done) => { SetPieces.shopGlow(_pos(a.node)); done && done(); },
-    mysteryUnbox: (a, done) => SetPieces.mysteryUnbox(_pos(a.node), done || (() => {})),
-    anchorSpring: (a, done) => SetPieces.anchorSpring(_pos(a.node), done || (() => {})),
-    gateBreach:   (a, done) => SetPieces.gateBreach(_pos(a.node), done || (() => {})),
-    allyArrival:  (a, done) => SetPieces.allyArrival(_pos(a.node), done || (() => {})),
+    coinPop:      (a, done) => { SetPieces.coinPop(_pos(a), !!a.big); done && done(); },
+    finePop:      (a, done) => { SetPieces.finePop(_pos(a), !!a.big, a.lost !== false); done && done(); },
+    trucePop:     (a, done) => { SetPieces.trucePop(Renderer.getPos(a.a), Renderer.getPos(a.b)); done && done(); },
+    shopGlow:     (a, done) => { SetPieces.shopGlow(_pos(a)); done && done(); },
+    mysteryUnbox: (a, done) => SetPieces.mysteryUnbox(_pos(a), done || (() => {})),
+    anchorSpring: (a, done) => SetPieces.anchorSpring(_pos(a), done || (() => {})),
+    gateBreach:   (a, done) => SetPieces.gateBreach(_pos(a), done || (() => {})),
+    allyArrival:  (a, done) => SetPieces.allyArrival(_pos(a), done || (() => {})),
     magnetPull:   (a, done) => SetPieces.magnetPull(_seat(a.thief), _seat(a.victim), a.coins, done || (() => {})),
     hqPayout:     (a, done) => SetPieces.hqPayout(_seat(a.seat), a.amount, done || (() => {})),
     duelFaceoff:  (a, done) => SetPieces.duelFaceoff(_seat(a.a), _seat(a.b), done || (() => {})),
