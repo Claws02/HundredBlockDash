@@ -169,6 +169,21 @@ function peak(samples, key) {
             gateMid.host.disabled === true && /READY/i.test(gateMid.host.txt || ''),
             `button: ${JSON.stringify(gateMid.host.txt)} disabled=${gateMid.host.disabled}`);
 
+        // The other player's button must still be LIVE — they are the one the
+        // table is waiting for. Asserted rather than assumed, because the first
+        // version of the shared count disabled it here and the harness could
+        // not cast the second vote at all.
+        const clientBtn = await client.evaluate(() => {
+            const b = document.getElementById('btn-cb-start');
+            return b ? { txt: b.textContent.trim(), disabled: b.disabled } : null;
+        });
+        ok('the player still to vote keeps a live button',
+            !!clientBtn && clientBtn.disabled === false,
+            `button: ${JSON.stringify(clientBtn)}`);
+        ok('and is told how many are already in',
+            /\d\s*\/\s*\d/.test((clientBtn && clientBtn.txt) || ''),
+            `button: ${JSON.stringify(clientBtn && clientBtn.txt)}`);
+
         await client.click('#btn-cb-start');
         await host.waitForTimeout(1200);
         const gateEnd = await Promise.all(pages.map(p => p.evaluate(() => {

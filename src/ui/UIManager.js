@@ -990,26 +990,39 @@ function _closeBriefing() {
 }
 
 /**
- * Show that this player is in and the table is still gathering.
+ * The state of the ready vote, on this device.
  *
- * `waiting` is a count on the host, which is counting, and null on a client,
- * which has pressed but has not heard back yet. Both have to read as "you are
- * in, we are waiting on others" — a button that simply stopped responding is
- * indistinguishable from one that is broken.
+ * TWO facts, and conflating them broke it: how many the table is still waiting
+ * on, and whether THIS player has voted. The count is shared — it reaches every
+ * device — but the button state is personal. Reading only the count disabled
+ * the button on a player who had not pressed yet, which is the one person whose
+ * press the table was waiting for.
+ *
+ * `waiting` is null on a client that has voted but not yet heard the count
+ * back; it still has to read as "you are in", because a button that has quietly
+ * stopped responding is indistinguishable from one that is broken.
  */
-export function markBriefingWaiting(waiting) {
+export function markBriefingWaiting(waiting, iHaveVoted) {
     const btn = document.getElementById('btn-cb-start');
     if (!btn) return;
-    if (waiting === null || waiting > 0) {
+
+    if (iHaveVoted) {
         btn.disabled = true;
+        btn.classList.add('cb-waiting');
         btn.textContent = waiting ? `✓ READY — WAITING FOR ${waiting} MORE`
                                   : '✓ READY — WAITING FOR THE OTHERS';
-        btn.classList.add('cb-waiting');
-    } else {
-        btn.disabled = false;
-        btn.textContent = 'START THE MATCH';
-        btn.classList.remove('cb-waiting');
+        return;
     }
+
+    // Not voted: the button stays live, because this player is the hold-up.
+    // Saying how many are already in turns waiting into a nudge.
+    btn.disabled = false;
+    btn.classList.remove('cb-waiting');
+    const total = state.players.length;
+    const ready = (typeof waiting === 'number') ? Math.max(0, total - waiting) : 0;
+    btn.textContent = ready > 0
+        ? `START THE MATCH · ${ready}/${total} READY`
+        : 'START THE MATCH';
 }
 
 export function briefingIsOpen() { return _briefingOpen; }

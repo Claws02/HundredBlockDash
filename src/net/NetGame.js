@@ -56,7 +56,7 @@ Commands.define({
         // responding — which looks identical to a button that is broken.
         if (Session.isOnline() && _ui) {
             _ui.UI.markBriefingWaiting(
-                Session.isHost() ? ReadyGate.pending(BRIEFING_GATE) : null);
+                Session.isHost() ? ReadyGate.pending(BRIEFING_GATE) : null, true);
         }
     },
 });
@@ -308,7 +308,12 @@ function _replayScene(kind, p, Modal, UI) {
             return;
         case 'gateCount':
             // Somebody pressed; say how many the table is still waiting on.
-            if (p.id === BRIEFING_GATE) UI.markBriefingWaiting(p.waiting);
+            // The count is the table's; whether the button is spent is this
+            // device's. Passing only the count disabled the button belonging to
+            // the very player everybody was waiting for.
+            if (p.id === BRIEFING_GATE) {
+                UI.markBriefingWaiting(p.waiting, ReadyGate.pressedHere(BRIEFING_GATE));
+            }
             return;
         case 'gateOpen':
             // Everybody is in. Every device moves on at the same instant,
