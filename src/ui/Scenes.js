@@ -34,6 +34,13 @@ export const TIER = { SHARED: 'shared', OWNER: 'owner' };
 export const SCENE_TIER = {
     message:      TIER.SHARED,   // the result / announcement card
     buddyReport:  TIER.SHARED,
+    turnBanner:   TIER.SHARED,   // whose go it is — everybody needs to know
+    // Every animation on the board: the coin burst, the magnet, the saucer,
+    // the gate shattering. SHARED because the board belongs to the table —
+    // watching somebody else's turn is most of what a party game is, and a
+    // spectator with a still board is watching nothing. See engine/Fx.js.
+    fx:           TIER.SHARED,
+    rollCallout:  TIER.SHARED,   // the number, at size, before the token moves
     gate:         TIER.SHARED,   // the gate scene opens
     gateEnd:      TIER.SHARED,   // ...and closes. A scene that can be raised on
                                  // another device has to be dismissable there

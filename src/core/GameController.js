@@ -28,6 +28,7 @@ import { SCENE, BOT_THINK } from '../config/SceneTiming.js';
 import { sfx, haptic } from '../engine/AudioManager.js';
 import * as Renderer from '../engine/Renderer.js';
 import * as SetPieces from '../engine/SetPieces.js';
+import * as Fx from '../engine/Fx.js';
 import * as Physics from '../engine/Physics.js';
 import * as UIManager from '../ui/UIManager.js';
 import * as ModalManager from '../ui/ModalManager.js';
@@ -562,6 +563,9 @@ export function executeRoll(flickVelocity) {
         // mid-move chatter off the board swallowed this one — gameState is
         // 'ROLLING' when the dice settle — so the result appeared once the
         // player had already arrived somewhere, which is exactly backwards.
+        // The number owns the screen for a beat before the token sets off —
+        // on every device, not just the one that threw the dice.
+        Scenes.emit('rollCallout', { n: finalResult });
         UIManager.showRollCallout(finalResult);
         // Beat: the number owns the screen, at size, and comes down the moment
         // the token sets off. It used to be a toast — urgent, so it at least got
@@ -1017,7 +1021,7 @@ export function resolveSpace(p) {
                 });
             }
         });
-        if (unboxAt) SetPieces.mysteryUnbox(unboxAt, () => { Renderer.endCinematic(); thenShow(); });
+        if (unboxAt) Fx.play('mysteryUnbox', { node: p.pos, seat: p.id }, () => { Renderer.endCinematic(); thenShow(); });
         else thenShow();
     });
 }
@@ -1035,22 +1039,22 @@ export function resolveSpaceEffect(p, spaceType, space) {
         case 'coin': {
             const bonus = _allyPassive(p, 'coin_bonus');
             earnCoins(p, 3 + bonus);
-            SetPieces.coinPop(Renderer.getPos(p.pos), false);
+            Fx.play('coinPop', { node: p.pos, seat: p.id, big: false });
             _checkContract(p, 'land_coin'); _checkContract(p, 'land_type', 'coin');
             return `+${3+bonus} coins!${bonus ? ' (Vendor +'+bonus+')' : ''}`;
         }
         case 'coin_big': {
             const bonus = _allyPassive(p, 'coin_bonus');
             earnCoins(p, 8 + bonus);
-            SetPieces.coinPop(Renderer.getPos(p.pos), true);
+            Fx.play('coinPop', { node: p.pos, seat: p.id, big: true });
             _checkContract(p, 'land_coin_big'); _checkContract(p, 'land_type', 'coin_big');
             return `+${8+bonus} coins!${bonus ? ' (Vendor +'+bonus+')' : ''}`;
         }
         // A shield turning a fine into nothing is a good moment too; the seal
         // still stamps, but no coins fall out of it.
-        case 'lose':     { const l = loseCoins(p, FINE_AMOUNT);     SetPieces.finePop(Renderer.getPos(p.pos), false, l > 0); return l === 0 ? '🛡️ Shielded!' : `-${l} coins!`; }
-        case 'lose_big': { const l = loseCoins(p, BIG_FINE_AMOUNT); SetPieces.finePop(Renderer.getPos(p.pos), true,  l > 0); return l === 0 ? '🛡️ Shielded!' : `-${l} coins!`; }
-        case 'trap':     { const l = loseCoins(p, TRAP_AMOUNT);     SetPieces.finePop(Renderer.getPos(p.pos), false, l > 0); return l === 0 ? '🛡️ Shielded!' : `-${l} coins!`; }
+        case 'lose':     { const l = loseCoins(p, FINE_AMOUNT);     Fx.play('finePop', { node: p.pos, seat: p.id, big: false, lost: l > 0 }); return l === 0 ? '🛡️ Shielded!' : `-${l} coins!`; }
+        case 'lose_big': { const l = loseCoins(p, BIG_FINE_AMOUNT); Fx.play('finePop', { node: p.pos, seat: p.id, big: true, lost: l > 0 }); return l === 0 ? '🛡️ Shielded!' : `-${l} coins!`; }
+        case 'trap':     { const l = loseCoins(p, TRAP_AMOUNT);     Fx.play('finePop', { node: p.pos, seat: p.id, big: false, lost: l > 0 }); return l === 0 ? '🛡️ Shielded!' : `-${l} coins!`; }
         case 'mystery': {
             const ids  = Object.keys(ITEMS);
             const pick = ids[Math.floor(Math.random() * ids.length)];
@@ -1118,7 +1122,7 @@ export function resolveSpaceEffect(p, spaceType, space) {
                 // Springing it BEFORE the drag is the point: without this the
                 // token simply appears five spaces earlier and it is genuinely
                 // hard to tell why you moved backwards.
-                _playSetPiece(done => SetPieces.anchorSpring(Renderer.getPos(p.pos), done),
+                _playSetPiece(done => Fx.play('anchorSpring', { node: p.pos, seat: p.id }, done),
                               '⚓ ANCHOR', `${owner.name}'s Anchor caught you — dragged back 5 spaces.`, p, 'owner');
                 return null;
             }
@@ -1134,7 +1138,7 @@ export function resolveSpaceEffect(p, spaceType, space) {
             // The satisfying half of a magnet is watching the OTHER number go
             // down, so the coins have to be seen leaving them.
             if (stolen > 0) {
-                _playSetPiece(done => SetPieces.magnetPull(p, mark, stolen, done),
+                _playSetPiece(done => Fx.play('magnetPull', { thief: p.id, victim: mark.id, coins: stolen }, done),
                               'MAGNET', `🧲 Pulled ${stolen} coins straight out of ${mark.name}'s pocket.`, p, 'owner');
                 return null;
             }
@@ -1147,7 +1151,7 @@ export function resolveSpaceEffect(p, spaceType, space) {
             // effect still reads as a handshake across the board rather than
             // three overlapping bursts on one tile.
             const near = Targeting.nearestRival(p) || p;
-            SetPieces.trucePop(Renderer.getPos(p.pos), Renderer.getPos(near.pos));
+            Fx.play('trucePop', { a: p.pos, b: near.pos });
             _checkContract(p, 'land_type', 'truce');
             return playerCount() > 2 ? 'Everyone gains 5 coins!' : 'Both players gain 5 coins!';
         }
@@ -1169,13 +1173,13 @@ export function resolveSpaceEffect(p, spaceType, space) {
         case 'shop': {
             _noteShopVisit(p);
             if (ActiveMap.has('realms')) {
-                SetPieces.shopGlow(Renderer.getPos(p.pos));
+                Fx.play('shopGlow', { node: p.pos });
             Director.hold('SHOP_OPEN', () => openShop(hbdShopKey(p.pos), 1.0)); return null;
             }
             const gNode   = ActiveMap.graph()[p.pos];
             const distKey = gNode?.shopDistrict || 'ring';
             const disc    = distKey === 'ba' ? BA_DISCOUNT : 1.0;
-            SetPieces.shopGlow(Renderer.getPos(p.pos));
+            Fx.play('shopGlow', { node: p.pos });
             Director.hold('SHOP_OPEN', () => openShop(distKey, disc)); return null;
         }
         case 'hq': {
@@ -1196,7 +1200,7 @@ export function resolveSpaceEffect(p, spaceType, space) {
             // button — a hard lock, and the one place on the board where being
             // broke stopped the game rather than just costing you.
             earnCoins(p, DUEL_STAKE);
-            SetPieces.coinPop(Renderer.getPos(p.pos), false);
+            Fx.play('coinPop', { node: p.pos, seat: p.id, big: false });
             UIManager.updateUI();
             UIManager.toast(`⚔️ Ante up! +${DUEL_STAKE} coins to bet with.`, '#fbbf24', { urgent: true });
             // Stage it. The bet picker used to appear with no lead-in at all,
@@ -1209,7 +1213,7 @@ export function resolveSpaceEffect(p, spaceType, space) {
             // player than the one it staged at four.
             const foe = Targeting.nearestRival(p) || opp;
             state.pendingDuelTarget = foe.id;
-            SetPieces.duelFaceoff(p, foe, () => {
+            Fx.play('duelFaceoff', { a: p.id, b: foe.id }, () => {
                 Renderer.endCinematic();
                 if (state.gameState !== 'ACKNOWLEDGE') return;
                 if (p.isBot) _startDuel(p, Bot.duelBet(p, foe));
@@ -1256,7 +1260,7 @@ function _playSetPiece(run, title, message, p, tier) {
 // It is a SHARED-tier card: a swap happens TO both players, so both need to
 // read the outcome, not just whoever triggered it.
 function _playSwap(p, opp, message) {
-    Renderer.playSwapCinematic(p, opp, () => {
+    Fx.play('swap', { a: p.id, b: opp.id }, () => {
         // Belt and braces: whatever the animation did, the tokens end on their
         // nodes. An interrupted cinematic must not leave the board lying.
         if (p.mesh)   p.mesh.position.copy(Renderer.getPos(p.pos));
@@ -1511,7 +1515,7 @@ function _afterAllyReveal(then) {
     // The camera swoops to the tile under the card, so "near the Back Alley" is
     // backed by actually seeing it. Only for a NEW arrival — flying to the same
     // tile every round for a buddy nobody has claimed is noise.
-    if (reveal) SetPieces.allyArrival(Renderer.getPos(reveal.nodeId), () => {});
+    if (reveal) Fx.play('allyArrival', { node: reveal.nodeId }, () => {});
     UIManager.showBuddyReport(rep, !!reveal, resume);
 }
 
@@ -1771,7 +1775,7 @@ export function resolveGateRoll() {
                 // The breach. This is the only permanent change to the board in
                 // a whole match, and it used to be a line of text on a card. The
                 // gate shatters and the camera passes through the gap it leaves.
-                SetPieces.gateBreach(Renderer.getPos(p.pos), () => {
+                Fx.play('gateBreach', { node: p.pos }, () => {
                     Renderer.updateSingleTile();
                     if (state.gameState === 'GATE') Renderer.focusOnGate(p);
                 });
@@ -2115,7 +2119,7 @@ function _applyItemEffect(p, itemId, isBot, override) {
         UIManager.hideActionRows();
         UIManager.hideSwipeZone();
         ModalManager.closeAllModals();
-        Renderer.playSwapCinematic(p, opp, () => {
+        Fx.play('swap', { a: p.id, b: opp.id }, () => {
             if (p.mesh)   p.mesh.position.copy(Renderer.getPos(p.pos));
             if (opp.mesh) opp.mesh.position.copy(Renderer.getPos(opp.pos));
             Renderer.snapCameraToActive();
@@ -2161,8 +2165,8 @@ function _onDistrictHQReached(p, district) {
     // The single biggest coin event in the game. A first visit gets the crane
     // shot; a revisit is worth a third as much and gets a coin spray instead —
     // frequency sets the budget, and you can pass the same HQ every lap.
-    if (visits === 1 && p.mesh) SetPieces.hqPayout(p, bonus, () => Renderer.endCinematic());
-    else if (p.mesh) SetPieces.coinPop(p.mesh.position.clone(), true);
+    if (visits === 1 && p.mesh) Fx.play('hqPayout', { seat: p.id, amount: bonus }, () => Renderer.endCinematic());
+    else if (p.mesh) Fx.play('coinPop', { node: p.pos, seat: p.id, big: true });
     p.districtHQsThisLoop.add(district);
     _checkContract(p, 'visit_hq', district);
     // "Reach 2 different District HQs" counts DISTINCT districts, so send the

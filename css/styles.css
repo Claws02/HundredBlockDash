@@ -2147,6 +2147,60 @@ body:not(.tabletop-mode) .tb-bottom { bottom: auto; top: 50%; transform: transla
 #turn-banner.tb-show .tb-top    { transform: translate(-50%, 0) rotate(180deg); }
 body:not(.tabletop-mode) #turn-banner.tb-show .tb-bottom { transform: translate(-50%, -50%) scale(1); }
 
+/* ---- The hand-over, said loudly -------------------------------------------
+   The pill above is right for tabletop, where two people share one screen and
+   a full-width card would cover the board for both of them. Everywhere else —
+   pass-and-play, and every online match — the device belongs to ONE person and
+   the question it has to answer from across a room is "is it me?". So off the
+   tabletop it is a real announcement: the character at size, the name in the
+   seat's own colour, and a line that says YOUR TURN in the second person when
+   it is yours rather than making you match a name against the HUD. */
+body:not(.tabletop-mode) .tb-bottom {
+    flex-direction: column; gap: 10px;
+    padding: 26px 34px; border-radius: 22px;
+    border-width: 3px;
+    background: linear-gradient(180deg, rgba(14,10,30,.97), rgba(8,6,18,.99));
+    box-shadow: 0 26px 70px rgba(0,0,0,.72), 0 0 60px -14px var(--tb-col, transparent);
+    min-width: min(74vw, 340px);
+}
+body:not(.tabletop-mode) .tb-bottom .tb-ic   { font-size: 66px; }
+body:not(.tabletop-mode) .tb-bottom .tb-txt  { align-items: center; gap: 6px; }
+body:not(.tabletop-mode) .tb-bottom .tb-name {
+    font-size: 40px; letter-spacing: 2.4px; text-align: center;
+    text-shadow: 0 0 26px var(--tb-col, transparent);
+    display: flex; align-items: center; gap: 9px; flex-wrap: wrap; justify-content: center;
+}
+body:not(.tabletop-mode) .tb-bottom .tb-sub {
+    font-size: 14px; letter-spacing: 1.2px; font-weight: 800;
+    color: rgba(255,255,255,.72); text-transform: uppercase;
+}
+/* Your own turn earns the emphasis; somebody else's stays informational. */
+body:not(.tabletop-mode) .tb-bottom.tb-mine .tb-sub {
+    color: var(--tb-col, #fff); text-shadow: 0 0 16px var(--tb-col, transparent);
+}
+body:not(.tabletop-mode) #turn-banner.tb-show .tb-bottom.tb-mine {
+    animation: tbPop .42s cubic-bezier(.2,1.5,.4,1);
+}
+@keyframes tbPop {
+    0%   { transform: translate(-50%, -50%) scale(.86); }
+    62%  { transform: translate(-50%, -50%) scale(1.05); }
+    100% { transform: translate(-50%, -50%) scale(1); }
+}
+
+/* YOU — the marker that says which of these players you are driving. Small on
+   purpose: it appears beside a name that is already in your seat's colour, so
+   it only has to settle the question, not shout it. */
+.you-badge, .tb-you {
+    display: inline-block; margin-left: 6px; vertical-align: middle;
+    font-family: 'Bebas Neue', system-ui, sans-serif;
+    font-size: 10px; letter-spacing: 1.1px; line-height: 1;
+    padding: 3px 6px; border-radius: 5px;
+    background: rgba(255,255,255,.16); color: #fff;
+    border: 1px solid rgba(255,255,255,.32);
+}
+.tb-you { font-size: 15px; padding: 5px 9px; letter-spacing: 1.6px; }
+.rival-chip .you-badge { font-size: 9px; padding: 2px 5px; }
+
 .tb-ic { font-size: 26px; line-height: 1; }
 .tb-txt { display: flex; flex-direction: column; gap: 1px; }
 .tb-name {
@@ -2490,3 +2544,24 @@ body:not(.tabletop-mode) #turn-banner.tb-show .tb-bottom { transform: translate(
 #btn-lobby-ready.is-ready { background: rgba(74,222,128,.22); border-color: rgba(74,222,128,.6); }
 .lobby-status { font-size: 12px; color: rgba(255,255,255,.55); text-align: center; min-height: 16px; }
 .lobby-status.is-error { color: #ff9d9d; }
+
+/* Watching somebody else's turn. A quiet strip rather than a card: it is
+   status, not an event, and it sits for as long as their turn takes. Pinned
+   just above the (empty) action row so it never covers the board's middle. */
+#net-waiting {
+    position: absolute; left: 50%; transform: translateX(-50%);
+    bottom: calc(var(--hud-h) + 18px);
+    display: none; align-items: center; gap: 8px;
+    padding: 8px 16px; border-radius: 999px;
+    background: rgba(8, 6, 18, .82);
+    border: 1px solid color-mix(in srgb, var(--nw, #fff) 45%, transparent);
+    font-family: 'Nunito', system-ui, sans-serif; font-size: 13px; font-weight: 800;
+    color: rgba(255,255,255,.88); white-space: nowrap;
+    pointer-events: none; z-index: 40;
+}
+#net-waiting .nw-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--nw, #fff); box-shadow: 0 0 10px var(--nw, #fff);
+    animation: nwPulse 1.5s ease-in-out infinite;
+}
+@keyframes nwPulse { 0%,100% { opacity: .35; } 50% { opacity: 1; } }

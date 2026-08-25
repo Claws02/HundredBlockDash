@@ -65,6 +65,17 @@ function hudMode() {
     return (state.playStyle === 'online' || state.players.length > 2) ? 'solo' : 'duo';
 }
 
+/**
+ * Is seat `i` the player holding THIS device?
+ *
+ * Only ever true online. Every local mode passes one device around, so there is
+ * no "you" to mark — labelling a seat as yours in pass-and-play would be a lie
+ * for three turns out of four.
+ */
+export function isMySeat(i) {
+    return typeof state.localSeat === 'number' && state.localSeat === i;
+}
+
 // Which seat owns the full bar on THIS device. Online it is fixed — the seat
 // this phone was given in the lobby. Locally the device is passed around, so it
 // follows whoever is up.
@@ -168,6 +179,41 @@ function _paintBar(dom, seat) {
     }
 }
 
+// Watching somebody else's turn used to be a still board and no explanation.
+// The snapshot already carries everything needed to narrate it — whose turn it
+// is and what beat the game is on — so this needs no new messages: it is read
+// off state that was arriving anyway.
+//
+// Online only. On your own turn the controls say what to do, and in every local
+// mode the device is in front of whoever is up.
+const WAITING_FOR = {
+    ROLLING:  n => `🎲 ${n} is rolling…`,
+    MOVING:   n => `${n} is on the move`,
+    SHOP:     n => `🏪 ${n} is at the shop`,
+    GATE:     n => `🚪 ${n} is at the gate`,
+    BRANCH:   n => `${n} is choosing a road`,
+    PRE_ROLL: n => `Waiting for ${n} to roll`,
+    MINIGAME: n => 'Minigame in progress',
+    MINIGAME_INTRO: () => 'Minigame starting',
+};
+
+function _updateWaitingLine() {
+    const el = document.getElementById('net-waiting');
+    if (!el) return;
+    const tx = document.getElementById('net-waiting-tx');
+    const p  = state.players[state.activePlayer];
+    const mine = isMySeat(state.activePlayer);
+    const online = state.playStyle === 'online';
+    const phrase = WAITING_FOR[state.gameState];
+    // Never over a card the player has to read or press.
+    const modalUp = document.body.classList.contains('modal-open');
+    const on = online && !mine && !modalUp && !!p && !!phrase;
+    el.style.display = on ? '' : 'none';
+    if (!on) return;
+    el.style.setProperty('--nw', PLAYER_SLOTS[p.id].hex);
+    if (tx) tx.textContent = phrase(p.name);
+}
+
 // Where a player is, in the words that board uses.
 function _posLabel(p) {
     if (ActiveMap.isLinear()) {
@@ -196,8 +242,13 @@ function _paintRivalStrip(focus) {
         const bag  = p.inv.length ? `<span class="rc-bag">🎒${p.inv.length}</span>` : '';
         const bud  = (ActiveMap.has('bounties') && p.allies.length)
             ? `<span class="rc-bud">${p.allies.map(a => ALLIES[a.type]?.icon || '?').join('')}</span>` : '';
+        // A rival chip is by definition not you, so no YOU badge here — but the
+        // strip is also where a spectator sees the whole table, so the seat
+        // this device plays is marked when it somehow appears (it does not
+        // today; the guard is here so it cannot start lying if it ever does).
+        const me = isMySeat(p.id) ? '<span class="you-badge">YOU</span>' : '';
         return `<div class="rival-chip${up}" style="--rc:${slot.hex}">` +
-               `<span class="rc-name">${slot.icon} ${p.name}${bot}</span>` +
+               `<span class="rc-name">${slot.icon} ${p.name}${me}${bot}</span>` +
                `<span class="rc-coins">💰<span id="rival-coins-${p.id}">${p.coins}</span></span>` +
                `${bag}${bud}<span class="rc-pos">${_posLabel(p)}</span></div>`;
     }).join('');
@@ -233,6 +284,7 @@ export function updateUI() {
         _paintRivalStrip(f);
     }
 
+    _updateWaitingLine();
     updateShieldMarker();
 
     if (state.gameState === 'PRE_ROLL' || state.gameState === 'ACKNOWLEDGE') {
@@ -336,6 +388,7 @@ export function setPlayerNames() {
         const p = state.players[seat];
         if (!p) return '';
         return `${PLAYER_SLOTS[seat].icon} ${p.name.toUpperCase()}` +
+               (isMySeat(seat) ? '<span class="you-badge">YOU</span>' : '') +
                (p.isBot ? ' <span class="bot-badge">BOT</span>' : '');
     };
     const paint = (dom, seat) => {
@@ -1110,6 +1163,7 @@ export function showRealmBanner(realm) {
 let _lastAnnouncedTurn = -1;
 
 export function showTurnBanner(playerIdx, opts = {}) {
+    Scenes.emit('turnBanner', { seat: playerIdx, sub: opts.sub });
     const el = document.getElementById('turn-banner');
     if (!el) return;
     const p = state.players[playerIdx];
@@ -1117,7 +1171,14 @@ export function showTurnBanner(playerIdx, opts = {}) {
 
     const icon = CHAR_ICONS[p.charType] || PLAYER_SLOTS[playerIdx].icon;
     const col  = PLAYER_SLOTS[playerIdx].hex;
-    const sub  = opts.sub || (p.isBot ? 'thinking…' : 'your move');
+    // Whose turn it is, said in the second person when it is yours. On a phone
+    // that is the difference between reading a name and knowing to pick the
+    // device up — the name alone made everybody check the HUD to work out
+    // whether it meant them.
+    const isMe = isMySeat(playerIdx);
+    const sub  = opts.sub || (p.isBot ? 'thinking…'
+               : isMe ? 'YOUR TURN — roll the dice'
+               : 'waiting on them');
 
     el.querySelectorAll('.tb-card').forEach(card => {
         // The banner is drawn twice, once at each edge, for tabletop's two
@@ -1128,10 +1189,12 @@ export function showTurnBanner(playerIdx, opts = {}) {
         const mine = hudMode() === 'duo' ? edge === playerIdx : edge === 0;
         card.innerHTML =
             `<span class="tb-ic">${icon}</span>` +
-            `<span class="tb-txt"><span class="tb-name bfont">${p.name.toUpperCase()}</span>` +
+            `<span class="tb-txt"><span class="tb-name bfont">${p.name.toUpperCase()}` +
+            `${isMe ? '<span class="tb-you">YOU</span>' : ''}</span>` +
             `<span class="tb-sub">${mine ? sub : 'their turn'}</span></span>`;
         card.style.setProperty('--tb-col', col);
         card.classList.toggle('tb-active', mine);
+        card.classList.toggle('tb-mine', isMe);
     });
 
     el.style.display = 'block';
