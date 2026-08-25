@@ -287,6 +287,41 @@ async function snap(page) {
         const played = await snap(pages[0]);
         const secs = Math.round((Date.now() - loopStart) / 1000);
         const pace = played.turns ? Math.round(secs / played.turns) : Infinity;
+        // When the loop falls short, say WHY rather than leaving the next
+        // person to guess at it — which is how a stall got read as slowness
+        // once already. Dump, per page, what the game thinks it is doing and
+        // whether the control the driver is looking for is actually there.
+        if (played.turns < 4) {
+            const diag = [];
+            for (let i = 0; i < seats; i++) {
+                diag.push(await pages[i].evaluate(async () => {
+                    const S = (await import('/src/core/GameState.js')).state;
+                    const vis = el => {
+                        if (!el) return false;
+                        const cs = getComputedStyle(el);
+                        if (cs.display === 'none' || cs.visibility === 'hidden') return false;
+                        const r = el.getBoundingClientRect();
+                        return r.width > 0 && r.height > 0;
+                    };
+                    const roll = document.querySelector(`[data-roll="${S.activePlayer}"]`);
+                    const openModals = [...document.querySelectorAll('.modal-box')]
+                        .filter(vis).map(b => b.id);
+                    return {
+                        seat: S.localSeat, gs: S.gameState, ap: S.activePlayer,
+                        turns: S.totalTurns, replica: !!S.netReplica,
+                        hudMode: document.body.dataset.hudMode,
+                        rollFound: !!roll, rollVisible: vis(roll),
+                        rowVisible: vis(document.getElementById('p1-actions')),
+                        uiLayer: vis(document.getElementById('ui-layer')),
+                        openModals,
+                        step: window.__QA.step(),
+                    };
+                }));
+            }
+            console.log('\n  STALL DIAGNOSIS');
+            diag.forEach((d, i) => console.log(`    page ${i}: ${JSON.stringify(d)}`));
+        }
+
         ok('the match advances through networked turns', played.turns >= 4,
             `${played.turns} turns in ${secs}s (${pace === Infinity ? 'no' : pace + 's per'} turn)`);
 
