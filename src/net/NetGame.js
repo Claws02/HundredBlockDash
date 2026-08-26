@@ -28,6 +28,8 @@ import * as Commands from '../core/Commands.js';
 import * as Scenes from '../ui/Scenes.js';
 import * as Session from './NetSession.js';
 import * as Sync from './NetSync.js';
+import * as NetMinigame from './NetMinigame.js';
+import * as GC from '../core/GameController.js';
 import * as ReadyGate from './ReadyGate.js';
 import { MSG, PROTOCOL_VERSION } from './NetProtocol.js';
 import * as T from './NetTransport.js';
@@ -88,6 +90,21 @@ export function init(controller) {
         // Offline: every local mode passes one device around, so the seat that
         // may act is whichever one is up — there is nothing to check here.
         return false;
+    });
+
+    // How a networked round is played. src/core knows nothing about src/net,
+    // so the board asks for this rather than importing it: GameController
+    // calls the hook and falls back to a draw if nobody registered one.
+    //
+    // Returning false means "not mine" — an offline match, or a client, which
+    // never decides what the round is. The host picks the game and the seed;
+    // every other device hears about both in the announcement.
+    GC.setOnlineContest((seats, done) => {
+        if (!Session.isHost()) return true;   // a client waits to be told
+        const type = NetMinigame.pickGame(state.totalTurns + (state.currentRound || 0) * 7);
+        if (!type) return false;
+        NetMinigame.hostRun(type, seats, done);
+        return true;
     });
 
     Session.on('intent', payload => Sync.applyIntent(payload));
@@ -209,6 +226,10 @@ function _replayNow(kind, payload) {
 }
 
 export function teardown() {
+    // A round in progress holds a grace timer and a continuation into the turn
+    // flow. Leaving a match without dropping them fires that continuation into
+    // a game that no longer exists.
+    NetMinigame.abort();
     Sync.stop();
     Commands.setDispatcher(null);
     state.netReplica = false;
@@ -229,6 +250,20 @@ function _replayScene(kind, p, Modal, UI) {
             return;
         case 'closeAll':
             Modal.closeAllModals();
+            return;
+
+        // A round played on every phone at once. The GAME is not mirrored —
+        // each device runs its own copy from the announced seed, which is the
+        // whole reason a parallel game crosses the wire cheaply. What is
+        // mirrored is the announcement and, later, the scores.
+        case 'soloGame':
+            import('./NetMinigame.js').then(N => N.playLocally(p.game, p.seed, p.seats || []));
+            return;
+        case 'soloResult':
+            import('./NetMinigame.js').then(N => N.showResults(p));
+            return;
+        case 'soloClose':
+            import('./NetMinigame.js').then(N => N.clearScreens());
             return;
         case 'shop':
             Modal.openShop(p.district, p.discount);

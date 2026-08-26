@@ -24,6 +24,7 @@ import { CHAR_ICONS } from '../config/GameConfig.js';
 import { createCharacterMesh } from '../engine/Renderer.js';
 import { sfx, haptic } from '../engine/AudioManager.js';
 import { registerMinigameCleanup } from './MinigameManager.js';
+import * as Solo from './SoloArena.js';
 
 // ── Tunables ────────────────────────────────────────────────────────────────
 // A RACE AGAINST THE CLOCK, not to a finish line. Whoever is highest when the
@@ -159,7 +160,12 @@ function _newClimber() {
 // was a perfect left-right-left ladder. Runs of two are now common and are what
 // make the read worth doing.
 function _nextSide(c) {
-    let s = Math.random() < 0.5 ? -1 : 1;
+    // By BRANCH index: the read is the whole game, so two players comparing
+    // heights have to have climbed the same tree — and they reach branch 12 at
+    // very different moments, which is precisely what a shared stream cannot
+    // survive.
+    const r = Solo.isSolo() ? Solo.draw(c.branches.length) : Math.random();
+    let s = r < 0.5 ? -1 : 1;
     const n = c.branches.length;
     if (n >= 2 && c.branches[n - 1] === c.branches[n - 2] && s === c.branches[n - 1]) s = -s;
     return s;
@@ -208,9 +214,11 @@ function _build() {
     const onDown = e => {
         if (_done) return;
         e.preventDefault();
+        const half = e.clientX < _overlay.clientWidth / 2 ? -1 : 1;
+        // Alone there is no upside-down half to flip for: your left is left.
+        if (Solo.isSolo()) { _tap(0, half); return; }
         const pid = e.clientY < _overlay.clientHeight / 2 ? 1 : 0;
         if (pid === 1 && _isBot) return;
-        const half = e.clientX < _overlay.clientWidth / 2 ? -1 : 1;
         _tap(pid, pid === 0 ? half : -half);
     };
     _overlay.addEventListener('pointerdown', onDown);
@@ -339,6 +347,8 @@ function _draw() {
     const ctx = _ctx;
     ctx.clearRect(0, 0, _W, _H);
     _drawHalf(0);
+    // No second climber, no rotation, no divider: the tree is the screen.
+    if (Solo.isSolo()) return;
     ctx.save(); ctx.translate(_W, _H); ctx.rotate(Math.PI); _drawHalf(1); ctx.restore();
     _drawDivider();
 }
@@ -347,7 +357,11 @@ function _draw() {
 // for P2, so the two halves are identical by construction (R5).
 function _drawHalf(pid) {
     const ctx = _ctx, c = _p[pid];
-    const halfTop = _H / 2;
+    // The TOP EDGE of this player's half, not its height — `_H - halfTop` is
+    // the height. Alone the playfield is the whole screen, so it starts at 0.
+    // Setting it to _H (as if it were a height) gave the half zero height and
+    // drew the entire tree below the bottom of the screen.
+    const halfTop = Solo.isSolo() ? 0 : _H / 2;
     const a = c.anim;
     const falling = !!a && a.kind === 'fall';
     const recovering = performance.now() < c.holdUntil;
@@ -578,8 +592,27 @@ function _ease(t) { const x = Math.min(1, t); return 1 - (1 - x) * (1 - x); }
 // what it is — the old copy said "REACHES THE TOP" for this too, which claimed
 // something that had plainly not happened.
 function _finishOnHeight() {
+    if (Solo.isSolo()) return _finishSolo();
     const [a, b] = [_p[0].height, _p[1].height];
     _finish(a === b ? -1 : (a > b ? 0 : 1), true);
+}
+
+/**
+ * Branches climbed. This is a payday game, so the number is also the haul the
+ * host pays out — see MG_PAYOUT. Coins bank off the DEEPEST height reached, so
+ * reporting the banked coins rather than the current height keeps the online
+ * rule the same as the offline one: a fall never takes money back.
+ */
+export function soloScore() { return Math.min(_p[0].coins, MAX_PAYOUT); }
+
+function _finishSolo() {
+    if (_done) return;
+    _done = true;
+    const neu = document.getElementById('mg-neutral');
+    if (neu) neu.textContent = `${_p[0].best} BRANCHES — ${_p[0].coins} 🪙 BANKED`;
+    sfx('mg_win'); haptic('heavy');
+    const banked = soloScore();
+    _after(() => { _destroy(); Solo.soloFinish(banked); }, 1400);
 }
 
 // Every finish is now on height — there is no top to reach — so the flag stays

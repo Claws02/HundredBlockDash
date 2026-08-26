@@ -1429,7 +1429,11 @@ export function maybeTriggerMinigame() {
         // Decide the pair BEFORE the banner so it can name them, and hand the
         // same pair to the contest — deriving it twice would risk the banner
         // and the game disagreeing about who is playing.
-        const pair = MinigameManager.chooseParticipants();
+        // Offline this names the two who are about to play. Online everybody
+        // plays, so the banner names the table.
+        const pair = state.playStyle === 'online'
+            ? state.players.map((_, i) => i)
+            : MinigameManager.chooseParticipants();
         UIManager.announceMinigameIncoming(pair);
         Director.hold('PRE_MINIGAME', () =>
             _runRoundContest(winnerId => _resolveMinigameResult(winnerId), pair));
@@ -1464,7 +1468,18 @@ export function maybeTriggerMinigame() {
 // and playable end to end; the round's payoff is honest about being a
 // placeholder rather than pretending to be a contest of skill.
 function _runRoundContest(done, pair) {
-    _contest(pair || MinigameManager.chooseParticipants(), done, {
+    // ACROSS PHONES, EVERYBODY PLAYS.
+    //
+    // Offline the round is a duel between two of the seats, picked by rotation,
+    // because the game is one screen two people share and a third person has
+    // nowhere to put their hands. A parallel game has no such limit: four
+    // solitaires run as happily as two, so the reason for the pairing is gone
+    // and sitting two of four players out of every round would be a rule kept
+    // only out of habit.
+    const seats = state.playStyle === 'online'
+        ? state.players.map((_, i) => i)
+        : (pair || MinigameManager.chooseParticipants());
+    _contest(seats, done, {
         title: '🎲 ROUND DRAW',
         award: true,
     });
@@ -1482,15 +1497,56 @@ function _runRoundContest(done, pair) {
 // `opts.award` pays the standard minigame reward, which the round-end contest
 // does and the other two do not — a duel settles its own wager and a buddy
 // fight hands over the buddy.
+// How a networked round is actually played, registered by src/net at startup.
+//
+// Deliberately a hook rather than an import. Everything under src/net knows
+// about src/core; nothing under src/core knows about src/net, which is what
+// lets the whole board be played, tested and reasoned about offline. A direct
+// import here would invert that for one function.
+//
+// It is handed the seats, and calls back with the winning seat.
+let _onlineContest = null;
+export function setOnlineContest(fn) { _onlineContest = fn; }
+
+// Who actually played the last contest.
+//
+// Offline this is MinigameManager's roster, because the manager ran the game
+// and knows. Online it did not: the round is run by src/net and the manager's
+// roster is still whatever it was left at — which is [0, 1], so a four-player
+// online round would have broken the streaks of two players who had just won
+// it and left the other two untouched.
+let _lastContestSeats = null;
+
 function _contest(pair, done, opts = {}) {
+    _lastContestSeats = pair.slice();
     if (state.playStyle !== 'online') { MinigameManager.trigger(done, pair); return; }
 
-    const [a, b] = pair.map(id => state.players[id]);
+    // A game the whole table can actually play. The parallel games never let
+    // one player's half touch another's, so every phone runs the same challenge
+    // from the same seed and the scores are compared — which is both playable
+    // across devices and the only version that works at four seats.
+    if (_onlineContest) {
+        const started = _onlineContest(pair, winner => {
+            if (opts.award) {
+                state.players[winner].mgWins++;
+                earnCoins(state.players[winner], MINIGAME_REWARD);
+            }
+            UIManager.updateUI();
+            done(winner);
+        }, opts);
+        if (started) return;
+    }
+
+    // No networked game available — the old draw, kept as the fallback so a
+    // registry change can never leave a networked round with no way to finish.
+    // Names everybody in it, not the first two: online rounds are the whole
+    // table now, and a card reading "Ana vs Mo" in a four-player match would be
+    // wrong about who just lost.
+    const who = pair.map(id => state.players[id].name).join(' · ');
     const winner = pair[Math.floor(Math.random() * pair.length)];
     ModalManager.showMessage(
         opts.title || '🎲 DRAW',
-        `${a.name} vs ${b.name} — minigames arrive across phones in the next update. ` +
-        `${state.players[winner].name} takes it.`,
+        `${who} — ${state.players[winner].name} takes it.`,
         '🎲', { tier: 'shared' });
     if (opts.award) {
         state.players[winner].mgWins++;
@@ -1535,7 +1591,8 @@ function _resolveMinigameResult(winnerId) {
     // Track consecutive wins for contracts. Only the two who actually played
     // move: in a three- or four-player match the spectators neither won nor
     // lost, and breaking their streak for a game they were not in is wrong.
-    const played = MinigameManager.roster();
+    const played = _lastContestSeats && state.playStyle === 'online'
+        ? _lastContestSeats : MinigameManager.roster();
     played.forEach(seat => {
         const q = state.players[seat];
         if (!q) return;

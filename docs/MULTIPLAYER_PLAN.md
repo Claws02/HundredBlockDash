@@ -347,7 +347,11 @@ runtime until somebody is holding the other phone.
 | Probe | What it drives |
 |---|---|
 | `qa/fourlocal.js` | Real 3- and 4-seat hot-seat matches to the win screen: seat/array sizing, turn rotation, the solo HUD (including the stale-`data-roll` soft lock), token spread, minigames as duels with untouched bystanders, ranked result cards. |
-| `qa/net.js` | N pages in one browser over the loopback transport: one room, ordered seats, the match starting everywhere, **every page agreeing with the host at every turn boundary**, a client rolling its own dice, a press from the wrong page being refused, and shared-vs-owner beat routing. Green at 2 seats (16/16, 6 turns at 87 s/turn) and 3 seats (17/17, 7 turns at 114 s/turn). |
+| `qa/net.js` | N pages in one browser over the loopback transport: one room, ordered seats, the match starting everywhere, **every page agreeing with the host at every turn boundary**, a client rolling its own dice, a press from the wrong page being refused, and shared-vs-owner beat routing. Green at 2 seats (16/16, 6 turns at 87 s/turn) and 3 seats (17/17, 8 turns at 46 s/turn on the reshaped map, with real minigames in the round). |
+| `qa/lobby.js` | The front door and the room: two ways in, no name asked before there is a room to be named in, the host naming seats nobody named, a rename in the room reaching the other device, 3D character portraits, and a taken character saying whose it is. Caught a host that could not pick a character at all — the grid was rebuilt on every roster change and blurring the name box IS a roster change, so the button was replaced between press and release. 16/16. |
+| `qa/netmg.js` | A real minigame round across two devices: the announcement reaching both, the game running and visible on both, scores coming back, one scoreboard, and the round letting go of the screen afterwards. 11/11. |
+| `qa/soloframe.js` | Runs each parallel game alone and reads the canvas back: something drawn in the top half, something in the bottom half, and the frame changing between samples. The cheapest statement of "it is on the screen and running" that does not care what the game looks like — and the thing that would have caught Tree Climb rendering below the screen. |
+| `qa/mapshot.js` | Boots a map and photographs it from three angles, so the board's shape can be judged by looking at it rather than by reading the layout table. This is what showed City Circuit was a bullseye. |
 | `qa/parsecheck.sh` | Now also checks the **command bus agrees with itself**: no command invoked without an implementation, none implemented that nothing invokes, and no name registered twice (whichever module body runs last would silently win). Nothing in JavaScript connects `Commands.run('roll')` to its registration, and on a client a broken name fails on the HOST, where nobody is looking. |
 
 `qa/net.js` substitutes the WebRTC hop, and nothing run in one browser can
@@ -356,13 +360,91 @@ one test that has not been run** — see §7.
 
 ---
 
+## 8. Minigames across phones (2026-08-25)
+
+Networked rounds used to announce a draw. They play a real game now.
+
+### Parallel play, and why it needs no netcode
+
+Every game in the roster was built as one screen two people share: bottom half
+P1, top half P2, both simulated in the same browser. Making one of those play
+across devices means agreeing on a physics step and reconciling input latency —
+a bigger job than the whole board was.
+
+But not all of them need it. Six games never let one half touch the other:
+**Meteor Dodge, Loot Catch, Steady Hand, Odd One Out, Snap Strike, Tree Climb**.
+They are two solitaires racing a clock, and every one of them says so in its own
+description — "most caught", "highest when it runs out", "most correct in thirty
+seconds". A game of that shape does not need to be synchronised to be played
+together: every phone runs the same challenge at the same time, alone, and the
+scores are compared.
+
+That is also the only version that scales past two. Four solitaires run as
+happily as two, where four tanks in one arena would not — so **online rounds are
+played by the whole table**, not by a rotating pair. The pairing was a
+consequence of two people sharing one screen, and across phones that reason is
+gone.
+
+`MG_NET` in the registry is where the distinction is written down; `_contest()`
+asks it what to do with a round, and falls back to the old draw if the registry
+ever has no parallel game in it.
+
+### The same seed is not the same challenge
+
+The first version seeded a shared random and had the games draw from it. A
+timeline probe showed two devices playing "the same" Meteor Dodge drifting apart
+within seconds: a stream is only identical if both devices consume it at the
+same points, and the games draw on a timer inside an animation frame. One player
+got a kinder storm than the other and the scores being compared had been earned
+against different games.
+
+Every draw a score depends on is now taken **by index** — `SoloArena.draw(i)`,
+a hash of the seed and an integer. The 6th meteor is the 6th meteor on every
+phone whether it left at 4.9 seconds or 5.1, and the timing drops out entirely.
+
+### What a round looks like
+
+| | |
+|---|---|
+| host | picks a game and a seed, announces both (`soloGame`) |
+| all | see a card saying what it is and who is in it — including the phones not playing, because a screen that goes quiet for thirty seconds reads as a crash |
+| playing | run it alone, full screen |
+| all | report a score; a phone that never answers is a zero after a grace period, so one locked screen cannot stall the table |
+| host | ranks, pays out any coin-game hauls, announces (`soloResult`) |
+| all | read the same scoreboard, then it is taken down (`soloClose`) |
+
+### Two things this got wrong first, and what they taught
+
+**A shared guard between two owners.** `soloFinish()` and the harness's own
+`settle()` both tested and set `_scored`. `soloFinish` set it, `settle` saw the
+round as already finished, and every score was dropped — so every round ran to
+the 90-second watchdog and scored zero. A flag with two owners is not a guard.
+
+**Reconciling a screen that is meant to differ.** `#solo-layer` was added to
+`BEAT_OVERLAYS`, which forces every device to match the host's screen. But each
+player dismisses their own card when they start playing, so the devices are
+*supposed* to be out of step — and the host pressing START closed everybody
+else's card before they could. It has an explicit `soloClose` instead. The
+overlay list is for beats the host raises for the table; this is not one, and
+the exception marks the boundary of the rule rather than breaking it.
+
+---
+
 ## 7. What has NOT been verified
 
-- **Two physical phones.** Signalling reaches public Nostr relays; NAT traversal
-  succeeds or does not. Everything above this line was verified in Chromium on
-  one machine.
-- **How the solo HUD looks on a real phone.** The layout was checked by
-  measurement (element boxes, visibility, overlap), not by eye.
+- ~~**Two physical devices.**~~ Done, by the author: a phone hosting and a
+  computer joining reached the same room and played the same match. WebRTC
+  signalling and NAT traversal work. What that run has NOT covered is four
+  devices, or two devices on different networks.
+- **How any of this looks on a real phone.** Everything has now been looked at
+  in a 412×892 viewport rather than only measured — which is how three separate
+  layout faults were found in one pass (a mirrored status strip upside-down over
+  the game, a HUD sitting in the meteors' path, and Tree Climb drawing its
+  entire tree below the bottom of the screen). A real handset is still a
+  different thing: safe-area insets, notches, and a browser chrome that moves.
+- **A minigame round on more than two devices.** The scoring, ranking and
+  payout all take N seats and the scoreboard was drawn at four, but every
+  round driven end to end so far has been at two.
 - **Bandwidth and battery** of a 20 Hz snapshot over a real WebRTC data channel.
 - **Balance at three and four players.** Every number in `GameConfig` was tuned
   for two; buddies, bounties and shops all get scarcer per head. Phase E.

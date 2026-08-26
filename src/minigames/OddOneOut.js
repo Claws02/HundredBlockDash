@@ -11,6 +11,7 @@
 import { state } from '../core/GameState.js';
 import { sfx, haptic } from '../engine/AudioManager.js';
 import { registerMinigameCleanup } from './MinigameManager.js';
+import * as Solo from './SoloArena.js';
 
 // ── Tunables ─────────────────────────────────────────────────────────────────
 const GAME_TIME = 30;     // s
@@ -32,13 +33,24 @@ let _botNextAt = 0;
 
 const _cleanups = [];
 const _timers   = [];
-const _rand = n => Math.floor(Math.random() * n);
+// Seeded when this is played across phones: the same hues, the same odd tile
+// in the same place, the same difficulty step. Comparing scores earned on
+// different grids would not be comparing anything.
+// Drawn BY INDEX: a new puzzle is generated whenever a player solves the last
+// one, so two phones reach their Nth puzzle at completely different moments. By
+// index, everybody's 4th grid is the same 4th grid — which is what makes "most
+// found in thirty seconds" a fair comparison.
+let _puzzles = 0;
+let _k = 0;
+const _rnd  = () => (Solo.isSolo() ? Solo.draw(_puzzles * 8 + (_k++ % 8)) : Math.random());
+const _rand = n => Math.floor(_rnd() * n);
 
 // ── Lifecycle ───────────────────────────────────────────────────────────────
 export function start(isBot, onWin, botSkill = 0.55) {
     if (!state.mgActive) return;
     _done = false; _onWin = onWin; _isBot = isBot; _botSkill = botSkill;
     _last = 0; _elapsed = 0; _score = [0, 0]; _lockUntil = [0, 0]; _flashWrong = [0, 0];
+    _puzzles = 0; _k = 0;
     registerMinigameCleanup(_destroy);
     _build();
     requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -67,7 +79,14 @@ function _build() {
     const onDown = e => {
         if (_done) return;
         e.preventDefault();
-        const w = _overlay.clientWidth, h = _overlay.clientHeight, hh = h / 2;
+        const w = _overlay.clientWidth, h = _overlay.clientHeight;
+        // Alone the grid is the whole screen, and every tap is yours.
+        if (Solo.isSolo()) {
+            const i = _cellAt(e.clientX, e.clientY, w, h, _gridN[0]);
+            if (i >= 0) _tap(0, i);
+            return;
+        }
+        const hh = h / 2;
         const top = e.clientY < hh;
         const pid = top ? 1 : 0;
         if (pid === 1 && _isBot) return;
@@ -120,15 +139,17 @@ function _cellAt(lx, ly, w, hh, n) {
 
 // ── Puzzles ────────────────────────────────────────────────────────────────────
 function _newPuzzle(pid) {
+    _k = 0;
     const n = Math.min(3 + Math.floor(_score[pid] / 3), 5);
     const hue = _rand(360);
     const baseL = 52;
     const delta = Math.max(7, 32 - _score[pid] * 2);   // shrinks as you score
     _gridN[pid] = n;
     _base[pid]  = `hsl(${hue},60%,${baseL}%)`;
-    _oddColor[pid] = `hsl(${hue},60%,${baseL + (Math.random() < 0.5 ? delta : -delta)}%)`;
+    _oddColor[pid] = `hsl(${hue},60%,${baseL + (_rnd() < 0.5 ? delta : -delta)}%)`;
     _odd[pid] = _rand(n * n);
     if (pid === 1 && _isBot) _botNextAt = _elapsed + _botThink(n);
+    _puzzles++;
 }
 
 function _botThink(n) {
@@ -168,6 +189,7 @@ function _tick() {
     }
 
     if (_elapsed >= GAME_TIME) {
+        if (Solo.isSolo()) return _finishSolo();
         return _finish(_score[0] > _score[1] ? 0 : _score[1] > _score[0] ? 1 : -1);
     }
 
@@ -178,6 +200,19 @@ function _tick() {
 function _draw() {
     const w = _overlay.clientWidth, h = _overlay.clientHeight;
     _ctx.clearRect(0, 0, w, h);
+    if (Solo.isSolo()) {
+        // No divider, no second grid, no rotation: the puzzle is the screen.
+        _drawHalf(0, w, h);
+        const t = Math.max(0, GAME_TIME - _elapsed);
+        // At the top, on its own band. The bottom belongs to the status strip,
+        // which wraps to three lines on a narrow phone.
+        _ctx.fillStyle = 'rgba(8,6,18,0.72)';
+        _ctx.fillRect(0, 0, w, 46);
+        _ctx.fillStyle = t < 5 ? '#ef4444' : 'rgba(255,255,255,0.75)';
+        _ctx.font = '900 22px "Bebas Neue", sans-serif'; _ctx.textAlign = 'center';
+        _ctx.fillText(`${t.toFixed(1)}s`, w / 2, 31);
+        return;
+    }
     _ctx.strokeStyle = 'rgba(255,255,255,0.10)'; _ctx.lineWidth = 2;
     _ctx.beginPath(); _ctx.moveTo(0, h / 2); _ctx.lineTo(w, h / 2); _ctx.stroke();
 
@@ -214,7 +249,7 @@ function _drawHalf(pid, w, hh) {
 
     _ctx.fillStyle = accent;
     _ctx.font = '700 18px Nunito, sans-serif'; _ctx.textAlign = 'center'; _ctx.textBaseline = 'alphabetic';
-    _ctx.fillText(`P${pid + 1}`, w / 2, hh * 0.12);
+    _ctx.fillText(Solo.isSolo() ? 'YOU' : `P${pid + 1}`, w / 2, hh * 0.12);
     _ctx.fillStyle = 'rgba(255,255,255,0.9)';
     _ctx.font = '900 28px "Bebas Neue", sans-serif';
     _ctx.fillText(`${_score[pid]}`, w / 2, hh * 0.21);
@@ -231,6 +266,19 @@ function _roundRect(x, y, w, h, r) {
 }
 
 // ── End / cleanup ─────────────────────────────────────────────────────────────
+/** Correct taps. Higher is better, as every reported score must be. */
+export function soloScore() { return _score[0]; }
+
+function _finishSolo() {
+    if (_done) return;
+    _done = true;
+    const neutral = document.getElementById('mg-neutral');
+    if (neutral) neutral.textContent = `${_score[0]} FOUND`;
+    sfx('mg_win');
+    const banked = soloScore();
+    _after(() => { _destroy(); Solo.soloFinish(banked); }, 1200);
+}
+
 function _finish(winnerId) {
     if (_done) return;
     _done = true;

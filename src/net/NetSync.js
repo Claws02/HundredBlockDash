@@ -35,6 +35,7 @@ import * as Renderer from '../engine/Renderer.js';
 import * as UIManager from '../ui/UIManager.js';
 import * as ModalManager from '../ui/ModalManager.js';
 import * as NetDice from './NetDice.js';
+import * as NetMinigame from './NetMinigame.js';
 import * as ReadyGate from './ReadyGate.js';
 
 const SNAP_HZ = 20;
@@ -82,6 +83,16 @@ export function applyIntent({ seat, name, args }) {
     // still in hand.
     if (name === 'briefingReady') { ReadyGate.voteBriefing(seat); return; }
     if (name === 'gateAck')       { ReadyGate.ack(args[0], seat); return; }
+    // A minigame score is the other intent that carries its own seat rather
+    // than being a decision the active player makes. It is deliberately NOT a
+    // command: no seat may run it locally, and the seat it claims is checked
+    // against the envelope's rather than taken on trust — a client reporting a
+    // score on somebody else's behalf would decide a round it was not in.
+    if (name === 'mgScore') {
+        if (args[0] !== seat) return;
+        NetMinigame.hostScore(seat, args[1]);
+        return;
+    }
     if (!Commands.has(name)) return;
     if (!authorised(seat, name, args)) return;
     Commands.runLocal(name, ...args);

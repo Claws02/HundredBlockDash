@@ -108,6 +108,101 @@ export const MG_WATCHDOG_MS = {
     penalty:     240000,   // no shot clock — the taker shoots when ready
 };
 
+// ============================================================
+// WHICH GAMES CAN BE PLAYED ACROSS PHONES
+// ============================================================
+// Every game in the roster was built as ONE screen shared by two people: the
+// bottom half is P1, the top half is P2, and both are simulated in the same
+// browser. That is a fine design for two people on a sofa and a useless one for
+// four people each holding their own phone.
+//
+// Two kinds of game, and only one of them crosses the wire cheaply:
+//
+//   'parallel'  The two halves never touch. Nothing P1 does changes anything on
+//               P2's side — they are two solitaires racing a clock, compared at
+//               the end. Meteor Dodge, Loot Catch, Steady Hand, Odd One Out,
+//               Snap Strike and Tree Climb are all of this shape, and every one
+//               of them says so in its own description: "most caught", "highest
+//               when it runs out", "most correct in 30 seconds".
+//
+//               A game like that needs no netcode at all. Every phone plays the
+//               same challenge from the same seed at the same time, alone, and
+//               the scores are compared — which is also the only version that
+//               scales past two players, because there is no reason four
+//               solitaires cannot run at once.
+//
+//   'local'     Everything else. Air hockey, tank duels, sumo, Four in a Row —
+//               these are one simulation two people reach into. Playing them
+//               across devices means agreeing on a physics step and reconciling
+//               input latency, which is a different and much larger job. They
+//               remain two-player games on one phone, where they work.
+//
+// This table is the one place that distinction is written down. `_contest()`
+// in GameController asks it what to do with a round.
+export const MG_NET = {
+    sumospheres: 'local',
+    tankclash:   'local',
+    rhythmforge: 'local',
+    orbdeflect:  'local',
+    snapstrike:  'parallel',
+    quickdraw:   'local',      // "first finger wins" — a race, not two scores
+    gridrecall:  'local',      // likewise: the round goes to whoever finishes first
+    oddoneout:   'parallel',
+    steadyhand:  'parallel',
+    sortrush:    'local',
+    meteordodge: 'parallel',
+    lootcatch:   'parallel',
+    freeze:      'local',
+    clearout:    'local',
+    puck:        'local',
+    penalty:     'local',
+    lightcycles: 'local',
+    fourinarow:  'local',
+    memorymatch: 'local',
+    bombpass:    'local',
+    grandprix:   'local',
+    treeclimb:   'parallel',
+};
+
+// The parallel games whose SCORE is also a coin haul.
+//
+// Loot Catch and Tree Climb are the roster's payday games: what you catch or
+// climb past is money, and everybody keeps theirs whether they win the round or
+// not. Offline the game hands the manager a payout array. Played across phones
+// there is no such array — each device reports one number — so this says which
+// games' numbers are coins, and what the most any one round may pay is.
+//
+// The cap matters. A score is reported by a client, and a client is a device
+// somebody else is holding: an uncapped payout would make "how many coins do I
+// have" a thing another player's phone gets to assert.
+export const MG_PAYOUT = {
+    // Each game's own ceiling, matched to the MAX_PAYOUT it enforces offline —
+    // a cap here that is higher than the one the game applies would pay out
+    // amounts the game cannot actually produce, and would only ever be reached
+    // by a score that did not come from playing it.
+    lootcatch: 30,
+    treeclimb: 30,
+};
+
+// How a parallel game is described when it is being played ACROSS PHONES.
+//
+// Every description in MG_INFO was written for two people sharing one screen,
+// and says so: "your half", "three lives each", "both of you are looking at the
+// same one". Alone on your own phone, with three other people doing the same
+// thing on theirs, all of that is wrong — and it is wrong in the specific way
+// that makes somebody look for a second player who is not there.
+export const MG_NET_INFO = {
+    meteordodge: 'Drag your pod along the bottom to dodge the falling meteors. Three lives — lose them all and your round is over. The storm gets faster and thicker as it goes. Everyone is dodging the same storm at the same time: survive longest with the most lives.',
+    lootcatch:   '💰 PAYDAY — every coin you catch is REAL money and you keep it whatever happens. Slide your basket to grab 🪙 coins and 💎 gems (worth 3), and dodge every 💣. The same loot falls on every phone. Biggest haul takes the round — but nobody leaves empty-handed.',
+    steadyhand:  'A target drifts around your screen — keep your finger on it to bank time. It speeds up as the round goes on. The same target, on the same path, on every phone: whoever holds it longest wins.',
+    oddoneout:   'Every tile on your grid is the same shade except one. Tap the odd tile and a fresh, harder grid appears — more tiles, subtler difference. A wrong tap locks you out briefly. Everyone gets the same grids: most found in 30 seconds wins.',
+    snapstrike:  'A needle sweeps your bar — tap to lock it on the bullseye. PERFECT, GREAT and GOOD snaps score 3, 2 and 1. Five rounds, the bar speeding up and the target shrinking. The same bullseye on every phone: highest total wins.',
+    treeclimb:   '🪙 PAYDAY — 30 seconds, and coins bank as you climb. A leaf sprouts LEFT or RIGHT: tap that side to jump onto it. Sides do not just alternate, so watch it. Grab the wrong side and you fall to the last branch on THAT side — but a fall never takes your coins back. Everyone climbs the same tree; highest takes the round.',
+};
+
+/** The games that can be played across phones, in registry order. */
+export const MG_PARALLEL = MG_TYPES.filter(t => MG_NET[t] === 'parallel');
+
 export const MG_ORIENTATION_MAP = {
     sumospheres: 'faceoff',
     tankclash:   'faceoff',

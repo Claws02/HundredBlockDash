@@ -12,6 +12,7 @@
 import { state } from '../core/GameState.js';
 import { sfx, haptic } from '../engine/AudioManager.js';
 import { registerMinigameCleanup } from './MinigameManager.js';
+import * as Solo from './SoloArena.js';
 
 // ── Tunables ─────────────────────────────────────────────────────────────────
 const ROUNDS        = 5;
@@ -86,7 +87,8 @@ function _build() {
     const onDown = e => {
         if (_done || !_roundActive) return;
         e.preventDefault();
-        const pid = e.clientY > _overlay.clientHeight / 2 ? 0 : 1;
+        // Alone the bar is the whole screen and every tap is yours.
+        const pid = Solo.isSolo() ? 0 : (e.clientY > _overlay.clientHeight / 2 ? 0 : 1);
         if (pid === 1 && _isBot) return;
         _lock(pid, _pos);
     };
@@ -117,8 +119,14 @@ function _startRound() {
     _result = [null, null];
     _rate   = BASE_RATE + RATE_PER_ROUND * _round;
     _hw     = Math.max(0.06, HW_START - HW_PER_ROUND * _round);
-    _center = 0.22 + Math.random() * 0.56;   // keep target off the very edges
-    _phase  = Math.random() * 2;             // random start so it isn't memorisable
+    // Seeded across phones: the bullseye has to be in the same place and the
+    // needle has to set off from the same point, or the rounds being compared
+    // were different rounds.
+    // By ROUND index: the rounds advance at each player's own pace, so a shared
+    // stream would hand round 3 a different bullseye on each phone.
+    const rnd = k => (Solo.isSolo() ? Solo.draw(_round * 4 + k) : Math.random());
+    _center = 0.22 + rnd(0) * 0.56;   // keep target off the very edges
+    _phase  = rnd(1) * 2;             // random start so it isn't memorisable
     _pos = _prevPos = _triangle(_phase);
 
     // Bot plans this round: aim for centre with skill-scaled error, plus a
@@ -154,17 +162,19 @@ function _lock(pid, pos) {
     sfx(score >= 2 ? 'coin_gain' : score === 1 ? 'land_good' : 'land_bad');
     haptic(score >= 2 ? [40] : score === 1 ? [20] : [60]);
 
-    if (_locked[0] !== null && _locked[1] !== null) _endRound();
+    if (Solo.isSolo() ? _locked[0] !== null
+                      : (_locked[0] !== null && _locked[1] !== null)) _endRound();
 }
 
 function _endRound() {
     if (!_roundActive) return;
     _roundActive = false;
     // Anyone who never tapped misses.
-    [0, 1].forEach(pid => { if (_result[pid] === null) _result[pid] = { score: 0, label: 'MISS' }; });
+    Solo.pids().forEach(pid => { if (_result[pid] === null) _result[pid] = { score: 0, label: 'MISS' }; });
 
-    document.getElementById('mg-neutral').textContent =
-        `P1 ${_scores[0]}  —  P2 ${_scores[1]}`;
+    document.getElementById('mg-neutral').textContent = Solo.isSolo()
+        ? `ROUND ${_round + 1}/${ROUNDS} — ${_scores[0]} POINTS`
+        : `P1 ${_scores[0]}  —  P2 ${_scores[1]}`;
 
     _after(() => {
         if (_done) return;
@@ -208,6 +218,12 @@ function _tick() {
 function _draw() {
     const w = _overlay.clientWidth, h = _overlay.clientHeight;
     _ctx.clearRect(0, 0, w, h);
+
+    if (Solo.isSolo()) {
+        // No divider, no second bar, no rotation.
+        _drawHalf(0, w, h);
+        return;
+    }
 
     // Centre divider
     _ctx.strokeStyle = 'rgba(255,255,255,0.12)';
@@ -269,7 +285,7 @@ function _drawHalf(pid, w, h) {
     _ctx.fillStyle = color;
     _ctx.font = '700 22px Nunito, sans-serif';
     _ctx.textAlign = 'center';
-    _ctx.fillText(`P${pid + 1}`, w / 2, h * 0.22);
+    _ctx.fillText(Solo.isSolo() ? 'YOU' : `P${pid + 1}`, w / 2, h * 0.22);
     _ctx.fillStyle = 'rgba(255,255,255,0.85)';
     _ctx.font = '900 30px "Bebas Neue", sans-serif';
     _ctx.fillText(`${_scores[pid]}`, w / 2, h * 0.40);
@@ -283,8 +299,24 @@ function _drawHalf(pid, w, h) {
 }
 
 // ── End ───────────────────────────────────────────────────────────────────────
+
+/** Points across all five rounds. */
+export function soloScore() { return _scores[0]; }
+
+function _finishSolo() {
+    if (_done) return;
+    _done = true;
+    _roundActive = false;
+    const neutral = document.getElementById('mg-neutral');
+    if (neutral) neutral.textContent = `${_scores[0]} POINTS`;
+    sfx('mg_win');
+    const banked = soloScore();
+    _after(() => { _destroy(); Solo.soloFinish(banked); }, 1300);
+}
+
 function _finish() {
     if (_done) return;
+    if (Solo.isSolo()) return _finishSolo();
     _done = true;
     _roundActive = false;
     state.mgActive = false;

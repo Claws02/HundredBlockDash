@@ -12,6 +12,7 @@
 import { state } from '../core/GameState.js';
 import { sfx, haptic } from '../engine/AudioManager.js';
 import { registerMinigameCleanup } from './MinigameManager.js';
+import * as Solo from './SoloArena.js';
 
 // ── Tunables ─────────────────────────────────────────────────────────────────
 //
@@ -53,6 +54,7 @@ let _items   = [[], []];     // per player: { x, y, vy, bomb } in 0..1 local coo
 let _basket  = [0.5, 0.5];   // per player basket centre x (0..1)
 let _score   = [0, 0];
 let _spawnAcc = 0;
+let _dropped  = 0;   // how many items have fallen — the index the seed is read at
 let _botTarget = 0.5, _botRetargetIn = 0;
 const _flash = [null, null];   // per-player catch feedback { type, t }
 
@@ -70,7 +72,7 @@ export function start(isBot, onWin, botSkill = 0.55) {
     _done = false; _onWin = onWin; _isBot = isBot; _botSkill = botSkill;
     _last = 0; _t = 0;
     _items = [[], []]; _basket = [0.5, 0.5]; _score = [0, 0];
-    _spawnAcc = 0; _botTarget = 0.5; _botRetargetIn = 0;
+    _spawnAcc = 0; _dropped = 0; _botTarget = 0.5; _botRetargetIn = 0;
     registerMinigameCleanup(_destroy);
     _build();
     requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -98,6 +100,11 @@ function _build() {
         if (_done) return;
         e.preventDefault();
         const w = _overlay.clientWidth, h = _overlay.clientHeight, hh = h / 2;
+        // Alone the chute is the whole screen and every finger is yours.
+        if (Solo.isSolo()) {
+            _basket[0] = Math.max(BASKET_W / 2, Math.min(1 - BASKET_W / 2, e.clientX / w));
+            return;
+        }
         const top = e.clientY < hh;
         const pid = top ? 1 : 0;
         if (pid === 1 && _isBot) return;
@@ -155,20 +162,31 @@ function _update(dt) {
     _spawnAcc += dt;
     while (_spawnAcc >= spawnEvery) {
         _spawnAcc -= spawnEvery;
-        // Mirrored spawn — identical item to both halves for fairness.
-        const x    = 0.1 + Math.random() * 0.8;
-        const bomb = Math.random() < bombChance;
-        const gem  = !bomb && Math.random() < GEM_CHANCE;
-        const vy   = fallSpeed * (0.9 + Math.random() * 0.2);
+        // Mirrored spawn — identical item to both halves for fairness. Across
+        // phones the seed does the same job between DEVICES: the same coins,
+        // gems and bombs fall on all of them, so the hauls being compared were
+        // earned from the same loot.
+        // Drawn BY INDEX, not from a running stream: spawns are timer-driven
+        // inside an animation frame, so two phones consume a shared stream at
+        // different moments and the loot diverges. The 6th item is the 6th item
+        // on every phone.
+        const rnd  = k => (Solo.isSolo() ? Solo.draw(_dropped * 4 + k) : Math.random());
+        const x    = 0.1 + rnd(0) * 0.8;
+        const bomb = rnd(1) < bombChance;
+        const gem  = !bomb && rnd(2) < GEM_CHANCE;
+        const vy   = fallSpeed * (0.9 + rnd(3) * 0.2);
+        _dropped++;
         _items[0].push({ x, y: -ITEM_R, vy, bomb, gem });
-        _items[1].push({ x, y: -ITEM_R, vy, bomb, gem });
+        if (!Solo.isSolo()) _items[1].push({ x, y: -ITEM_R, vy, bomb, gem });
     }
 
-    for (let pid = 0; pid < 2; pid++) _stepItems(pid, dt);
+    for (const pid of Solo.pids()) _stepItems(pid, dt);
 
     const left = Math.ceil(GAME_TIME - _t);
     const neu = document.getElementById('mg-neutral');
-    if (neu) neu.textContent = `${left}s   🪙 P1 ${_score[0]} · ${_score[1]} P2`;
+    if (neu) neu.textContent = Solo.isSolo()
+        ? `${left}s   🪙 ${_score[0]}`
+        : `${left}s   🪙 P1 ${_score[0]} · ${_score[1]} P2`;
 }
 
 const BASKET_Y = 0.84;   // basket line in local half coords
@@ -237,6 +255,12 @@ function _draw() {
     const w = _overlay.clientWidth, h = _overlay.clientHeight, hh = h / 2;
     _ctx.clearRect(0, 0, w, h);
 
+    if (Solo.isSolo()) {
+        // No divider, no second chute, no rotation.
+        _drawHalf(0, w, h);
+        return;
+    }
+
     // Divider
     _ctx.strokeStyle = 'rgba(255,255,255,0.12)'; _ctx.lineWidth = 2;
     _ctx.beginPath(); _ctx.moveTo(0, hh); _ctx.lineTo(w, hh); _ctx.stroke();
@@ -291,7 +315,7 @@ function _drawHalf(pid, w, hh) {
     _ctx.fillStyle = accent;
     _ctx.font = '900 30px "Bebas Neue", sans-serif';
     _ctx.textAlign = 'left'; _ctx.textBaseline = 'top';
-    _ctx.fillText(`P${pid + 1}: ${_score[pid]}`, 14, 12);
+    _ctx.fillText(Solo.isSolo() ? `🪙 ${_score[pid]}` : `P${pid + 1}: ${_score[pid]}`, 14, 12);
 }
 
 function _drawCoin(x, y, r) {
@@ -341,8 +365,26 @@ function _drawBomb(x, y, r) {
 }
 
 // ── End ─────────────────────────────────────────────────────────────────────
+/**
+ * The haul. This game pays what you catch, so the score IS the coins — the
+ * ranking uses it to decide the round and the host pays it out on top (see
+ * MG_PAYOUT in the registry).
+ */
+export function soloScore() { return Math.min(_score[0], MAX_PAYOUT); }
+
+function _finishSolo() {
+    if (_done) return;
+    _done = true;
+    const neu = document.getElementById('mg-neutral');
+    if (neu) neu.textContent = `YOU CAUGHT ${_score[0]} 🪙 — AND YOU KEEP THEM`;
+    sfx('mg_win');
+    const banked = soloScore();
+    _after(() => { _destroy(); Solo.soloFinish(banked); }, 1400);
+}
+
 function _finish() {
     if (_done) return;
+    if (Solo.isSolo()) return _finishSolo();
     _done = true;
     state.mgActive = false;
     const winner = _score[0] > _score[1] ? 0 : _score[1] > _score[0] ? 1 : -1;
