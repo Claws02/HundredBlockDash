@@ -357,7 +357,11 @@ function _draw() {
 // for P2, so the two halves are identical by construction (R5).
 function _drawHalf(pid) {
     const ctx = _ctx, c = _p[pid];
-    const halfTop = Solo.isSolo() ? _H : _H / 2;
+    // The TOP EDGE of this player's half, not its height — `_H - halfTop` is
+    // the height. Alone the playfield is the whole screen, so it starts at 0.
+    // Setting it to _H (as if it were a height) gave the half zero height and
+    // drew the entire tree below the bottom of the screen.
+    const halfTop = Solo.isSolo() ? 0 : _H / 2;
     const a = c.anim;
     const falling = !!a && a.kind === 'fall';
     const recovering = performance.now() < c.holdUntil;
