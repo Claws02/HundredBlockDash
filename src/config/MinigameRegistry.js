@@ -184,6 +184,22 @@ export const MG_PAYOUT = {
     treeclimb: 30,
 };
 
+// How a parallel game is described when it is being played ACROSS PHONES.
+//
+// Every description in MG_INFO was written for two people sharing one screen,
+// and says so: "your half", "three lives each", "both of you are looking at the
+// same one". Alone on your own phone, with three other people doing the same
+// thing on theirs, all of that is wrong — and it is wrong in the specific way
+// that makes somebody look for a second player who is not there.
+export const MG_NET_INFO = {
+    meteordodge: 'Drag your pod along the bottom to dodge the falling meteors. Three lives — lose them all and your round is over. The storm gets faster and thicker as it goes. Everyone is dodging the same storm at the same time: survive longest with the most lives.',
+    lootcatch:   '💰 PAYDAY — every coin you catch is REAL money and you keep it whatever happens. Slide your basket to grab 🪙 coins and 💎 gems (worth 3), and dodge every 💣. The same loot falls on every phone. Biggest haul takes the round — but nobody leaves empty-handed.',
+    steadyhand:  'A target drifts around your screen — keep your finger on it to bank time. It speeds up as the round goes on. The same target, on the same path, on every phone: whoever holds it longest wins.',
+    oddoneout:   'Every tile on your grid is the same shade except one. Tap the odd tile and a fresh, harder grid appears — more tiles, subtler difference. A wrong tap locks you out briefly. Everyone gets the same grids: most found in 30 seconds wins.',
+    snapstrike:  'A needle sweeps your bar — tap to lock it on the bullseye. PERFECT, GREAT and GOOD snaps score 3, 2 and 1. Five rounds, the bar speeding up and the target shrinking. The same bullseye on every phone: highest total wins.',
+    treeclimb:   '🪙 PAYDAY — 30 seconds, and coins bank as you climb. A leaf sprouts LEFT or RIGHT: tap that side to jump onto it. Sides do not just alternate, so watch it. Grab the wrong side and you fall to the last branch on THAT side — but a fall never takes your coins back. Everyone climbs the same tree; highest takes the round.',
+};
+
 /** The games that can be played across phones, in registry order. */
 export const MG_PARALLEL = MG_TYPES.filter(t => MG_NET[t] === 'parallel');
 

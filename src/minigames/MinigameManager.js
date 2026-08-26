@@ -129,6 +129,13 @@ let _arcadeDraws = 0;
 // the centre line, so the player at the other end reads the same status.
 let _neutralObserver = null;
 
+// Alone on your own phone there is nobody at the far end of the table to read
+// the mirrored copy. Set by SoloArena, because the mirror is re-shown by the
+// observer below on every text change — hiding it once was not enough, and the
+// strip came back upside-down over the game the first time the clock ticked.
+let _soloMode = false;
+export function setSoloMode(on) { _soloMode = !!on; _syncNeutralMirror(); }
+
 function _syncNeutralMirror() {
     const src = document.getElementById('mg-neutral');
     const dst = document.getElementById('mg-neutral-mirror');
@@ -137,7 +144,8 @@ function _syncNeutralMirror() {
     dst.textContent = txt;
     // An empty strip should not leave two empty pills floating over the game.
     const show = txt.trim() ? '' : 'none';
-    src.style.display = show; dst.style.display = show;
+    src.style.display = show;
+    dst.style.display = _soloMode ? 'none' : show;
     if (!_neutralObserver) {
         _neutralObserver = new MutationObserver(() => _syncNeutralMirror());
         _neutralObserver.observe(src, { childList: true, characterData: true, subtree: true });

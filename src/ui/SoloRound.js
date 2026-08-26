@@ -24,7 +24,7 @@
 
 import { state } from '../core/GameState.js';
 import { PLAYER_SLOTS } from '../config/GameConfig.js';
-import { MG_INFO } from '../config/MinigameRegistry.js';
+import { MG_INFO, MG_NET_INFO } from '../config/MinigameRegistry.js';
 import { sfx } from '../engine/AudioManager.js';
 
 const _el = id => document.getElementById(id);
@@ -60,7 +60,11 @@ export function showIntro(type, seats, playing, onGo) {
 
     if (_el('solo-icon'))  _el('solo-icon').textContent = info.icon || '🎮';
     if (_el('solo-title')) _el('solo-title').textContent = info.title || 'MINIGAME';
-    if (_el('solo-desc'))  _el('solo-desc').textContent = info.desc || '';
+    // The across-phones wording where there is one. MG_INFO's copy was written
+    // for two people sharing a screen and talks about "your half" and "three
+    // lives each" — which sends somebody looking for a second player who is not
+    // there.
+    if (_el('solo-desc')) _el('solo-desc').textContent = MG_NET_INFO[type] || info.desc || '';
     if (_el('solo-kicker')) {
         _el('solo-kicker').textContent = playing
             ? (seats.length > 2 ? 'EVERYONE PLAYS AT ONCE' : 'BOTH OF YOU, AT ONCE')

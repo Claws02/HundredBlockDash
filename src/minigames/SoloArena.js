@@ -217,10 +217,14 @@ function _showLayer(on) {
     // The split-screen chrome is two people sharing one device: two zones, two
     // READY buttons, a mirrored status strip. Alone none of it applies, so the
     // game gets the whole container and one status line.
-    ['mg-p1', 'mg-p2', 'mg-neutral-mirror'].forEach(id => {
+    ['mg-p1', 'mg-p2'].forEach(id => {
         const z = document.getElementById(id);
         if (z) z.style.display = on ? 'none' : '';
     });
+    // The far player's copy of the status strip is re-shown by the manager's
+    // own observer whenever a game writes its clock, so hiding it here would
+    // last exactly until the first tick. The manager has to know.
+    MinigameManager.setSoloMode(on);
 }
 
 /**

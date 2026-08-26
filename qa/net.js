@@ -62,10 +62,11 @@ async function newPage(ctx, errors, label) {
     return page;
 }
 
-// The lobby is DOM, so it is driven as a player would: type the name, press the
-// button, tap a character, press ready.
+// The lobby is DOM, so it is driven as a player would: press a door, then name
+// yourself INSIDE the room. The name box used to be on the front screen and
+// this filled it before pressing anything — which is why the probe broke the
+// moment naming moved to where the roster is.
 async function lobbyEnter(page, name, code) {
-    await page.fill('#lobby-name', name);
     if (code) {
         await page.fill('#lobby-code-input', code);
         await page.dispatchEvent('#lobby-code-input', 'input');
@@ -75,6 +76,10 @@ async function lobbyEnter(page, name, code) {
     }
     await page.waitForFunction(() => document.getElementById('lobby').dataset.phase === 'room',
         null, { timeout: 15000 });
+    // Now that there is a seat to rename, name it.
+    await page.fill('#lobby-name', name);
+    await page.dispatchEvent('#lobby-name', 'input');
+    await page.waitForTimeout(400);
 }
 
 async function snap(page) {
