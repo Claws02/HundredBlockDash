@@ -40,15 +40,22 @@ const frame = page => page.evaluate(() => {
     const band = (y0, y1) => {
         const d = g.getImageData(0, y0, W, y1 - y0).data;
         // "Drawn on" means visibly different from the darkest thing in frame.
-        // Every game's backdrop is near-black, so a pixel with any real
-        // brightness is something the game put there.
+        //
+        // WEIGHTED BY ALPHA, and that is the whole point. getImageData returns
+        // colour UN-premultiplied, so a pixel painted with rgba(255,90,90,0.05)
+        // — Loot Catch's faint field tint — comes back as (255, 90, 90) with an
+        // alpha of 13. Summing the channels alone called that fully lit, and
+        // reported 100% of Loot Catch's screen as drawn on. A probe that counts
+        // a 5% wash as content would have passed Tree Climb drawing nothing at
+        // all, which is the exact failure this exists to catch.
         let lit = 0, n = 0, sum = 0;
         for (let i = 0; i < d.length; i += 4 * 41) {   // stride: a sample, not a survey
-            const v = d[i] + d[i + 1] + d[i + 2];
+            const a = d[i + 3] / 255;
+            const v = (d[i] + d[i + 1] + d[i + 2]) * a;
             n++; sum += v;
             if (v > 120) lit++;
         }
-        return { frac: n ? lit / n : 0, sum };
+        return { frac: n ? lit / n : 0, sum: Math.round(sum) };
     };
     return { top: band(0, Math.floor(H / 2)), bottom: band(Math.floor(H / 2), H) };
 });
@@ -108,9 +115,11 @@ const frame = page => page.evaluate(() => {
                     `${(a.top.frac * 100).toFixed(2)}% of sampled pixels lit`);
                 ok(`${g} draws in the bottom half of the screen`, a.bottom.frac > 0.001,
                     `${(a.bottom.frac * 100).toFixed(2)}% of sampled pixels lit`);
+                // The detail is shown on pass as well as fail, so it states
+                // what was measured rather than what would have been wrong.
                 ok(`${g} is running, not a still frame`,
                     a.top.sum !== b.top.sum || a.bottom.sum !== b.bottom.sum,
-                    'two samples 1.4s apart are pixel-identical');
+                    `two samples 1.4s apart: ${a.top.sum}/${a.bottom.sum} then ${b.top.sum}/${b.bottom.sum}`);
             }
             await page.mouse.up().catch(() => {});
             await page.evaluate(async () => {
