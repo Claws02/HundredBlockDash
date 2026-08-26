@@ -254,10 +254,13 @@ function _draw() {
     if (Solo.isSolo()) {
         // No divider, no second half, no rotation: the sky is the whole screen.
         _drawHalf(0, w, h);
+        // The clock goes in the same top band as the lives and the tally. The
+        // bottom belongs to the status strip, which wraps to three lines on a
+        // narrow phone and would sit straight on top of it.
         const left = Math.max(0, ROUND_TIME - _elapsed);
-        _ctx.fillStyle = left < 5 ? '#ef4444' : 'rgba(255,255,255,0.5)';
+        _ctx.fillStyle = left < 5 ? '#ef4444' : 'rgba(255,255,255,0.75)';
         _ctx.font = '900 22px "Bebas Neue", sans-serif'; _ctx.textAlign = 'center';
-        _ctx.fillText(`${left.toFixed(1)}s`, w / 2, h - 18);
+        _ctx.fillText(`${left.toFixed(1)}s`, w / 2, 31);
         return;
     }
 
@@ -301,16 +304,35 @@ function _drawHalf(pid, w, h) {
         _ctx.shadowBlur = 0;
     }
 
-    // Lives (pips near the divider)
-    for (let i = 0; i < START_LIVES; i++) {
-        _ctx.fillStyle = i < _lives[pid] ? color : 'rgba(255,255,255,0.18)';
-        _ctx.beginPath(); _ctx.arc(w * 0.5 + (i - 1) * 26, h * 0.14, 8, 0, Math.PI * 2); _ctx.fill();
+    // Lives and the tally.
+    //
+    // In a 1v1 half these sit near the centre divider, which is above the
+    // player and out of the way. Full-screen that same spot is a fifth of the
+    // way down the sky — directly in the meteors' path, with the pips and the
+    // rocks drawn on top of each other. Alone they go to the very top, on their
+    // own band, where nothing falls through them.
+    if (Solo.isSolo()) {
+        _ctx.fillStyle = 'rgba(8,6,18,0.72)';
+        _ctx.fillRect(0, 0, w, 46);
+        for (let i = 0; i < START_LIVES; i++) {
+            _ctx.fillStyle = i < _lives[pid] ? color : 'rgba(255,255,255,0.18)';
+            _ctx.beginPath(); _ctx.arc(22 + i * 24, 23, 8, 0, Math.PI * 2); _ctx.fill();
+        }
+        _ctx.fillStyle = 'rgba(255,255,255,0.62)';
+        _ctx.font = '700 14px Nunito, sans-serif';
+        _ctx.textAlign = 'right';
+        _ctx.fillText(`dodged ${_dodges[pid]}`, w - 18, 28);
+        _ctx.textAlign = 'center';
+    } else {
+        for (let i = 0; i < START_LIVES; i++) {
+            _ctx.fillStyle = i < _lives[pid] ? color : 'rgba(255,255,255,0.18)';
+            _ctx.beginPath(); _ctx.arc(w * 0.5 + (i - 1) * 26, h * 0.14, 8, 0, Math.PI * 2); _ctx.fill();
+        }
+        _ctx.fillStyle = 'rgba(255,255,255,0.55)';
+        _ctx.font = '700 14px Nunito, sans-serif';
+        _ctx.textAlign = 'center';
+        _ctx.fillText(`P${pid + 1} · dodged ${_dodges[pid]}`, w / 2, h * 0.26);
     }
-    _ctx.fillStyle = 'rgba(255,255,255,0.55)';
-    _ctx.font = '700 14px Nunito, sans-serif';
-    _ctx.textAlign = 'center';
-    _ctx.fillText(Solo.isSolo() ? `dodged ${_dodges[pid]}` : `P${pid + 1} · dodged ${_dodges[pid]}`,
-                  w / 2, h * 0.26);
 
     if (_hitFx[pid] > 0) {
         _ctx.fillStyle = `rgba(239,68,68,${0.30 * (_hitFx[pid] / 0.45)})`;

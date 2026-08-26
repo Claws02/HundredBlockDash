@@ -204,9 +204,13 @@ function _draw() {
         // No divider, no second grid, no rotation: the puzzle is the screen.
         _drawHalf(0, w, h);
         const t = Math.max(0, GAME_TIME - _elapsed);
-        _ctx.fillStyle = t < 5 ? '#ef4444' : 'rgba(255,255,255,0.5)';
+        // At the top, on its own band. The bottom belongs to the status strip,
+        // which wraps to three lines on a narrow phone.
+        _ctx.fillStyle = 'rgba(8,6,18,0.72)';
+        _ctx.fillRect(0, 0, w, 46);
+        _ctx.fillStyle = t < 5 ? '#ef4444' : 'rgba(255,255,255,0.75)';
         _ctx.font = '900 22px "Bebas Neue", sans-serif'; _ctx.textAlign = 'center';
-        _ctx.fillText(`${t.toFixed(1)}s`, w / 2, h - 18);
+        _ctx.fillText(`${t.toFixed(1)}s`, w / 2, 31);
         return;
     }
     _ctx.strokeStyle = 'rgba(255,255,255,0.10)'; _ctx.lineWidth = 2;
@@ -245,7 +249,7 @@ function _drawHalf(pid, w, hh) {
 
     _ctx.fillStyle = accent;
     _ctx.font = '700 18px Nunito, sans-serif'; _ctx.textAlign = 'center'; _ctx.textBaseline = 'alphabetic';
-    _ctx.fillText(`P${pid + 1}`, w / 2, hh * 0.12);
+    _ctx.fillText(Solo.isSolo() ? 'YOU' : `P${pid + 1}`, w / 2, hh * 0.12);
     _ctx.fillStyle = 'rgba(255,255,255,0.9)';
     _ctx.font = '900 28px "Bebas Neue", sans-serif';
     _ctx.fillText(`${_score[pid]}`, w / 2, hh * 0.21);

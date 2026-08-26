@@ -429,6 +429,15 @@ body[data-hud-mode="solo"] #contracts-strip { top: calc(var(--rival-h) + 40px); 
     color: var(--gold); letter-spacing: 2px; pointer-events: none;
     text-shadow: 0 0 10px rgba(245,200,66,.55); transition: color 0.2s;
 }
+/* Played alone there is no second half to keep the strip out of, and no
+   mirrored copy whose height has to match — so a long line wraps instead of
+   being cut off mid-word. "DODGE THE METEORS! DRAG TO MOV" was the whole
+   instruction on a 412px phone. */
+#minigame-layer.is-solo #mg-neutral {
+    white-space: normal; text-align: center; font-size: 15px;
+    max-width: 88%; line-height: 1.25; padding: 7px 14px;
+}
+
 /* The far player's copy, back to back with the first across the centre line. */
 #mg-neutral-mirror {
     position: absolute; left: 50%; top: 10px; z-index: 60;

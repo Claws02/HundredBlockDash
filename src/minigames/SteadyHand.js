@@ -199,9 +199,13 @@ function _draw(R) {
         // No divider, no second half, no rotation: the playfield is the screen.
         _drawHalf(0, w, h, R);
         const left = Math.max(0, GAME_TIME - _elapsed);
-        _ctx.fillStyle = left < 4 ? '#ef4444' : 'rgba(255,255,255,0.55)';
+        // At the top, on its own band. The bottom belongs to the status strip,
+        // which wraps to three lines on a narrow phone.
+        _ctx.fillStyle = 'rgba(8,6,18,0.72)';
+        _ctx.fillRect(0, 0, w, 46);
+        _ctx.fillStyle = left < 4 ? '#ef4444' : 'rgba(255,255,255,0.75)';
         _ctx.font = '900 22px "Bebas Neue", sans-serif'; _ctx.textAlign = 'center';
-        _ctx.fillText(`${left.toFixed(1)}s`, w / 2, h - 18);
+        _ctx.fillText(`${left.toFixed(1)}s`, w / 2, 31);
         return;
     }
     _ctx.strokeStyle = 'rgba(255,255,255,0.10)'; _ctx.lineWidth = 2;

@@ -214,6 +214,9 @@ function _showLayer(on) {
     const el = typeof document !== 'undefined' && document.getElementById('minigame-layer');
     if (!el) return;
     el.style.display = on ? 'flex' : 'none';
+    // Lets the stylesheet tell a solo round apart from a shared one — the
+    // status strip can wrap when there is no mirrored copy to stay level with.
+    el.classList.toggle('is-solo', !!on);
     // The split-screen chrome is two people sharing one device: two zones, two
     // READY buttons, a mirrored status strip. Alone none of it applies, so the
     // game gets the whole container and one status line.
