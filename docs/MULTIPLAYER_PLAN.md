@@ -350,6 +350,7 @@ runtime until somebody is holding the other phone.
 | `qa/net.js` | N pages in one browser over the loopback transport: one room, ordered seats, the match starting everywhere, **every page agreeing with the host at every turn boundary**, a client rolling its own dice, a press from the wrong page being refused, and shared-vs-owner beat routing. Green at 2 seats (16/16, 6 turns at 87 s/turn) and 3 seats (17/17, 7 turns at 114 s/turn). |
 | `qa/lobby.js` | The front door and the room: two ways in, no name asked before there is a room to be named in, the host naming seats nobody named, a rename in the room reaching the other device, 3D character portraits, and a taken character saying whose it is. Caught a host that could not pick a character at all — the grid was rebuilt on every roster change and blurring the name box IS a roster change, so the button was replaced between press and release. 16/16. |
 | `qa/netmg.js` | A real minigame round across two devices: the announcement reaching both, the game running and visible on both, scores coming back, one scoreboard, and the round letting go of the screen afterwards. |
+| `qa/soloframe.js` | Runs each parallel game alone and reads the canvas back: something drawn in the top half, something in the bottom half, and the frame changing between samples. The cheapest statement of "it is on the screen and running" that does not care what the game looks like — and the thing that would have caught Tree Climb rendering below the screen. |
 | `qa/mapshot.js` | Boots a map and photographs it from three angles, so the board's shape can be judged by looking at it rather than by reading the layout table. This is what showed City Circuit was a bullseye. |
 | `qa/parsecheck.sh` | Now also checks the **command bus agrees with itself**: no command invoked without an implementation, none implemented that nothing invokes, and no name registered twice (whichever module body runs last would silently win). Nothing in JavaScript connects `Commands.run('roll')` to its registration, and on a client a broken name fails on the HOST, where nobody is looking. |
 
@@ -431,11 +432,19 @@ the exception marks the boundary of the rule rather than breaking it.
 
 ## 7. What has NOT been verified
 
-- **Two physical phones.** Signalling reaches public Nostr relays; NAT traversal
-  succeeds or does not. Everything above this line was verified in Chromium on
-  one machine.
-- **How the solo HUD looks on a real phone.** The layout was checked by
-  measurement (element boxes, visibility, overlap), not by eye.
+- ~~**Two physical devices.**~~ Done, by the author: a phone hosting and a
+  computer joining reached the same room and played the same match. WebRTC
+  signalling and NAT traversal work. What that run has NOT covered is four
+  devices, or two devices on different networks.
+- **How any of this looks on a real phone.** Everything has now been looked at
+  in a 412×892 viewport rather than only measured — which is how three separate
+  layout faults were found in one pass (a mirrored status strip upside-down over
+  the game, a HUD sitting in the meteors' path, and Tree Climb drawing its
+  entire tree below the bottom of the screen). A real handset is still a
+  different thing: safe-area insets, notches, and a browser chrome that moves.
+- **A minigame round on more than two devices.** The scoring, ranking and
+  payout all take N seats and the scoreboard was drawn at four, but every
+  round driven end to end so far has been at two.
 - **Bandwidth and battery** of a 20 Hz snapshot over a real WebRTC data channel.
 - **Balance at three and four players.** Every number in `GameConfig` was tuned
   for two; buddies, bounties and shops all get scarcer per head. Phase E.
