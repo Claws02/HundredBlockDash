@@ -56,6 +56,8 @@ process is alive before concluding anything from it.
 | `arcade.js` | All 22 minigames, offline, resolving without errors or mesh leaks. |
 | `mapmodules.js` | Map registry parity and the board's geometry as *properties*. |
 | `mapshot.js` | Photographs a board from three angles. Not an assertion — a way to look. |
+| `mapview.js` | That scouting the board stays local. The map writes `gameState` and `cameraState`, and both are on the wire. |
+| `hostcost.js` | What the 20 Hz host loop actually costs, and whether the board's render loop stands down under a full-screen layer. |
 
 ## Looking is a test
 
