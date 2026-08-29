@@ -33,6 +33,7 @@ import * as Physics from '../engine/Physics.js';
 import * as UIManager from '../ui/UIManager.js';
 import * as ModalManager from '../ui/ModalManager.js';
 import * as MinigameManager from '../minigames/MinigameManager.js';
+import * as RoundFormat from '../minigames/RoundFormat.js';
 import * as ActiveMap from '../config/ActiveMap.js';
 
 window.SPACE_META_REF  = SPACE_META;
@@ -362,6 +363,10 @@ export function quickStart(prefs) {
 export function startGame() {
     if (state.gameStarted) return;
     Director.reset();          // no beat from a previous match may fire into this one
+    // A round in progress holds a leg's continuation and a card on the screen.
+    // Starting a match under one fires that continuation into a game that no
+    // longer exists — the same class of bug as an uncancelled Director beat.
+    RoundFormat.abort();
     _gateFromTurnStart = false;
     _pendingStepsAfterGate = 0;
     _buddyRemindedRound = -1;
@@ -1487,9 +1492,13 @@ export function maybeTriggerMinigame() {
         // and the game disagreeing about who is playing.
         // Offline this names the two who are about to play. Online everybody
         // plays, so the banner names the table.
-        const pair = state.playStyle === 'online'
-            ? state.players.map((_, i) => i)
-            : MinigameManager.chooseParticipants();
+        // EVERYBODY IS IN THE ROUND.
+        //
+        // This used to pick two of the table by rotation and leave the rest
+        // watching, because every game is built for two. `RoundFormat` plays
+        // the round as a relay or a bracket instead, so the pair is only still
+        // chosen at two seats — where it is the whole table anyway.
+        const pair = state.players.map((_, i) => i);
         UIManager.announceMinigameIncoming(pair);
         Director.hold('PRE_MINIGAME', () =>
             _runRoundContest(winnerId => _resolveMinigameResult(winnerId), pair));
@@ -1532,9 +1541,7 @@ function _runRoundContest(done, pair) {
     // solitaires run as happily as two, so the reason for the pairing is gone
     // and sitting two of four players out of every round would be a rule kept
     // only out of habit.
-    const seats = state.playStyle === 'online'
-        ? state.players.map((_, i) => i)
-        : (pair || MinigameManager.chooseParticipants());
+    const seats = pair || state.players.map((_, i) => i);
     _contest(seats, done, {
         title: '🎲 ROUND DRAW',
         award: true,
@@ -1575,7 +1582,18 @@ let _lastContestSeats = null;
 
 function _contest(pair, done, opts = {}) {
     _lastContestSeats = pair.slice();
-    if (state.playStyle !== 'online') { MinigameManager.trigger(done, pair); return; }
+    if (state.playStyle !== 'online') {
+        // Two seats is one game, exactly as the match has always played it.
+        // Three or four is a round with a shape — see RoundFormat: a relay if
+        // the game is a solitaire and everybody at the table is a person, a
+        // bracket otherwise. Either way every player plays.
+        if (pair.length > 2) {
+            RoundFormat.run(MinigameManager.nextMgType(), pair, done, opts);
+            return;
+        }
+        MinigameManager.trigger(done, pair);
+        return;
+    }
 
     // A game the whole table can actually play. The parallel games never let
     // one player's half touch another's, so every phone runs the same challenge

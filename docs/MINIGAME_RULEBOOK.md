@@ -86,7 +86,7 @@ function, `_contest()` in `GameController.js`:
 
 | Route | Stakes | Who plays |
 |---|---|---|
-| **Round-end contest** | `MINIGAME_REWARD` (10 coins) + rolling first next turn | the round's pair, by rotation — or everybody, online |
+| **Round-end contest** | `MINIGAME_REWARD` (10 coins) + rolling first next turn | **everybody** — §11 |
 | **A Duel space** | a coin wager both players set | whoever landed on it, and their nearest rival |
 | **A fight over a Buddy** | the Buddy itself | the claimant and the holder |
 
@@ -499,12 +499,16 @@ Three fixes, in order of preference:
    table draws from, a spectator has a reason to care who wins even without a
    call to make.
 
-**One case is already handled**, because it was worse than dead time — it was
-unplayable. Since a solo player can seat three bots, the rotation could draw two
-of them against each other: forty seconds of nobody playing, on a screen whose
-single `isBot` flag describes one slot, so a human drawn into the other half
-would have had nothing opposite them. `chooseParticipants()` now skips the
-pairings that are two bots and keeps the rotation among the rest, and
+**This is now built, and fix 1 is the one that shipped.** `RoundFormat` plays
+every round of a three- or four-player match so that the whole table is in it —
+see §11. There are no bystanders left offline, so the side-bet and the shared
+pot in 2 and 3 are ideas for a round that no longer exists in that shape.
+
+Two smaller pieces of the same problem went with it. Since a solo player can
+seat three bots, the old rotation could draw two of them against each other:
+forty seconds of nobody playing, on a screen whose single `isBot` flag describes
+one slot, so a human drawn into the other half would have had nothing opposite
+them. `chooseParticipants()` skips the pairings that are two bots, and
 `_setRoster()` moves a lone bot into slot 1 whichever order the pair arrived in.
 That second one was never about seat count: a Duel passes `[whoever landed on
 the tile, their target]`, so in an ordinary two-player 1P match every duel the
@@ -618,6 +622,7 @@ is the point of writing it before there is anything to catch.
 | Check | How |
 |---|---|
 | Does it fit at the player counts you claim? | `node qa/layout.js` |
+| Can three or four people actually play it? | `node qa/rounds.js` — drives a whole relay and a whole bracket, and checks the round pays once however many legs it took. |
 | Is it actually on the screen and running? | `node qa/soloframe.js` — reads the canvas back and asserts something was drawn in each half and that the frame changes. This is what would have caught Tree Climb drawing its entire tree below the bottom of the screen. |
 | Is the skill dial connected to anything? | `node qa/botcheck.js` — read the wall clock at easy and hard. If the two tiers finish in the same time, it is not. Every game in this repo tuned by intuition has been wrong. |
 | Does it resolve and tear down? | `node qa/arcade.js` |
@@ -655,7 +660,81 @@ available today is a TABLE, and the roster has two.
 
 ---
 
-## 11. What is built, and what is not
+## 11. Everybody plays: the two round formats
+
+*(Built. `src/minigames/RoundFormat.js`, `src/ui/RoundBoard.js`, `qa/rounds.js`.)*
+
+§3 says the four structures are properties of a GAME. This section is about the
+ROUND, and it is the part that did not need any game to be rewritten.
+
+A round at three or four seats is played in **legs**, and there are two shapes:
+
+| | **RELAY** | **BRACKET** |
+|---|---|---|
+| When | the game is a solitaire (`MG_NET === 'parallel'`) **and** every seat is a person | everything else |
+| Legs | one per player | 4 seats: two semi-finals and a final · 3 seats: an opener and a decider |
+| What a leg is | the same seeded challenge, alone, on the whole screen | an ordinary 1v1 game |
+| Winner | highest score | whoever takes the final |
+| Reuses | `SoloArena` — the same module, seed and by-index draws that online rounds already run on | `MinigameManager.trigger`, with a leg mode that pays nothing |
+
+Between them they cover the whole roster. **No game was changed.**
+
+**Why a bot cannot relay.** A relay leg is a solitaire, and there is no bot that
+plays one. Inventing a score for it would be inventing the result of the round,
+so a table with a bot in it plays a bracket instead — where a bot plays a real
+1v1 game exactly as it always has. The one leg nobody can play is bot against
+bot: that is *decided* on skill and reported on the card, because two bots
+playing each other while the one person in the room watches is the worst screen
+in the game, and the manager could not run it anyway.
+
+**The round pays once.** This is the assertion worth keeping: a four-player
+bracket is three games, and if each leg paid `MINIGAME_REWARD` and each coin
+game paid its own cap, one round would hand out 30 coins and a 90-coin haul —
+enough for a single minigame to settle a board match. Legs run in a **leg mode**
+that reports a winner and a haul and touches nothing; `RoundFormat` totals the
+hauls across the round, applies the one 30-coin cap, and pays the flat reward
+once, to one seat.
+
+**What it costs.** A bracket is three games where there used to be one. That is
+the honest price of nobody sitting out, and it is why legs after the first skip
+the reel, the rules card and the orientation page — the table read all of that
+ninety seconds ago. The ready gate stays, because the two people playing this
+leg are not the two who played the last one.
+
+### The progress system
+
+Three pieces, the same three in both formats and at every count:
+
+| Piece | When | What it carries |
+|---|---|---|
+| **The rail** | while somebody is playing a relay leg | one chip per player, their score, the leader in gold, "NOW" on whoever is up |
+| **The card** | between legs | whose go it is, **the mark to beat**, and the standings — or, in a bracket, the draw with results filled in |
+| **The board** | at the end | everybody, ranked |
+
+The rail rides in the 46 px band the mirrored status strip leaves empty whenever
+one person has the screen to themselves, exactly as §6.2 specified, so **the
+playfield underneath is the size it was**. It is `pointer-events: none`.
+
+**Across phones it is the same rail, fed differently.** There is no round object
+on a client to read — each phone is playing its own copy — so the host is the
+only shared truth. Every playing phone sends its running score twice a second
+(`mgTick`), the host merges those into a table and broadcasts it as a `soloStand`
+beat, and every device paints the same strip. A tick decides nothing: the round
+is still settled by `mgScore`, so a lost one costs a frame of a readout. A seat
+that has finished shows its **final** score rather than its last tick, or
+somebody who has already put their number up appears to be losing it.
+
+### What this does not reach
+
+Online still only offers the **six parallel games**. Everybody plays them, all at
+once, which is the requirement met — but the other sixteen are one simulation
+several people reach into, and putting those across phones is the Phase C
+netcode in `MULTIPLAYER_PLAN.md`. Locally, all twenty-two are playable by three
+or four people today.
+
+---
+
+## 12. What is built, and what is not
 
 **Built:**
 
@@ -668,12 +747,18 @@ available today is a TABLE, and the roster has two.
   the law at three viewports, the "a third player is free" claim at 2/3/4, the
   rail's geometry, and the two registries agreeing.
 
+- **`src/minigames/RoundFormat.js` + `src/ui/RoundBoard.js`** — §11. Every seat
+  in every round at three and four players, in two formats, with the standings
+  rail and the between-leg cards. `qa/rounds.js` drives both end to end.
+- **Live standings across phones** — `mgTick` up, `soloStand` down, the same rail.
+
 **Specified here and not built:**
 
-- **The pressure rail.** The geometry exists (`railFor`) and the band it lives in
-  is already free. The chips, the surge, and `MG_PRESSURE` are not written.
-- **A bystander stake.** §6.4 names three fixes and the game currently does none
-  of them.
+- **The surge.** The rail counts up; a rival *passing* you is not called out.
+  Rank changes are the only genuinely new information in a parallel round.
+- **A bystander stake.** §6.4's side bet and shared pot. Offline there are no
+  bystanders left to give one to, so this only applies if a duel format ever
+  comes back.
 - **Any game using `frameFor()`.** All 22 compute their own halves. Nothing is
   broken by this — the module is additive — but the law is only enforced on
   games that ask.

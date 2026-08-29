@@ -93,6 +93,15 @@ export function applyIntent({ seat, name, args }) {
         NetMinigame.hostScore(seat, args[1]);
         return;
     }
+    // A running score, for the standings rail. Same rule as the final one: the
+    // seat it claims is checked against the envelope's, so nobody can move
+    // another player's number on the rail. A tick decides nothing — the round
+    // is still settled by mgScore — so a lost one costs a frame of a readout.
+    if (name === 'mgTick') {
+        if (args[0] !== seat) return;
+        NetMinigame.hostTick(seat, args[1]);
+        return;
+    }
     if (!Commands.has(name)) return;
     if (!authorised(seat, name, args)) return;
     Commands.runLocal(name, ...args);

@@ -57,6 +57,13 @@ export const SCENE_TIER = {
     // The game itself is not mirrored: each device runs its own copy from the
     // announced seed, which is the whole point of a parallel game.
     soloGame:     TIER.SHARED,
+    // The standings WHILE the round is being played. SHARED because it is the
+    // only thing anybody can see of anybody else: on four phones a parallel
+    // round is four people alone in a room, and a scoreboard that only appears
+    // at the end is a contest nobody could feel while it was happening. It
+    // paints a rail; it raises no overlay, so it is deliberately NOT in
+    // BEAT_OVERLAYS — the devices are meant to differ underneath it.
+    soloStand:    TIER.SHARED,
     soloResult:   TIER.SHARED,   // the scoreboard, which everybody reads
     // ...and the instruction to put it away. A round's screens are the one
     // beat the devices are deliberately out of step on — each player dismisses

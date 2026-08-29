@@ -59,8 +59,16 @@ async function runSeats(browser, seats, budgetSec) {
     }), seats);
 
     // ---- 1. the table is the right size ------------------------------------
-    await page.waitForFunction(() => window.__QA.snapshot().gameState === 'PRE_ROLL', null, { timeout: 90000 })
-        .catch(() => {});
+    // The HUD assertions below read what is ON SCREEN, so they are only
+    // meaningful once the match is actually at a live turn. This wait used to
+    // swallow its own timeout, and a slow boot then reported itself as two
+    // unrelated HUD failures — the strip and the roll button are both hidden
+    // while City is still on its opening flyover. Say which it was.
+    let live = true;
+    await page.waitForFunction(() => window.__QA.snapshot().gameState === 'PRE_ROLL', null, { timeout: 180000 })
+        .catch(() => { live = false; });
+    ok(`${tag} · reaches a live turn before the HUD is read`, live,
+        live ? '' : 'still not at PRE_ROLL after 180s — the HUD checks below mean nothing');
     const sizes = await page.evaluate(async () => {
         const S = (await import('/src/core/GameState.js')).state;
         return {
@@ -148,33 +156,41 @@ async function runSeats(browser, seats, budgetSec) {
         seen.add(res.s.activePlayer);
         if (res.win) { winSeen = true; break; }
 
-        // 5. A minigame in a >2 seat match is a duel. Snapshot the win counts
-        //    on the way in and check only the two rostered seats moved.
+        // 5. A minigame in a >2 seat match is a ROUND THE WHOLE TABLE PLAYS.
+        //    It used to be a duel between two of them with the rest watching,
+        //    and this probe asserted exactly that — that a bystander's win
+        //    count never moved. There are no bystanders now: RoundFormat plays
+        //    the round as a relay or a bracket and every seat is in it. What
+        //    replaces the old rule is the one that has to hold whatever shape
+        //    the round took: ONE seat gains a win, and it is one of the seats
+        //    that were in the round.
         if (res.s.gameState === 'MINIGAME_INTRO' && !lastMgWins) {
             lastMgWins = await page.evaluate(async () => {
                 const S = (await import('/src/core/GameState.js')).state;
-                const M = await import('/src/minigames/MinigameManager.js');
-                return { roster: M.roster(), coins: S.players.map(p => p.coins), wins: S.players.map(p => p.mgWins) };
+                return { coins: S.players.map(p => p.coins), wins: S.players.map(p => p.mgWins) };
             });
         }
         if (lastMgWins && res.s.gameState !== 'MINIGAME_INTRO' && res.s.gameState !== 'MINIGAME'
             && res.s.gameState !== 'MINIGAME_ACK' && !res.s.mgActive) {
             const after = await page.evaluate(async () => {
                 const S = (await import('/src/core/GameState.js')).state;
-                return { coins: S.players.map(p => p.coins), wins: S.players.map(p => p.mgWins) };
+                const RF = await import('/src/minigames/RoundFormat.js');
+                const last = RF.lastRound();
+                return { coins: S.players.map(p => p.coins), wins: S.players.map(p => p.mgWins),
+                         seats: last ? last.seats : null, relay: last ? last.relay : null,
+                         legs: last ? (last.results || []).length : 0 };
             });
             const before = lastMgWins;
-            const bystanders = before.coins.map((_, i) => i).filter(i => !before.roster.includes(i));
-            // `mgWins` is the precise signal and coins are not. The window
-            // between the intro card and the board settling afterwards also
-            // contains the rest of the turn — a Truce pays every player, a
-            // Magnet takes coins off whoever is richest — so a bystander's
-            // COINS moving in here is often correct behaviour, and asserting on
-            // it flagged a healthy four-player run. What must never move is a
-            // win count for a game somebody was not in.
-            const moved = bystanders.filter(i => after.wins[i] !== before.wins[i]);
-            const coinDrift = bystanders.filter(i => after.coins[i] !== before.coins[i]);
-            mgChecks.push({ roster: before.roster, bystanders, moved, coinDrift });
+            // `mgWins` is the precise signal and coins are not: the window
+            // between the intro card and the board settling also contains the
+            // rest of the turn — a Truce pays everybody, a Magnet takes from
+            // whoever is richest — so coins moving in here is often correct.
+            const moved = after.wins.map((w, i) => w - before.wins[i]);
+            mgChecks.push({
+                moved, gained: moved.filter(x => x > 0).length,
+                lost: moved.filter(x => x < 0).length,
+                seats: after.seats, relay: after.relay, legs: after.legs,
+            });
             lastMgWins = null;
         }
         await page.waitForTimeout(90);
@@ -183,12 +199,18 @@ async function runSeats(browser, seats, budgetSec) {
     ok(`${tag} · every seat took a turn`, seen.size === seats,
         `seats seen: ${[...seen].sort().join(',')}`);
     if (mgChecks.length) {
-        const clean = mgChecks.every(c => c.moved.length === 0);
-        ok(`${tag} · a minigame is a duel; nobody else wins one`, clean,
-            `${mgChecks.length} minigame(s); win counts moved for: ${JSON.stringify(mgChecks.filter(c => c.moved.length).map(c => c.moved))}`);
-        const pairs = mgChecks.every(c => c.roster.length === 2 && c.roster[0] !== c.roster[1]);
-        ok(`${tag} · the roster is a pair of distinct seats`, pairs,
-            JSON.stringify(mgChecks.map(c => c.roster)));
+        ok(`${tag} · every round is played by the whole table`,
+            mgChecks.every(c => c.seats && c.seats.length === seats),
+            `${mgChecks.length} round(s); seats in each: ${JSON.stringify(mgChecks.map(c => c.seats && c.seats.length))}`);
+        // A relay is one leg per player and a bracket is two or three legs; a
+        // round that reports one leg at four seats is a duel that slipped
+        // through, which is the thing this whole format exists to stop.
+        ok(`${tag} · a round is played in legs, not as one duel`,
+            mgChecks.every(c => c.legs >= (seats === 3 ? 2 : 3)),
+            JSON.stringify(mgChecks.map(c => ({ relay: c.relay, legs: c.legs }))));
+        ok(`${tag} · one win per round, however many legs it took`,
+            mgChecks.every(c => c.gained === 1 && c.lost === 0),
+            JSON.stringify(mgChecks.map(c => c.moved)));
     } else {
         ok(`${tag} · at least one minigame ran`, false, 'none observed inside the budget');
     }
