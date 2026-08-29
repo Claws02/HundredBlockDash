@@ -200,6 +200,65 @@ export const MG_NET_INFO = {
     treeclimb:   '🪙 PAYDAY — 30 seconds, and coins bank as you climb. A leaf sprouts LEFT or RIGHT: tap that side to jump onto it. Sides do not just alternate, so watch it. Grab the wrong side and you fall to the last branch on THAT side — but a fall never takes your coins back. Everyone climbs the same tree; highest takes the round.',
 };
 
+// ============================================================
+// WHAT SHAPE EACH GAME IS
+// ============================================================
+// Two questions decide everything about how a minigame scales past two people,
+// and neither of them is about the verb:
+//
+//                    │ ONE SHARED PLAYFIELD │ ONE PLAYFIELD EACH
+//   ─────────────────┼──────────────────────┼────────────────────
+//   everyone at once │        ARENA         │       SPLIT
+//   one at a time    │        TABLE         │       RELAY
+//
+// The whole roster was built as SPLIT-or-ARENA at exactly two seats, because
+// two seats is what a face-off screen has. The table below is the audit: what
+// each game actually IS, which is what says whether a third player costs a
+// 76 px control band (ARENA), a 34 px banner (TABLE, RELAY), or half of
+// somebody's playfield (SPLIT — the only one that does not fit on a phone).
+//
+// docs/MINIGAME_RULEBOOK.md is the long version; src/config/MinigameLayout.js
+// is the geometry. This is only the classification.
+//
+// It lines up with MG_NET, and it explains it: every 'parallel' game is a
+// SPLIT, because a game with no shared playfield is exactly the game that needs
+// no netcode. The reverse does not hold — Grid Recall is a SPLIT whose rounds
+// are decided by who finishes FIRST, so its finish line is shared even though
+// its grids are not, and that is what keeps it 'local'.
+export const MG_SHAPE = {
+    sumospheres: 'arena',   // one arena, both spheres in it
+    tankclash:   'arena',   // one battlefield, shots cross it
+    rhythmforge: 'relay',   // alternating turns; one player plays at a time
+    orbdeflect:  'arena',   // one orb crossing one middle
+    snapstrike:  'split',   // a bar each, a shared clock
+    quickdraw:   'arena',   // one signal, first finger takes it
+    gridrecall:  'split',   // a grid each — but the ROUND goes to whoever finishes first
+    oddoneout:   'split',
+    steadyhand:  'split',
+    sortrush:    'arena',   // one shape in the middle, both racing for it
+    meteordodge: 'split',
+    lootcatch:   'split',
+    freeze:      'arena',   // one crown, one track, one eye watching both
+    clearout:    'arena',   // discs cross the wall onto their side
+    puck:        'arena',
+    penalty:     'arena',   // + ASYM: the two seats are doing different jobs
+    lightcycles: 'arena',
+    fourinarow:  'table',
+    memorymatch: 'table',
+    bombpass:    'arena',
+    grandprix:   'arena',   // one track, both cars, one camera
+    treeclimb:   'split',
+};
+
+// Modifiers laid over a shape: the seats do not have the same job (ASYM), or
+// four seats play as two sides (TEAMS). Neither changes where anybody sits.
+export const MG_MODIFIER = {
+    penalty: 'asym',        // one shoots, one keeps, then they swap
+};
+
+/** Games of one shape, in registry order. */
+export const shapeIs = shape => MG_TYPES.filter(t => MG_SHAPE[t] === shape);
+
 /** The games that can be played across phones, in registry order. */
 export const MG_PARALLEL = MG_TYPES.filter(t => MG_NET[t] === 'parallel');
 

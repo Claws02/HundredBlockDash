@@ -56,6 +56,7 @@ process is alive before concluding anything from it.
 | `arcade.js` | All 22 minigames, offline, resolving without errors or mesh leaks. |
 | `mapmodules.js` | Map registry parity and the board's geometry as *properties*. |
 | `mapshot.js` | Photographs a board from three angles. Not an assertion — a way to look. |
+| `layout.js` | The layout laws as arithmetic — no browser, one second. That a phone holds at most two private playfields, and that `MG_SHAPE` and `MG_NET` agree. |
 
 ## Looking is a test
 

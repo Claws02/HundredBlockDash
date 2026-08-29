@@ -2,6 +2,8 @@
 
 Design doc for the arcade. Companion to `MINIGAME_STANDARD.md` — that document
 says *how* to build one; this says *which one to build next and why*.
+`MINIGAME_RULEBOOK.md` says what *shape* it can be, and carries the structural
+audit of this roster at three and four players.
 
 ---
 

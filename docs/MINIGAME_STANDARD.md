@@ -8,6 +8,13 @@ file, ship it. `src/minigames/_template.js` is the annotated scaffold;
 > **Goal:** implement game after game with precision. If your game passes the
 > [Shipping Checklist](#shipping-checklist) it is, by definition, done.
 
+> **Read `docs/MINIGAME_RULEBOOK.md` first.** This document is the code
+> contract, and it assumes two players on one screen — which is what every game
+> in the roster is. The rulebook is the *shape*: the story a round tells, the
+> four structures a minigame can have, and what each one costs when a third and
+> fourth player sit down. A game can pass every rule below and still be
+> unbuildable at four players, and you want to know that before it is written.
+
 ---
 
 ## 1. The shape of a minigame
