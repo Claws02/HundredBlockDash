@@ -84,10 +84,11 @@ document.querySelectorAll('[data-mode]').forEach(btn => {
         // Bot difficulty only applies when playing against the bot
         document.getElementById('difficulty-select').style.display =
             btn.dataset.mode === '1p' ? 'block' : 'none';
-        // Seats: pass-and-play only (see the note on #players-select). Changing
-        // mode resets the count, so the chips are put back to 2 with it.
+        // Seats: every local mode that can seat more than two (see the note on
+        // #players-select — tabletop is the one that cannot). Changing mode
+        // resets the count, so the chips are put back to 2 with it.
         const seats = document.getElementById('players-select');
-        seats.style.display = btn.dataset.mode === 'pass' ? 'block' : 'none';
+        seats.style.display = ['pass', '1p'].includes(btn.dataset.mode) ? 'block' : 'none';
         document.querySelectorAll('[data-players]').forEach(b2 =>
             b2.classList.toggle('sel', b2.dataset.players === '2'));
     });
@@ -124,6 +125,7 @@ document.querySelectorAll('[data-char]').forEach(card => {
 });
 
 document.getElementById('btn-char-confirm').addEventListener('click', () => GameController.confirmCharSelect());
+document.getElementById('btn-seat-bot').addEventListener('click', () => GameController.seatAsBot());
 
 // ============================================================
 // MAP SELECT

@@ -268,6 +268,12 @@ body[data-hud-mode="solo"] #contracts-strip { top: calc(var(--rival-h) + 40px); 
 /* Modal Boxes */
 .modal-box { background: var(--panel); border: 1px solid var(--border); border-radius: 20px; padding: 26px; width: 92%; max-width: 420px; text-align: center; box-shadow: 0 20px 50px rgba(0,0,0,.8); max-height: 90vh; overflow-y: auto; touch-action: pan-y; }
 .m-title { font-size: 32px; color: #fff; margin-bottom: 7px; letter-spacing: 2px; }
+/* The character screen's second line: whose go it is stays big, the standing
+   instruction under it does not. */
+.cs-sub { display: block; font-size: 15px; letter-spacing: 2px; opacity: .72; margin-top: 2px; }
+/* The "let a bot play this seat" offer sits under CONFIRM and must not end
+   up flush against the bottom of a short screen. */
+#btn-seat-bot { margin-top: 8px; margin-bottom: 4px; }
 .m-desc { font-size: 16px; color: rgba(255,255,255,.85); margin-bottom: 20px; line-height: 1.4; }
 .m-row { display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,.09); padding: 10px 14px; border-radius: 12px; margin-bottom: 8px; }
 .m-row-info { text-align: left; color: #fff; flex: 1; padding-right: 10px; }

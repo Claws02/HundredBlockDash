@@ -12,7 +12,7 @@ import {
     ALLIES, BA_DISCOUNT, GRAND_MALL_DISCOUNT,
     ALL_CHAR_TYPES, HQ_META, CHAR_ICONS, CHAR_NAMES, DISTRICT_BIOMES,
     CITY_LENGTHS, CITY_DEFAULT_ROUNDS, HBD_LENGTHS,
-    PLAYER_SLOTS, MIN_PLAYERS, MAX_PLAYERS,
+    PLAYER_SLOTS, MIN_PLAYERS, MAX_PLAYERS, botName,
     buildHbdConfig, setHbdRealmCount, HBD_DEFAULT_CONFIG, HBD_FINISH_BONUS,
     hbdSpaceLabel, hbdShopKey, getRealmForSpace,
 } from '../config/GameConfig.js';
@@ -102,10 +102,23 @@ export function goToCharSelect() {
     if (!state.playStyle) { UIManager.toast('Please select a game mode first!', '#ef4444'); return; }
     document.getElementById('splash').style.display = 'none';
     document.getElementById('char-select').style.display = 'flex';
+
+    // WHO IS HOLDING THE DEVICE, AND WHO IS THE COMPUTER.
+    //
+    // This was one line — `players[1].isBot = (playStyle === '1p')` — and that
+    // line is why a solo player could never have more than one opponent. It
+    // named seat 1 specifically, so the seat picker could hand the match three
+    // more seats and there was nothing to put in them.
+    //
+    // Seat 0 is always the person who pressed the button. Everything after it
+    // is a bot in 1P and a human everywhere else, and any of those human seats
+    // can be handed to a bot on its own step (seatAsBot).
+    state.players.forEach((p, i) => {
+        p.isBot = i > 0 && state.playStyle === '1p';
+        p.name  = p.isBot ? botName(i) : PLAYER_SLOTS[i].name;
+    });
     state.charSelectStep = 1;
     _paintCharSelectStep(0);
-    state.players[1].isBot = (state.playStyle === '1p');
-    if (state.players[1].isBot) state.players[1].name = 'Borat the Bot';
 }
 
 // Dress the character screen for seat `idx`: whose turn it is to pick, in their
@@ -114,8 +127,28 @@ export function goToCharSelect() {
 function _paintCharSelectStep(idx) {
     const slot = PLAYER_SLOTS[idx] || PLAYER_SLOTS[0];
     const t = document.getElementById('cs-title');
-    t.textContent  = `${slot.name.toUpperCase()}: CHOOSE CHARACTER`;
+    // "PLAYER 2 OF 4". At two seats the picker was a two-step sequence everybody
+    // could hold in their head; at four, a screen that only says whose turn it
+    // is does not say how many are left, and handing the phone on is the one
+    // thing this screen is for.
+    //
+    // The instruction drops to a second line rather than joining the first.
+    // "PLAYER 2 OF 4: CHOOSE CHARACTER" is three wrapped lines of 32px type on
+    // a 390px phone, which pushed the buttons under it off the bottom.
+    const total = playerCount();
+    const who   = total > 2 ? `${slot.name.toUpperCase()} OF ${total}` : slot.name.toUpperCase();
+    t.innerHTML = `${who}<span class="cs-sub">CHOOSE CHARACTER</span>`;
     t.style.color  = slot.hex;
+
+    // Any seat but the first can be given to the computer. In 1P they already
+    // are, so those steps never come up and the button would be offering
+    // something that has happened.
+    const botBtn = document.getElementById('btn-seat-bot');
+    if (botBtn) {
+        const offer = idx > 0 && state.playStyle !== '1p' && state.playStyle !== 'online';
+        botBtn.style.display = offer ? '' : 'none';
+        botBtn.textContent = `🤖 LET A BOT PLAY ${slot.name.toUpperCase()}`;
+    }
     _paintCharPortraits(idx);
     const taken = new Set(state.charSelections.slice(0, idx));
     document.querySelectorAll('#char-select [data-char]').forEach(c => {
@@ -135,16 +168,35 @@ export function selectChar(type) {
 export function confirmCharSelect() {
     const idx = state.charSelectStep - 1;
     state.players[idx].charType = state.charSelections[idx];
+    _advanceCharSelect(idx);
+}
 
-    // vs-bot: seat 1 is Borat and picks for itself, so there is no second step.
-    if (idx === 0 && state.playStyle === '1p') {
-        const types = ALL_CHAR_TYPES.filter(t => t !== state.charSelections[0]);
-        state.players[1].charType = types[Math.floor(Math.random() * types.length)];
-        goToMapSelect();
-        return;
-    }
+/**
+ * Hand this seat to the computer and move on.
+ *
+ * The seat picker says how many are PLAYING; this says how many of them are
+ * people. Without it the only mixed table available was one human and one bot,
+ * because 1P meant "two seats, the second is Borat" rather than "one human".
+ * Three friends and a bot to round out the table is a real thing to want.
+ */
+export function seatAsBot() {
+    const idx = state.charSelectStep - 1;
+    // Seat 0 is whoever pressed the button. A match with nobody in it is the
+    // arcade, not a match.
+    if (idx <= 0 || idx >= playerCount()) return false;
+    const p = state.players[idx];
+    p.isBot = true;
+    p.name  = botName(idx);
+    p.charType = _firstFreeChar(state.charSelections.slice(0, idx));
+    state.charSelections[idx] = p.charType;
+    _advanceCharSelect(idx);
+    return true;
+}
 
-    // Hand the picker to the next human seat. Bots choose for themselves.
+// Walk to the next seat that needs a person, choosing for every bot on the way.
+// Extracted so CONFIRM and "let a bot play it" cannot drift apart — they are the
+// same step with a different answer.
+function _advanceCharSelect(idx) {
     let next = idx + 1;
     while (next < playerCount() && state.players[next].isBot) {
         const types = ALL_CHAR_TYPES.filter(t => !state.charSelections.includes(t));
@@ -266,6 +318,10 @@ function _savePrefs() {
         cityRounds: state.cityRounds,
         players:    playerCount(),
         chars:      state.players.map(p => p.charType),
+        // Which seats the computer was playing. Without this a rematch of a
+        // one-human-three-bots match came back as four humans, and the board
+        // sat waiting for three people who were never there.
+        bots:       state.players.map(p => !!p.isBot),
     });
 }
 
@@ -284,19 +340,19 @@ export function quickStart(prefs) {
         ? prefs.chars
         : [prefs.charP1 || 'slime', prefs.charP2 || 'boxy'];
     setPlayerCount(prefs.players || savedChars.length || 2);
+    // Seat 0 is whoever pressed REMATCH. Everything else is what it was last
+    // time — read from `bots` where the blob has it, and falling back to the
+    // old rule (1P means seat 1 is the computer) for a blob saved before seats
+    // could be mixed.
+    const savedBots = Array.isArray(prefs.bots)
+        ? prefs.bots
+        : state.players.map((_, i) => i === 1 && prefs.mode === '1p');
     state.players.forEach((p, i) => {
         p.charType = savedChars[i] || PLAYER_SLOTS[i].charType;
-        p.name     = PLAYER_SLOTS[i].name;
-        p.isBot    = false;
+        p.isBot    = i > 0 && !!savedBots[i];
+        p.name     = p.isBot ? botName(i) : PLAYER_SLOTS[i].name;
         state.charSelections[i] = p.charType;
     });
-    if (prefs.mode === '1p') {
-        const bot = state.players[1];
-        bot.isBot = true;
-        bot.name  = 'Borat the Bot';
-        const types = ALL_CHAR_TYPES.filter(t => t !== state.players[0].charType);
-        bot.charType = types[Math.floor(Math.random() * types.length)];
-    }
     document.getElementById('splash').style.display = 'none';
     _skipStory = true;   // rematch jumps straight back into the action
     startGame();

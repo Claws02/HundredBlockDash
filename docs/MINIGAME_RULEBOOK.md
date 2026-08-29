@@ -499,6 +499,17 @@ Three fixes, in order of preference:
    table draws from, a spectator has a reason to care who wins even without a
    call to make.
 
+**One case is already handled**, because it was worse than dead time — it was
+unplayable. Since a solo player can seat three bots, the rotation could draw two
+of them against each other: forty seconds of nobody playing, on a screen whose
+single `isBot` flag describes one slot, so a human drawn into the other half
+would have had nothing opposite them. `chooseParticipants()` now skips the
+pairings that are two bots and keeps the rotation among the rest, and
+`_setRoster()` moves a lone bot into slot 1 whichever order the pair arrived in.
+That second one was never about seat count: a Duel passes `[whoever landed on
+the tile, their target]`, so in an ordinary two-player 1P match every duel the
+**bot** started put the bot in slot 0 with nothing driving it.
+
 Do not do nothing. Two players staring at a phone they cannot touch is the
 worst screen in a four-player match.
 

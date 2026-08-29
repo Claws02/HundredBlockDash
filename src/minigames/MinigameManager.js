@@ -80,7 +80,22 @@ function _setRoster(seats) {
     const ok = Array.isArray(seats) && seats.length === 2
         && seats.every(i => typeof i === 'number' && i >= 0 && i < n)
         && seats[0] !== seats[1];
-    _seats = ok ? seats.slice() : [0, Math.min(1, n - 1)];
+    const out = ok ? seats.slice() : [0, Math.min(1, n - 1)];
+
+    // A LONE BOT TAKES SLOT 1, WHATEVER ORDER IT ARRIVED IN.
+    //
+    // The games are handed one flag — `isBot` — and it describes SLOT 1. There
+    // is no way to say "slot 0 is the computer", so a bot drawn into slot 0 has
+    // nothing driving it: its half sits still until the 90-second watchdog, and
+    // the human plays the round from the rotated top half.
+    //
+    // This is not hypothetical and it is not new to three- and four-player
+    // matches. `_startDuel` passes `[whoever landed on the tile, their target]`,
+    // so in an ordinary 1P match every duel the BOT started ran that way round.
+    const bot0 = state.players[out[0]] && state.players[out[0]].isBot;
+    const bot1 = state.players[out[1]] && state.players[out[1]].isBot;
+    if (bot0 && !bot1) out.reverse();
+    _seats = out;
 }
 
 // Round-robin pairings. Every pair appears the same number of times, and the
@@ -96,7 +111,23 @@ export function chooseParticipants() {
     const n = state.players.length;
     if (n <= 2) return [0, 1];
     const cyc = PAIR_CYCLE[n] || PAIR_CYCLE[4];
-    return cyc[(state.currentRound || 0) % cyc.length].slice();
+
+    // Skip the pairings that are two bots.
+    //
+    // Two reasons, and the second is the hard one. A round two bots play while
+    // the people watch is forty seconds of nothing — the bystander problem in
+    // docs/MINIGAME_RULEBOOK.md §6.4, at its worst. And it is not even
+    // playable: `isBot` describes one slot, so a bot-vs-bot round would have a
+    // human's half of the screen with nobody at it.
+    //
+    // The rotation is kept among the pairings that survive, so the fairness the
+    // cycle exists for is preserved over whoever is actually playing. An
+    // all-bot match (every seat a bot — a demo, or every human having dropped)
+    // keeps the full cycle rather than having nothing to choose from.
+    const human = i => state.players[i] && !state.players[i].isBot;
+    const playable = cyc.filter(p => p.some(human));
+    const pool = playable.length ? playable : cyc;
+    return pool[(state.currentRound || 0) % pool.length].slice();
 }
 
 let _controller   = null;
