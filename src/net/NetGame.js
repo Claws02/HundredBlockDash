@@ -259,6 +259,9 @@ function _replayScene(kind, p, Modal, UI) {
         case 'soloGame':
             import('./NetMinigame.js').then(N => N.playLocally(p.game, p.seed, p.seats || []));
             return;
+        case 'soloStand':
+            import('./NetMinigame.js').then(N => N.showStandings(p));
+            return;
         case 'soloResult':
             import('./NetMinigame.js').then(N => N.showResults(p));
             return;

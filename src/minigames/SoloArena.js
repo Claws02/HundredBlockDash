@@ -92,6 +92,9 @@ export function draw(i) {
 let _solo = false;
 let _onScore = null;
 let _scored = false;
+// The module of the game in progress, kept so a force-end can ask it what the
+// player had banked. Without it `forceEnd` had nothing to report but a zero.
+let _mod = null;
 
 /** True while a game is being played alone for a score rather than 1v1. */
 export function isSolo() { return _solo; }
@@ -159,6 +162,7 @@ export async function play(type, seed, onScore, deadlineMs = 90000) {
 
     let guard = null;
     let mod = null;
+    _mod = null;
     // One place that ends this, whatever ended it — the game reporting, the win
     // callback firing, a throw, or the watchdog. Anything else and two of those
     // paths race to call back twice.
@@ -186,6 +190,7 @@ export async function play(type, seed, onScore, deadlineMs = 90000) {
         settle(0);
         return;
     }
+    _mod = mod;
     const banked = () => (typeof mod.soloScore === 'function' ? mod.soloScore() : 0);
 
     // A floor under the whole thing. A game that throws inside its own
@@ -240,9 +245,26 @@ function _showLayer(on) {
  */
 export function forceEnd(banked) {
     if (!_solo) return;
+    // What the player actually had when the screen was taken off them. This
+    // used to be a flat zero, which is a different claim entirely: somebody
+    // twenty seconds into a good run, cut off because the round was decided
+    // elsewhere, was reported as having scored nothing.
+    const have = (banked == null) ? liveScore() : banked;
     try { MinigameManager.forceEndMinigame(); } catch (e) {}
-    if (_onScore) soloFinish(banked || 0);
+    if (_onScore) soloFinish(have || 0);
     reset();
+}
+
+/**
+ * What the game on screen has banked so far.
+ *
+ * This is the number the standings rail reads while somebody is playing — the
+ * one thing a player alone with the screen needs in order to know whether they
+ * are winning. Zero when nothing is running.
+ */
+export function liveScore() {
+    if (!_solo || !_mod || typeof _mod.soloScore !== 'function') return 0;
+    try { return Number(_mod.soloScore()) || 0; } catch (e) { return 0; }
 }
 
 /** Tear solo mode down. Safe to call when nothing is running. */
@@ -251,6 +273,7 @@ export function reset() {
     _solo = false;
     _onScore = null;
     _scored = false;
+    _mod = null;
     _rng = Math.random;
 }
 

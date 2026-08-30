@@ -50,6 +50,17 @@ export const PLAYER_SLOTS = [
     { name: 'Player 4', color: 0xf5c842, hex: '#f5c842', icon: '⭐', charType: 'ghost' },
 ];
 
+// A bot per seat, named. There used to be exactly one — "Borat the Bot", at
+// seat 1 — which was fine while a bot match meant one human and one opponent.
+// A solo player can now fill every empty seat, and three opponents all called
+// Borat is a HUD nobody can read.
+export const BOT_NAMES = ['Borat the Bot', 'Borat the Bot', 'Nadia the Nav', 'Klaus the Cog'];
+
+/** What the bot in seat `i` is called. */
+export function botName(i) {
+    return BOT_NAMES[i] || `Bot ${i + 1}`;
+}
+
 export const MIN_PLAYERS     = 2;
 export const MAX_PLAYERS     = PLAYER_SLOTS.length;
 export const DEFAULT_PLAYERS = 2;

@@ -80,7 +80,22 @@ function _setRoster(seats) {
     const ok = Array.isArray(seats) && seats.length === 2
         && seats.every(i => typeof i === 'number' && i >= 0 && i < n)
         && seats[0] !== seats[1];
-    _seats = ok ? seats.slice() : [0, Math.min(1, n - 1)];
+    const out = ok ? seats.slice() : [0, Math.min(1, n - 1)];
+
+    // A LONE BOT TAKES SLOT 1, WHATEVER ORDER IT ARRIVED IN.
+    //
+    // The games are handed one flag — `isBot` — and it describes SLOT 1. There
+    // is no way to say "slot 0 is the computer", so a bot drawn into slot 0 has
+    // nothing driving it: its half sits still until the 90-second watchdog, and
+    // the human plays the round from the rotated top half.
+    //
+    // This is not hypothetical and it is not new to three- and four-player
+    // matches. `_startDuel` passes `[whoever landed on the tile, their target]`,
+    // so in an ordinary 1P match every duel the BOT started ran that way round.
+    const bot0 = state.players[out[0]] && state.players[out[0]].isBot;
+    const bot1 = state.players[out[1]] && state.players[out[1]].isBot;
+    if (bot0 && !bot1) out.reverse();
+    _seats = out;
 }
 
 // Round-robin pairings. Every pair appears the same number of times, and the
@@ -96,7 +111,23 @@ export function chooseParticipants() {
     const n = state.players.length;
     if (n <= 2) return [0, 1];
     const cyc = PAIR_CYCLE[n] || PAIR_CYCLE[4];
-    return cyc[(state.currentRound || 0) % cyc.length].slice();
+
+    // Skip the pairings that are two bots.
+    //
+    // Two reasons, and the second is the hard one. A round two bots play while
+    // the people watch is forty seconds of nothing — the bystander problem in
+    // docs/MINIGAME_RULEBOOK.md §6.4, at its worst. And it is not even
+    // playable: `isBot` describes one slot, so a bot-vs-bot round would have a
+    // human's half of the screen with nobody at it.
+    //
+    // The rotation is kept among the pairings that survive, so the fairness the
+    // cycle exists for is preserved over whoever is actually playing. An
+    // all-bot match (every seat a bot — a demo, or every human having dropped)
+    // keeps the full cycle rather than having nothing to choose from.
+    const human = i => state.players[i] && !state.players[i].isBot;
+    const playable = cyc.filter(p => p.some(human));
+    const pool = playable.length ? playable : cyc;
+    return pool[(state.currentRound || 0) % pool.length].slice();
 }
 
 let _controller   = null;
@@ -108,6 +139,18 @@ let _standaloneMode = false;
 // PRACTICE button and the "TRY IT FIRST" option on the in-match intro card.
 let _practiceMode   = false;
 let _practiceReturn = null;   // called when a practice round finishes
+// ONE LEG OF A MULTI-PLAYER ROUND.
+//
+// Above two seats a round is not one game any more — it is a bracket, or a
+// relay, and `RoundFormat` runs it. A leg is a real game with a real result;
+// what it must NOT do is pay the flat reward, move `mgWins`, or raise the
+// result screen, because those belong to the ROUND. A three-leg bracket paying
+// MINIGAME_REWARD three times would settle a board match on its own.
+//
+// Coin hauls are not credited here either: they are handed up so the round can
+// total them across legs and apply the one cap, rather than paying MAX_PAYOUT
+// per leg.
+let _legMode = false;
 let _countdownActive = false;
 let _countdownIv  = null;
 let _botReadyTimeout = null;
@@ -427,14 +470,28 @@ function _shuffled(list) {
 // `seats` names the two players. A duel and a buddy fight both know exactly who
 // is involved and pass it; the round-end minigame does not, and takes the
 // rotation. Two-player matches always resolve to [0, 1].
-export function trigger(onComplete, seats) {
+export function trigger(onComplete, seats, opts = {}) {
     _practiceMode = false;
     _standaloneMode = false;
+    _legMode = !!opts.leg;
     _setRoster(seats || chooseParticipants());
     _onComplete = onComplete;
     state.gameState  = 'MINIGAME_INTRO';
     state.cameraState = 'MINIGAME';
-    state.mgType = nextMgType();
+    // A later leg plays the game the table has just had explained to it, so it
+    // is told which one rather than spinning the reel again.
+    state.mgType = opts.type || nextMgType();
+
+    // Legs after the first skip the reel, the rules card and the orientation
+    // page. The table read all of that ninety seconds ago; making two more
+    // people confirm it twice each is how a three-leg round starts to feel like
+    // three rounds. The ready gate still stands, because the two people playing
+    // this leg are not the two who played the last one.
+    if (opts.skipIntro) {
+        document.getElementById('ui-layer').style.display = 'none';
+        _startMinigameLayer();
+        return;
+    }
 
     document.getElementById('ui-layer').style.display  = 'none';
     document.getElementById('mg-intro-overlay').style.display = 'flex';
@@ -543,7 +600,12 @@ function _startMinigameLayer() {
         const rd = document.getElementById(`mg-ready-${i}`);
         rd.style.display = 'block'; rd.classList.remove('ready'); rd.textContent = 'READY';
     });
-    document.getElementById('mg-neutral').textContent = 'BOTH PLAYERS TAP READY!';
+    // Above two seats the two people playing this leg are not the two who played
+    // the last one, and "BOTH PLAYERS" does not say which two.
+    const [sa, sb] = roster();
+    document.getElementById('mg-neutral').textContent = state.players.length > 2
+        ? `${(state.players[sa]?.name || 'P1').toUpperCase()} vs ${(state.players[sb]?.name || 'P2').toUpperCase()} — TAP READY`
+        : 'BOTH PLAYERS TAP READY!';
 
     if (_sp(1).isBot) _botReadyTimeout = setTimeout(() => { _botReadyTimeout = null; setReady(1); }, 800);
 }
@@ -651,6 +713,7 @@ export function winMinigame(winnerId, payouts) {
     // arcade for ten minutes and then starting a game handed somebody a fortune.
     // It keeps a round tally instead and touches nothing the board cares about.
     if (_standaloneMode) return _finishArcade(winnerId);
+    if (_legMode) return _finishLeg(winnerId, payouts);
     // Guard against double-resolution. Don't key this off state.mgActive:
     // most minigames clear mgActive in their own _finish() before calling
     // onWin, which previously made this early-return and strand the result.
@@ -856,6 +919,50 @@ function _finishArcade(winnerId) {
         _showScoreboard(winnerId, [0, 0], 'arcade', () => endMinigame(winnerId));
     }, 800);
 }
+
+// One leg of a bracket: show who took it, tear the game down, and hand the
+// result up. No coins move here and the board is not touched — `RoundFormat`
+// decides what the ROUND paid once every leg is in.
+function _finishLeg(slot, payouts) {
+    if (_resolving) return;
+    _resolving = true;
+    state.mgActive = false;
+    const winSeat = slot < 0 ? -1 : seatFor(slot);
+    const coins   = {};
+    if (Array.isArray(payouts)) {
+        [0, 1].forEach(i => {
+            const n = Math.max(0, Math.round(payouts[i] || 0));
+            if (n > 0) coins[seatFor(i)] = n;
+        });
+    }
+    const neutral = document.getElementById('mg-neutral');
+    if (neutral) {
+        neutral.textContent = winSeat < 0
+            ? 'DRAW'
+            : `${state.players[winSeat].name.toUpperCase()} TAKES THE LEG!`;
+    }
+    sfx(slot < 0 ? 'land_bad' : 'mg_win');
+    const z = [document.getElementById('mg-p1'), document.getElementById('mg-p2')];
+    if (slot >= 0) { z[slot]?.classList.add('mg-victory'); z[1 - slot]?.classList.add('mg-defeat'); }
+    setTimeout(() => {
+        z.forEach(e => e?.classList.remove('mg-victory', 'mg-defeat'));
+        // The same teardown endMinigame does, minus everything that belongs to
+        // the end of a ROUND: the board's UI stays hidden, the camera stays put
+        // and the turn does not advance, because another leg is coming.
+        clearTimeout(_minigameTimeout); _minigameTimeout = null;
+        clearInterval(_botTraceInt);    _botTraceInt = null;
+        _runMinigameCleanups();
+        document.getElementById('minigame-layer').style.display = 'none';
+        const cb = _onComplete; _onComplete = null;
+        if (cb) cb({ winner: winSeat, coins, seats: roster() });
+    }, 800);
+}
+
+/** True while a leg of a multi-player round is on screen. */
+export function isLeg() { return _legMode; }
+
+/** Leave leg mode — called by RoundFormat once the round is over. */
+export function endLegMode() { _legMode = false; }
 
 // Called when the arcade is opened from the splash, so a session's tally starts
 // at nil rather than carrying over from the last time it was browsed.

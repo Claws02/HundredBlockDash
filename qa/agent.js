@@ -47,13 +47,16 @@ window.__QA = (function () {
     }
 
     // ---------- state access (live module singletons) ----------
-    let S = null, GC = null, CFG = null, MGM = null, REG = null;
+    let S = null, GC = null, CFG = null, MGM = null, REG = null, SOLO = null;
     async function bind() {
         S = (await import('/src/core/GameState.js')).state;
         GC = await import('/src/core/GameController.js');
         CFG = await import('/src/config/GameConfig.js');
         MGM = await import('/src/minigames/MinigameManager.js');
         REG = await import('/src/config/MinigameRegistry.js');
+        // A relay leg reports a score rather than naming a winner, so the
+        // force-resolve has to be able to tell the two apart.
+        SOLO = await import('/src/minigames/SoloArena.js');
         return REG.MG_TYPES.slice();
     }
     // When false, the agent stops tapping through the *bot's* result cards, so a
@@ -148,7 +151,20 @@ window.__QA = (function () {
             if (b) return tap(b, 'story begin') && 'STORY';
         }
 
-        // 2. Minigame flow
+        // 2. The round board — three or four players, one minigame.
+        //
+        // Above two seats a round is a relay or a bracket and there is a card
+        // between every leg: hand the phone on, the next pairing, the final
+        // standings. A harness that does not press them stalls at the first
+        // round of every three- and four-player match, which looks exactly like
+        // a soft lock in the board code.
+        if (visId('round-layer')) {
+            const go = byId('btn-round-go');
+            if (vis(go) && !go.disabled) return tap(go, 'round card') && 'ROUND_CARD';
+            return 'ROUND_WAIT';   // a simulated leg takes itself down
+        }
+
+        // 2a. Minigame flow
         if (visId('mg-intro-overlay')) {
             if (vis(byId('btn-mg-launch'))) return tap(byId('btn-mg-launch'), 'mg launch') && 'MG_LAUNCH';
             if (vis(byId('btn-mg-intro-next'))) return tap(byId('btn-mg-intro-next'), 'mg next') && 'MG_NEXT';
@@ -164,6 +180,11 @@ window.__QA = (function () {
                 if (mgFastMs && Date.now() - mgStartedAt > mgFastMs) {
                     note('mg', 'force-resolve ' + S.mgType);
                     mgStartedAt = 0;
+                    // A RELAY leg is one person alone with the whole screen and
+                    // it does not end through winMinigame — it reports a score.
+                    // Calling the 1v1 exit on it would resolve a game that has
+                    // no second slot, and pay out a round that is not over.
+                    if (SOLO && SOLO.isSolo()) { SOLO.forceEnd(); return 'MG_FORCED_SOLO:' + S.mgType; }
                     MGM.winMinigame(Math.random() < 0.5 ? 0 : 1);
                     return 'MG_FORCED:' + S.mgType;
                 }

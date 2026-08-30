@@ -46,6 +46,8 @@ process is alive before concluding anything from it.
 | Probe | Drives |
 |---|---|
 | `parsecheck.sh` | Static gates. Run this first; it takes a second. |
+| `rounds.js` | Everybody plays: a whole relay and a whole bracket at four seats, the standings rail, and that a three-leg round still pays one reward. |
+| `seats.js` | The front door: that 3 and 4 players can be *asked for*. Every mode's seat picker, bots filling the empty seats, and a lone bot landing in the slot `isBot` describes. |
 | `fourlocal.js` | Full 3- and 4-seat hot-seat matches to the win screen. |
 | `net.js` | N pages in one browser over the loopback transport — every page agreeing with the host at every turn boundary. |
 | `netfx.js` | That a spectator sees the animations, not just the pop-ups. |
@@ -56,6 +58,7 @@ process is alive before concluding anything from it.
 | `arcade.js` | All 22 minigames, offline, resolving without errors or mesh leaks. |
 | `mapmodules.js` | Map registry parity and the board's geometry as *properties*. |
 | `mapshot.js` | Photographs a board from three angles. Not an assertion — a way to look. |
+| `layout.js` | The layout laws as arithmetic — no browser, one second. That a phone holds at most two private playfields, and that `MG_SHAPE` and `MG_NET` agree. |
 
 ## Looking is a test
 

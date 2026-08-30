@@ -39,6 +39,7 @@ import * as Scenes from '../ui/Scenes.js';
 import * as Session from './NetSession.js';
 import * as SoloArena from '../minigames/SoloArena.js';
 import * as SoloRound from '../ui/SoloRound.js';
+import * as RoundBoard from '../ui/RoundBoard.js';
 import { MG_INFO, MG_NET, MG_PARALLEL, MG_PAYOUT } from '../config/MinigameRegistry.js';
 
 // How long the host will keep waiting after the last expected score fails to
@@ -86,8 +87,61 @@ export function hostRun(type, seats, done) {
     // that rather than a playfield.
     Scenes.emit('soloGame', { game: type, seed, seats: seats.slice() });
     _armGrace(ROUND_CAP_MS);
+    _startStandings();
     // The host is a player too, and plays it the same way everybody else does.
     playLocally(type, seed, seats);
+}
+
+// How often a phone says where it has got to, and how often the host tells
+// everybody. Two ticks a second is enough to watch a number move and is two
+// orders of magnitude less traffic than the board's own 20 Hz snapshot; a
+// missed one costs a frame of a readout and nothing else.
+const TICK_MS = 500;
+const STAND_MS = 500;
+let _tickIv = null;
+let _standIv = null;
+
+/**
+ * Host: a running score arrived from `seat`.
+ *
+ * Decides nothing. The round is still settled by `hostScore`, so a tick that
+ * never arrives — a phone that is slow, or that has stopped playing — leaves
+ * the rail a little stale and the result exactly right.
+ */
+export function hostTick(seat, score) {
+    if (!_round || _round.settled) return;
+    if (!_round.seats.includes(seat)) return;
+    _round.live = _round.live || {};
+    _round.live[seat] = Number(score) || 0;
+}
+
+/** Host: start telling the table where everybody is. */
+function _startStandings() {
+    _stopStandings();
+    _standIv = setInterval(() => {
+        if (!_round || _round.settled) { _stopStandings(); return; }
+        const live = _round.live || {};
+        Scenes.emit('soloStand', {
+            game: _round.type,
+            table: _round.seats.map(seat => ({
+                seat,
+                // A seat that has finished is shown its FINAL score, not the
+                // last tick before it stopped — otherwise somebody who has
+                // already put their number up appears to be losing it.
+                score: _round.scores[seat] !== undefined ? _round.scores[seat] : (live[seat] || 0),
+                done: _round.scores[seat] !== undefined,
+            })),
+        });
+    }, STAND_MS);
+}
+
+function _stopStandings() {
+    if (_standIv) { clearInterval(_standIv); _standIv = null; }
+}
+
+/** Every device: paint the rail from what the host last said. */
+export function showStandings(payload) {
+    RoundBoard.netRail(payload.game, payload.table || [], state.localSeat);
 }
 
 /** Host: a score arrived from `seat`. */
@@ -113,6 +167,7 @@ function _settle() {
     if (!r || r.settled) return;
     r.settled = true;
     if (r.timer) clearTimeout(r.timer);
+    _stopStandings();
     _round = null;
 
     // A seat that never answered scores zero — which is what not playing is
@@ -166,6 +221,8 @@ function _settle() {
 
 /** Drop a round in progress — a match ending mid-game, a host leaving. */
 export function abort() {
+    _stopTicking();
+    _stopStandings();
     if (_round && _round.timer) clearTimeout(_round.timer);
     _round = null;
     _localSeats = [];
@@ -191,9 +248,16 @@ export function playLocally(type, seed, seats) {
     // and a spectator who cannot see who is playing cannot follow the match.
     SoloRound.showIntro(type, _localSeats, playing, () => {
         SoloArena.play(type, seed, score => {
+            _stopTicking();
             SoloArena.reset();
+            RoundBoard.hideRail();
             report(me, score);
         }, ROUND_CAP_MS);
+        // Say where you have got to while you are getting there. This is the
+        // only thing the other three phones can see of you, and without it a
+        // parallel round is four people playing alone and comparing notes
+        // afterwards.
+        _startTicking(me);
     });
     return playing;
 }
@@ -204,12 +268,34 @@ export function showResults(payload) {
     // started late, or the host's grace period ran out first — the game has to
     // come off the screen now, or the scoreboard goes up over a running game
     // and the board underneath never comes back.
-    SoloArena.forceEnd(0);
+    // Whatever this device had banked, not a zero: somebody twenty seconds into
+    // a good run, cut off because the round was decided elsewhere, did not
+    // score nothing.
+    SoloArena.forceEnd();
     SoloRound.showResults(payload.game, payload.table, payload.winner, payload.tied, payload.paid);
 }
 
+function _startTicking(seat) {
+    _stopTicking();
+    _tickIv = setInterval(() => {
+        if (!SoloArena.isSolo()) { _stopTicking(); return; }
+        const n = SoloArena.liveScore();
+        if (Session.isHost()) hostTick(seat, n);
+        else Session.sendIntent('mgTick', [seat, Math.round(n)]);
+    }, TICK_MS);
+}
+
+function _stopTicking() {
+    if (_tickIv) { clearInterval(_tickIv); _tickIv = null; }
+}
+
 /** Take the round's screens down. */
-export function clearScreens() { SoloRound.hide(); }
+export function clearScreens() {
+    _stopTicking();
+    _stopStandings();
+    RoundBoard.hideRail();
+    SoloRound.hide();
+}
 
 /** Send a score to whoever is counting — which on the host is itself. */
 function report(seat, score) {
