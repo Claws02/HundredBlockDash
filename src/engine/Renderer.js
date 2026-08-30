@@ -709,7 +709,31 @@ export function init(container) {
     _swapUfo = null;
 
     scene = new THREE.Scene();
-    scene.fog = new THREE.FogExp2(isHBD ? 0x0f380f : 0xa8d4f0, isHBD ? 0.005 : 0.003);
+    // City fog is LINEAR, not exponential, and the difference is the whole point.
+    //
+    // 0.003 exponential barely touched the far skyline — the towers at the rim
+    // came back as saturated as the ones you are standing next to, so the city
+    // read as a flat sticker rather than as somewhere with distance in it. But
+    // winding the density up to fix that fogged the middle of the board as
+    // well, and the map view and the opening flyover both look at the board
+    // from 170+ units out: the whole city came back as milk.
+    //
+    // Exponential fog cannot separate those two cases, because it starts at the
+    // camera. Linear fog can: nothing inside 150 units is touched at all, which
+    // covers the follow camera and everything near it, and the fade runs out to
+    // 460 where the rim of the ground disc dissolves into the horizon.
+    //
+    // The range is deliberately wide. A first pass at 110–330 looked right from
+    // the street and turned the MAP view — the shot a player uses to decide
+    // which district to run — into milk, because that camera sits 200+ units up
+    // and fog is measured from the camera, not from the ground. The skyline's
+    // sense of distance is carried by its muted colours instead (see
+    // _buildBackgroundSkyline); fog only has to supply the air between.
+    //
+    // HBD keeps the exponential haze its realms were tuned against.
+    scene.fog = isHBD
+        ? new THREE.FogExp2(0x0f380f, 0.005)
+        : new THREE.Fog(0xbfe0f5, 150, 460);
 
     const W = Math.max(window.innerWidth  || 300, 300);
     const H = Math.max(window.innerHeight || 500, 500);
@@ -748,6 +772,18 @@ export function init(container) {
         _buildPathTubes();
         _buildCityScene();
     }
+
+    // THE SKY IS THE BIOME'S, FROM THE FIRST FRAME.
+    //
+    // `#bg-gradient` is what you actually see behind the board — the canvas is
+    // rendered with `alpha: true` and has no background of its own — and it was
+    // left on the SPLASH SCREEN's purple until the first turn began, because
+    // nothing called updateBiomeVisuals until startPreRoll. So the map select,
+    // the whole opening flyover and the city briefing — a player's first sight
+    // of City Circuit — showed a bright midday city standing in a nightclub
+    // void, with the scene's pale blue fog fading the far towers toward a
+    // colour that was nowhere on the screen.
+    updateBiomeVisuals(isHBD ? 0 : 'ring');
 
     Physics.init();
     drawTiles();
@@ -1627,7 +1663,29 @@ export function updateBiomeVisuals(districtOrIdx) {
         b = getBiomeForDistrict(districtOrIdx || 'ring');
         if (scene && scene.fog) scene.fog.color.set(b.fog);
     }
-    document.getElementById('bg-gradient').style.background = `linear-gradient(to bottom, ${b.bgTop}, ${b.bgBot})`;
+    // Three stops, not two. The bottom one is the biome's FOG colour, which is
+    // by definition what distance fades to — so the horizon the board's rim
+    // dissolves into is the same colour as the sky directly above it, and the
+    // board stops reading as a disc cut out and pasted on. With two stops the
+    // fog faded towers toward a colour the sky never reached.
+    document.getElementById('bg-gradient').style.background =
+        `linear-gradient(to bottom, ${b.bgTop} 0%, ${b.bgBot} 58%, ${b.fog} 100%)`;
+    // The starfield behind the sky was invisible for the same reason the sky
+    // was, and now that it is not, it has to know what time of day it is: sixty
+    // white dots over the Ring Road's midday blue is not a starfield, it is
+    // dust on the lens. It comes out with the light.
+    const bgc = document.getElementById('bg-canvas');
+    if (bgc) bgc.style.opacity = _skyStars(b.bgTop).toFixed(2);
+}
+
+// How much starfield a sky can carry, from the luminance of its top colour.
+// Full at the Back Alley's near-black, nothing by the time it is daylight.
+function _skyStars(hex) {
+    const h = String(hex || '').replace('#', '');
+    if (h.length !== 6) return 0;
+    const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), bl = parseInt(h.slice(4, 6), 16);
+    const lum = (0.2126 * r + 0.7152 * g + 0.0722 * bl) / 255;
+    return Math.max(0, Math.min(1, 1 - lum / 0.42));
 }
 
 // ---- Player hop animation ----
@@ -2557,9 +2615,51 @@ function _dashesAlong(points) {
     }
 }
 
+// City blocks, seen from above, drawn once and tiled across the ground.
+//
+// The disc the city stands on was one flat colour, and most of it is visible:
+// the four district arcs and the ring road cover maybe a third of the board and
+// everything between them was an empty slab. From the map view — which is the
+// shot a player uses to decide where to go — the board read as four islands on
+// a plate rather than as a city with roads through it.
+let _blockTex = null;
+function _cityBlockTexture() {
+    if (_blockTex || typeof document === 'undefined') return _blockTex;
+    const S = 128;
+    const c = document.createElement('canvas');
+    c.width = c.height = S;
+    const g = c.getContext('2d');
+    // Roads, then blocks between them. Everything within a few percent of the
+    // base colour: this has to survive being seen from two units away without
+    // turning the ground into wallpaper.
+    g.fillStyle = '#2b3040'; g.fillRect(0, 0, S, S);
+    for (let bx = 0; bx < 4; bx++) {
+        for (let by = 0; by < 4; by++) {
+            const n = _sr(bx * 31 + by * 17);
+            const pad = 3 + n * 3;
+            g.fillStyle = n > 0.5 ? '#333a4d' : '#2f3646';
+            g.fillRect(bx * 32 + pad, by * 32 + pad, 32 - pad * 2, 32 - pad * 2);
+        }
+    }
+    _blockTex = new THREE.CanvasTexture(c);
+    _blockTex.wrapS = _blockTex.wrapT = THREE.RepeatWrapping;
+    _blockTex.repeat.set(9, 9);
+    return _blockTex;
+}
+
 function _buildCityGround() {
     _buildDistrictGroundMaterials();
     // The ground the whole city stands on.
+    const groundTex = _cityBlockTexture();
+    if (groundTex && !_CM.ground.map) {
+        _CM.ground.map = groundTex;
+        // A map is MULTIPLIED by the material's colour, and this material's is
+        // 0x232833. Times a texture that is itself dark, the blocks came out
+        // black on black and the ground looked exactly as flat as before. The
+        // texture carries the colour now; the material gets out of its way.
+        _CM.ground.color.set(0xffffff);
+        _CM.ground.needsUpdate = true;
+    }
     const base = new THREE.Mesh(new THREE.CircleGeometry(130, 64), _CM.ground);
     base.rotation.x = -Math.PI / 2;
     base.position.y = -0.62;
@@ -2978,25 +3078,73 @@ function _mkCivicBuilding(pos) {
 
 // ---- Background skyline ----
 
+// A window grid, drawn once and shared by every tower on the horizon.
+//
+// The skyline was thirty untextured boxes, and at any camera angle that put the
+// horizon in shot they read as coloured cardboard standing on end — the one
+// part of the city with no detail at all, in the part of the frame that has the
+// most sky behind it. One 32×64 canvas fixes all thirty for the cost of a
+// single texture: lit and unlit windows, tiled up each face.
+let _skylineTex = null;
+function _skylineTexture() {
+    if (_skylineTex || typeof document === 'undefined') return _skylineTex;
+    const c = document.createElement('canvas');
+    c.width = 32; c.height = 64;
+    const g = c.getContext('2d');
+    g.fillStyle = '#ffffff'; g.fillRect(0, 0, 32, 64);
+    // Four windows across, sixteen up. About a third are lit, which is what a
+    // city looks like and also what stops the grid reading as a regular
+    // pattern — a fully lit tower is a chequerboard.
+    for (let row = 0; row < 16; row++) {
+        for (let col = 0; col < 4; col++) {
+            const lit = _sr(row * 41 + col * 7 + 3) < 0.34;
+            g.fillStyle = lit ? '#fff3c4' : '#6f7c93';
+            g.fillRect(col * 8 + 2, row * 4 + 1, 4, 2);
+        }
+    }
+    _skylineTex = new THREE.CanvasTexture(c);
+    _skylineTex.wrapS = _skylineTex.wrapT = THREE.RepeatWrapping;
+    _skylineTex.magFilter = THREE.NearestFilter;
+    return _skylineTex;
+}
+
 function _buildBackgroundSkyline() {
-    const count = 30;
-    const districtMats = { fin: _CM.finGlass, ba: _CM.baBrick, shop: _CM.shopColors[0], ind: _CM.indWall };
+    const count = 34;
+    const tex = _skylineTexture();
+    // The horizon is not four districts, it is the rest of the city. Its
+    // colours are muted versions of theirs — a tower two hundred units away
+    // that is as saturated as the one you are standing next to is the single
+    // strongest cue that a scene has no depth in it, and no amount of fog
+    // rescues a full-strength magenta slab.
+    const tints = [0x6f8199, 0x7d6f86, 0x8a7f74, 0x6b7d8a, 0x84758c];
+    const mats = tints.map(c => new THREE.MeshStandardMaterial({
+        color: c, roughness: 0.85, metalness: 0.05,
+        map: tex || null, emissive: 0xffe6a8, emissiveIntensity: 0.30,
+        emissiveMap: tex || null,
+    }));
     for (let i = 0; i < count; i++) {
-        const angle = (i / count) * Math.PI * 2;
-        const r = 88 + (i % 4) * 7;
+        // Jitter, so it is a skyline and not a picket fence. The old ring put a
+        // tower at every exact 12° and cycled four radii and ten heights in
+        // lockstep, which from a low camera is a fence with a sawtooth top.
+        const angle = (i / count) * Math.PI * 2 + (_sr(i * 3 + 1) - 0.5) * 0.16;
+        const r = 96 + _sr(i * 5 + 2) * 34;
         const pos = new THREE.Vector3(Math.cos(angle) * r, 0, Math.sin(angle) * r);
-        const h = 8 + (i % 10) * 3.5;
-        const w = 5 + (i % 5);
-        const d = 5 + (i % 3);
-        // assign district by quadrant
-        const deg = ((angle * 180 / Math.PI) % 360 + 360) % 360;
-        let mat;
-        if (deg < 90)       mat = districtMats.fin;
-        else if (deg < 180) mat = districtMats.ba;
-        else if (deg < 270) mat = districtMats.shop;
-        else                mat = districtMats.ind;
+        // Mostly mid-rise with a few real towers, rather than an even spread.
+        const tall = _sr(i * 7 + 4) > 0.78;
+        const h = tall ? 34 + _sr(i * 11 + 5) * 26 : 11 + _sr(i * 13 + 6) * 18;
+        const w = 5 + _sr(i * 17 + 7) * 5;
+        const d = 5 + _sr(i * 19 + 8) * 4;
+        const mat = mats[i % mats.length].clone();
+        // One texture, many towers: the repeat is per-material so a tall tower
+        // gets more rows of windows rather than four stretched ones.
+        if (tex) {
+            mat.map = tex.clone(); mat.map.needsUpdate = true;
+            mat.map.repeat.set(Math.max(1, Math.round(w / 5)), Math.max(2, Math.round(h / 6)));
+            mat.emissiveMap = mat.map;
+        }
         const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
         mesh.position.copy(pos); mesh.position.y = h / 2;
+        mesh.rotation.y = _sr(i * 23 + 9) * 0.5;
         _cityEnvGroup.add(mesh);
     }
 }

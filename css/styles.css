@@ -17,12 +17,24 @@
 
 body, html {
     width: 100%; height: 100%; overflow: hidden;
-    background: #1a0b2e;
     font-family: 'Nunito', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
     touch-action: none; user-select: none; -webkit-user-select: none;
     -webkit-touch-callout: none;
     overscroll-behavior: none;
 }
+
+/* THE TWO BACKGROUND LAYERS, AND WHY THEY WERE INVISIBLE.
+   #bg-gradient (z -2) and #bg-canvas (z -1) sit behind the board: the biome's
+   sky, and a starfield. Neither has ever been seen.
+   `body, html` carried an opaque `background: #1a0b2e`, and within a stacking
+   context CSS paints negative-z children (step 2) BEFORE the backgrounds of
+   in-flow block descendants (step 3) — so <body>'s flat purple went straight
+   over both of them. Five hand-tuned district skies and sixty twinkling stars
+   rendered every frame into something nothing could show.
+   The fallback belongs on <html>, whose background paints at step 1, under
+   everything. <body> paints nothing. */
+html { background: #1a0b2e; }
+body { background: transparent; }
 
 /* Core Layers */
 #bg-gradient {
