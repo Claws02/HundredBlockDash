@@ -5,9 +5,10 @@
 // and create a new file in src/minigames/. That's it.
 // ============================================================
 
-import { state } from '../core/GameState.js';
+import { state, playerCount } from '../core/GameState.js';
 import * as Bot from '../core/Bot.js';
-import { MG_TYPES, MG_INFO, MG_ORIENTATIONS, MG_ORIENTATION_MAP, MG_WATCHDOG_MS } from '../config/MinigameRegistry.js';
+import { MG_TYPES, MG_INFO, MG_ORIENTATIONS, MG_ORIENTATION_MAP, MG_WATCHDOG_MS,
+         surfacesOf } from '../config/MinigameRegistry.js';
 import { MINIGAME_REWARD } from '../config/GameConfig.js';
 import { sfx, haptic } from '../engine/AudioManager.js';
 import * as DualRead from '../ui/DualRead.js';
@@ -439,7 +440,7 @@ function _startInMatchPractice() {
 // Exported so the QA sweep can assert the guarantee over a whole match.
 export function nextMgType() {
     if (!Array.isArray(state.mgBag) || state.mgBag.length === 0) {
-        state.mgBag = _shuffled(MG_TYPES);
+        state.mgBag = _shuffled(eligibleTypes());
         // Refilling can otherwise put the previous bag's last game first in the
         // new one — a back-to-back repeat, which is the exact thing this is for.
         if (state.mgBag.length > 1 && state.mgBag[state.mgBag.length - 1] === state.mgLastType) {
@@ -455,6 +456,57 @@ export function nextMgType() {
 // How many games are still undealt in this match's bag. Only for the QA sweep
 // and the debug readout.
 export function mgBagRemaining() { return (state.mgBag || []).length; }
+
+// ============================================================
+// THE BAG ONLY HOLDS GAMES THIS TABLE CAN PLAY
+// ============================================================
+// The surface is settled long before a minigame is drawn — the mode select and
+// the seat count decided it — so the filter can be applied here and the player
+// never sees a taxonomy at all. This is the whole reason the three surfaces are
+// worth writing down: without it a four-player match can deal a game four
+// people cannot play, which is a live fault and not a hypothetical.
+//
+// `state.mgDevice` is 'tablet' or 'phone'; a table that has not said gets the
+// benefit of the doubt at two seats (where it cannot matter) and is treated as
+// a phone above two (where it can).
+
+/** Which surface this match is being played on. */
+export function matchSurface() {
+    if (state.playStyle === 'online') return 'online';
+    return playerCount() > 2 ? 'many' : 'two';
+}
+
+/** The games this match's table can actually play, in registry order. */
+export function eligibleTypes() {
+    const surface = matchSurface();
+    const tablet = state.mgDevice === 'tablet';
+    const pool = MG_TYPES.filter(t => {
+        const s = surfacesOf(t);
+        if (surface === 'online') return s.online;
+        if (surface === 'many')   return s.sharedMany && (tablet || s.manyDevice !== 'tablet');
+        return s.sharedTwo;
+    });
+    // Never hand back nothing. A roster change that emptied the pool would
+    // otherwise deal `undefined` into `state.mgType` and the round would fail
+    // somewhere far away from the cause.
+    return pool.length ? pool : MG_TYPES.slice();
+}
+
+/**
+ * How deep the bag is for this table, and whether a bigger screen would help.
+ *
+ * The lobby says this out loud rather than quietly dealing from a short bag:
+ * at four players on a phone the pool is seven games and a six-round match will
+ * repeat, which is the honest form of the tablet recommendation — a
+ * consequence, not a preference.
+ */
+export function bagDepth() {
+    const surface = matchSurface();
+    const now = eligibleTypes().length;
+    if (surface !== 'many' || state.mgDevice === 'tablet') return { count: now, tabletAdds: 0 };
+    const onTablet = MG_TYPES.filter(t => surfacesOf(t).sharedMany).length;
+    return { count: now, tabletAdds: Math.max(0, onTablet - now) };
+}
 
 function _shuffled(list) {
     const a = [...list];

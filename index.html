@@ -42,6 +42,10 @@
                     <button class="diff-chip bfont" data-players="3">3</button>
                     <button class="diff-chip bfont" data-players="4">4</button>
                 </div>
+                <!-- How deep the draw bag is at this seat count on THIS screen.
+                     The tablet recommendation, stated as a consequence rather
+                     than a preference. -->
+                <div class="seat-depth" id="seat-depth"></div>
             </div>
             <div id="difficulty-select" style="display:none;width:100%;max-width:300px;margin-top:4px;">
                 <div style="color:rgba(255,255,255,.7);font-size:13px;font-family:'Nunito';font-weight:bold;margin-bottom:8px;letter-spacing:1px;">BOT DIFFICULTY</div>
@@ -125,14 +129,31 @@
         <div class="mg-sel-header">
             <button class="mg-sel-back bfont" id="btn-mg-select-back">← BACK</button>
             <div class="mg-sel-title bfont">MINIGAME ARCADE</div>
-            <div style="width:72px;"></div>
+            <div style="width:20px;flex:0 0 20px;"></div>
+        </div>
+        <!-- SURFACE — the primary axis. Four options on one axis, always
+             visible, so a segmented control rather than a dropdown. Each of
+             these is gated by something different: nothing, the control law,
+             netcode. See docs/MINIGAME_LIBRARY_PLAN.md. -->
+        <div class="mg-seg" id="mg-surface-seg" role="tablist" aria-label="Play surface">
+            <button class="mg-seg-btn bfont sel" data-surface="all"    role="tab" aria-selected="true">ALL</button>
+            <button class="mg-seg-btn bfont" data-surface="two"    role="tab" aria-selected="false">2P</button>
+            <button class="mg-seg-btn bfont" data-surface="many"   role="tab" aria-selected="false">3–4P</button>
+            <button class="mg-seg-btn bfont" data-surface="online" role="tab" aria-selected="false">ONLINE</button>
+        </div>
+        <!-- GENRE — what the player DOES. The only one of the four authored
+             properties a player ever sees; people browse by verb. -->
+        <div class="mg-chips" id="mg-genre-chips"></div>
+        <div class="mg-sel-bar">
+            <span class="mg-sel-count" id="mg-sel-count"></span>
+            <button class="mg-sort bfont" id="btn-mg-sort">SORT · A–Z</button>
         </div>
         <div class="mg-sel-grid" id="mg-sel-grid"></div>
         <div class="mg-sel-footer">
-            <button class="mg-sel-practice bfont" id="btn-mg-select-practice" disabled>🎯 PRACTICE</button>
+            <button class="mg-sel-practice bfont" id="btn-mg-select-random">🎲 RANDOM</button>
             <button class="mg-sel-play bfont" id="btn-mg-select-play" disabled>▶ PLAY</button>
         </div>
-        <div class="mg-sel-hint">Practice is solo and has no stakes — learn a game before it costs you coins.</div>
+        <div class="mg-sel-hint" id="mg-sel-hint">Nothing here is played for coins — the arcade keeps its own scoreline.</div>
     </div>
 
     <!-- CHAR SELECT -->

@@ -46,6 +46,7 @@ process is alive before concluding anything from it.
 | Probe | Drives |
 |---|---|
 | `parsecheck.sh` | Static gates. Run this first; it takes a second. |
+| `surfaces.js` | The three surfaces derived from four authored properties, held to a hand-written audit. No browser, one second. |
 | `rounds.js` | Everybody plays: a whole relay and a whole bracket at four seats, the standings rail, and that a three-leg round still pays one reward. |
 | `seats.js` | The front door: that 3 and 4 players can be *asked for*. Every mode's seat picker, bots filling the empty seats, and a lone bot landing in the slot `isBot` describes. |
 | `fourlocal.js` | Full 3- and 4-seat hot-seat matches to the win screen. |

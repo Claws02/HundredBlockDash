@@ -1,6 +1,14 @@
 # The library — three surfaces, one derived truth
 
-**Status: a plan for review. Nothing here is built.**
+**Status: phases 1–3 are built** (2026-09-02). Phase 4 — the surface test run —
+is not, and is still the one to cut if this needs to stay small.
+
+One change from review: **the arcade's PRACTICE button is now RANDOM**, which
+draws a game from whatever the current filters admit and plays it. Practice in
+the arcade was very nearly a duplicate of PLAY — the arcade already pays nothing
+and keeps its own scoreline, so the two differed only in facing a bot. In-match
+practice, the TRY IT FIRST option on the rules card, is untouched and is where
+that feature actually earns its place.
 
 Caleb's proposal: three top-level categories — shared-screen 2P, shared-screen
 4P, and online 2–4P on separate screens — with sub-categories under each, and a
@@ -210,17 +218,34 @@ piece of work in here — flag it as a phase of its own.
 
 ---
 
-## 8. Phases, if this is approved
+## 8. Phases
 
-1. **The data.** `MG_PROFILE` for 22 games, the derivation, and a probe that
-   holds it to a hand-written expectation. No UI. *Half a session.*
-2. **The arcade filter.** Segmented control, genre chips, badges, greyed
-   ineligibles with reasons, three sorts. *Half a session.*
-3. **The invisible filter.** `nextMgType()` draws from the eligible set for the
-   match's actual surface; the lobby says how deep the bag is and recommends a
-   tablet when it is shallow. *Small.*
-4. **The surface test run.** ONLINE + PLAY opens the loopback harness.
+1. ✅ **The data.** `MG_PROFILE` (genre · control · wire · seats) for all 22,
+   `surfacesOf()` deriving the three flags, `blockedReason()` for the greys.
+   `qa/surfaces.js` holds the derivation to a hand-written audit — and caught a
+   real error on its first run: Grid Recall was filed as a seeded solitaire, but
+   its round goes to whoever finishes *first*, so the finish line is shared and
+   it is a timestamp race.
+2. ✅ **The arcade filter.** Surface segmented control, genre chips, capability
+   pips, greyed ineligibles with their reason, three sorts, and RANDOM.
+3. ✅ **The invisible filter.** `nextMgType()` draws from `eligibleTypes()` for
+   the match's real surface. `state.mgDevice` is *measured* — the layout module
+   is asked whether four private playfields clear the floor on this viewport, so
+   a big phone in landscape gets the right answer rather than the one its name
+   implies. The seat picker states the depth.
+4. ⬜ **The surface test run.** ONLINE + PLAY opens the loopback harness.
    *A session, and separable.*
+
+### What phase 3 changes, and what it does not
+
+A four-player match on a phone now draws from **7 games instead of 22**, and all
+seven are shared-arena games — so it can no longer deal Tank Clash to four
+people who cannot hold it, or a turn-based board to a table of four.
+
+It does **not** make those seven play four-up. They are still run through the
+bracket, because no game has been converted to four simultaneous players yet.
+Phase 3 fixes *which* games come up; making them play everybody at once is the
+conversion work in `MINIGAME_CATEGORIES.md`, and the bracket stays until then.
 
 ## 9. What I would push back on
 

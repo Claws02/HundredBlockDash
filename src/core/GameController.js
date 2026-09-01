@@ -34,6 +34,7 @@ import * as UIManager from '../ui/UIManager.js';
 import * as ModalManager from '../ui/ModalManager.js';
 import * as MinigameManager from '../minigames/MinigameManager.js';
 import * as RoundFormat from '../minigames/RoundFormat.js';
+import * as MinigameLayout from '../config/MinigameLayout.js';
 import * as ActiveMap from '../config/ActiveMap.js';
 
 window.SPACE_META_REF  = SPACE_META;
@@ -360,8 +361,25 @@ export function quickStart(prefs) {
     return true;
 }
 
+// Is the screen this table is sharing big enough for a playfield each?
+//
+// Not a guess about phone-versus-tablet from a user agent — the actual
+// question is whether four private playfields clear the 300x300 floor on THIS
+// viewport, and MinigameLayout answers exactly that. A 412x892 phone gives
+// 206x400 and fails; an 820x1180 tablet gives 410x544 and passes. Measured, so
+// a big phone in landscape or a small tablet gets the right answer rather than
+// the answer its name implies.
+function _measureShareDevice() {
+    const w = Math.max(window.innerWidth  || 0, 320);
+    const h = Math.max(window.innerHeight || 0, 480);
+    const seats = Math.max(2, playerCount());
+    state.mgDevice = MinigameLayout.frameFor(
+        MinigameLayout.SHAPES.SPLIT, seats, w, h).ok ? 'tablet' : 'phone';
+}
+
 export function startGame() {
     if (state.gameStarted) return;
+    _measureShareDevice();
     Director.reset();          // no beat from a previous match may fire into this one
     // A round in progress holds a leg's continuation and a card on the screen.
     // Starting a match under one fires that continuation into a game that no
