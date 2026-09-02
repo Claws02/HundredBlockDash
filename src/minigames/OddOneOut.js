@@ -62,7 +62,11 @@ const _rand = n => Math.floor(_rnd() * n);
 export function start(isBot, onWin, botSkill = 0.55) {
     if (!state.mgActive) return;
     _done = false; _onWin = onWin; _isBot = isBot; _botSkill = botSkill;
-    _n = Math.max(2, Math.min(4, slotCount()));
+    // Alone on your own phone there is no slot 1 — no bot, no second grid.
+    // Sizing to two anyway let a bot in the roster solve a phantom puzzle,
+    // which bumps `_puzzles` — the index every device's puzzles are drawn from
+    // — and quietly gave two phones different grids to be compared on.
+    _n = Solo.isSolo() ? 1 : Math.max(2, Math.min(4, slotCount()));
     _last = 0; _elapsed = 0;
     _score      = new Array(_n).fill(0);
     _gridN      = new Array(_n).fill(3);

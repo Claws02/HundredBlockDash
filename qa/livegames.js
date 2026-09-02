@@ -116,10 +116,22 @@ async function throughIntro(page, seats) {
     return { gate, early };
 }
 
-async function playOne(browser, type, seats, shotFor, roomy) {
+// A fresh browser per game, and a wall-clock cap on each.
+//
+// The first version reused one browser for all ten runs and had no cap. A
+// context that failed to close left the browser with no renderer, every
+// subsequent call hung rather than throwing, and the run sat there for eighty
+// minutes having tested two games. A probe that can hang is a probe whose
+// silence means nothing, so: one browser per game, closed in `finally`, and a
+// hard deadline that turns a hang into a reported failure.
+const GAME_BUDGET_MS = 210000;
+
+async function playOne(type, seats, shotFor, roomy) {
     const tag = `${type}@${seats}P${roomy ? ' (tablet)' : ''}`;
-    const { ctx, page, errors } = await boot(browser, seats, roomy);
+    const browser = await chromium.launch({ args: GL });
+    let page, errors;
     try {
+        ({ page, errors } = await boot(browser, seats, roomy));
         // setReady is a module export; expose it so the gate can be pressed
         // slot by slot rather than by hunting the DOM for each button.
         await page.evaluate(async () => {
@@ -194,33 +206,50 @@ async function playOne(browser, type, seats, shotFor, roomy) {
         const real = errors.filter(e => !/ResizeObserver|AudioContext|play\(\) failed/.test(e));
         ok(`${tag}: no page errors`, real.length === 0, real.slice(0, 2).join(' | '));
     } finally {
-        await ctx.close();
+        await browser.close().catch(() => {});
     }
+}
+
+/** `p`, or a rejection once `ms` have passed — so a hang is a failure, not a wait. */
+function withDeadline(p, ms, what) {
+    let t;
+    const bell = new Promise((_, rej) => {
+        t = setTimeout(() => rej(new Error(`${what}: no answer in ${Math.round(ms / 1000)}s`)), ms);
+    });
+    return Promise.race([p, bell]).finally(() => clearTimeout(t));
 }
 
 (async () => {
     const want = process.argv.slice(2).map(Number).filter(n => n >= 2 && n <= 4);
     const counts = want.length ? want : [3, 4];
-    const browser = await chromium.launch({ args: GL });
+    const lister = await chromium.launch({ args: GL });
     // Which games claim they can do this.
-    const page0 = await (await browser.newContext()).newPage();
+    const page0 = await (await lister.newContext()).newPage();
     await page0.goto(BASE, { waitUntil: 'domcontentloaded' });
     const live = await page0.evaluate(async () => {
         const R = await import('/src/config/MinigameRegistry.js');
         return R.MG_TYPES.filter(t => R.surfacesOf(t).sharedMany)
                 .map(t => ({ type: t, roomy: R.surfacesOf(t).manyDevice === 'tablet' }));
     });
-    await page0.context().close();
+    await lister.close();
     console.log(`=== LIVE GAMES: ${live.map(g => g.type + (g.roomy ? ' (tablet)' : '')).join(', ')} ===`);
     ok('at least one game is playable by more than two', live.length > 0);
 
     for (const n of counts) {
         for (const g of live) {
-            try { await playOne(browser, g.type, n, `shot-live-${n}p-${g.type}.png`, g.roomy); }
-            catch (e) { ok(`${g.type}@${n}P: ran`, false, String(e.message || e).slice(0, 160)); }
+            const shot = `shot-live-${n}p-${g.type}.png`;
+            try {
+                await withDeadline(playOne(g.type, n, shot, g.roomy),
+                                   GAME_BUDGET_MS, `${g.type}@${n}P`);
+            } catch (e) {
+                ok(`${g.type}@${n}P: ran`, false, String(e.message || e).slice(0, 160));
+            }
+            // Say it as it happens. Everything used to print at the end, so a
+            // run that hung printed nothing at all about the games it HAD done.
+            const done = pass.length + fail.length;
+            console.log(`  … ${g.type}@${n}P (${done} checks so far)`);
         }
     }
-    await browser.close();
 
     console.log('PASS:'); pass.forEach(p => console.log('  ✓ ' + p));
     console.log('FAIL:'); fail.length ? fail.forEach(f => console.log('  ✗ ' + f)) : console.log('  (none)');

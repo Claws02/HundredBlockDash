@@ -47,7 +47,9 @@ const _timers   = [];
 export function start(isBot, onWin, botSkill = 0.55) {
     if (!state.mgActive) return;
     _done = false; _onWin = onWin; _isBot = isBot; _botSkill = botSkill;
-    _n = Math.max(2, Math.min(4, slotCount()));
+    // Alone there is no second zone; the playfield is the screen (see
+    // Solo.soloHalf) and every per-slot array is one long.
+    _n = Solo.isSolo() ? 1 : Math.max(2, Math.min(4, slotCount()));
     _last = 0; _elapsed = 0;
     _score = new Array(_n).fill(0);
     _tx = new Array(_n).fill(0); _ty = new Array(_n).fill(0);
@@ -107,7 +109,9 @@ function _build() {
     _overlay.appendChild(_canvas);
     _ctx = _canvas.getContext('2d');
 
-    // Convert a client point to a half + local coords (top half is rotated 180°).
+    // Convert a client point to a SLOT and that slot's own coords. The far
+    // seats read their zone upside down, so theirs is measured from the far
+    // corner in.
     const localize = e => {
         // Alone on your own phone there is no other zone to be in: every touch
         // is yours and the coordinates are the screen's own.
