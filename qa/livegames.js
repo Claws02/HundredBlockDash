@@ -53,11 +53,31 @@ async function boot(browser, seats, roomy) {
     await page.addScriptTag({ content: AGENT });
     await page.waitForFunction(() => !!window.__QA, null, { timeout: 20000 });
     await page.evaluate(() => window.__QA.bind());
-    // A real match, so the seats exist with names and characters — the ready
-    // buttons are labelled from them.
-    await page.evaluate(s => window.__QA.startRun({
-        mode: 'pass', map: 'city_circuit', players: s, rounds: 6,
-    }), seats);
+
+    // QA_SLOW=1 seats the players by playing the real setup screens — mode,
+    // seat count, a character each, map, rounds — so the ready buttons carry
+    // the names the table actually chose.
+    //
+    // The default does not, and the reason is worth stating: booting a City
+    // Circuit match costs 15 s on an idle box and far more on a busy one, and
+    // NONE of it is what this probe is testing. Every check below is about the
+    // minigame — its zones, its ready gate, its resolution — and a minigame
+    // needs seats, not a board. setPlayerCount gives it seats in a few
+    // milliseconds. The full-match path is covered at three and four seats by
+    // qa/fourlocal.js, which is the probe that exists to test the board.
+    if (process.env.QA_SLOW) {
+        await page.evaluate(s => window.__QA.startRun({
+            mode: 'pass', map: 'city_circuit', players: s, rounds: 6,
+        }), seats);
+    } else {
+        await page.evaluate(async s => {
+            const G = await import('/src/core/GameState.js');
+            G.setPlayerCount(s);
+            const sp = document.getElementById('splash');
+            if (sp) sp.style.display = 'none';
+        }, seats);
+        return { ctx, page, errors };
+    }
     // The boot budget follows the viewport. A tablet is 2.6x the pixels of a
     // phone and this container renders WebGL in software, so a City Circuit
     // boot that takes 15 s on an idle box takes far longer with another browser
