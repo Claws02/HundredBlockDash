@@ -58,10 +58,16 @@ async function boot(browser, seats, roomy) {
     await page.evaluate(s => window.__QA.startRun({
         mode: 'pass', map: 'city_circuit', players: s, rounds: 6,
     }), seats);
+    // The boot budget follows the viewport. A tablet is 2.6x the pixels of a
+    // phone and this container renders WebGL in software, so a City Circuit
+    // boot that takes 15 s on an idle box takes far longer with another browser
+    // on it. A flat 60 s reported four "failures" that were the budget rather
+    // than the game — a budget that manufactures failures is worse than no
+    // probe at all.
     await page.waitForFunction(() => {
         const S = window.__QA.snapshot();
         return S.gameState && S.gameState !== 'INIT' && S.gameState !== 'MENU';
-    }, null, { timeout: 60000 });
+    }, null, { timeout: roomy ? 180000 : 90000 });
     return { ctx, page, errors };
 }
 
@@ -124,7 +130,9 @@ async function throughIntro(page, seats) {
 // minutes having tested two games. A probe that can hang is a probe whose
 // silence means nothing, so: one browser per game, closed in `finally`, and a
 // hard deadline that turns a hang into a reported failure.
-const GAME_BUDGET_MS = 210000;
+// Has to clear the boot budget above plus the 75 s of play, or the deadline
+// fires on a run that was working.
+const GAME_BUDGET_MS = t => (t ? 330000 : 220000);
 
 async function playOne(type, seats, shotFor, roomy) {
     const tag = `${type}@${seats}P${roomy ? ' (tablet)' : ''}`;
@@ -240,7 +248,7 @@ function withDeadline(p, ms, what) {
             const shot = `shot-live-${n}p-${g.type}.png`;
             try {
                 await withDeadline(playOne(g.type, n, shot, g.roomy),
-                                   GAME_BUDGET_MS, `${g.type}@${n}P`);
+                                   GAME_BUDGET_MS(g.roomy), `${g.type}@${n}P`);
             } catch (e) {
                 ok(`${g.type}@${n}P: ran`, false, String(e.message || e).slice(0, 160));
             }
