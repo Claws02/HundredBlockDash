@@ -167,6 +167,10 @@ async function runSeats(browser, seats, budgetSec) {
         if (res.s.gameState === 'MINIGAME_INTRO' && !lastMgWins) {
             lastMgWins = await page.evaluate(async () => {
                 const S = (await import('/src/core/GameState.js')).state;
+                // mgContext says WHY this minigame is happening — a board round,
+                // a duel tile, or an ally fight — and it is cleared by the time
+                // the round resolves, so it has to be caught on the way in.
+                window.__QA_lastCtx = S.mgContext || 'round';
                 return { coins: S.players.map(p => p.coins), wins: S.players.map(p => p.mgWins) };
             });
         }
@@ -176,7 +180,7 @@ async function runSeats(browser, seats, budgetSec) {
                 const S = (await import('/src/core/GameState.js')).state;
                 const M = await import('/src/minigames/MinigameManager.js');
                 return { coins: S.players.map(p => p.coins), wins: S.players.map(p => p.mgWins),
-                         seats: M.roster(), type: S.mgLastType };
+                         seats: M.roster(), type: S.mgLastType, ctx: window.__QA_lastCtx || null };
             });
             const before = lastMgWins;
             // `mgWins` is the precise signal and coins are not: the window
@@ -206,9 +210,17 @@ async function runSeats(browser, seats, budgetSec) {
         });
     });
     if (mgChecks.length) {
-        ok(`${tag} · every round is played by the whole table`,
-            mgChecks.every(c => c.seats && c.seats.length === seats),
-            `${mgChecks.length} round(s); seats in each: ${JSON.stringify(mgChecks.map(c => c.seats && c.seats.length))}`);
+        // A BOARD ROUND is the whole table — that is the rule the bracket was
+        // removed for. A duel tile and an ally fight are not board rounds: they
+        // are a wager between two named players, and mgContext says so.
+        const rounds = mgChecks.filter(c => c.ctx === 'round');
+        ok(`${tag} · every board round is played by the whole table`,
+            rounds.every(c => c.seats && c.seats.length === seats),
+            `${rounds.length} round(s); seats in each: ${JSON.stringify(rounds.map(c => c.seats && c.seats.length))}`);
+        ok(`${tag} · nothing but a duel or an ally fight is played by two`,
+            mgChecks.every(c => c.seats.length === seats || c.ctx === 'duel'
+                             || c.ctx === 'ally_steal' || c.ctx === 'ally_claim'),
+            JSON.stringify(mgChecks.map(c => `${c.ctx}:${c.seats.length}`)));
         // The bag must only deal games that can seat everybody. A round whose
         // type is not LIVE is a game two of these four cannot see.
         ok(`${tag} · only games that seat everybody are dealt`,
