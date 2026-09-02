@@ -240,11 +240,17 @@ function withDeadline(p, ms, what) {
                 .map(t => ({ type: t, roomy: R.surfacesOf(t).manyDevice === 'tablet' }));
     });
     await lister.close();
+    // QA_ONLY=a,b limits the sweep to named games, the same convention
+    // qa/arcade.js uses — re-running one slow game should not cost the roster.
+    const only = process.env.QA_ONLY
+        ? process.env.QA_ONLY.split(',').map(x => x.trim()).filter(Boolean) : null;
+    const runs = only ? live.filter(g => only.includes(g.type)) : live;
     console.log(`=== LIVE GAMES: ${live.map(g => g.type + (g.roomy ? ' (tablet)' : '')).join(', ')} ===`);
+    if (only) console.log(`    (QA_ONLY: ${runs.map(g => g.type).join(', ') || 'nothing matched'})`);
     ok('at least one game is playable by more than two', live.length > 0);
 
     for (const n of counts) {
-        for (const g of live) {
+        for (const g of runs) {
             const shot = `shot-live-${n}p-${g.type}.png`;
             try {
                 await withDeadline(playOne(g.type, n, shot, g.roomy),
