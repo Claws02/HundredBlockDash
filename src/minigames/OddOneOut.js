@@ -1,8 +1,18 @@
 // ============================================================
-// ODD ONE OUT — spot-the-difference race. Every tile on your grid is
-// the same shade except one. Tap the odd one to score and get a fresh,
-// harder grid (more tiles, subtler difference). A wrong tap briefly
-// locks you. Most correct in 30 s wins. Fills the visual-scan category.
+// ODD ONE OUT — spot-the-difference race for TWO, THREE OR FOUR.
+// Every tile on your grid is the same shade except one. Tap the odd
+// one to score and get a fresh, harder grid (more tiles, subtler
+// difference). A wrong tap briefly locks you. Most correct in 30 s
+// wins. Fills the visual-scan category.
+//
+// LIVE (MG_PROFILE.live): every seat plays at once on a zone of its
+// own, nobody waits a turn. It is the cheapest game in the roster to
+// run that way because there was never a shared playfield to divide —
+// each player already had a private grid, a private score and a
+// private lockout, so widening the arrays from two to slotCount() and
+// taking the zones from MinigameLayout is the whole conversion. Its
+// wire tier is 'none' for the same reason: across phones each player
+// solves their own seeded puzzles and only the final count is compared.
 //
 // Tiles differ by LIGHTNESS only (not hue) so it stays colourblind-safe.
 // Built on src/minigames/_template.js — see docs/MINIGAME_STANDARD.md.
@@ -10,7 +20,8 @@
 
 import { state } from '../core/GameState.js';
 import { sfx, haptic } from '../engine/AudioManager.js';
-import { registerMinigameCleanup } from './MinigameManager.js';
+import { registerMinigameCleanup, slotCount, isBotSlot, seatFor } from './MinigameManager.js';
+import { zonesFor } from '../config/MinigameLayout.js';
 import * as Solo from './SoloArena.js';
 
 // ── Tunables ─────────────────────────────────────────────────────────────────
@@ -22,14 +33,16 @@ let _done = false, _onWin = null, _isBot = false, _botSkill = 0.55;
 let _overlay = null, _canvas = null, _ctx = null, _dpr = 1;
 let _af = null, _last = 0, _elapsed = 0;
 
-let _score = [0, 0];
-let _gridN = [3, 3];
-let _base  = ['', ''];
-let _odd   = [0, 0];
-let _oddColor = ['', ''];
-let _lockUntil = [0, 0];
-let _flashWrong = [0, 0];
-let _botNextAt = 0;
+let _n = 2;                 // how many are playing — slots, not seats
+let _score = [];
+let _gridN = [];
+let _base  = [];
+let _odd   = [];
+let _oddColor = [];
+let _lockUntil = [];
+let _flashWrong = [];
+let _botNextAt = [];         // one per slot: above two seats there is more than one bot
+let _zones = [];             // one rect+rotation per slot, from MinigameLayout
 
 const _cleanups = [];
 const _timers   = [];
@@ -49,14 +62,23 @@ const _rand = n => Math.floor(_rnd() * n);
 export function start(isBot, onWin, botSkill = 0.55) {
     if (!state.mgActive) return;
     _done = false; _onWin = onWin; _isBot = isBot; _botSkill = botSkill;
-    _last = 0; _elapsed = 0; _score = [0, 0]; _lockUntil = [0, 0]; _flashWrong = [0, 0];
+    _n = Math.max(2, Math.min(4, slotCount()));
+    _last = 0; _elapsed = 0;
+    _score      = new Array(_n).fill(0);
+    _gridN      = new Array(_n).fill(3);
+    _base       = new Array(_n).fill('');
+    _odd        = new Array(_n).fill(0);
+    _oddColor   = new Array(_n).fill('');
+    _lockUntil  = new Array(_n).fill(0);
+    _flashWrong = new Array(_n).fill(0);
+    _botNextAt  = new Array(_n).fill(0);
     _puzzles = 0; _k = 0;
     registerMinigameCleanup(_destroy);
     _build();
     requestAnimationFrame(() => requestAnimationFrame(() => {
         if (_done) return;
         _resize();
-        _newPuzzle(0); _newPuzzle(1);
+        for (let i = 0; i < _n; i++) _newPuzzle(i);
         document.getElementById('mg-neutral').textContent = 'TAP THE ODD TILE!';
         _af = requestAnimationFrame(_tick);
     }));
@@ -79,20 +101,21 @@ function _build() {
     const onDown = e => {
         if (_done) return;
         e.preventDefault();
-        const w = _overlay.clientWidth, h = _overlay.clientHeight;
+        const r = _overlay.getBoundingClientRect();
+        const x = e.clientX - r.left, y = e.clientY - r.top;
         // Alone the grid is the whole screen, and every tap is yours.
         if (Solo.isSolo()) {
-            const i = _cellAt(e.clientX, e.clientY, w, h, _gridN[0]);
+            const i = _cellAt(x, y, _overlay.clientWidth, _overlay.clientHeight, _gridN[0]);
             if (i >= 0) _tap(0, i);
             return;
         }
-        const hh = h / 2;
-        const top = e.clientY < hh;
-        const pid = top ? 1 : 0;
-        if (pid === 1 && _isBot) return;
-        const lx = top ? w - e.clientX : e.clientX;
-        const ly = top ? hh - e.clientY : e.clientY - hh;
-        const idx = _cellAt(lx, ly, w, hh, _gridN[pid]);
+        const pid = _zoneAt(x, y);
+        if (pid < 0 || isBotSlot(pid)) return;    // a bot's grid ignores fingers
+        const z = _zones[pid], zr = z.rect;
+        // Into the zone's own frame, and the far seats read theirs upside down.
+        const lx = z.rot === 180 ? (zr.x + zr.w) - x : x - zr.x;
+        const ly = z.rot === 180 ? (zr.y + zr.h) - y : y - zr.y;
+        const idx = _cellAt(lx, ly, zr.w, zr.h, _gridN[pid]);
         if (idx >= 0) _tap(pid, idx);
     };
     _overlay.addEventListener('pointerdown', onDown);
@@ -112,6 +135,24 @@ function _resize() {
     _canvas.width  = Math.round(w * _dpr);
     _canvas.height = Math.round(h * _dpr);
     _ctx.setTransform(_dpr, 0, 0, _dpr, 0, 0);
+    _zones = zonesFor(_n, w, h);
+}
+
+/** Which slot's zone contains this point, or -1. */
+function _zoneAt(x, y) {
+    for (let i = 0; i < _zones.length; i++) {
+        const r = _zones[i].rect;
+        if (x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h) return i;
+    }
+    // The bands above and below the zones are the manager's status pills. A
+    // finger that lands there belongs to the nearest zone rather than nobody.
+    let best = -1, bestD = Infinity;
+    _zones.forEach((z, i) => {
+        const cy = z.rect.y + z.rect.h / 2;
+        const d = Math.abs(y - cy) + (x < z.rect.x || x > z.rect.x + z.rect.w ? 1e4 : 0);
+        if (d < bestD) { bestD = d; best = i; }
+    });
+    return best;
 }
 
 function _cellRects(w, hh, n) {
@@ -148,7 +189,10 @@ function _newPuzzle(pid) {
     _base[pid]  = `hsl(${hue},60%,${baseL}%)`;
     _oddColor[pid] = `hsl(${hue},60%,${baseL + (_rnd() < 0.5 ? delta : -delta)}%)`;
     _odd[pid] = _rand(n * n);
-    if (pid === 1 && _isBot) _botNextAt = _elapsed + _botThink(n);
+    // Every bot plans its own next scan. This used to be one variable that only
+    // slot 1 ever wrote, so at three or four seats the second and third bots
+    // would have sat on their first grid for the whole thirty seconds.
+    if (isBotSlot(pid)) _botNextAt[pid] = _elapsed + _botThink(n);
     _puzzles++;
 }
 
@@ -167,7 +211,7 @@ function _tap(pid, idx) {
         _lockUntil[pid] = _elapsed + LOCK;
         _flashWrong[pid] = LOCK;
         sfx('land_bad'); haptic([60]);
-        if (pid === 1) _botNextAt = _elapsed + LOCK + 0.15;
+        if (isBotSlot(pid)) _botNextAt[pid] = _elapsed + LOCK + 0.15;
     }
 }
 
@@ -179,18 +223,20 @@ function _tick() {
     const now = performance.now();
     const dt  = _last === 0 ? 1/60 : Math.min((now - _last) / 1000, 0.1);
     _last = now; _elapsed += dt;
-    _flashWrong[0] = Math.max(0, _flashWrong[0] - dt);
-    _flashWrong[1] = Math.max(0, _flashWrong[1] - dt);
+    for (let i = 0; i < _n; i++) _flashWrong[i] = Math.max(0, _flashWrong[i] - dt);
 
-    if (_isBot && _elapsed >= _botNextAt && _elapsed >= _lockUntil[1]) {
+    for (let pid = 0; pid < _n; pid++) {
+        if (!isBotSlot(pid)) continue;
+        if (_elapsed < _botNextAt[pid] || _elapsed < _lockUntil[pid]) continue;
+        const cells = _gridN[pid] * _gridN[pid];
         const wrong = Math.random() < (1 - _botSkill) * 0.15;
-        const idx = wrong ? (_odd[1] + 1 + _rand(_gridN[1] * _gridN[1] - 1)) % (_gridN[1] * _gridN[1]) : _odd[1];
-        _tap(1, idx);
+        const idx = wrong ? (_odd[pid] + 1 + _rand(cells - 1)) % cells : _odd[pid];
+        _tap(pid, idx);
     }
 
     if (_elapsed >= GAME_TIME) {
         if (Solo.isSolo()) return _finishSolo();
-        return _finish(_score[0] > _score[1] ? 0 : _score[1] > _score[0] ? 1 : -1);
+        return _finish(_leader());
     }
 
     _draw();
@@ -213,21 +259,46 @@ function _draw() {
         _ctx.fillText(`${t.toFixed(1)}s`, w / 2, 31);
         return;
     }
+    if (!_zones.length) _zones = zonesFor(_n, w, h);
+
+    // Zone borders. At two seats this is the single centre line the face-off
+    // has always had; at four it is the cross between the quarters.
     _ctx.strokeStyle = 'rgba(255,255,255,0.10)'; _ctx.lineWidth = 2;
-    _ctx.beginPath(); _ctx.moveTo(0, h / 2); _ctx.lineTo(w, h / 2); _ctx.stroke();
+    _zones.forEach(z => {
+        const r = z.rect;
+        _ctx.strokeRect(r.x + 1, r.y + 1, r.w - 2, r.h - 2);
+    });
 
-    // Shared countdown at centre
+    _zones.forEach((z, pid) => {
+        const r = z.rect;
+        _ctx.save();
+        if (z.rot === 180) {
+            // About the zone's own centre, so its grid faces the player sitting
+            // at that edge — per zone, rather than per screen.
+            _ctx.translate(r.x + r.w, r.y + r.h);
+            _ctx.rotate(Math.PI);
+        } else {
+            _ctx.translate(r.x, r.y);
+        }
+        _drawHalf(pid, r.w, r.h);
+        _ctx.restore();
+    });
+
+    // Shared countdown, dead centre, upright for everybody.
     const left = Math.max(0, GAME_TIME - _elapsed);
-    _ctx.fillStyle = left < 5 ? '#ef4444' : 'rgba(255,255,255,0.5)';
-    _ctx.font = '900 20px "Bebas Neue", sans-serif'; _ctx.textAlign = 'center';
-    _ctx.fillText(`${left.toFixed(1)}s`, w / 2, h / 2 + 7);
-
-    _ctx.save(); _ctx.translate(w, h / 2); _ctx.rotate(Math.PI); _drawHalf(1, w, h / 2); _ctx.restore();
-    _ctx.save(); _ctx.translate(0, h / 2); _drawHalf(0, w, h / 2); _ctx.restore();
+    _ctx.fillStyle = 'rgba(8,6,18,0.72)';
+    _ctx.beginPath(); _ctx.arc(w / 2, h / 2, 26, 0, Math.PI * 2); _ctx.fill();
+    _ctx.fillStyle = left < 5 ? '#ef4444' : 'rgba(255,255,255,0.7)';
+    _ctx.font = '900 20px "Bebas Neue", sans-serif';
+    _ctx.textAlign = 'center'; _ctx.textBaseline = 'middle';
+    _ctx.fillText(`${left.toFixed(1)}s`, w / 2, h / 2 + 1);
+    _ctx.textBaseline = 'alphabetic';
 }
 
+const SLOT_ACCENT = ['#ff5a5a', '#5a9bff', '#5fd68a', '#ffd45f'];
+
 function _drawHalf(pid, w, hh) {
-    const accent = pid === 0 ? '#ff5a5a' : '#5a9bff';
+    const accent = SLOT_ACCENT[pid] || '#ffffff';
     const n = _gridN[pid];
     const rects = _cellRects(w, hh, n);
     const locked = _elapsed < _lockUntil[pid];
@@ -249,7 +320,7 @@ function _drawHalf(pid, w, hh) {
 
     _ctx.fillStyle = accent;
     _ctx.font = '700 18px Nunito, sans-serif'; _ctx.textAlign = 'center'; _ctx.textBaseline = 'alphabetic';
-    _ctx.fillText(Solo.isSolo() ? 'YOU' : `P${pid + 1}`, w / 2, hh * 0.12);
+    _ctx.fillText(Solo.isSolo() ? 'YOU' : _nameOf(pid), w / 2, hh * 0.12);
     _ctx.fillStyle = 'rgba(255,255,255,0.9)';
     _ctx.font = '900 28px "Bebas Neue", sans-serif';
     _ctx.fillText(`${_score[pid]}`, w / 2, hh * 0.21);
@@ -279,12 +350,32 @@ function _finishSolo() {
     _after(() => { _destroy(); Solo.soloFinish(banked); }, 1200);
 }
 
+/** The outright top scorer, or -1 if the top is shared. */
+function _leader() {
+    const best = Math.max(..._score);
+    const top = _score.reduce((a, v, i) => (v === best ? a.concat(i) : a), []);
+    return top.length === 1 ? top[0] : -1;
+}
+
+function _nameOf(pid) {
+    const p = state.players[seatFor(pid)];
+    return (p && p.name ? p.name : `P${pid + 1}`).toUpperCase();
+}
+
+function _scoreLine() {
+    return _score.map((v, i) => `${_nameOf(i)} ${v}`).join(' · ');
+}
+
 function _finish(winnerId) {
     if (_done) return;
     _done = true;
     state.mgActive = false;
     const neutral = document.getElementById('mg-neutral');
-    if (neutral) neutral.textContent = winnerId < 0 ? `DRAW! ${_score[0]}-${_score[1]}` : `P${winnerId + 1} WINS! ${_score[0]}-${_score[1]}`;
+    if (neutral) {
+        neutral.textContent = winnerId < 0
+            ? `DRAW! ${_scoreLine()}`
+            : `${_nameOf(winnerId)} WINS! ${_scoreLine()}`;
+    }
     sfx(winnerId < 0 ? 'land_bad' : 'mg_win');
     _after(() => { _destroy(); _onWin(winnerId); }, 1500);
 }

@@ -441,9 +441,24 @@ document.getElementById('btn-mg-select-back').addEventListener('click', () => {
     document.getElementById('splash').style.display = '';
 });
 
+// The seat count the arcade should run a game at. Filtering to 3-4P and then
+// being handed the two-player face-off makes the filter a label: the whole
+// reason to press PLAY on that filter is to see the game with three or four
+// zones on it. Four where the screen has the room, three where it does not.
+function _arcadeSeats(type) {
+    // Only a game that can actually seat everybody. A card can be selected
+    // while greyed out — the grid greys rather than hides, so "why is this not
+    // here" has an answer — and handing four slots to a two-slot game would
+    // write past the end of its arrays.
+    if (_surface !== 'many' || !surfacesOf(type).sharedMany) return 2;
+    const w = Math.max(window.innerWidth || 0, 320);
+    const h = Math.max(window.innerHeight || 0, 480);
+    return MinigameLayout.frameFor(MinigameLayout.SHAPES.SPLIT, 4, w, h).ok ? 4 : 3;
+}
+
 document.getElementById('btn-mg-select-play').addEventListener('click', () => {
     if (!_selectedMgType) return;
-    MinigameManager.triggerStandalone(_selectedMgType);
+    MinigameManager.triggerStandalone(_selectedMgType, false, _arcadeSeats(_selectedMgType));
 });
 
 // RANDOM: pick one of the games the current filters admit, and play it.
@@ -469,5 +484,5 @@ document.getElementById('btn-mg-select-random').addEventListener('click', () => 
         card.scrollIntoView({ block: 'center', behavior: 'smooth' });
         card.classList.remove('picked'); void card.offsetWidth; card.classList.add('picked');
     }
-    setTimeout(() => MinigameManager.triggerStandalone(pick), 480);
+    setTimeout(() => MinigameManager.triggerStandalone(pick, false, _arcadeSeats(pick)), 480);
 });

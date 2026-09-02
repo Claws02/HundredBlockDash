@@ -33,7 +33,6 @@ import * as Physics from '../engine/Physics.js';
 import * as UIManager from '../ui/UIManager.js';
 import * as ModalManager from '../ui/ModalManager.js';
 import * as MinigameManager from '../minigames/MinigameManager.js';
-import * as RoundFormat from '../minigames/RoundFormat.js';
 import * as MinigameLayout from '../config/MinigameLayout.js';
 import * as ActiveMap from '../config/ActiveMap.js';
 
@@ -381,10 +380,6 @@ export function startGame() {
     if (state.gameStarted) return;
     _measureShareDevice();
     Director.reset();          // no beat from a previous match may fire into this one
-    // A round in progress holds a leg's continuation and a card on the screen.
-    // Starting a match under one fires that continuation into a game that no
-    // longer exists — the same class of bug as an uncancelled Director beat.
-    RoundFormat.abort();
     _gateFromTurnStart = false;
     _pendingStepsAfterGate = 0;
     _buddyRemindedRound = -1;
@@ -1513,9 +1508,9 @@ export function maybeTriggerMinigame() {
         // EVERYBODY IS IN THE ROUND.
         //
         // This used to pick two of the table by rotation and leave the rest
-        // watching, because every game is built for two. `RoundFormat` plays
-        // the round as a relay or a bracket instead, so the pair is only still
-        // chosen at two seats — where it is the whole table anyway.
+        // watching, because every game was built for two. The round is now one
+        // LIVE game with every seat in it at the same time, so the roster is
+        // simply the table.
         const pair = state.players.map((_, i) => i);
         UIManager.announceMinigameIncoming(pair);
         Director.hold('PRE_MINIGAME', () =>
@@ -1601,14 +1596,18 @@ let _lastContestSeats = null;
 function _contest(pair, done, opts = {}) {
     _lastContestSeats = pair.slice();
     if (state.playStyle !== 'online') {
-        // Two seats is one game, exactly as the match has always played it.
-        // Three or four is a round with a shape — see RoundFormat: a relay if
-        // the game is a solitaire and everybody at the table is a person, a
-        // bracket otherwise. Either way every player plays.
-        if (pair.length > 2) {
-            RoundFormat.run(MinigameManager.nextMgType(), pair, done, opts);
-            return;
-        }
+        // ONE GAME, EVERY SEAT IN IT, EVERYBODY PLAYING AT ONCE.
+        //
+        // This used to branch at three seats into RoundFormat — a bracket of
+        // 1v1 legs, or a relay of solo turns. Both were answers to "everybody
+        // plays" and both got "nobody waits" wrong: a bracket has two people
+        // watching for two thirds of the round and a relay has three.
+        //
+        // There is no branch now. The draw bag above two seats holds only LIVE
+        // games (MG_PROFILE.live — games whose code actually has N slots), so
+        // the round is simply that game with every seat in it. A duel or a
+        // buddy fight still passes an explicit pair and still gets a two-slot
+        // game, which is right: those ARE between two people.
         MinigameManager.trigger(done, pair);
         return;
     }

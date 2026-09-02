@@ -2740,38 +2740,8 @@ body:not(.tabletop-mode) #turn-banner.tb-show .tb-bottom.tb-mine {
 .rr-chip.rr-lead { border-color: rgba(245,200,66,.5); }
 .rr-chip.rr-lead .rr-val { color: var(--gold); text-shadow: 0 0 10px rgba(245,200,66,.5); }
 
-/* The card between legs. */
-#round-layer {
-    position: fixed; inset: 0; z-index: 265;
-    display: flex; align-items: center; justify-content: center;
-    background: radial-gradient(circle at 50% 35%, #1d1b3a 0%, #0d0c1c 72%);
-    padding: 22px;
-}
-.round-card {
-    width: 100%; max-width: 420px; text-align: center;
-    display: flex; flex-direction: column; align-items: center; gap: 9px;
-}
-.round-kicker { font-size: 12px; letter-spacing: 3px; color: var(--gold); text-shadow: 0 0 14px rgba(245,200,66,.45); }
-.round-title { font-size: 32px; letter-spacing: 1px; color: #fff; line-height: 1.05; }
-.round-sub { font-size: 13px; line-height: 1.45; color: rgba(255,255,255,.72); }
-.rb-rows { width: 100%; display: flex; flex-direction: column; gap: 6px; margin-top: 2px; }
-.rb-row {
-    display: grid; grid-template-columns: 24px 1fr auto; align-items: center; gap: 8px;
-    padding: 9px 12px; border-radius: 11px;
-    background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.11);
-    border-left: 4px solid var(--rb, rgba(255,255,255,.22));
-    font-size: 13px; font-weight: 700; color: rgba(255,255,255,.86);
-}
-.rb-row.is-win { background: rgba(245,200,66,.16); border-color: rgba(245,200,66,.55); color: #fff; }
-.rb-row.is-wait { opacity: .5; }
-.rb-row .rb-rank { font-size: 12px; color: rgba(255,255,255,.42); }
-.rb-row.is-win .rb-rank { color: var(--gold); }
-.rb-row .rb-val { font-family: 'Bebas Neue', sans-serif; font-size: 19px; letter-spacing: .5px; }
-.rb-row .rb-bot {
-    font-size: 9px; letter-spacing: .8px; padding: 1px 5px; border-radius: 5px; margin-left: 5px;
-    background: rgba(255,255,255,.12); color: rgba(255,255,255,.62);
-}
-#btn-round-go { width: 100%; margin-top: 6px; }
+/* (The between-legs card went with the relay and the bracket — a round is
+   one game now, with every seat in it, so there is nothing to sit between.) */
 
 
 /* ============================================================

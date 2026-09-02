@@ -110,25 +110,36 @@ racing hard — worth knowing before picking what to build next.
 ### Shared screen, 2P — **22 of 22**
 Everything. This is what the roster was built for and nothing changes.
 
-### Shared screen, 3–4P — **7 on a phone, 14 on a tablet**
+### Shared screen, 3–4P — **3 on a phone, 5 on a tablet**
 
-This is the sharpest form of the iPad argument, and it is better than the one in
-the earlier document. It is not "206 × 400 is too small" — it is:
+**This number was wrong when it was written, and the correction is the most
+important thing in this document.** The original claim was *7 on a phone, 14 on
+a tablet*, counted by asking which games' **layouts** would fit four people. But
+a layout that fits is not a game that plays. Every one of those 14 was a
+two-player game whose code had `[0, 0]` in it, and a two-player game handed four
+players does not become a four-player game because there is room on the glass.
+The 14 was only ever reachable through the bracket — three duels with people
+watching — and under "nobody waits" that is not an answer.
 
-> **A phone gets you 7 games at four players. A tablet gets you 14.**
+The honest gate is `MG_PROFILE.live`: **has this game's code been rewritten to
+seat everybody?** Four have.
 
-- **On a phone (7)** — the shared-arena games, because an arena is 412 × 648 at
-  two players *and* at four; only the control bands change.
-  Quick Draw · Shape Snap · Sumo Spheres · Light Cycles · Clear Out · Freeze ·
-  Grand Prix
-- **A tablet adds 7 more** — every game that needs a private playfield each,
-  which is where quarters at 410 × 544 clear the floor and quarters at 206 × 400
-  do not.
-  Meteor Dodge · Loot Catch · Tree Climb · Odd One Out · Steady Hand ·
-  Snap Strike · Grid Recall
-- **Excluded (8)** — Tank Clash (dual control), Puck · Bomb Pass · Orb Deflect
-  (2-player mechanics), Penalty · Four in a Row · Memory Match · Rhythm Forge
-  (turn-based).
+- **On a phone (3)** — Quick Draw · Shape Snap · Snap Strike.
+- **A tablet adds 2** — Odd One Out and Steady Hand, both `roomy`: Odd One Out's
+  grid climbs to 5×5 (a fifth of a phone quarter is a 34 px tile) and Steady
+  Hand's target needs somewhere to drift.
+- **Not yet converted (10)** — the games whose layouts fit but whose code does
+  not: Tree Climb · Meteor Dodge · Loot Catch · Grid Recall · Light Cycles ·
+  Grand Prix · Sumo Spheres · Clear Out · Freeze · Tank Clash.
+  The queue, cheapest first, is §9 of `MINIGAME_CATEGORIES.md`.
+- **Never (7)** — Puck · Bomb Pass · Orb Deflect · Penalty · Four in a Row ·
+  Memory Match · Rhythm Forge. Frame-exact contact or a turn order; two-player
+  by nature.
+
+The iPad argument survives the correction, it is just smaller today than it
+looked: a tablet adds games, and it will add more as the `roomy` conversions
+land. `bagDepth()` returns both numbers and the lobby prints them, so a table on
+a phone is told the bag is shallow before the match rather than by the repeat.
 
 ### Separate screens, 2–4P — **15 of 22, 6 today**
 Per `MINIGAME_CATEGORIES.md`: six shipped (W0), nine behind one of four channels
@@ -146,7 +157,7 @@ and the player never sees the taxonomy at all.** This is the part that makes the
 categories *do* something rather than be labels, and it is a three-line change
 in `nextMgType()`.
 
-A consequence worth stating: on a phone at four players the bag is 7 games deep,
+A consequence worth stating: on a phone at four players the bag is 3 games deep,
 and a match with six rounds will repeat. That is an argument for the tablet, and
 for the arcade telling you so.
 
@@ -238,14 +249,15 @@ piece of work in here — flag it as a phase of its own.
 
 ### What phase 3 changes, and what it does not
 
-A four-player match on a phone now draws from **7 games instead of 22**, and all
-seven are shared-arena games — so it can no longer deal Tank Clash to four
-people who cannot hold it, or a turn-based board to a table of four.
+A four-player match on a phone now draws from **3 games instead of 22** — the
+three that have actually been converted — so it can no longer deal Tank Clash to
+four people who cannot hold it, or a turn-based board to a table of four.
 
-It does **not** make those seven play four-up. They are still run through the
-bracket, because no game has been converted to four simultaneous players yet.
-Phase 3 fixes *which* games come up; making them play everybody at once is the
-conversion work in `MINIGAME_CATEGORIES.md`, and the bracket stays until then.
+**The bracket is gone.** Phase 3 fixed *which* games come up; the conversion
+work that followed fixed how they are played. A round is now one game with every
+seat in it, and a game that cannot do that is not dealt. The cost is a shallow
+bag, stated out loud by `bagDepth()`, and the fix for that is more conversions
+(`MINIGAME_CATEGORIES.md` §9) rather than dealing games that make people watch.
 
 ## 9. What I would push back on
 

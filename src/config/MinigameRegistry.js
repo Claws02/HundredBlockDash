@@ -336,6 +336,27 @@ export const FALLBACK_TRIVIA = [
 //   seats    what the MECHANIC supports, which is neither of the above. Puck
 //            is one thumb and would fit four quarter-screens; two goals and
 //            four mallets is still a maul.
+//   roomy    TRUE when this game's per-player ZONE needs more than a quarter
+//            of a phone — a playfield with motion in it rather than a bar or a
+//            button cluster. Only meaningful on a converted game, and it is
+//            what puts one behind a tablet.
+//   live     TRUE when the game actually plays every seat AT ONCE, on one
+//            shared screen, right now — N slots, N zones, one winner.
+//
+//            This is the honest one, and it is deliberately not derived from
+//            anything. A game can pass the control law, support four seats in
+//            principle, and still be two hard-coded halves in its source; that
+//            game is not playable by four people and no amount of reasoning
+//            about its mechanic changes it. `live` is a statement about the
+//            CODE, set only when the conversion is done.
+//
+//            It is also why the earlier "a tablet fits 14" claim has come down.
+//            Seven of those fourteen are seeded solitaires, and the plan for
+//            them at 3-4 was a relay — one player at a time. Under "nobody
+//            waits" a relay is not an answer, and running four at once is not
+//            available either: each game is a module-level singleton with one
+//            set of state, so there is no way to have four of it on a screen.
+//            They stay two-player on one device and four-player across four.
 export const MG_GENRES = {
     reflex:   { name: 'REFLEX',   blurb: 'Fastest finger wins.' },
     nerve:    { name: 'NERVE',    blurb: 'Hold it, time it, don\'t flinch.' },
@@ -347,39 +368,45 @@ export const MG_GENRES = {
 };
 
 export const MG_PROFILE = {
-    quickdraw:   { genre: 'reflex',   control: 'tap',   wire: 'stamp',    seats: [2, 4] },
-    sortrush:    { genre: 'reflex',   control: 'tap',   wire: 'stamp',    seats: [2, 4] },
-    snapstrike:  { genre: 'reflex',   control: 'tap',   wire: 'none',     seats: [2, 4] },
+    quickdraw:   { genre: 'reflex',   control: 'tap',   wire: 'stamp',    seats: [2, 4], live: true },
+    sortrush:    { genre: 'reflex',   control: 'tap',   wire: 'stamp',    seats: [2, 4], live: true },
+    snapstrike:  { genre: 'reflex',   control: 'tap',   wire: 'none',     seats: [2, 4], live: true },
 
-    steadyhand:  { genre: 'nerve',    control: 'thumb', wire: 'none',     seats: [2, 4] },
-    rhythmforge: { genre: 'nerve',    control: 'tap',   wire: 'exact',    seats: [2, 2] },
-    freeze:      { genre: 'nerve',    control: 'thumb', wire: 'scalar',   seats: [2, 4] },
+    // roomy: the target drifts, so a zone has to be somewhere to drift in. A
+    // quarter of a phone is 206x400 and the target would be off a wall every
+    // second.
+    steadyhand:  { genre: 'nerve',    control: 'thumb', wire: 'none',     seats: [2, 4], live: true, roomy: true },
+    rhythmforge: { genre: 'nerve',    control: 'tap',   wire: 'exact',    seats: [2, 2], live: false },
+    freeze:      { genre: 'nerve',    control: 'thumb', wire: 'scalar',   seats: [2, 4], live: false },
 
-    meteordodge: { genre: 'scramble', control: 'thumb', wire: 'none',     seats: [2, 4] },
-    lootcatch:   { genre: 'scramble', control: 'thumb', wire: 'none',     seats: [2, 4] },
-    treeclimb:   { genre: 'scramble', control: 'tap',   wire: 'none',     seats: [2, 4] },
+    meteordodge: { genre: 'scramble', control: 'thumb', wire: 'none',     seats: [2, 4], live: false },
+    lootcatch:   { genre: 'scramble', control: 'thumb', wire: 'none',     seats: [2, 4], live: false },
+    treeclimb:   { genre: 'scramble', control: 'tap',   wire: 'none',     seats: [2, 4], live: false },
 
-    tankclash:   { genre: 'aim',      control: 'dual',  wire: 'snapshot', seats: [2, 4] },
-    penalty:     { genre: 'aim',      control: 'thumb', wire: 'exact',    seats: [2, 2] },
-    clearout:    { genre: 'aim',      control: 'thumb', wire: 'events',   seats: [2, 4] },
-    orbdeflect:  { genre: 'aim',      control: 'thumb', wire: 'exact',    seats: [2, 2] },
+    tankclash:   { genre: 'aim',      control: 'dual',  wire: 'snapshot', seats: [2, 4], live: false },
+    penalty:     { genre: 'aim',      control: 'thumb', wire: 'exact',    seats: [2, 2], live: false },
+    clearout:    { genre: 'aim',      control: 'thumb', wire: 'events',   seats: [2, 4], live: false },
+    orbdeflect:  { genre: 'aim',      control: 'thumb', wire: 'exact',    seats: [2, 2], live: false },
 
-    sumospheres: { genre: 'push',     control: 'thumb', wire: 'snapshot', seats: [2, 4] },
-    lightcycles: { genre: 'push',     control: 'thumb', wire: 'events',   seats: [2, 4] },
-    puck:        { genre: 'push',     control: 'thumb', wire: 'exact',    seats: [2, 2] },
-    bombpass:    { genre: 'push',     control: 'tap',   wire: 'exact',    seats: [2, 2] },
+    sumospheres: { genre: 'push',     control: 'thumb', wire: 'snapshot', seats: [2, 4], live: false },
+    lightcycles: { genre: 'push',     control: 'thumb', wire: 'events',   seats: [2, 4], live: false },
+    puck:        { genre: 'push',     control: 'thumb', wire: 'exact',    seats: [2, 2], live: false },
+    bombpass:    { genre: 'push',     control: 'tap',   wire: 'exact',    seats: [2, 2], live: false },
 
-    grandprix:   { genre: 'race',     control: 'thumb', wire: 'scalar',   seats: [2, 4] },
+    grandprix:   { genre: 'race',     control: 'thumb', wire: 'scalar',   seats: [2, 4], live: false },
 
-    memorymatch: { genre: 'brain',    control: 'tap',   wire: 'exact',    seats: [2, 2] },
-    fourinarow:  { genre: 'brain',    control: 'tap',   wire: 'exact',    seats: [2, 2] },
+    memorymatch: { genre: 'brain',    control: 'tap',   wire: 'exact',    seats: [2, 2], live: false },
+    fourinarow:  { genre: 'brain',    control: 'tap',   wire: 'exact',    seats: [2, 2], live: false },
     // 'stamp', not 'none'. The grids are private but the FINISH LINE is shared —
     // the round goes to whoever completes the pattern first — so it is a race
     // against the others rather than a score compared afterwards, and a race
     // needs each device to report when it finished. That shared finish is also
     // why MG_NET has always had it as 'local' rather than 'parallel'.
-    gridrecall:  { genre: 'brain',    control: 'tap',   wire: 'stamp',    seats: [2, 4] },
-    oddoneout:   { genre: 'brain',    control: 'tap',   wire: 'none',     seats: [2, 4] },
+    gridrecall:  { genre: 'brain',    control: 'tap',   wire: 'stamp',    seats: [2, 4], live: false },
+    // roomy: the grid climbs to 5x5 as you score, and a fifth of a phone quarter
+    // is a 34 px tile — under the 44 px the control law asks for. On a tablet
+    // quarter the same grid is 68 px a side, so 3-4 seats is a tablet game.
+    oddoneout:   { genre: 'brain',    control: 'tap',   wire: 'none',     seats: [2, 4], live: true, roomy: true },
 };
 
 // The order the wire tiers come in, cheapest first. Used by the READINESS sort:
@@ -402,12 +429,21 @@ export function profileOf(type) {
 export function surfacesOf(type) {
     const p = profileOf(type);
     const [minSeats, maxSeats] = p.seats;
-    // A private playfield each is the split law: quarters of a phone are
-    // 206x400 and under the floor, quarters of a tablet are 410x544 and over
-    // it. A shared arena is 412x648 at two players AND at four, so it does not
-    // care. See docs/MINIGAME_RULEBOOK.md §4.
-    const needsTablet = MG_SHAPE[type] === 'split';
-    const manyOk = maxSeats >= 3 && p.control !== 'dual';
+    // Does this game's ZONE need more than a quarter of a phone?
+    //
+    // Not the same question as MG_SHAPE, and deriving it from there was wrong.
+    // MG_SHAPE says whether players have private playfields; the split law's
+    // 300x300 floor applies to a playfield with MOTION in it — a storm to dodge,
+    // an arena to steer around. Snap Strike's private thing is a BAR and a tap
+    // zone, and a bar is perfectly happy in 206x400.
+    //
+    // So it is authored, not inferred. `roomy` is set only when a game has been
+    // converted AND its zone genuinely wants the room.
+    const needsTablet = !!p.roomy;
+    // LIVE is the gate, not a bonus on top of it. A game that is not live does
+    // not play three or four people on one screen, whatever its mechanic could
+    // support — the code has two slots and that is the whole story.
+    const manyOk = !!p.live && maxSeats >= 3 && p.control !== 'dual';
     return {
         sharedTwo:  minSeats <= 2,
         sharedMany: manyOk,
@@ -430,7 +466,8 @@ export function blockedReason(type, surface) {
     const s = surfacesOf(type);
     if (surface === 'many' && !s.sharedMany) {
         if (p.control === 'dual') return 'Two-handed controls — won\'t fit a quarter screen.';
-        return 'Built for two — the mechanic doesn\'t open up.';
+        if (p.seats[1] <= 2)      return 'Built for two — the mechanic doesn\'t open up.';
+        return 'Not converted yet — still two slots in code.';
     }
     if (surface === 'online' && !s.online) {
         return p.seats[1] <= 2 && MG_SHAPE[type] === 'table'

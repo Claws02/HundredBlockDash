@@ -145,6 +145,35 @@ const area = r => r.w * r.h;
     ok('a solo round has no rail to draw',
        L.frameFor(SHAPES.SPLIT, 1, ...PHONE, { ctx: CONTEXTS.PHONES, rivals: 0 }).rail === null, '');
 
+    // ── zones: one per seat, covering the screen, no overlaps ───────────────
+    for (const n of [2, 3, 4]) {
+        const z = L.zonesFor(n, ...PHONE);
+        const box = L.innerBox(...PHONE);
+        ok(`zones @${n}: one per seat`, z.length === n, `${z.length}`);
+        let clash = null;
+        for (let i = 0; i < z.length && !clash; i++)
+            for (let j = i + 1; j < z.length && !clash; j++)
+                if (overlaps(z[i].rect, z[j].rect)) clash = `${i}/${j}`;
+        ok(`zones @${n}: no two seats share a pixel`, !clash, clash || '');
+        const covered = z.reduce((a, x) => a + x.rect.w * x.rect.h, 0);
+        ok(`zones @${n}: they tile the playable box`,
+           Math.abs(covered - box.w * box.h) <= box.w * box.h * 0.02,
+           `${covered} vs ${box.w * box.h}`);
+        ok(`zones @${n}: every zone is inside it`,
+           z.every(x => inside(x.rect, box)), '');
+        ok(`zones @${n}: far seats are rotated to face their player`,
+           z.every(x => (x.edge === 'top') === (x.rot === 180)),
+           JSON.stringify(z.map(x => [x.edge, x.rot])));
+    }
+    // At two seats it must be EXACTLY the face-off every shipped game draws.
+    {
+        const z = L.zonesFor(2, ...PHONE);
+        ok('zones @2 are the shipped face-off — full-width halves, top rotated',
+           z[0].rect.w === 412 && z[1].rect.w === 412 &&
+           z[0].rect.h === z[1].rect.h && z[0].rot === 0 && z[1].rot === 180,
+           JSON.stringify(z.map(x => `${x.rect.w}x${x.rect.h}@${x.rot}`)));
+    }
+
     // ── The registry agrees with itself ─────────────────────────────────────
     const known = new Set(Object.values(SHAPES));
     const missing = R.MG_TYPES.filter(t => !R.MG_SHAPE[t]);

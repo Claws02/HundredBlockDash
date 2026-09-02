@@ -332,6 +332,41 @@ const _dim = r => `${r.w}x${r.h}`;
 const _tooSmall = r => `the playfield comes out ${_dim(r)}, under the ${CHROME.MIN_PLAY}x${CHROME.MIN_PLAY} floor.`;
 
 /**
+ * One zone per seat, covering the screen, laid out where people are sitting.
+ *
+ * This is what a LIVE game — one everybody plays at once on a shared screen —
+ * asks for. It is not `frameFor(SPLIT)`: a zone is a place to put a thumb and a
+ * word, not a private playfield, so the 300x300 floor does not apply to it.
+ * Quick Draw's zone needs to hold the word TAP and a finger; Meteor Dodge's
+ * playfield needs to hold a storm. Both are "one area each" and only one of
+ * them has a minimum size.
+ *
+ * The arrangement is the seat ring: at two, the shipped face-off exactly — one
+ * full-width half each, the far one rotated. At three, the near edge belongs to
+ * one player and the far edge is shared. At four, corners, because that is how
+ * four people actually stand around something small.
+ *
+ * Returns [{ seat, rect, rot, edge }] in seat order.
+ */
+export function zonesFor(n, w, h) {
+    const seats = Math.max(1, Math.min(4, n | 0));
+    const inner = innerBox(w, h);
+    const half  = inner.h / 2;
+    return seatRing(seats).map((s, i) => {
+        const [a, b] = s.span;
+        const top = s.edge === 'top';
+        return {
+            seat: i,
+            rect: rect(inner.x + inner.w * a,
+                       top ? inner.y : inner.y + half,
+                       inner.w * (b - a), half),
+            rot: s.rot,
+            edge: s.edge,
+        };
+    });
+}
+
+/**
  * Which structures can carry `n` players on this screen, in this context.
  *
  * This is the function a designer actually wants: "I have four people and a

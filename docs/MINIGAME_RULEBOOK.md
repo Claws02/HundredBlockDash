@@ -499,9 +499,12 @@ Three fixes, in order of preference:
    table draws from, a spectator has a reason to care who wins even without a
    call to make.
 
-**This is now built, and fix 1 is the one that shipped.** `RoundFormat` plays
-every round of a three- or four-player match so that the whole table is in it —
-see §11. There are no bystanders left offline, so the side-bet and the shared
+**This is now built, and fix 1 is the one that shipped — twice.** The first
+attempt was `RoundFormat`: every seat got a turn, in legs. That put everybody in
+the round but left three of four people watching at any moment, which is the
+same problem in better clothes. What shipped in the end is stronger — one game,
+every seat in it, at the same time (§11) — and it deleted `RoundFormat`
+entirely. There are no bystanders left offline, so the side-bet and the shared
 pot in 2 and 3 are ideas for a round that no longer exists in that shape.
 
 Two smaller pieces of the same problem went with it. Since a solo player can
@@ -622,7 +625,8 @@ is the point of writing it before there is anything to catch.
 | Check | How |
 |---|---|
 | Does it fit at the player counts you claim? | `node qa/layout.js` |
-| Can three or four people actually play it? | `node qa/rounds.js` — drives a whole relay and a whole bracket, and checks the round pays once however many legs it took. |
+| Can three or four people actually play it? | `node qa/livegames.js` — plays it at three seats and at four: a ready button per seat, the countdown waiting for the last of them, something actually drawn, a resolution on its own clock, and a score screen naming everybody. It found a `_bot is not defined` in Snap Strike's teardown (which hung the round forever) and an uninitialised array in Shape Snap's build (which the manager caught and resolved as a tie, so the game "passed" while being invisible). |
+| Does the bag agree with the code? | `node qa/surfaces.js` — no browser. Every game's profile against a hand-written audit, and the three surface counts the plan is argued from. |
 | Is it actually on the screen and running? | `node qa/soloframe.js` — reads the canvas back and asserts something was drawn in each half and that the frame changes. This is what would have caught Tree Climb drawing its entire tree below the bottom of the screen. |
 | Is the skill dial connected to anything? | `node qa/botcheck.js` — read the wall clock at easy and hard. If the two tiers finish in the same time, it is not. Every game in this repo tuned by intuition has been wrong. |
 | Does it resolve and tear down? | `node qa/arcade.js` |
@@ -660,77 +664,127 @@ available today is a TABLE, and the roster has two.
 
 ---
 
-## 11. Everybody plays: the two round formats
+## 11. Everybody plays: one game, every seat, at once
 
-*(Built. `src/minigames/RoundFormat.js`, `src/ui/RoundBoard.js`, `qa/rounds.js`.)*
+*(Built. `MinigameManager` roster + `MinigameLayout.zonesFor()`. `qa/livegames.js`
+drives it. `MG_PROFILE.live` is the flag.)*
 
 §3 says the four structures are properties of a GAME. This section is about the
-ROUND, and it is the part that did not need any game to be rewritten.
+ROUND, and it has one rule:
 
-A round at three or four seats is played in **legs**, and there are two shapes:
+> **A round is one game, and everybody in the match is in it.**
 
-| | **RELAY** | **BRACKET** |
+There is no bracket and no relay. Both existed, both were shipped, and both are
+gone, because each of them answered "how do four people share one game" with
+"they take turns", and taking turns is the thing the round is supposed to
+prevent. A bracket at four seats is three games with two people watching two of
+them; a relay is four solitaires with three people watching each. Neither is a
+party game — they are a queue with a scoreboard.
+
+What replaces them is not a round format at all. It is a property of the game:
+
+### LIVE — the flag that means "this game can seat everybody"
+
+`MG_PROFILE[type].live` is true when the game's own code has been written
+against the number of players rather than against the number 2. Three things
+make a game live, and all three are visible in `src/minigames/QuickDraw.js`,
+which is the reference:
+
+1. **It asks `slotCount()`** instead of assuming two, and every per-player array
+   is that long — score, lockout, bot timer, the lot. A game with `[0, 0]` in it
+   is not live, whatever else it does.
+2. **It takes its zones from `MinigameLayout.zonesFor(n, w, h)`**, which returns
+   one rect and one rotation per seat, tiling the inner box: the shipped
+   face-off at two, corners at four. The game never computes a half-screen.
+3. **It asks `isBotSlot(slot)` per slot.** The single `isBot` argument only ever
+   described slot 1; above two seats there can be three bots and each needs its
+   own timer.
+
+At two players a converted game is byte-for-byte the game that shipped: two
+full-width halves, the far one rotated. `zonesFor(2, w, h)` *is* the face-off.
+That is the property that made the conversion safe to do game by game.
+
+### The three surfaces, and which games reach them
+
+`surfacesOf(type)` derives all of it from the profile; nothing is hand-listed.
+
+| Surface | Rule | Today |
 |---|---|---|
-| When | the game is a solitaire (`MG_NET === 'parallel'`) **and** every seat is a person | everything else |
-| Legs | one per player | 4 seats: two semi-finals and a final · 3 seats: an opener and a decider |
-| What a leg is | the same seeded challenge, alone, on the whole screen | an ordinary 1v1 game |
-| Winner | highest score | whoever takes the final |
-| Reuses | `SoloArena` — the same module, seed and by-index draws that online rounds already run on | `MinigameManager.trigger`, with a leg mode that pays nothing |
+| **Shared screen, 2P** | everything | 22 of 22 |
+| **Shared screen, 3–4P** | `live` **and** seats reach 3+ **and** control is not `dual` | 5 — and `roomy` puts two of them on a tablet |
+| **Online, 2–4P** | wire tier is anything but `exact` | 15, of which 6 (`wire: 'none'`) run today |
 
-Between them they cover the whole roster. **No game was changed.**
+**`roomy`** is the one thing the derivation cannot work out for itself: whether
+a quarter of a *phone* is enough room for this game's zone. Two games declare
+it. Odd One Out, because its grid climbs to 5×5 and a fifth of a phone quarter
+is a 34 px tile — under the 44 px the control law asks for; on a tablet quarter
+the same tile is 68 px. And Steady Hand, because its target *drifts*, and a
+206×400 field is one the target is off a wall in every second.
+`eligibleTypes()` enforces it: on a phone at 3–4 seats, a `roomy` game is simply
+never dealt.
 
-**Why a bot cannot relay.** A relay leg is a solitaire, and there is no bot that
-plays one. Inventing a score for it would be inventing the result of the round,
-so a table with a bot in it plays a bracket instead — where a bot plays a real
-1v1 game exactly as it always has. The one leg nobody can play is bot against
-bot: that is *decided* on skill and reported on the card, because two bots
-playing each other while the one person in the room watches is the worst screen
-in the game, and the manager could not run it anyway.
+**A short bag is said out loud, not hidden.** `bagDepth()` returns how many
+games this table can play and how many more a tablet would add, and the lobby
+prints it. Four people on a phone get a shallower bag than four people on an
+iPad, and they are told so before the match rather than by the third repeat.
 
-**The round pays once.** This is the assertion worth keeping: a four-player
-bracket is three games, and if each leg paid `MINIGAME_REWARD` and each coin
-game paid its own cap, one round would hand out 30 coins and a 90-coin haul —
-enough for a single minigame to settle a board match. Legs run in a **leg mode**
-that reports a winner and a haul and touches nothing; `RoundFormat` totals the
-hauls across the round, applies the one 30-coin cap, and pays the flat reward
-once, to one seat.
+### The ready gate belongs to everybody
 
-**What it costs.** A bracket is three games where there used to be one. That is
-the honest price of nobody sitting out, and it is why legs after the first skip
-the reel, the rules card and the orientation page — the table read all of that
-ninety seconds ago. The ready gate stays, because the two people playing this
-leg are not the two who played the last one.
+The gate used to be two buttons written into `index.html`, at the top and the
+bottom. That is a fine gate for a face-off and it is the reason a three- or
+four-player round could not be *started* by the people in it.
+`_buildReadyButtons(n)` now builds one per slot, labelled with that player's
+name, placed where they are sitting — the two originals keep the middle of their
+own edge, slots 3 and 4 take the right-hand corners, and the far ones are
+rotated. The countdown fires when `state.mgReady.slice(0, slotCount())` is all
+true, and not before. Bots ready themselves, all of them, on staggered timers.
+
+**The round pays once**, as it always did — one `MINIGAME_REWARD` to one seat,
+one 30-coin cap on the haul. That was the hard constraint the bracket needed a
+whole leg mode to respect; with one game per round it is simply true.
 
 ### The progress system
 
-Three pieces, the same three in both formats and at every count:
+Everybody is playing, so the question "how are the others doing?" is answered
+inside the game rather than around it:
 
 | Piece | When | What it carries |
 |---|---|---|
-| **The rail** | while somebody is playing a relay leg | one chip per player, their score, the leader in gold, "NOW" on whoever is up |
-| **The card** | between legs | whose go it is, **the mark to beat**, and the standings — or, in a bracket, the draw with results filled in |
-| **The board** | at the end | everybody, ranked |
+| **The zone** | throughout | each player's own name, score and state, in their own colour, facing them |
+| **The neutral strip** | throughout | the score line for every seat at once — `_scoreLine()` in each live game |
+| **The score screen** | at the end | a row per slot, ranked, with the payout |
 
-The rail rides in the 46 px band the mirrored status strip leaves empty whenever
-one person has the screen to themselves, exactly as §6.2 specified, so **the
-playfield underneath is the size it was**. It is `pointer-events: none`.
+The pressure comes from the zones being adjacent. You can see the tile your
+neighbour is hunting, and their score climbing next to yours, without looking
+away from your own grid. That is the whole point of tiling one screen instead of
+handing out four.
 
-**Across phones it is the same rail, fed differently.** There is no round object
-on a client to read — each phone is playing its own copy — so the host is the
-only shared truth. Every playing phone sends its running score twice a second
-(`mgTick`), the host merges those into a table and broadcasts it as a `soloStand`
-beat, and every device paints the same strip. A tick decides nothing: the round
-is still settled by `mgScore`, so a lost one costs a frame of a readout. A seat
-that has finished shows its **final** score rather than its last tick, or
-somebody who has already put their number up appears to be losing it.
+**Across phones it is the same information, fed differently.** There is no
+shared object to read — each phone runs its own copy — so the host is the only
+truth. Every playing phone sends its running score twice a second (`mgTick`),
+the host merges them and broadcasts a `soloStand` beat, and every device paints
+`RoundBoard.netRail`: one chip per player, their score, the leader in gold. A
+tick decides nothing; the round is still settled by `mgScore`, so a lost one
+costs a frame of a readout. A seat that has finished shows its **final** score
+rather than its last tick, or somebody who has already put their number up
+appears to be losing it.
 
 ### What this does not reach
 
-Online still only offers the **six parallel games**. Everybody plays them, all at
-once, which is the requirement met — but the other sixteen are one simulation
-several people reach into, and putting those across phones is the Phase C
-netcode in `MULTIPLAYER_PLAN.md`. Locally, all twenty-two are playable by three
-or four people today.
+Five games are live. Seventeen are not, and on a shared screen at three or four
+seats they are **not dealt** — the bag holds only what the table can actually
+play. That is the honest state: a 3–4 player match today draws from five games
+(three on a phone), and widening it is game-by-game conversion work, listed in
+`MINIGAME_CATEGORIES.md` §9.
+
+Online is a different eighteen: six parallel games run across phones today, nine
+more need the wire tiers in `MULTIPLAYER_PLAN.md`, and seven are `exact` — one
+simulation two people reach into — and stay two-player.
+
+The two claims this section used to make and no longer does: that all
+twenty-two games are playable by three or four people locally (they were,
+through the bracket, with people watching), and that a relay is an answer to the
+bystander problem (it is the bystander problem, dealt out one at a time).
 
 ---
 
@@ -747,9 +801,13 @@ or four people today.
   the law at three viewports, the "a third player is free" claim at 2/3/4, the
   rail's geometry, and the two registries agreeing.
 
-- **`src/minigames/RoundFormat.js` + `src/ui/RoundBoard.js`** — §11. Every seat
-  in every round at three and four players, in two formats, with the standings
-  rail and the between-leg cards. `qa/rounds.js` drives both end to end.
+- **`MG_PROFILE.live` + `MinigameLayout.zonesFor()` + the N-seat roster in
+  `MinigameManager`** — §11. One game, every seat in it, at once. Four games
+  converted (Quick Draw, Shape Snap, Snap Strike, Odd One Out, Steady Hand);
+  the rest are not
+  dealt at three or four seats. `qa/livegames.js` plays each of them at 3 and 4.
+- **The ready gate at N** — `_buildReadyButtons(n)`, one per seat, labelled and
+  placed where that player is sitting; the countdown waits for all of them.
 - **Live standings across phones** — `mgTick` up, `soloStand` down, the same rail.
 
 **Specified here and not built:**

@@ -25,35 +25,41 @@ const ok = (n, c, d) => (c ? pass : fail).push(n + (d ? ` — ${d}` : ''));
 
 // THE EXPECTATION. [ shared 3-4?, device, online? ]
 // Every game is playable at two on one phone, so that column is not repeated.
+//
+// The 3-4 column is now a statement about the CODE, not about the mechanic: it
+// is true only for games converted to N slots (MG_PROFILE.live). A game that
+// could support four in principle and still has two hard-coded halves is false
+// here, because four people cannot play it. Converting one flips it, and this
+// list is where that gets noticed.
 const EXPECT = {
-    quickdraw:   [true,  'any',    true ],
-    sortrush:    [true,  'any',    true ],
-    snapstrike:  [true,  'tablet', true ],
-    steadyhand:  [true,  'tablet', true ],
+    quickdraw:    [true,  'any',    true ],
+    sortrush:     [true,  'any',    true ],
+    snapstrike:   [true,  'any',    true ],
+    steadyhand:   [true,  'tablet', true ],
     rhythmforge: [false, null,     false],
-    freeze:      [true,  'any',    true ],
-    meteordodge: [true,  'tablet', true ],
-    lootcatch:   [true,  'tablet', true ],
-    treeclimb:   [true,  'tablet', true ],
+    freeze:       [false, null,     true ],
+    meteordodge:  [false, null,     true ],
+    lootcatch:    [false, null,     true ],
+    treeclimb:    [false, null,     true ],
     tankclash:   [false, null,     true ],   // dual controls, but great online
     penalty:     [false, null,     false],
-    clearout:    [true,  'any',    true ],
+    clearout:     [false, null,     true ],
     orbdeflect:  [false, null,     false],
-    sumospheres: [true,  'any',    true ],
-    lightcycles: [true,  'any',    true ],
+    sumospheres:  [false, null,     true ],
+    lightcycles:  [false, null,     true ],
     puck:        [false, null,     false],
     bombpass:    [false, null,     false],
-    grandprix:   [true,  'any',    true ],
+    grandprix:    [false, null,     true ],
     memorymatch: [false, null,     false],
     fourinarow:  [false, null,     false],
-    gridrecall:  [true,  'tablet', true ],
-    oddoneout:   [true,  'tablet', true ],
+    gridrecall:   [false, null,     true ],
+    oddoneout:    [true,  'tablet', true ],
 };
 
 // The headline counts from the plan. If a property changes and one of these
 // moves, the plan is out of date and should be updated deliberately.
-const EXPECT_PHONE_MANY = 7;    // shared 3-4 with no tablet needed
-const EXPECT_TABLET_MANY = 14;  // shared 3-4 in total
+const EXPECT_PHONE_MANY = 3;    // LIVE games — converted to N slots
+const EXPECT_TABLET_MANY = 5;   // ...plus Odd One Out and Steady Hand, which declare `roomy`
 const EXPECT_ONLINE = 15;       // possible across devices
 const EXPECT_ONLINE_NOW = 6;    // running across devices today
 
@@ -115,11 +121,11 @@ function asModule(file) {
     ok(`...of which ${EXPECT_ONLINE_NOW} run today`,
        now.length === EXPECT_ONLINE_NOW, `${now.length}: ${now.join(', ')}`);
 
-    // The tablet-only half is exactly the games with a private playfield each.
+    // A tablet is required for exactly the games that say they need the room.
     const tabletOnly = many.filter(t => R.surfacesOf(t).manyDevice === 'tablet');
-    const splits = tabletOnly.filter(t => R.MG_SHAPE[t] !== 'split');
-    ok('the tablet is needed for exactly the private-playfield games',
-       splits.length === 0, splits.join(', '));
+    const roomless = tabletOnly.filter(t => !R.MG_PROFILE[t].roomy);
+    ok('a tablet is required for exactly the games that declare they need it',
+       roomless.length === 0, roomless.join(', '));
 
     // ---- the registries still agree with each other ------------------------
     // MG_NET said which games cross the wire before MG_PROFILE existed. The two

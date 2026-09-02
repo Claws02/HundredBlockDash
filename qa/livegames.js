@@ -1,0 +1,229 @@
+// ============================================================
+// LIVE GAMES AT THREE AND FOUR SEATS
+//
+// The bracket is gone: a round is one game and everybody in the match plays it
+// at the same time. That only works if the games themselves are written against
+// slotCount() rather than against the number 2, and MG_PROFILE.live is the flag
+// that says a game has been. This probe takes that flag at its word and checks
+// it, game by game, at three seats and at four:
+//
+//   1. The ready gate has a button for EVERY slot, not two — the round could
+//      not be started by the people in it before _buildReadyButtons existed.
+//   2. The countdown fires only once every one of them has been pressed.
+//   3. The game runs, takes input across the whole surface, and resolves to a
+//      real seat (or a tie) inside its own clock — no watchdog, no force-end.
+//   4. Nobody outside the roster comes out of it with a win.
+//   5. The score screen has a row per slot.
+//   6. No page errors, and no orphaned overlay left for the next round.
+//
+// A game marked live that cannot do this is worse than one that is not marked
+// at all: the draw bag will hand it to four people and two of them will have
+// nothing on screen.
+//
+// usage: node livegames.js [seats...]        (default: 3 and 4)
+// ============================================================
+const { chromium } = require('/opt/node22/lib/node_modules/playwright');
+const fs = require('fs');
+const path = require('path');
+
+const AGENT = fs.readFileSync(path.join(__dirname, 'agent.js'), 'utf8');
+const BASE = process.env.QA_BASE || 'http://127.0.0.1:8129/index.html';
+const GL = ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=swiftshader',
+            '--enable-unsafe-swiftshader', '--mute-audio'];
+
+const pass = [], fail = [];
+const ok = (n, c, d) => (c ? pass : fail).push(`${n}${d ? ` — ${d}` : ''}`);
+
+async function boot(browser, seats, roomy) {
+    // A `roomy` game is only ever dealt on a tablet at 3-4 seats, so that is the
+    // screen it has to be tested on. Testing it on a phone would be testing a
+    // arrangement the bag never produces.
+    const viewport = roomy ? { width: 820, height: 1180 } : { width: 412, height: 892 };
+    const ctx = await browser.newContext({ viewport, hasTouch: true });
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', e => errors.push('PAGEERROR: ' + e.message));
+    page.on('console', m => {
+        if (m.type() === 'error' && !/Failed to load resource/.test(m.text())) errors.push('CONSOLE: ' + m.text());
+    });
+    await page.addInitScript(() => {
+        try { localStorage.clear(); localStorage.setItem('hbd_seen_howto', 'true'); } catch (e) {}
+    });
+    await page.goto(BASE, { waitUntil: 'domcontentloaded' });
+    await page.addScriptTag({ content: AGENT });
+    await page.waitForFunction(() => !!window.__QA, null, { timeout: 20000 });
+    await page.evaluate(() => window.__QA.bind());
+    // A real match, so the seats exist with names and characters — the ready
+    // buttons are labelled from them.
+    await page.evaluate(s => window.__QA.startRun({
+        mode: 'pass', map: 'city_circuit', players: s, rounds: 6,
+    }), seats);
+    await page.waitForFunction(() => {
+        const S = window.__QA.snapshot();
+        return S.gameState && S.gameState !== 'INIT' && S.gameState !== 'MENU';
+    }, null, { timeout: 60000 });
+    return { ctx, page, errors };
+}
+
+// Walk the intro (rules card → ready gate) and start the game. Returns what the
+// ready gate looked like, which is half of what this probe is here to check.
+async function throughIntro(page, seats) {
+    // GOT IT on the rules card. The reel spins for ~1.5 s first.
+    await page.waitForFunction(() => {
+        const b = document.getElementById('btn-mg-intro-next');
+        return b && b.offsetParent !== null &&
+               document.getElementById('mg-page-info').style.display !== 'none' &&
+               document.getElementById('mg-intro-title').textContent !== 'SELECTING...';
+    }, null, { timeout: 20000 });
+    await page.evaluate(() => {
+        const b = document.getElementById('btn-mg-intro-next');
+        b.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
+    });
+    await page.waitForFunction(() =>
+        document.getElementById('mg-page-hold').style.display !== 'none', null, { timeout: 10000 });
+    await page.evaluate(() => {
+        const b = document.getElementById('btn-mg-launch');
+        b.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
+    });
+    // The ready gate. Count the buttons BEFORE pressing any of them.
+    await page.waitForFunction(() =>
+        document.getElementById('mg-ready-1') &&
+        document.getElementById('mg-ready-1').style.display !== 'none', null, { timeout: 10000 });
+    const gate = await page.evaluate(() => {
+        const vis = el => !!el && getComputedStyle(el).display !== 'none' &&
+                          el.getBoundingClientRect().width > 0;
+        const base = [1, 2].map(i => document.getElementById(`mg-ready-${i}`)).filter(vis);
+        const extra = [...document.querySelectorAll('.mg-ready-extra')].filter(vis);
+        return {
+            buttons: base.length + extra.length,
+            slots: extra.map(b => +b.dataset.slot).sort((a, b) => a - b),
+            rects: [...base, ...extra].map(b => {
+                const r = b.getBoundingClientRect();
+                return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) };
+            }),
+        };
+    });
+    // Press them one at a time and watch for an early countdown.
+    const early = [];
+    for (let slot = 0; slot < seats; slot++) {
+        const started = await page.evaluate(s => {
+            window.__QA_setReady(s);
+            const cd = document.getElementById('mg-countdown');
+            return !!cd && getComputedStyle(cd).display !== 'none';
+        }, slot);
+        if (started && slot < seats - 1) early.push(slot);
+    }
+    return { gate, early };
+}
+
+async function playOne(browser, type, seats, shotFor, roomy) {
+    const tag = `${type}@${seats}P${roomy ? ' (tablet)' : ''}`;
+    const { ctx, page, errors } = await boot(browser, seats, roomy);
+    try {
+        // setReady is a module export; expose it so the gate can be pressed
+        // slot by slot rather than by hunting the DOM for each button.
+        await page.evaluate(async () => {
+            const M = await import('/src/minigames/MinigameManager.js');
+            window.__QA_setReady = s => M.setReady(s);
+            window.__QA_roster = () => M.roster();
+            window.__QA_slots = () => M.slotCount();
+        });
+        const done = await page.evaluate(([t, n]) => {
+            window.__MG_RESULT = 'pending';
+            window.__QA.launchLive(t, Array.from({ length: n }, (_, i) => i))
+                .then(w => { window.__MG_RESULT = w; });
+            return true;
+        }, [type, seats]);
+
+        const { gate, early } = await throughIntro(page, seats);
+        ok(`${tag}: a ready button for every seat`, gate.buttons === seats, `${gate.buttons} buttons`);
+        ok(`${tag}: no two ready buttons in the same place`,
+           new Set(gate.rects.map(r => `${r.x},${r.y}`)).size === gate.buttons);
+        ok(`${tag}: the countdown waits for the last seat`, early.length === 0,
+           early.length ? `started after slot ${early[0]}` : '');
+
+        // Countdown is 3 → 2 → 1 → GO at 900 ms.
+        await page.waitForFunction(() => window.__QA.snapshot().mgActive === true,
+                                   null, { timeout: 15000 }).catch(() => {});
+        const roster = await page.evaluate(() => window.__QA_slots());
+        ok(`${tag}: the game was handed ${seats} slots`, roster === seats, `slotCount() = ${roster}`);
+
+        // Let it settle a beat, then look at it. Looking is a test.
+        await page.waitForTimeout(1400);
+        // The game has to have put something on screen. Sort Rush passed
+        // "resolves on its own clock" while throwing inside _build, because the
+        // manager caught it and resolved the round as a tie — a green tick over
+        // a game nobody could see.
+        const painted = await page.evaluate(() => {
+            const layer = document.getElementById('minigame-layer');
+            return [...layer.children].filter(el => !el.id &&
+                   el.getBoundingClientRect().width > 0).length;
+        });
+        ok(`${tag}: the game actually drew itself`, painted > 0, `${painted} overlays`);
+        if (shotFor) await page.screenshot({ path: path.join(__dirname, shotFor) });
+
+        // Drive real input across the whole surface until it resolves on its own.
+        const deadline = Date.now() + 75000;
+        let resolved = null, board = -1;
+        while (Date.now() < deadline) {
+            const seen = await page.evaluate(() => {
+                const scr = document.querySelector('.mg-score-screen');
+                return {
+                    r: window.__MG_RESULT,
+                    names: scr ? scr.querySelectorAll('.mg-sc-name').length : -1,
+                };
+            });
+            // The scoreboard is shown BEFORE the round resolves and the agent
+            // taps it away, so it has to be caught on the way past rather than
+            // looked for afterwards.
+            if (seen.names > board) board = seen.names;
+            resolved = seen.r;
+            if (resolved !== 'pending') break;
+            await page.evaluate(() => { for (let i = 0; i < 3; i++) window.__QA.step(); });
+            await page.waitForTimeout(180);
+        }
+        ok(`${tag}: resolves on its own clock`, resolved !== null && resolved !== 'pending',
+           resolved === 'pending' ? 'still running after 75 s' : '');
+
+        const inRange = resolved === -1 || resolved === null ||
+                        (typeof resolved === 'number' && resolved >= 0 && resolved < seats);
+        ok(`${tag}: the winner is a seat that was playing`, inRange, `winner = ${resolved}`);
+
+        ok(`${tag}: the score screen names every seat`, board >= seats, `${board} names`);
+
+        const real = errors.filter(e => !/ResizeObserver|AudioContext|play\(\) failed/.test(e));
+        ok(`${tag}: no page errors`, real.length === 0, real.slice(0, 2).join(' | '));
+    } finally {
+        await ctx.close();
+    }
+}
+
+(async () => {
+    const want = process.argv.slice(2).map(Number).filter(n => n >= 2 && n <= 4);
+    const counts = want.length ? want : [3, 4];
+    const browser = await chromium.launch({ args: GL });
+    // Which games claim they can do this.
+    const page0 = await (await browser.newContext()).newPage();
+    await page0.goto(BASE, { waitUntil: 'domcontentloaded' });
+    const live = await page0.evaluate(async () => {
+        const R = await import('/src/config/MinigameRegistry.js');
+        return R.MG_TYPES.filter(t => R.surfacesOf(t).sharedMany)
+                .map(t => ({ type: t, roomy: R.surfacesOf(t).manyDevice === 'tablet' }));
+    });
+    await page0.context().close();
+    console.log(`=== LIVE GAMES: ${live.map(g => g.type + (g.roomy ? ' (tablet)' : '')).join(', ')} ===`);
+    ok('at least one game is playable by more than two', live.length > 0);
+
+    for (const n of counts) {
+        for (const g of live) {
+            try { await playOne(browser, g.type, n, `shot-live-${n}p-${g.type}.png`, g.roomy); }
+            catch (e) { ok(`${g.type}@${n}P: ran`, false, String(e.message || e).slice(0, 160)); }
+        }
+    }
+    await browser.close();
+
+    console.log('PASS:'); pass.forEach(p => console.log('  ✓ ' + p));
+    console.log('FAIL:'); fail.length ? fail.forEach(f => console.log('  ✗ ' + f)) : console.log('  (none)');
+    console.log(`\n${pass.length}/${pass.length + fail.length}`);
+    process.exit(fail.length ? 1 : 0);
+})();

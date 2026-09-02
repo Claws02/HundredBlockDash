@@ -115,11 +115,17 @@ export function soloHalf(overlay) {
 /**
  * The slots a game should simulate this frame.
  *
- * Split-screen games loop `for (const pid of [0, 1])`. In solo there is no
+ * Split-screen games loop `for (const pid of Solo.pids())`. In solo there is no
  * slot 1 — no bot, no second half, nothing to draw — so the same loop runs once
  * and every piece of per-slot code is left exactly as it was.
+ *
+ * Shared-screen it is the roster, which is two, three or four. It used to be
+ * the literal `[0, 1]`, which is why a converted game had to stop calling this
+ * to seat everybody; now the same loop widens with the table.
  */
-export function pids() { return _solo ? [0] : [0, 1]; }
+export function pids() {
+    return _solo ? [0] : MinigameManager.slots();
+}
 
 /**
  * A parallel game finishes by reporting its own score here instead of naming a

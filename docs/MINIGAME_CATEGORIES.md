@@ -1,8 +1,12 @@
 # The categories — what a 3- and 4-player minigame can be
 
-**Status: analysis for a decision, not built.** The roster and the code still do
-what `MINIGAME_RULEBOOK.md` §11 describes. This document is the baseline to
-decide against.
+**Status: decided and in build.** The bracket and the relay are gone from the
+code, not just from this document: `RoundFormat.js` and `qa/rounds.js` are
+deleted, `RoundBoard.js` is down to the standings rail, and `GameController`
+now puts every seat in one game. What is left of this document is the
+conversion queue — which games have been rewritten to seat everybody
+(`MG_PROFILE.live`), and which have not. See `MINIGAME_RULEBOOK.md` §11 for
+what shipped.
 
 **The rule that changes everything:**
 
@@ -181,6 +185,13 @@ Two different columns, two different constraints, and they are not the same one:
   thumb. This is what rules out Tank Clash *there*.
 - **Four devices** is gated by **netcode** — and W0 through W4 all clear it.
 
+**A ✅ in the tablet column means the SHAPE fits, not that the game plays.**
+That is the distinction the first draft of this document missed, and it is the
+one that matters: a two-player game handed four players does not become a
+four-player game because there is room on the glass. Every ✅ above needs its
+game's code widened to `slotCount()` first — the `live` flag, §9. Five of them
+have been.
+
 ---
 
 ## 5. The 22 shipped games, re-audited
@@ -292,9 +303,54 @@ For the W0/W1 games, three mechanisms, in order of how much they buy:
   rest follow. This is where the arena games belong — Tank Clash, Sumo Spheres
   and Light Cycles are *better* at four than at two, and a full screen each is
   what they want.
-- **Retire the bracket and the relay above two seats.** Both were the right
-  answer to "everybody plays" and the wrong one to "nobody waits".
+- **Retire the bracket and the relay above two seats.** *(Done.)* Both were the
+  right answer to "everybody plays" and the wrong one to "nobody waits".
 
 **The correction that matters most in this document:** a shared arena is not a
 barrier to multiplayer, it is the point of it. The barrier is frame-exact
 contact, and only two games in the roster have it.
+
+
+---
+
+## 9. The conversion queue
+
+A game seats three or four people on one screen only once its own code has been
+written for it — `MG_PROFILE.live`. `surfacesOf()` reads that flag, the draw bag
+filters on it, and a game that has not been converted is simply not dealt at
+three or four seats. So this is not a wish list; it is the pool.
+
+**Converted (live today) — 5:**
+
+| Game | Genre | Why it was cheap | Screen |
+|---|---|---|---|
+| **Quick Draw** | reflex | one shared signal, one private zone per seat, one tap | any |
+| **Shape Snap** (Sort Rush) | reflex | one shared target in the middle, a private button row per seat | any |
+| **Snap Strike** | reflex | one shared needle, a private lock per seat — the bar is the only private thing, and a bar fits anywhere | any |
+| **Odd One Out** | brain | already four private grids' worth of state in two-element arrays; nothing shared but the clock | tablet (`roomy`) |
+| **Steady Hand** | nerve | same again — a private target, a private finger, a private score. The target has to have somewhere to drift, so `roomy`. | tablet (`roomy`) |
+
+The pattern is visible in the table: **the cheapest conversions are the games
+whose players never touched each other.** A private playfield per seat widens
+from two to four by widening its arrays and asking `zonesFor()` where to put
+them. Nothing about the simulation changes.
+
+**Next, cheapest first:**
+
+| Game | Genre | What it needs |
+|---|---|---|
+| **Tree Climb** | scramble | private ladder per seat, tap control. Arrays and zones; 647 lines is the only cost. |
+| **Meteor Dodge**, **Loot Catch** | scramble | private playfield *with motion*, so both are `roomy`: a quarter of a phone is not a field to dodge in. Arrays, zones, and a `roomy: true`. |
+| **Grid Recall** | brain | private grids, shared finish line. Arrays and zones, plus deciding what "first to finish" means when four are racing. |
+| **Light Cycles**, **Grand Prix** | push / race | one shared playfield drawn once, plus a control band per seat. A bigger job than the four above: the playfield has to be re-cut for four trails rather than two. |
+
+**Not on the queue:**
+
+- **Sumo Spheres** — 475 lines of 3D with `_p1`/`_p2`/`_vel1`/`_vel2`/`_mom1`/
+  `_mom2` as separate variables. A rewrite, not a widening.
+- **Freeze** — its track is one vertical corridor with two tokens converging on
+  the centre. Four tokens need a different geometry, which is a design change
+  before it is a code change.
+- **The seven `exact` games** (Puck, Penalty, Orb Deflect, Rhythm Forge, Bomb
+  Pass, Memory Match, Four in a Row) — two-player by nature: frame-exact
+  contact, or a turn order. They stay two-player and that is the right answer.

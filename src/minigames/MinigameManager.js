@@ -5,7 +5,7 @@
 // and create a new file in src/minigames/. That's it.
 // ============================================================
 
-import { state, playerCount } from '../core/GameState.js';
+import { state, playerCount, setPlayerCount } from '../core/GameState.js';
 import * as Bot from '../core/Bot.js';
 import { MG_TYPES, MG_INFO, MG_ORIENTATIONS, MG_ORIENTATION_MAP, MG_WATCHDOG_MS,
          surfacesOf } from '../config/MinigameRegistry.js';
@@ -48,21 +48,19 @@ export function loadMinigame(type) {
 }
 
 // ============================================================
-// THE ROSTER — which two seats are playing this minigame
+// THE ROSTER — which seats are playing this minigame
 // ============================================================
-// Every minigame in the roster is 1v1: two halves of one screen, `_p1`/`_p2`,
-// a bot in slot 1. Making all 22 of them four-player is Phase C/D work
-// (docs/MULTIPLAYER_PLAN.md); it is not a prerequisite for playing the BOARD
-// with three or four people.
+// A minigame has SLOTS and the board has SEATS, and this maps one to the other.
+// At two players it is the identity and nothing changes.
 //
-// So a minigame keeps its two SLOTS, and this table says which real SEAT is
-// sitting in each. At two players it is the identity mapping and nothing about
-// the existing behaviour changes. At three or four the round's minigame is a
-// duel between two of them, picked by a fixed rotation so everybody gets the
-// same number of turns and every device computes the same pairing.
+// It used to be exactly two slots, always, because every game was 1v1 — so a
+// three- or four-player round was a duel between two of them and the rest
+// watched. That is gone. A game that declares itself LIVE (MG_PROFILE.live)
+// takes as many slots as there are seats and everybody plays at once, which is
+// the only arrangement where nobody is waiting.
 //
 // The contract, because getting it backwards is the obvious bug here:
-//   • a minigame module calls winMinigame(SLOT)  — 0 or 1
+//   • a minigame module calls winMinigame(SLOT)  — 0..n-1, or -1 for a tie
 //   • endMinigame() and _onComplete take a real SEAT id
 let _seats = [0, 1];
 
@@ -73,14 +71,33 @@ export function seatFor(slot) {
 }
 /** The player object in slot `slot`. */
 function _sp(slot) { return state.players[seatFor(slot)] || state.players[0]; }
-/** The two seats playing, in slot order. */
+/** The seats playing, in slot order. */
 export function roster() { return _seats.slice(); }
+
+/**
+ * How many slots the game on screen has.
+ *
+ * THE ONE CALL A MULTI-PLAYER GAME NEEDS. A game written against this instead
+ * of against the number 2 plays two, three or four without knowing which — its
+ * arrays are this long, its loops run this many times, and the layout module
+ * hands it a band per slot.
+ */
+export function slotCount() { return _seats.length; }
+
+/** Is the player in `slot` the computer? `isBot` in start() is this for slot 1. */
+export function isBotSlot(slot) {
+    const p = state.players[seatFor(slot)];
+    return !!(p && p.isBot);
+}
+
+/** The slots a game should simulate, in order. */
+export function slots() { return _seats.map((_, i) => i); }
 
 function _setRoster(seats) {
     const n = state.players.length;
-    const ok = Array.isArray(seats) && seats.length === 2
+    const ok = Array.isArray(seats) && seats.length >= 2 && seats.length <= 4
         && seats.every(i => typeof i === 'number' && i >= 0 && i < n)
-        && seats[0] !== seats[1];
+        && new Set(seats).size === seats.length;
     const out = ok ? seats.slice() : [0, Math.min(1, n - 1)];
 
     // A LONE BOT TAKES SLOT 1, WHATEVER ORDER IT ARRIVED IN.
@@ -93,9 +110,13 @@ function _setRoster(seats) {
     // This is not hypothetical and it is not new to three- and four-player
     // matches. `_startDuel` passes `[whoever landed on the tile, their target]`,
     // so in an ordinary 1P match every duel the BOT started ran that way round.
-    const bot0 = state.players[out[0]] && state.players[out[0]].isBot;
-    const bot1 = state.players[out[1]] && state.players[out[1]].isBot;
-    if (bot0 && !bot1) out.reverse();
+    // Only meaningful at two slots. Above that a game is handed a per-slot bot
+    // flag (isBotSlot) and there is no privileged slot to move anybody into.
+    if (out.length === 2) {
+        const bot0 = state.players[out[0]] && state.players[out[0]].isBot;
+        const bot1 = state.players[out[1]] && state.players[out[1]].isBot;
+        if (bot0 && !bot1) out.reverse();
+    }
     _seats = out;
 }
 
@@ -140,21 +161,13 @@ let _standaloneMode = false;
 // PRACTICE button and the "TRY IT FIRST" option on the in-match intro card.
 let _practiceMode   = false;
 let _practiceReturn = null;   // called when a practice round finishes
-// ONE LEG OF A MULTI-PLAYER ROUND.
-//
-// Above two seats a round is not one game any more — it is a bracket, or a
-// relay, and `RoundFormat` runs it. A leg is a real game with a real result;
-// what it must NOT do is pay the flat reward, move `mgWins`, or raise the
-// result screen, because those belong to the ROUND. A three-leg bracket paying
-// MINIGAME_REWARD three times would settle a board match on its own.
-//
-// Coin hauls are not credited here either: they are handed up so the round can
-// total them across legs and apply the one cap, rather than paying MAX_PAYOUT
-// per leg.
-let _legMode = false;
+// (leg mode removed with the bracket — a round is one game now)
 let _countdownActive = false;
 let _countdownIv  = null;
 let _botReadyTimeout = null;
+// Above two slots there can be more than one bot readying itself, so one handle
+// is not enough to cancel them all on a force-end.
+const _botTimers = new Set();
 let _minigameTimeout = null;
 let _resolving = false;   // true once a minigame's result is being finalised
 const _minigameCleanups = [];
@@ -164,7 +177,7 @@ const _minigameCleanups = [];
 let _introReady = [false, false];
 // Arcade-only scoreline. Deliberately separate from anything the board reads:
 // player.coins and player.mgWins belong to a match and must not move here.
-let _arcadeWins  = [0, 0];
+let _arcadeWins  = [0, 0, 0, 0];
 let _arcadeDraws = 0;
 
 // Fifteen games write their clock and score into #mg-neutral with plain
@@ -270,7 +283,11 @@ function _showPracticeHold(mgType) {
 
 // ---- Standalone entry point (called from minigame selector on main screen) ----
 
-export function triggerStandalone(mgType, isBotOpponent = false) {
+// `seats` is how many slots to give it — 2 unless the arcade is filtered to the
+// 3-4 player surface, in which case the point of pressing PLAY is to see the
+// game with three or four zones on it. Anything past the seats the match has is
+// filled with bots so there is somebody in every zone.
+export function triggerStandalone(mgType, isBotOpponent = false, seats = 2) {
     _practiceMode = false;
     _standaloneMode = true;
     _onComplete = () => {
@@ -280,8 +297,16 @@ export function triggerStandalone(mgType, isBotOpponent = false) {
     state.gameState   = 'MINIGAME_INTRO';
     state.cameraState = 'MINIGAME';
     state.mgType      = mgType;
-    _setRoster([0, 1]);
+    const n = Math.max(2, Math.min(4, seats | 0));
+    // The arcade opens with the default two seats, so asking for four has to
+    // grow the table first — a roster naming a seat that does not exist is
+    // rejected by _setRoster and silently falls back to a duel.
+    if (state.players.length < n) setPlayerCount(n);
+    _setRoster(Array.from({ length: n }, (_, i) => i));
     state.players[1].isBot = !!isBotOpponent;
+    // Slots 2 and 3 are never a person standing at the arcade, so give them a
+    // bot rather than a zone that never moves.
+    for (let i = 2; i < n; i++) state.players[i].isBot = true;
 
     document.getElementById('mg-select-overlay').style.display = 'none';
     _showIntroCard(mgType);
@@ -483,6 +508,11 @@ export function eligibleTypes() {
     const pool = MG_TYPES.filter(t => {
         const s = surfacesOf(t);
         if (surface === 'online') return s.online;
+        // sharedMany already requires MG_PROFILE.live — a game whose code has
+        // N slots. The device check on top of it is for the live games that
+        // declare `roomy`: their zones want more than a quarter of a phone.
+        // Odd One Out is the first (a 5x5 grid on a phone quarter is a 34 px
+        // tile), so on a phone at 3-4 seats it is simply not dealt.
         if (surface === 'many')   return s.sharedMany && (tablet || s.manyDevice !== 'tablet');
         return s.sharedTwo;
     });
@@ -525,7 +555,6 @@ function _shuffled(list) {
 export function trigger(onComplete, seats, opts = {}) {
     _practiceMode = false;
     _standaloneMode = false;
-    _legMode = !!opts.leg;
     _setRoster(seats || chooseParticipants());
     _onComplete = onComplete;
     state.gameState  = 'MINIGAME_INTRO';
@@ -533,17 +562,6 @@ export function trigger(onComplete, seats, opts = {}) {
     // A later leg plays the game the table has just had explained to it, so it
     // is told which one rather than spinning the reel again.
     state.mgType = opts.type || nextMgType();
-
-    // Legs after the first skip the reel, the rules card and the orientation
-    // page. The table read all of that ninety seconds ago; making two more
-    // people confirm it twice each is how a three-leg round starts to feel like
-    // three rounds. The ready gate still stands, because the two people playing
-    // this leg are not the two who played the last one.
-    if (opts.skipIntro) {
-        document.getElementById('ui-layer').style.display = 'none';
-        _startMinigameLayer();
-        return;
-    }
 
     document.getElementById('ui-layer').style.display  = 'none';
     document.getElementById('mg-intro-overlay').style.display = 'flex';
@@ -629,6 +647,7 @@ function _startMinigameLayer() {
     clearTimeout(_minigameTimeout);
     clearInterval(_countdownIv); _countdownIv = null;
     clearTimeout(_botReadyTimeout); _botReadyTimeout = null;
+    _botTimers.forEach(clearTimeout); _botTimers.clear();
     _countdownActive = false;
     _resolving = false;
     _lastPayouts = [0, 0];
@@ -645,21 +664,63 @@ function _startMinigameLayer() {
     if (cd) cd.style.display = 'none';
 
     layer.style.display = 'flex';
-    state.mgReady  = [false, false];
+    const n = slotCount();
+    state.mgReady  = new Array(n).fill(false);
     state.mgActive = false;
+
+    _buildReadyButtons(n);
+    document.getElementById('mg-neutral').textContent = n > 2
+        ? 'EVERYBODY TAP READY'
+        : 'BOTH PLAYERS TAP READY!';
+
+    // Bots ready themselves. At three or four slots there may be several.
+    slots().forEach(slot => {
+        if (!isBotSlot(slot)) return;
+        const t = setTimeout(() => { _botTimers.delete(t); setReady(slot); }, 700 + slot * 160);
+        _botTimers.add(t);
+    });
+}
+
+// The ready buttons, one per slot, placed where that player is sitting.
+//
+// There were exactly two, written into index.html, at the top and the bottom.
+// That is a fine gate for a face-off and it is the reason a three- or
+// four-player round could not be started by everybody in it — a fault flagged
+// in docs/MINIGAME_RULEBOOK.md §12 and fixed here. The two originals are still
+// the two-seat case, untouched, so every existing probe that presses
+// #mg-ready-1 and #mg-ready-2 still finds them.
+function _buildReadyButtons(n) {
+    const layer = document.getElementById('minigame-layer');
+    // Anything built for a previous round's seat count.
+    layer.querySelectorAll('.mg-ready-extra').forEach(el => el.remove());
 
     [1, 2].forEach(i => {
         const rd = document.getElementById(`mg-ready-${i}`);
-        rd.style.display = 'block'; rd.classList.remove('ready'); rd.textContent = 'READY';
+        if (!rd) return;
+        rd.style.display = 'block';
+        rd.classList.remove('ready');
+        rd.textContent = n > 2 ? _readyLabel(i - 1) : 'READY';
     });
-    // Above two seats the two people playing this leg are not the two who played
-    // the last one, and "BOTH PLAYERS" does not say which two.
-    const [sa, sb] = roster();
-    document.getElementById('mg-neutral').textContent = state.players.length > 2
-        ? `${(state.players[sa]?.name || 'P1').toUpperCase()} vs ${(state.players[sb]?.name || 'P2').toUpperCase()} — TAP READY`
-        : 'BOTH PLAYERS TAP READY!';
+    for (let slot = 2; slot < n; slot++) {
+        const b = document.createElement('button');
+        b.className = 'mg-ready-btn mg-ready-extra bfont';
+        b.dataset.slot = String(slot);
+        b.textContent = _readyLabel(slot);
+        // Seats 3 and 4 sit at the corners of the near and far edges — the
+        // ring in MinigameLayout. Slot 2 goes bottom-right, slot 3 top-right,
+        // so the two originals keep the middle of their own edge.
+        const far = slot >= 3;
+        b.style.cssText =
+            'position:absolute;right:16px;z-index:70;padding:10px 18px;font-size:19px;' +
+            (far ? 'top:14%;transform:rotate(180deg);' : 'bottom:14%;');
+        b.addEventListener('pointerdown', e => { e.preventDefault(); setReady(slot); });
+        layer.appendChild(b);
+    }
+}
 
-    if (_sp(1).isBot) _botReadyTimeout = setTimeout(() => { _botReadyTimeout = null; setReady(1); }, 800);
+function _readyLabel(slot) {
+    const p = state.players[seatFor(slot)];
+    return (p && p.name ? p.name.toUpperCase() : `P${slot + 1}`);
 }
 
 // ---- Ready + countdown ----
@@ -667,11 +728,13 @@ function _startMinigameLayer() {
 export function setReady(pid) {
     if (_countdownActive || state.mgReady?.[pid]) return;
     state.mgReady[pid] = true;
-    const btn = document.getElementById(`mg-ready-${pid + 1}`);
-    btn.classList.add('ready'); btn.textContent = '✓ READY';
+    const btn = pid < 2
+        ? document.getElementById(`mg-ready-${pid + 1}`)
+        : document.querySelector(`.mg-ready-extra[data-slot="${pid}"]`);
+    if (btn) { btn.classList.add('ready'); btn.textContent = '✓ READY'; }
     sfx('countdown');
 
-    if (state.mgReady[0] && state.mgReady[1]) {
+    if (state.mgReady.slice(0, slotCount()).every(Boolean)) {
         _countdownActive = true;
         document.getElementById('mg-neutral').textContent = 'GET SET...';
         const cd = document.getElementById('mg-countdown');
@@ -687,7 +750,8 @@ export function setReady(pid) {
             } else {
                 clearInterval(_countdownIv); _countdownIv = null;
                 cd.style.display = 'none';
-                [1, 2].forEach(i => document.getElementById(`mg-ready-${i}`).style.display = 'none');
+                [1, 2].forEach(i => { const b = document.getElementById(`mg-ready-${i}`); if (b) b.style.display = 'none'; });
+                document.querySelectorAll('.mg-ready-extra').forEach(b => { b.style.display = 'none'; });
                 state.mgActive = true;
                 document.getElementById('mg-neutral').textContent = 'MINIGAME TIME';
                 _launchGame();
@@ -731,14 +795,14 @@ export function lastPayouts() { return _lastPayouts.slice(); }
 // result screen can show "caught 24" and "+10 for the win" as different things.
 function _creditPayouts(payouts) {
     if (!Array.isArray(payouts)) return [0, 0];
-    const out = [0, 0];
-    for (let i = 0; i < 2; i++) {
+    const out = new Array(slotCount()).fill(0);
+    for (let i = 0; i < out.length; i++) {
         const n = Math.max(0, Math.round(payouts[i] || 0));
         out[i] = n;
         // Indexed by SLOT and paid to the SEAT sitting in it.
         if (n > 0) { const q = _sp(i); q.coins += n; q.coinsEarned += n; }
     }
-    if (out[0] || out[1]) {
+    if (out.some(Boolean)) {
         sfx('coin_gain');
         import('../ui/UIManager.js').then(({ animateCoinDisplay, updateUI }) => {
             state.players.forEach((p, i) => animateCoinDisplay(i, p.coins));
@@ -765,7 +829,6 @@ export function winMinigame(winnerId, payouts) {
     // arcade for ten minutes and then starting a game handed somebody a fortune.
     // It keeps a round tally instead and touches nothing the board cares about.
     if (_standaloneMode) return _finishArcade(winnerId);
-    if (_legMode) return _finishLeg(winnerId, payouts);
     // Guard against double-resolution. Don't key this off state.mgActive:
     // most minigames clear mgActive in their own _finish() before calling
     // onWin, which previously made this early-return and strand the result.
@@ -777,9 +840,9 @@ export function winMinigame(winnerId, payouts) {
         // TIE — both players get coins, coin flip decides who goes first.
         // "Both" means the two who played: in a four-player match the two
         // spectators did not draw anything and must not be paid for it.
-        const flipSlot   = Math.random() < 0.5 ? 0 : 1;
+        const flipSlot   = Math.floor(Math.random() * slotCount());
         const flipWinner = seatFor(flipSlot);
-        [0, 1].forEach(slot => {
+        slots().forEach(slot => {
             const p = _sp(slot);
             p.coins += MINIGAME_TIE_REWARD;
             p.coinsEarned += MINIGAME_TIE_REWARD;
@@ -791,8 +854,12 @@ export function winMinigame(winnerId, payouts) {
         sfx('coin_gain');
         document.getElementById('mg-neutral').textContent = `TIE! 🪙 BOTH +${MINIGAME_TIE_REWARD} — COIN FLIP!`;
         // Flash both player zones
-        const z1 = document.getElementById('mg-p1');
-        const z2 = document.getElementById('mg-p2');
+        // As on the win path: the zone flash belongs to the two-half face-off.
+        // Above two slots the screen is not two halves and there is nothing to
+        // flash, so lighting up mg-p1/mg-p2 would decorate two of four seats
+        // at random.
+        const z1 = slotCount() === 2 ? document.getElementById('mg-p1') : null;
+        const z2 = slotCount() === 2 ? document.getElementById('mg-p2') : null;
         z1?.classList.add('mg-victory');
         z2?.classList.add('mg-victory');
         state.lastMinigameTied = true;
@@ -817,8 +884,11 @@ export function winMinigame(winnerId, payouts) {
         updateUI();
     });
     sfx('mg_win');
-    const winZone  = document.getElementById(`mg-p${winnerId + 1}`);
-    const loseZone = document.getElementById(`mg-p${2 - winnerId}`);
+    // The zone flash belongs to the two-half face-off. Above two slots the
+    // screen is not two halves and there is nothing to flash — the scoreboard
+    // that follows is what says who won.
+    const winZone  = slotCount() === 2 ? document.getElementById(`mg-p${winnerId + 1}`) : null;
+    const loseZone = slotCount() === 2 ? document.getElementById(`mg-p${2 - winnerId}`) : null;
     winZone?.classList.add('mg-victory');
     loseZone?.classList.add('mg-defeat');
     document.getElementById('mg-neutral').textContent = `${winner.name.toUpperCase()} WINS! +${MINIGAME_REWARD} 🪙`;
@@ -867,18 +937,21 @@ function _showScoreboard(winnerId, payouts, practice, done) {
     // money at all, because nothing was ever at stake there.
     const arcade = practice === 'arcade';
 
-    // Two cards, for the two SLOTS that played — not one per seat. A
-    // four-player match has two spectators and they have no result to show.
-    const cardsHTML = () => [0, 1].map((i) => {
+    // One card per SLOT that played. At two that is the pair; above two, in a
+    // live game, it is the whole table — there are no spectators to leave out
+    // any more.
+    const SLOT_HUE = ['#ff6b6b', '#6ba7ff', '#5fd68a', '#ffd45f'];
+    const cardsHTML = () => slots().map((i) => {
         const p = arcade ? state.players[i] : _sp(i);
         const isWin  = winnerId === i;
         const isTie  = winnerId < 0;
-        const rank   = isTie ? '🤝 DRAW' : isWin ? '🥇 WINNER' : '🥈 SECOND';
+        const rank   = isTie ? '🤝 DRAW' : isWin ? '🥇 WINNER'
+                     : slotCount() > 2 ? '· PLAYED' : '🥈 SECOND';
         const rankCls = isTie ? 'mg-sc-tie' : isWin ? 'mg-sc-first' : 'mg-sc-second';
         if (arcade) {
             return `<div class="mg-sc-card ${isWin && !isTie ? 'mg-sc-win' : ''}">
                 <div class="mg-sc-rank ${rankCls}">${rank}</div>
-                <div class="mg-sc-name" style="color:${i === 0 ? '#ff6b6b' : '#6ba7ff'}">${p.name}</div>
+                <div class="mg-sc-name" style="color:${SLOT_HUE[i] || '#fff'}">${p.name}</div>
                 <div class="mg-sc-coins">${_arcadeWins[i]}<span class="mg-sc-unit">won</span></div>
                 <div class="mg-sc-line mg-sc-dim">rounds won in the arcade</div>
             </div>`;
@@ -893,7 +966,7 @@ function _showScoreboard(winnerId, payouts, practice, done) {
         if (!lines.length) lines.push(`<span class="mg-sc-line mg-sc-dim">${practice ? 'practice — nothing at stake' : 'no coins this round'}</span>`);
         return `<div class="mg-sc-card ${isWin && !isTie ? 'mg-sc-win' : ''}">
             <div class="mg-sc-rank ${rankCls}">${rank}</div>
-            <div class="mg-sc-name" style="color:${i === 0 ? '#ff6b6b' : '#6ba7ff'}">${p.name}</div>
+            <div class="mg-sc-name" style="color:${SLOT_HUE[i] || '#fff'}">${p.name}</div>
             <div class="mg-sc-coins">${p.coins}<span class="mg-sc-unit">🪙</span></div>
             ${lines.join('')}
             <div class="mg-sc-line mg-sc-dim">minigames won: <b>${p.mgWins}</b></div>
@@ -905,9 +978,10 @@ function _showScoreboard(winnerId, payouts, practice, done) {
         : practice ? 'PRACTICE ROUND'
         : winnerId < 0 ? 'IT\'S A TIE!'
                        : `${_sp(winnerId).name.toUpperCase()} WINS!`;
-    const total = _arcadeWins[0] + _arcadeWins[1] + _arcadeDraws;
+    const wins  = _arcadeWins.slice(0, slotCount());
+    const total = wins.reduce((a, b) => a + b, 0) + _arcadeDraws;
     const sub = arcade
-        ? `Arcade series ${_arcadeWins[0]}–${_arcadeWins[1]}${_arcadeDraws ? ` (${_arcadeDraws} drawn)` : ''} · round ${total} · no coins at stake`
+        ? `Arcade series ${wins.join('–')}${_arcadeDraws ? ` (${_arcadeDraws} drawn)` : ''} · round ${total} · no coins at stake`
         : practice ? 'Nothing at stake'
         : winnerId < 0 ? 'Coin flip decides who rolls first'
                        : 'Rolls first next turn';
@@ -950,71 +1024,32 @@ function _finishArcade(winnerId) {
     if (_resolving) return;
     _resolving = true;
     state.mgActive = false;
-    _lastPayouts = [0, 0];
+    _lastPayouts = new Array(slotCount()).fill(0);
     if (winnerId >= 0) _arcadeWins[winnerId]++;
     else _arcadeDraws++;
 
+    const line = _arcadeWins.slice(0, slotCount()).join('–');
     const neutral = document.getElementById('mg-neutral');
     if (neutral) {
         neutral.textContent = winnerId < 0
-            ? `DRAW — ${_arcadeWins[0]}–${_arcadeWins[1]}`
-            : `${state.players[winnerId].name.toUpperCase()} WINS THE ROUND — ${_arcadeWins[0]}–${_arcadeWins[1]}`;
+            ? `DRAW — ${line}`
+            : `${state.players[winnerId].name.toUpperCase()} WINS THE ROUND — ${line}`;
     }
     sfx(winnerId < 0 ? 'land_bad' : 'mg_win');
-    const z = [document.getElementById('mg-p1'), document.getElementById('mg-p2')];
-    if (winnerId >= 0) {
+    // The zone flash is the two-half face-off's, as everywhere else: above two
+    // slots the screen is not two halves.
+    const z = slotCount() === 2
+        ? [document.getElementById('mg-p1'), document.getElementById('mg-p2')]
+        : [];
+    if (winnerId >= 0 && z.length) {
         z[winnerId]?.classList.add('mg-victory');
         z[1 - winnerId]?.classList.add('mg-defeat');
     }
     setTimeout(() => {
         z.forEach(e => e?.classList.remove('mg-victory', 'mg-defeat'));
-        _showScoreboard(winnerId, [0, 0], 'arcade', () => endMinigame(winnerId));
+        _showScoreboard(winnerId, _lastPayouts, 'arcade', () => endMinigame(winnerId));
     }, 800);
 }
-
-// One leg of a bracket: show who took it, tear the game down, and hand the
-// result up. No coins move here and the board is not touched — `RoundFormat`
-// decides what the ROUND paid once every leg is in.
-function _finishLeg(slot, payouts) {
-    if (_resolving) return;
-    _resolving = true;
-    state.mgActive = false;
-    const winSeat = slot < 0 ? -1 : seatFor(slot);
-    const coins   = {};
-    if (Array.isArray(payouts)) {
-        [0, 1].forEach(i => {
-            const n = Math.max(0, Math.round(payouts[i] || 0));
-            if (n > 0) coins[seatFor(i)] = n;
-        });
-    }
-    const neutral = document.getElementById('mg-neutral');
-    if (neutral) {
-        neutral.textContent = winSeat < 0
-            ? 'DRAW'
-            : `${state.players[winSeat].name.toUpperCase()} TAKES THE LEG!`;
-    }
-    sfx(slot < 0 ? 'land_bad' : 'mg_win');
-    const z = [document.getElementById('mg-p1'), document.getElementById('mg-p2')];
-    if (slot >= 0) { z[slot]?.classList.add('mg-victory'); z[1 - slot]?.classList.add('mg-defeat'); }
-    setTimeout(() => {
-        z.forEach(e => e?.classList.remove('mg-victory', 'mg-defeat'));
-        // The same teardown endMinigame does, minus everything that belongs to
-        // the end of a ROUND: the board's UI stays hidden, the camera stays put
-        // and the turn does not advance, because another leg is coming.
-        clearTimeout(_minigameTimeout); _minigameTimeout = null;
-        clearInterval(_botTraceInt);    _botTraceInt = null;
-        _runMinigameCleanups();
-        document.getElementById('minigame-layer').style.display = 'none';
-        const cb = _onComplete; _onComplete = null;
-        if (cb) cb({ winner: winSeat, coins, seats: roster() });
-    }, 800);
-}
-
-/** True while a leg of a multi-player round is on screen. */
-export function isLeg() { return _legMode; }
-
-/** Leave leg mode — called by RoundFormat once the round is over. */
-export function endLegMode() { _legMode = false; }
 
 // Called when the arcade is opened from the splash, so a session's tally starts
 // at nil rather than carrying over from the last time it was browsed.

@@ -83,6 +83,21 @@ window.__QA = (function () {
         MGM.triggerStandalone(type);
     }
 
+    // Launch ONE named game with an explicit roster, outside a board match.
+    // The arcade's own entry point is hard-wired to two slots, so a probe that
+    // wants to see three or four people in the same game has to say so.
+    function launchLive(type, seats) {
+        const splash = byId('splash');
+        if (splash) splash.style.display = 'none';
+        const sel = byId('mg-select-overlay');
+        if (sel) sel.style.display = 'none';
+        const uiL = byId('ui-layer');
+        if (uiL) uiL.style.display = 'none';
+        return new Promise(res => {
+            MGM.trigger(w => res(w), seats.slice(), { type });
+        });
+    }
+
     function snapshot() {
         if (!S) return {};
         const p = S.players;
@@ -151,29 +166,23 @@ window.__QA = (function () {
             if (b) return tap(b, 'story begin') && 'STORY';
         }
 
-        // 2. The round board — three or four players, one minigame.
-        //
-        // Above two seats a round is a relay or a bracket and there is a card
-        // between every leg: hand the phone on, the next pairing, the final
-        // standings. A harness that does not press them stalls at the first
-        // round of every three- and four-player match, which looks exactly like
-        // a soft lock in the board code.
-        if (visId('round-layer')) {
-            const go = byId('btn-round-go');
-            if (vis(go) && !go.disabled) return tap(go, 'round card') && 'ROUND_CARD';
-            return 'ROUND_WAIT';   // a simulated leg takes itself down
-        }
-
-        // 2a. Minigame flow
+        // 2. Minigame flow
         if (visId('mg-intro-overlay')) {
             if (vis(byId('btn-mg-launch'))) return tap(byId('btn-mg-launch'), 'mg launch') && 'MG_LAUNCH';
             if (vis(byId('btn-mg-intro-next'))) return tap(byId('btn-mg-intro-next'), 'mg next') && 'MG_NEXT';
             return 'MG_INTRO_WAIT';
         }
         if (visId('minigame-layer')) {
+            // One ready button per SLOT. Above two seats the extra ones are
+            // built at runtime by the manager, so a harness that only knows
+            // about #mg-ready-1 and -2 hangs at the gate of every three- and
+            // four-player round.
             const rd1 = byId('mg-ready-1'), rd2 = byId('mg-ready-2');
             if (vis(rd1) && !S.mgReady[0]) return tap(rd1, 'ready P1') && 'MG_READY1';
             if (vis(rd2) && !S.mgReady[1]) return tap(rd2, 'ready P2') && 'MG_READY2';
+            const extra = [...document.querySelectorAll('.mg-ready-extra')]
+                .find(b => vis(b) && !S.mgReady[+b.dataset.slot]);
+            if (extra) return tap(extra, 'ready P' + (+extra.dataset.slot + 1)) && 'MG_READY' + (+extra.dataset.slot + 1);
             if (S.mgActive) {
                 if (mgLast !== S.mgType || mgStartedAt === 0) { mgLast = S.mgType; mgStartedAt = Date.now(); }
                 mgPlay();
@@ -408,7 +417,7 @@ window.__QA = (function () {
     }
 
     return {
-        bind, step, snapshot, startRun, setMinigameFastResolve, launchArcade, setAutoAckResults,
+        bind, step, snapshot, startRun, setMinigameFastResolve, launchArcade, launchLive, setAutoAckResults,
         // Scene-graph / GPU-object census — used to prove or disprove leak claims.
         sceneCensus: async () => {
             const R = await import('/src/engine/Renderer.js');

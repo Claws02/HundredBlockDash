@@ -156,14 +156,14 @@ async function runSeats(browser, seats, budgetSec) {
         seen.add(res.s.activePlayer);
         if (res.win) { winSeen = true; break; }
 
-        // 5. A minigame in a >2 seat match is a ROUND THE WHOLE TABLE PLAYS.
+        // 5. A minigame in a >2 seat match is ONE GAME THE WHOLE TABLE PLAYS.
         //    It used to be a duel between two of them with the rest watching,
         //    and this probe asserted exactly that — that a bystander's win
-        //    count never moved. There are no bystanders now: RoundFormat plays
-        //    the round as a relay or a bracket and every seat is in it. What
-        //    replaces the old rule is the one that has to hold whatever shape
-        //    the round took: ONE seat gains a win, and it is one of the seats
-        //    that were in the round.
+        //    count never moved. Then it was a relay or a bracket, which put
+        //    everybody in the round but only one of them on the screen at a
+        //    time. Both are gone. Every seat is in the same game at the same
+        //    moment, so the rule is: the roster is the whole table, and exactly
+        //    ONE seat comes out of it with a win.
         if (res.s.gameState === 'MINIGAME_INTRO' && !lastMgWins) {
             lastMgWins = await page.evaluate(async () => {
                 const S = (await import('/src/core/GameState.js')).state;
@@ -174,11 +174,9 @@ async function runSeats(browser, seats, budgetSec) {
             && res.s.gameState !== 'MINIGAME_ACK' && !res.s.mgActive) {
             const after = await page.evaluate(async () => {
                 const S = (await import('/src/core/GameState.js')).state;
-                const RF = await import('/src/minigames/RoundFormat.js');
-                const last = RF.lastRound();
+                const M = await import('/src/minigames/MinigameManager.js');
                 return { coins: S.players.map(p => p.coins), wins: S.players.map(p => p.mgWins),
-                         seats: last ? last.seats : null, relay: last ? last.relay : null,
-                         legs: last ? (last.results || []).length : 0 };
+                         seats: M.roster(), type: S.mgLastType };
             });
             const before = lastMgWins;
             // `mgWins` is the precise signal and coins are not: the window
@@ -189,7 +187,7 @@ async function runSeats(browser, seats, budgetSec) {
             mgChecks.push({
                 moved, gained: moved.filter(x => x > 0).length,
                 lost: moved.filter(x => x < 0).length,
-                seats: after.seats, relay: after.relay, legs: after.legs,
+                seats: after.seats, type: after.type,
             });
             lastMgWins = null;
         }
@@ -198,17 +196,25 @@ async function runSeats(browser, seats, budgetSec) {
 
     ok(`${tag} · every seat took a turn`, seen.size === seats,
         `seats seen: ${[...seen].sort().join(',')}`);
+    // The games the bag is allowed to deal to this table: LIVE, and not
+    // `roomy` — this probe runs on a 412 px phone.
+    const LIVE = await page.evaluate(async () => {
+        const R = await import('/src/config/MinigameRegistry.js');
+        return R.MG_TYPES.filter(t => {
+            const s = R.surfacesOf(t);
+            return s.sharedMany && s.manyDevice !== 'tablet';
+        });
+    });
     if (mgChecks.length) {
         ok(`${tag} · every round is played by the whole table`,
             mgChecks.every(c => c.seats && c.seats.length === seats),
             `${mgChecks.length} round(s); seats in each: ${JSON.stringify(mgChecks.map(c => c.seats && c.seats.length))}`);
-        // A relay is one leg per player and a bracket is two or three legs; a
-        // round that reports one leg at four seats is a duel that slipped
-        // through, which is the thing this whole format exists to stop.
-        ok(`${tag} · a round is played in legs, not as one duel`,
-            mgChecks.every(c => c.legs >= (seats === 3 ? 2 : 3)),
-            JSON.stringify(mgChecks.map(c => ({ relay: c.relay, legs: c.legs }))));
-        ok(`${tag} · one win per round, however many legs it took`,
+        // The bag must only deal games that can seat everybody. A round whose
+        // type is not LIVE is a game two of these four cannot see.
+        ok(`${tag} · only games that seat everybody are dealt`,
+            mgChecks.every(c => LIVE.includes(c.type)),
+            JSON.stringify(mgChecks.map(c => c.type)));
+        ok(`${tag} · one win per round`,
             mgChecks.every(c => c.gained === 1 && c.lost === 0),
             JSON.stringify(mgChecks.map(c => c.moved)));
     } else {
