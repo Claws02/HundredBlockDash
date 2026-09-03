@@ -52,14 +52,14 @@ const EXPECT = {
     grandprix:    [false, null,     true ],
     memorymatch: [false, null,     false],
     fourinarow:  [false, null,     false],
-    gridrecall:   [false, null,     true ],
+    gridrecall:   [true,  'tablet', true ],
     oddoneout:    [true,  'tablet', true ],
 };
 
 // The headline counts from the plan. If a property changes and one of these
 // moves, the plan is out of date and should be updated deliberately.
 const EXPECT_PHONE_MANY = 3;    // LIVE games — converted to N slots
-const EXPECT_TABLET_MANY = 8;   // ...plus Odd One Out and Steady Hand, which declare `roomy`
+const EXPECT_TABLET_MANY = 9;   // ...plus Odd One Out and Steady Hand, which declare `roomy`
 const EXPECT_ONLINE = 15;       // possible across devices
 const EXPECT_ONLINE_NOW = 6;    // running across devices today
 

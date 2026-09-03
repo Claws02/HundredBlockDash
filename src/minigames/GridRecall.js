@@ -10,7 +10,8 @@
 
 import { state } from '../core/GameState.js';
 import { sfx, haptic } from '../engine/AudioManager.js';
-import { registerMinigameCleanup } from './MinigameManager.js';
+import { registerMinigameCleanup, slotCount, isBotSlot, seatFor } from './MinigameManager.js';
+import { zonesFor } from '../config/MinigameLayout.js';
 
 // ── Tunables ─────────────────────────────────────────────────────────────────
 const ROUNDS     = 4;
@@ -28,10 +29,12 @@ let _af = null, _last = 0, _t = 0;
 let _phase = 'show';       // 'show' | 'input' | 'reveal'
 let _round = 0, _K = 3;
 let _lit = new Set();
-let _chosen = [new Set(), new Set()];
-let _locked = [false, false];
-let _failed = [false, false];   // tapped a wrong tile → out for this round
-let _roundWins = [0, 0];        // rounds won (race: first to recall the whole pattern)
+let _n = 2;                     // slots, not seats
+let _chosen = [];
+let _locked = [];
+let _failed = [];               // tapped a wrong tile → out for this round
+let _roundWins = [];            // rounds won (race: first to recall the whole pattern)
+let _zones = [];                // one rect+rotation per slot, from MinigameLayout
 let _roundResolved = false;
 let _inputTimer = null;
 
@@ -47,7 +50,8 @@ function _after(fn, ms) {
 export function start(isBot, onWin, botSkill = 0.55) {
     if (!state.mgActive) return;
     _done = false; _onWin = onWin; _isBot = isBot; _botSkill = botSkill;
-    _last = 0; _round = 0; _roundWins = [0, 0];
+    _n = Math.max(2, Math.min(4, slotCount()));
+    _last = 0; _round = 0; _roundWins = new Array(_n).fill(0);
     registerMinigameCleanup(_destroy);
     _build();
     requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -75,14 +79,15 @@ function _build() {
     const onDown = e => {
         if (_done || _phase !== 'input') return;
         e.preventDefault();
-        const w = _overlay.clientWidth, h = _overlay.clientHeight, hh = h / 2;
-        const top = e.clientY < hh;
-        const pid = top ? 1 : 0;
-        if (pid === 1 && _isBot) return;
-        // Map pointer into the half's local coords (top half is rotated 180°).
-        const lx = top ? w - e.clientX : e.clientX;
-        const ly = top ? hh - e.clientY : e.clientY - hh;
-        const idx = _cellAt(lx, ly, w, hh);
+        const r = _overlay.getBoundingClientRect();
+        const x = e.clientX - r.left, y = e.clientY - r.top;
+        const pid = _zoneAt(x, y);
+        if (pid < 0 || isBotSlot(pid)) return;
+        // Into the zone's own frame; the far seats read theirs upside down.
+        const z = _zones[pid], zr = z.rect;
+        const lx = z.rot === 180 ? (zr.x + zr.w) - x : x - zr.x;
+        const ly = z.rot === 180 ? (zr.y + zr.h) - y : y - zr.y;
+        const idx = _cellAt(lx, ly, zr.w, zr.h);
         if (idx >= 0) _tapCell(pid, idx);
     };
     _overlay.addEventListener('pointerdown', onDown);
@@ -102,6 +107,16 @@ function _resize() {
     _canvas.width  = Math.round(w * _dpr);
     _canvas.height = Math.round(h * _dpr);
     _ctx.setTransform(_dpr, 0, 0, _dpr, 0, 0);
+    _zones = zonesFor(_n, w, h);
+}
+
+/** Which slot's zone contains this point, or -1. */
+function _zoneAt(x, y) {
+    for (let i = 0; i < _zones.length; i++) {
+        const r = _zones[i].rect;
+        if (x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h) return i;
+    }
+    return -1;
 }
 
 // Grid geometry — shared by draw and hit-test so they always agree.
@@ -135,12 +150,12 @@ function _startRound() {
     _K = PATTERN[_round];
     _lit = new Set();
     while (_lit.size < _K) _lit.add(Math.floor(Math.random() * CELLS));
-    _chosen = [new Set(), new Set()];
-    _locked = [false, false];
-    _failed = [false, false];
+    _chosen = Array.from({ length: _n }, () => new Set());
+    _locked = new Array(_n).fill(false);
+    _failed = new Array(_n).fill(false);
 
     document.getElementById('mg-neutral').textContent =
-        `ROUND ${_round + 1}/${ROUNDS} — MEMORISE!  (P1 ${_roundWins[0]} · ${_roundWins[1]} P2)`;
+        `ROUND ${_round + 1}/${ROUNDS} — MEMORISE!  (${_roundWins.join(' · ')})`;
     sfx('seq_lit');
 
     _after(_toInput, SHOW_TIME[_round] * 1000);
@@ -151,23 +166,29 @@ function _toInput() {
     _phase = 'input';
     document.getElementById('mg-neutral').textContent = `GO! TAP ALL ${_K} — FIRST TO FINISH WINS!`;
 
-    if (_isBot) _planBot();
+    // Every bot recalls its own pattern. One _planBot drove slot 1 alone, so
+    // above two seats the other bots simply never tapped.
+    for (let pid = 0; pid < _n; pid++) if (isBotSlot(pid)) _planBot(pid);
     // If nobody completes in time, the most-correct taps takes the round.
     _inputTimer = _after(() => {
         if (_phase !== 'input') return;
-        const c0 = _correctCount(0), c1 = _correctCount(1);
-        _resolveRound(c0 > c1 ? 0 : c1 > c0 ? 1 : -1);
+        const counts = Array.from({ length: _n }, (_, i) => _correctCount(i));
+        const best = Math.max(...counts);
+        const top = counts.reduce((a, c, i) => (c === best ? a.concat(i) : a), []);
+        _resolveRound(top.length === 1 ? top[0] : -1);
     }, INPUT_TIME * 1000);
 }
 
 // Bot races too: with skill it recalls the whole pattern and taps fast;
 // otherwise it slips and taps a wrong tile, knocking itself out. (§5)
-function _planBot() {
+function _planBot(pid) {
     const perfect = Math.random() < (0.35 + _botSkill * 0.6);   // 0.35 → 0.95
-    const perTap  = 780 - _botSkill * 430;                       // ~350–780 ms between taps
+    // A little jitter per bot, or three of them tap in perfect lockstep and the
+    // race is decided by slot order rather than by anything a player did.
+    const perTap  = 780 - _botSkill * 430 + pid * 25;            // ~350–780 ms between taps
     const lit     = [..._lit].sort(() => Math.random() - 0.5);
     if (perfect) {
-        lit.forEach((idx, i) => _after(() => { if (_phase === 'input') _tapCell(1, idx); }, 420 + i * perTap));
+        lit.forEach((idx, i) => _after(() => { if (_phase === 'input') _tapCell(pid, idx); }, 420 + pid * 30 + i * perTap));
     } else {
         const mistakeAt = Math.floor(Math.random() * _K);
         const wrongPool = [];
@@ -175,7 +196,7 @@ function _planBot() {
         const wrong = wrongPool[Math.floor(Math.random() * wrongPool.length)];
         for (let i = 0; i <= mistakeAt; i++) {
             const idx = i === mistakeAt ? wrong : lit[i];
-            _after(() => { if (_phase === 'input') _tapCell(1, idx); }, 420 + i * perTap);
+            _after(() => { if (_phase === 'input') _tapCell(pid, idx); }, 420 + pid * 30 + i * perTap);
         }
     }
 }
@@ -196,7 +217,8 @@ function _tapCell(pid, idx) {
         // Wrong tile — knocked out of this round.
         _failed[pid] = true; _locked[pid] = true;
         sfx('land_bad'); haptic([40]);
-        if (_failed[0] && _failed[1]) _resolveRound(-1);   // both out → no winner
+        // Everybody out → nobody takes the round.
+        if (_failed.slice(0, _n).every(Boolean)) _resolveRound(-1);
     }
 }
 
@@ -209,10 +231,10 @@ function _resolveRound(winnerPid) {
     if (winnerPid >= 0) {
         _roundWins[winnerPid]++;
         sfx('mg_win');
-        if (neutral) neutral.textContent = `P${winnerPid + 1} RECALLS IT FIRST!  (P1 ${_roundWins[0]} · ${_roundWins[1]} P2)`;
+        if (neutral) neutral.textContent = `${_nameOf(winnerPid)} RECALLS IT FIRST!  (${_roundWins.join(' · ')})`;
     } else {
         sfx('land_bad');
-        if (neutral) neutral.textContent = `NO WINNER THIS ROUND  (P1 ${_roundWins[0]} · ${_roundWins[1]} P2)`;
+        if (neutral) neutral.textContent = `NO WINNER THIS ROUND  (${_roundWins.join(' · ')})`;
     }
 
     _after(() => {
@@ -236,16 +258,34 @@ function _tick() {
 function _draw() {
     const w = _overlay.clientWidth, h = _overlay.clientHeight;
     _ctx.clearRect(0, 0, w, h);
+    if (!_zones.length) _zones = zonesFor(_n, w, h);
     _ctx.strokeStyle = 'rgba(255,255,255,0.10)';
     _ctx.lineWidth = 2;
-    _ctx.beginPath(); _ctx.moveTo(0, h / 2); _ctx.lineTo(w, h / 2); _ctx.stroke();
+    _zones.forEach(z => {
+        const r = z.rect;
+        _ctx.strokeRect(r.x + 1, r.y + 1, r.w - 2, r.h - 2);
+    });
 
-    _ctx.save(); _ctx.translate(w, h / 2); _ctx.rotate(Math.PI); _drawHalf(1, w, h / 2); _ctx.restore();
-    _ctx.save(); _ctx.translate(0, h / 2); _drawHalf(0, w, h / 2); _ctx.restore();
+    _zones.forEach((z, pid) => {
+        const r = z.rect;
+        _ctx.save();
+        if (z.rot === 180) {
+            _ctx.translate(r.x + r.w, r.y + r.h);
+            _ctx.rotate(Math.PI);
+        } else {
+            _ctx.translate(r.x, r.y);
+        }
+        _drawHalf(pid, r.w, r.h);
+        _ctx.restore();
+    });
 }
 
+const SLOT_ACCENT = ['#ff5a5a', '#5a9bff', '#5fd68a', '#ffd45f'];
+const SLOT_PICK   = ['rgba(255,90,90,0.30)', 'rgba(90,155,255,0.30)',
+                     'rgba(95,214,138,0.30)', 'rgba(255,212,95,0.30)'];
+
 function _drawHalf(pid, w, hh) {
-    const accent = pid === 0 ? '#ff5a5a' : '#5a9bff';
+    const accent = SLOT_ACCENT[pid] || '#ffffff';
     const rects = _cellRects(w, hh);
     const glow = 0.6 + 0.4 * Math.sin(_t * 5);
 
@@ -256,8 +296,7 @@ function _drawHalf(pid, w, hh) {
         if (_phase === 'show' && _lit.has(i)) {
             fill = `rgba(251,191,36,${glow})`; border = '#fbbf24';      // pattern flash (gold)
         } else if (_phase === 'input' && _chosen[pid].has(i)) {
-            fill = 'rgba(90,155,255,0.30)'; border = accent;            // my pick
-            if (pid === 0) fill = 'rgba(255,90,90,0.30)';
+            fill = SLOT_PICK[pid] || 'rgba(255,255,255,0.30)'; border = accent;   // my pick
         } else if (_phase === 'reveal') {
             const lit = _lit.has(i), chose = _chosen[pid].has(i);
             if (lit && chose)       { fill = 'rgba(74,222,128,0.45)'; border = '#4ade80'; }   // correct
@@ -274,7 +313,7 @@ function _drawHalf(pid, w, hh) {
     _ctx.fillStyle = accent;
     _ctx.font = '700 18px Nunito, sans-serif';
     _ctx.textAlign = 'center'; _ctx.textBaseline = 'alphabetic';
-    _ctx.fillText(`P${pid + 1}`, w / 2, hh * 0.12);
+    _ctx.fillText(_nameOf(pid), w / 2, hh * 0.12);
     _ctx.fillStyle = 'rgba(255,255,255,0.85)';
     _ctx.font = '900 22px "Bebas Neue", sans-serif';
     _ctx.fillText(`${_roundWins[pid]} WIN${_roundWins[pid] === 1 ? '' : 'S'}`, w / 2, hh * 0.20);
@@ -296,13 +335,29 @@ function _roundRect(x, y, w, h, r) {
 }
 
 // ── End / cleanup ─────────────────────────────────────────────────────────────
+
+/** The outright most rounds won, or -1 if the top is shared. */
+function _leader() {
+    const best = Math.max(..._roundWins);
+    const top = _roundWins.reduce((a, v, i) => (v === best ? a.concat(i) : a), []);
+    return top.length === 1 ? top[0] : -1;
+}
+
+function _nameOf(pid) {
+    const p = state.players[seatFor(pid)];
+    return (p && p.name ? p.name : `P${pid + 1}`).toUpperCase();
+}
+
 function _finish() {
     if (_done) return;
     _done = true;
     state.mgActive = false;
-    const winner = _roundWins[0] > _roundWins[1] ? 0 : _roundWins[1] > _roundWins[0] ? 1 : -1;
+    const winner = _leader();
     const neutral = document.getElementById('mg-neutral');
-    if (neutral) neutral.textContent = winner < 0 ? `DRAW! ${_roundWins[0]}-${_roundWins[1]}` : `P${winner + 1} WINS! ${_roundWins[0]}-${_roundWins[1]}`;
+    if (neutral) {
+        const line = _roundWins.join('-');
+        neutral.textContent = winner < 0 ? `DRAW! ${line}` : `${_nameOf(winner)} WINS! ${line}`;
+    }
     sfx(winner < 0 ? 'land_bad' : 'mg_win');
     _after(() => { _destroy(); _onWin(winner); }, 1500);
 }
@@ -314,7 +369,7 @@ function _destroy() {
     _timers.forEach(clearTimeout); _timers.length = 0;
     _cleanups.forEach(f => { try { f(); } catch (e) {} }); _cleanups.length = 0;
     if (_af) { cancelAnimationFrame(_af); _af = null; }
-    _ctx = null; _canvas = null;
+    _ctx = null; _canvas = null; _zones = [];
     if (_overlay) { _overlay.remove(); _overlay = null; }
     _last = 0; _t = 0;
 }

@@ -410,7 +410,9 @@ export const MG_PROFILE = {
     // against the others rather than a score compared afterwards, and a race
     // needs each device to report when it finished. That shared finish is also
     // why MG_NET has always had it as 'local' rather than 'parallel'.
-    gridrecall:  { genre: 'brain',    control: 'tap',   wire: 'stamp',    seats: [2, 4], live: false },
+    // roomy: a 4x4 grid, and a quarter of a phone puts each tile at 38 px —
+    // under the 44 px the control law asks for. Tablet quarters give 76 px.
+    gridrecall:  { genre: 'brain',    control: 'tap',   wire: 'stamp',    seats: [2, 4], live: true, roomy: true },
     // roomy: the grid climbs to 5x5 as you score, and a fifth of a phone quarter
     // is a 34 px tile — under the 44 px the control law asks for. On a tablet
     // quarter the same grid is 68 px a side, so 3-4 seats is a tablet game.
