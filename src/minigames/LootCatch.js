@@ -11,7 +11,8 @@
 
 import { state } from '../core/GameState.js';
 import { sfx, haptic } from '../engine/AudioManager.js';
-import { registerMinigameCleanup } from './MinigameManager.js';
+import { registerMinigameCleanup, slotCount, isBotSlot, seatFor } from './MinigameManager.js';
+import { zonesFor } from '../config/MinigameLayout.js';
 import * as Solo from './SoloArena.js';
 
 // ── Tunables ─────────────────────────────────────────────────────────────────
@@ -50,13 +51,15 @@ let _done = false, _onWin = null, _isBot = false, _botSkill = 0.55;
 let _overlay = null, _canvas = null, _ctx = null, _dpr = 1;
 let _af = null, _last = 0, _t = 0;
 
-let _items   = [[], []];     // per player: { x, y, vy, bomb } in 0..1 local coords
-let _basket  = [0.5, 0.5];   // per player basket centre x (0..1)
-let _score   = [0, 0];
+let _n       = 2;            // slots, not seats
+let _items   = [];           // per player: { x, y, vy, bomb } in 0..1 local coords
+let _basket  = [];           // per player basket centre x (0..1)
+let _score   = [];
 let _spawnAcc = 0;
 let _dropped  = 0;   // how many items have fallen — the index the seed is read at
-let _botTarget = 0.5, _botRetargetIn = 0;
-const _flash = [null, null];   // per-player catch feedback { type, t }
+let _botTarget = [], _botRetargetIn = [];
+let _flash = [];             // per-player catch feedback { type, t }
+let _zones = [];             // one rect+rotation per slot, from MinigameLayout
 
 const _cleanups = [];
 const _timers   = [];
@@ -70,9 +73,15 @@ function _after(fn, ms) {
 export function start(isBot, onWin, botSkill = 0.55) {
     if (!state.mgActive) return;
     _done = false; _onWin = onWin; _isBot = isBot; _botSkill = botSkill;
+    _n = Solo.isSolo() ? 1 : Math.max(2, Math.min(4, slotCount()));
     _last = 0; _t = 0;
-    _items = [[], []]; _basket = [0.5, 0.5]; _score = [0, 0];
-    _spawnAcc = 0; _dropped = 0; _botTarget = 0.5; _botRetargetIn = 0;
+    _items  = Array.from({ length: _n }, () => []);
+    _basket = new Array(_n).fill(0.5);
+    _score  = new Array(_n).fill(0);
+    _flash  = new Array(_n).fill(null);
+    _botTarget = new Array(_n).fill(0.5);
+    _botRetargetIn = new Array(_n).fill(0);
+    _spawnAcc = 0; _dropped = 0;
     registerMinigameCleanup(_destroy);
     _build();
     requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -99,17 +108,20 @@ function _build() {
     const move = e => {
         if (_done) return;
         e.preventDefault();
-        const w = _overlay.clientWidth, h = _overlay.clientHeight, hh = h / 2;
+        const rect = _overlay.getBoundingClientRect();
+        const x = e.clientX - rect.left, y = e.clientY - rect.top;
         // Alone the chute is the whole screen and every finger is yours.
         if (Solo.isSolo()) {
-            _basket[0] = Math.max(BASKET_W / 2, Math.min(1 - BASKET_W / 2, e.clientX / w));
+            _basket[0] = Math.max(BASKET_W / 2,
+                Math.min(1 - BASKET_W / 2, x / _overlay.clientWidth));
             return;
         }
-        const top = e.clientY < hh;
-        const pid = top ? 1 : 0;
-        if (pid === 1 && _isBot) return;
-        // Map into local half x (top half is rotated 180°).
-        const lx = top ? (w - e.clientX) / w : e.clientX / w;
+        const pid = _zoneAt(x, y);
+        if (pid < 0 || isBotSlot(pid)) return;
+        // Into the zone's own 0..1 x. A far seat holds the screen upside down,
+        // so their fraction runs the other way.
+        const z = _zones[pid], r = z.rect;
+        const lx = z.rot === 180 ? (r.x + r.w - x) / r.w : (x - r.x) / r.w;
         _basket[pid] = Math.max(BASKET_W / 2, Math.min(1 - BASKET_W / 2, lx));
     };
     _overlay.addEventListener('pointerdown', move);
@@ -132,6 +144,16 @@ function _resize() {
     _canvas.width  = Math.round(w * _dpr);
     _canvas.height = Math.round(h * _dpr);
     _ctx.setTransform(_dpr, 0, 0, _dpr, 0, 0);
+    _zones = zonesFor(_n, w, h);
+}
+
+/** Which slot's zone contains this point, or -1. */
+function _zoneAt(x, y) {
+    for (let i = 0; i < _zones.length; i++) {
+        const r = _zones[i].rect;
+        if (x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h) return i;
+    }
+    return -1;
 }
 
 // ── Loop ───────────────────────────────────────────────────────────────────────
@@ -144,7 +166,10 @@ function _tick() {
 
     if (_t >= GAME_TIME) { _finish(); return; }
     _update(dt);
-    if (_isBot) _botUpdate(dt);
+    // One bot per slot: the single-target version steered slot 1 only.
+    if (!Solo.isSolo()) {
+        for (let pid = 0; pid < _n; pid++) if (isBotSlot(pid)) _botUpdate(pid, dt);
+    }
     _draw();
 }
 
@@ -176,17 +201,19 @@ function _update(dt) {
         const gem  = !bomb && rnd(2) < GEM_CHANCE;
         const vy   = fallSpeed * (0.9 + rnd(3) * 0.2);
         _dropped++;
-        _items[0].push({ x, y: -ITEM_R, vy, bomb, gem });
-        if (!Solo.isSolo()) _items[1].push({ x, y: -ITEM_R, vy, bomb, gem });
+        // The same item into every chute: the hauls being compared have to be
+        // earned from the same loot, whether that is two players on one screen
+        // or four on four phones.
+        for (let pid = 0; pid < _n; pid++) _items[pid].push({ x, y: -ITEM_R, vy, bomb, gem });
     }
 
-    for (const pid of Solo.pids()) _stepItems(pid, dt);
+    for (let pid = 0; pid < _n; pid++) _stepItems(pid, dt);
 
     const left = Math.ceil(GAME_TIME - _t);
     const neu = document.getElementById('mg-neutral');
     if (neu) neu.textContent = Solo.isSolo()
         ? `${left}s   🪙 ${_score[0]}`
-        : `${left}s   🪙 P1 ${_score[0]} · ${_score[1]} P2`;
+        : `${left}s   🪙 ${_score.join(' · ')}`;
 }
 
 const BASKET_Y = 0.84;   // basket line in local half coords
@@ -222,32 +249,32 @@ function _catch(pid, it) {
 }
 
 // ── Bot ───────────────────────────────────────────────────────────────────────
-function _botUpdate(dt) {
-    const arr = _items[1];
+function _botUpdate(pid, dt) {
+    const arr = _items[pid];
     // Find the most urgent item: lowest coin to grab, or a bomb to dodge.
     let targetCoin = null, dodge = null;
     for (const it of arr) {
         if (it.y < 0.2 || it.y > BASKET_Y + 0.05) continue;
         if (it.bomb) {
-            if (Math.abs(it.x - _basket[1]) < BASKET_W && (!dodge || it.y > dodge.y)) dodge = it;
+            if (Math.abs(it.x - _basket[pid]) < BASKET_W && (!dodge || it.y > dodge.y)) dodge = it;
         } else if (!targetCoin || it.y > targetCoin.y) {
             targetCoin = it;
         }
     }
-    _botRetargetIn -= dt;
-    if (_botRetargetIn <= 0) {
-        _botRetargetIn = 0.12 + (1 - _botSkill) * 0.25;   // slower reactions at low skill
+    _botRetargetIn[pid] -= dt;
+    if (_botRetargetIn[pid] <= 0) {
+        _botRetargetIn[pid] = 0.12 + (1 - _botSkill) * 0.25;   // slower reactions at low skill
         const err = (1 - _botSkill) * 0.22 * (Math.random() + Math.random() - 1);
-        if (targetCoin) _botTarget = targetCoin.x + err;
+        if (targetCoin) _botTarget[pid] = targetCoin.x + err;
         if (dodge && (!targetCoin || dodge.y > targetCoin.y - 0.1)) {
             // sidestep the bomb
-            _botTarget = dodge.x + (dodge.x < 0.5 ? 0.28 : -0.28) + err;
+            _botTarget[pid] = dodge.x + (dodge.x < 0.5 ? 0.28 : -0.28) + err;
         }
-        _botTarget = Math.max(BASKET_W / 2, Math.min(1 - BASKET_W / 2, _botTarget));
+        _botTarget[pid] = Math.max(BASKET_W / 2, Math.min(1 - BASKET_W / 2, _botTarget[pid]));
     }
     const speed = (1.6 + _botSkill * 2.4);   // basket tracking speed (half-widths/s)
-    const d = _botTarget - _basket[1];
-    _basket[1] += Math.max(-speed * dt, Math.min(speed * dt, d));
+    const d = _botTarget[pid] - _basket[pid];
+    _basket[pid] += Math.max(-speed * dt, Math.min(speed * dt, d));
 }
 
 // ── Draw ─────────────────────────────────────────────────────────────────────
@@ -261,20 +288,38 @@ function _draw() {
         return;
     }
 
-    // Divider
-    _ctx.strokeStyle = 'rgba(255,255,255,0.12)'; _ctx.lineWidth = 2;
-    _ctx.beginPath(); _ctx.moveTo(0, hh); _ctx.lineTo(w, hh); _ctx.stroke();
+    if (!_zones.length) _zones = zonesFor(_n, w, h);
 
-    // P2 (top), rotated 180°.
-    _ctx.save(); _ctx.translate(w, hh); _ctx.rotate(Math.PI); _drawHalf(1, w, hh); _ctx.restore();
-    // P1 (bottom).
-    _ctx.save(); _ctx.translate(0, hh); _drawHalf(0, w, hh); _ctx.restore();
+    _ctx.strokeStyle = 'rgba(255,255,255,0.12)'; _ctx.lineWidth = 2;
+    _zones.forEach(z => {
+        const r = z.rect;
+        _ctx.strokeRect(r.x + 1, r.y + 1, r.w - 2, r.h - 2);
+    });
+
+    _zones.forEach((z, pid) => {
+        const r = z.rect;
+        _ctx.save();
+        // Loot falls in from above the zone, so the chute is clipped to it.
+        _ctx.beginPath(); _ctx.rect(r.x, r.y, r.w, r.h); _ctx.clip();
+        if (z.rot === 180) {
+            _ctx.translate(r.x + r.w, r.y + r.h);
+            _ctx.rotate(Math.PI);
+        } else {
+            _ctx.translate(r.x, r.y);
+        }
+        _drawHalf(pid, r.w, r.h);
+        _ctx.restore();
+    });
 }
 
+const SLOT_ACCENT = ['#ff5a5a', '#5a9bff', '#5fd68a', '#ffd45f'];
+const SLOT_TINT   = ['rgba(255,90,90,0.05)', 'rgba(90,155,255,0.05)',
+                     'rgba(95,214,138,0.05)', 'rgba(255,212,95,0.05)'];
+
 function _drawHalf(pid, w, hh) {
-    const accent = pid === 0 ? '#ff5a5a' : '#5a9bff';
+    const accent = SLOT_ACCENT[pid] || '#ffffff';
     // Faint side tint
-    _ctx.fillStyle = pid === 0 ? 'rgba(255,90,90,0.05)' : 'rgba(90,155,255,0.05)';
+    _ctx.fillStyle = SLOT_TINT[pid] || 'rgba(255,255,255,0.04)';
     _ctx.fillRect(0, 0, w, hh);
 
     const R = ITEM_R * w;
@@ -315,7 +360,7 @@ function _drawHalf(pid, w, hh) {
     _ctx.fillStyle = accent;
     _ctx.font = '900 30px "Bebas Neue", sans-serif';
     _ctx.textAlign = 'left'; _ctx.textBaseline = 'top';
-    _ctx.fillText(Solo.isSolo() ? `🪙 ${_score[pid]}` : `P${pid + 1}: ${_score[pid]}`, 14, 12);
+    _ctx.fillText(Solo.isSolo() ? `🪙 ${_score[pid]}` : `${_nameOf(pid)}: ${_score[pid]}`, 14, 12);
 }
 
 function _drawCoin(x, y, r) {
@@ -372,6 +417,18 @@ function _drawBomb(x, y, r) {
  */
 export function soloScore() { return Math.min(_score[0], MAX_PAYOUT); }
 
+/** The outright biggest haul, or -1 if the top is shared. */
+function _leader() {
+    const best = Math.max(..._score);
+    const top = _score.reduce((a, v, i) => (v === best ? a.concat(i) : a), []);
+    return top.length === 1 ? top[0] : -1;
+}
+
+function _nameOf(pid) {
+    const p = state.players[seatFor(pid)];
+    return (p && p.name ? p.name : `P${pid + 1}`).toUpperCase();
+}
+
 function _finishSolo() {
     if (_done) return;
     _done = true;
@@ -387,15 +444,18 @@ function _finish() {
     if (Solo.isSolo()) return _finishSolo();
     _done = true;
     state.mgActive = false;
-    const winner = _score[0] > _score[1] ? 0 : _score[1] > _score[0] ? 1 : -1;
+    const winner = _leader();
     const neu = document.getElementById('mg-neutral');
-    if (neu) neu.textContent = winner < 0
-        ? `DRAW! BOTH KEEP ${_score[0]} 🪙`
-        : `P${winner + 1} WINS! BOTH KEEP THEIR COINS — ${_score[0]} · ${_score[1]}`;
+    if (neu) {
+        const line = _score.join(' · ');
+        neu.textContent = winner < 0
+            ? `DRAW! EVERYBODY KEEPS THEIRS — ${line} 🪙`
+            : `${_nameOf(winner)} WINS! EVERYBODY KEEPS THEIR COINS — ${line}`;
+    }
     sfx(winner < 0 ? 'land_bad' : 'mg_win');
-    // Coin game: hand the manager each player's haul so BOTH banks it. Snapshot
-    // the scores first — _destroy() clears them.
-    const payouts = [Math.min(_score[0], MAX_PAYOUT), Math.min(_score[1], MAX_PAYOUT)];
+    // Coin game: hand the manager every player's haul so they ALL bank it.
+    // Snapshot the scores first — _destroy() clears them.
+    const payouts = _score.map(v => Math.min(v, MAX_PAYOUT));
     _after(() => { _destroy(); _onWin(winner, payouts); }, 1500);
 }
 
@@ -408,5 +468,5 @@ function _destroy() {
     _ctx = null; _canvas = null;
     if (_overlay) { _overlay.remove(); _overlay = null; }
     _last = 0; _t = 0;
-    _items = [[], []]; _flash[0] = _flash[1] = null;
+    _items = []; _flash = []; _zones = [];
 }

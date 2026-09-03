@@ -383,7 +383,9 @@ export const MG_PROFILE = {
     // 206x400 and a meteor crosses it in well under a second — there is no
     // dodge in that, only a reflex test.
     meteordodge: { genre: 'scramble', control: 'thumb', wire: 'none',     seats: [2, 4], live: true, roomy: true },
-    lootcatch:   { genre: 'scramble', control: 'thumb', wire: 'none',     seats: [2, 4], live: false },
+    // roomy: same reason as Meteor Dodge — loot falls the length of the zone,
+    // and a 400 px drop is over before the basket has moved.
+    lootcatch:   { genre: 'scramble', control: 'thumb', wire: 'none',     seats: [2, 4], live: true, roomy: true },
     // roomy: the stem scrolls vertically at 74 px a branch, so a zone needs
     // height to read as a climb. A phone quarter is 400 px — five branches of
     // visible tree — which is not a race you can see coming.
