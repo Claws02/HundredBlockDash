@@ -13,7 +13,8 @@
 
 import { state } from '../core/GameState.js';
 import { sfx, haptic } from '../engine/AudioManager.js';
-import { registerMinigameCleanup } from './MinigameManager.js';
+import { registerMinigameCleanup, slotCount, isBotSlot, seatFor } from './MinigameManager.js';
+import { zonesFor } from '../config/MinigameLayout.js';
 import * as Solo from './SoloArena.js';
 
 // ── Tunables (all positions are 0..1 fractions of a half) ───────────────────────
@@ -40,14 +41,16 @@ let _done = false, _onWin = null, _isBot = false, _botSkill = 0.55;
 let _overlay = null, _canvas = null, _ctx = null, _dpr = 1;
 let _af = null, _last = 0, _elapsed = 0;
 
-let _ship    = [0.5, 0.5];
-let _ptr     = [null, null];
-let _lives   = [START_LIVES, START_LIVES];
-let _dodges  = [0, 0];
-let _inv     = [0, 0];
-let _hitFx   = [0, 0];
-let _meteors = [[], []];
-let _spawnT  = [0, 0];
+let _n       = 2;            // slots, not seats
+let _ship    = [];
+let _ptr     = [];
+let _lives   = [];
+let _dodges  = [];
+let _inv     = [];
+let _hitFx   = [];
+let _meteors = [];
+let _spawnT  = [];
+let _zones   = [];           // one rect+rotation per slot, from MinigameLayout
 
 const _cleanups = [];
 const _timers   = [];
@@ -64,10 +67,16 @@ function _diff()  { return Math.min(1, _elapsed / ROUND_TIME); }
 export function start(isBot, onWin, botSkill = 0.55) {
     if (!state.mgActive) return;
     _done = false; _onWin = onWin; _isBot = isBot; _botSkill = botSkill;
+    _n = Solo.isSolo() ? 1 : Math.max(2, Math.min(4, slotCount()));
     _last = 0; _elapsed = 0;
-    _ship = [0.5, 0.5]; _ptr = [null, null];
-    _lives = [START_LIVES, START_LIVES]; _dodges = [0, 0];
-    _inv = [0, 0]; _hitFx = [0, 0]; _meteors = [[], []]; _spawnT = [0.3, 0.3];
+    _ship   = new Array(_n).fill(0.5);
+    _ptr    = new Array(_n).fill(null);
+    _lives  = new Array(_n).fill(START_LIVES);
+    _dodges = new Array(_n).fill(0);
+    _inv    = new Array(_n).fill(0);
+    _hitFx  = new Array(_n).fill(0);
+    _meteors = Array.from({ length: _n }, () => []);
+    _spawnT = new Array(_n).fill(0.3);
     registerMinigameCleanup(_destroy);
     _build();
     requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -92,33 +101,50 @@ function _build() {
     _overlay.appendChild(_canvas);
     _ctx = _canvas.getContext('2d');
 
-    // Alone on your own phone there is no other half to be in.
-    const pidAt = ly => (Solo.isSolo() ? 0 : (ly > _overlay.clientHeight / 2 ? 0 : 1));
-    const setShip = (pid, lx) => {
-        const w = _overlay.clientWidth;
-        const fx = pid === 0 ? lx / w : (w - lx) / w;     // top half is rotated 180°
-        _ship[pid] = Math.max(0.06, Math.min(0.94, fx));
+    // Alone on your own phone there is no other zone to be in.
+    const pidAt = (x, y) => {
+        if (Solo.isSolo()) return 0;
+        for (let i = 0; i < _zones.length; i++) {
+            const r = _zones[i].rect;
+            if (x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h) return i;
+        }
+        return -1;
+    };
+    // The ship's x is a FRACTION of its own zone, so the sim never knows how
+    // wide the zone is. A far seat holds the screen upside down, so their
+    // fraction runs the other way.
+    const setShip = (pid, x) => {
+        if (Solo.isSolo()) {
+            _ship[0] = Math.max(0.06, Math.min(0.94, x / _overlay.clientWidth));
+            return;
+        }
+        const z = _zones[pid], r = z.rect;
+        const f = z.rot === 180 ? (r.x + r.w - x) / r.w : (x - r.x) / r.w;
+        _ship[pid] = Math.max(0.06, Math.min(0.94, f));
     };
 
     const onDown = e => {
         if (_done) return;
         e.preventDefault();
         const rect = _overlay.getBoundingClientRect();
-        const pid = pidAt(e.clientY - rect.top);
-        if (pid === 1 && _isBot) return;
-        if (_ptr[pid] !== null) return;                   // one finger per side
+        const x = e.clientX - rect.left, y = e.clientY - rect.top;
+        const pid = pidAt(x, y);
+        if (pid < 0 || (!Solo.isSolo() && isBotSlot(pid))) return;
+        if (_ptr[pid] !== null) return;                   // one finger per zone
         _ptr[pid] = e.pointerId;
-        setShip(pid, e.clientX - rect.left);
+        setShip(pid, x);
     };
     const onMove = e => {
         if (_done) return;
         const rect = _overlay.getBoundingClientRect();
-        for (let pid = 0; pid < 2; pid++) {
+        for (let pid = 0; pid < _n; pid++) {
+            // The finger keeps the zone it started in: dragging across the line
+            // must not fly a neighbour's ship.
             if (_ptr[pid] === e.pointerId) { setShip(pid, e.clientX - rect.left); e.preventDefault(); }
         }
     };
     const onUp = e => {
-        for (let pid = 0; pid < 2; pid++) if (_ptr[pid] === e.pointerId) _ptr[pid] = null;
+        for (let pid = 0; pid < _n; pid++) if (_ptr[pid] === e.pointerId) _ptr[pid] = null;
     };
     _overlay.addEventListener('pointerdown', onDown);
     _overlay.addEventListener('pointermove', onMove);
@@ -145,6 +171,7 @@ function _resize() {
     _canvas.width  = Math.round(w * _dpr);
     _canvas.height = Math.round(h * _dpr);
     _ctx.setTransform(_dpr, 0, 0, _dpr, 0, 0);
+    _zones = zonesFor(_n, w, h);
 }
 
 // ── Gameplay ────────────────────────────────────────────────────────────────
@@ -173,13 +200,33 @@ function _hit(pid) {
     _inv[pid] = INVULN;
     _hitFx[pid] = 0.45;
     sfx('land_bad'); haptic([80, 40, 80]);
-    if (_lives[pid] <= 0) {
-        if (Solo.isSolo()) _finishSolo();
-        else _finish((pid + 1) % 2);
-    }
+    if (_lives[pid] > 0) return;
+    if (Solo.isSolo()) { _finishSolo(); return; }
+    // OUT, NOT BEATEN. At two seats losing your last life handed the round to
+    // the other player, which is the same thing. Above two it is not: the
+    // others are still flying, so the round only ends when ONE is left — or
+    // when the clock runs out and the standings decide it.
+    const alive = _lives.reduce((a, l, i) => (l > 0 ? a.concat(i) : a), []);
+    if (alive.length === 1) _finish(alive[0]);
+    else if (alive.length === 0) _finish(_leader());
+}
+
+/** Most lives, then most dodged. -1 if the top is shared. */
+function _leader() {
+    const rank = i => _lives[i] * 10000 + _dodges[i];
+    const best = Math.max(...Array.from({ length: _n }, (_, i) => rank(i)));
+    const top = [];
+    for (let i = 0; i < _n; i++) if (rank(i) === best) top.push(i);
+    return top.length === 1 ? top[0] : -1;
+}
+
+function _nameOf(pid) {
+    const p = state.players[seatFor(pid)];
+    return (p && p.name ? p.name : `P${pid + 1}`).toUpperCase();
 }
 
 function _updateSide(pid, dt) {
+    if (_lives[pid] <= 0) return;      // out: the sky above a wreck goes quiet
     // spawn
     _spawnT[pid] -= dt;
     if (_spawnT[pid] <= 0) {
@@ -200,13 +247,14 @@ function _updateSide(pid, dt) {
     if (_hitFx[pid] > 0) _hitFx[pid] -= dt;
 }
 
-function _botUpdate(dt) {
+function _botUpdate(pid, dt) {
+    if (_lives[pid] <= 0) return;
     const s = _botSkill;
     const look = 0.2 + s * 0.5;          // hard looks further ahead
     let threat = null, best = 2;
-    for (const m of _meteors[1]) {
+    for (const m of _meteors[pid]) {
         const dy = SHIP_Y - m.y;
-        if (dy > 0 && dy < look && Math.abs(m.x - _ship[1]) < 0.22 && dy < best) { best = dy; threat = m; }
+        if (dy > 0 && dy < look && Math.abs(m.x - _ship[pid]) < 0.22 && dy < best) { best = dy; threat = m; }
     }
     let desired;
     if (threat) {
@@ -217,8 +265,8 @@ function _botUpdate(dt) {
     }
     desired = Math.max(0.06, Math.min(0.94, desired));
     const spd = 0.7 + s * 1.0;
-    const d = desired - _ship[1];
-    _ship[1] += Math.sign(d) * Math.min(Math.abs(d), spd * dt);
+    const d = desired - _ship[pid];
+    _ship[pid] += Math.sign(d) * Math.min(Math.abs(d), spd * dt);
 }
 
 // ── Loop ────────────────────────────────────────────────────────────────────
@@ -231,18 +279,15 @@ function _tick() {
     _last = now;
     _elapsed += dt;
 
-    if (_isBot) _botUpdate(dt);
-    _updateSide(0, dt);
-    if (!_done && !Solo.isSolo()) _updateSide(1, dt);
+    // One bot per slot. This used to fly slot 1 alone, so the third and fourth
+    // ships would have sat dead centre taking every meteor.
+    if (!Solo.isSolo()) {
+        for (let pid = 0; pid < _n; pid++) if (isBotSlot(pid)) _botUpdate(pid, dt);
+    }
+    for (let pid = 0; pid < _n && !_done; pid++) _updateSide(pid, dt);
 
     if (!_done && Solo.isSolo() && _elapsed >= ROUND_TIME) { _finishSolo(); return; }
-    if (!_done && _elapsed >= ROUND_TIME) {
-        // Survived: most lives, then most dodged.
-        let winner = _lives[0] > _lives[1] ? 0 : _lives[1] > _lives[0] ? 1
-                   : _dodges[0] > _dodges[1] ? 0 : _dodges[1] > _dodges[0] ? 1 : -1;
-        _finish(winner);
-        return;
-    }
+    if (!_done && _elapsed >= ROUND_TIME) { _finish(_leader()); return; }
     _draw();
 }
 
@@ -264,16 +309,48 @@ function _draw() {
         return;
     }
 
+    if (!_zones.length) _zones = zonesFor(_n, w, h);
+
     _ctx.strokeStyle = 'rgba(255,255,255,0.12)';
     _ctx.lineWidth = 2;
-    _ctx.beginPath(); _ctx.moveTo(0, h / 2); _ctx.lineTo(w, h / 2); _ctx.stroke();
+    _zones.forEach(z => {
+        const r = z.rect;
+        _ctx.strokeRect(r.x + 1, r.y + 1, r.w - 2, r.h - 2);
+    });
 
-    _ctx.save(); _ctx.translate(w, h / 2); _ctx.rotate(Math.PI); _drawHalf(1, w, h / 2); _ctx.restore();
-    _ctx.save(); _ctx.translate(0, h / 2); _drawHalf(0, w, h / 2); _ctx.restore();
+    _zones.forEach((z, pid) => {
+        const r = z.rect;
+        _ctx.save();
+        // Meteors fall past the bottom of the zone before they are culled, so
+        // the sky is clipped to its own quarter.
+        _ctx.beginPath(); _ctx.rect(r.x, r.y, r.w, r.h); _ctx.clip();
+        if (z.rot === 180) {
+            _ctx.translate(r.x + r.w, r.y + r.h);
+            _ctx.rotate(Math.PI);
+        } else {
+            _ctx.translate(r.x, r.y);
+        }
+        _drawHalf(pid, r.w, r.h);
+        _ctx.restore();
+    });
+
+    // Shared clock, dead centre, upright for everybody.
+    const left = Math.max(0, ROUND_TIME - _elapsed);
+    _ctx.fillStyle = 'rgba(8,6,18,0.72)';
+    _ctx.beginPath(); _ctx.arc(w / 2, h / 2, 24, 0, Math.PI * 2); _ctx.fill();
+    _ctx.fillStyle = left < 5 ? '#ef4444' : 'rgba(255,255,255,0.7)';
+    _ctx.font = '900 18px "Bebas Neue", sans-serif';
+    _ctx.textAlign = 'center'; _ctx.textBaseline = 'middle';
+    _ctx.fillText(`${left.toFixed(1)}s`, w / 2, h / 2 + 1);
+    _ctx.textBaseline = 'alphabetic';
 }
 
+const SLOT_ACCENT = ['#ff5a5a', '#5a9bff', '#5fd68a', '#ffd45f'];
+
 function _drawHalf(pid, w, h) {
-    const color = pid === 0 ? '#ff5a5a' : '#5a9bff';
+    const color = SLOT_ACCENT[pid] || '#ffffff';
+    // A wrecked pod's sky is dimmed so it reads as out rather than as idle.
+    if (_lives[pid] <= 0 && !Solo.isSolo()) _ctx.globalAlpha = 0.35;
 
     // Meteors
     for (const m of _meteors[pid]) {
@@ -331,7 +408,7 @@ function _drawHalf(pid, w, h) {
         _ctx.fillStyle = 'rgba(255,255,255,0.55)';
         _ctx.font = '700 14px Nunito, sans-serif';
         _ctx.textAlign = 'center';
-        _ctx.fillText(`P${pid + 1} · dodged ${_dodges[pid]}`, w / 2, h * 0.26);
+        _ctx.fillText(`${_nameOf(pid)} · dodged ${_dodges[pid]}`, w / 2, h * 0.26);
     }
 
     if (_hitFx[pid] > 0) {
@@ -343,6 +420,7 @@ function _drawHalf(pid, w, h) {
         _ctx.font = '900 28px "Bebas Neue", sans-serif';
         _ctx.fillText('OUT!', w / 2, h * 0.55);
     }
+    _ctx.globalAlpha = 1;
 }
 
 // ── End ───────────────────────────────────────────────────────────────────────
@@ -371,8 +449,10 @@ function _finish(winner) {
     _done = true;
     state.mgActive = false;
     const neutral = document.getElementById('mg-neutral');
-    if (neutral) neutral.textContent =
-        winner < 0 ? 'DRAW — BOTH SURVIVED!' : `P${winner + 1} SURVIVES!`;
+    if (neutral) {
+        const line = _lives.map((l, i) => `${_nameOf(i)} ${l}`).join(' · ');
+        neutral.textContent = winner < 0 ? `DRAW — ${line}` : `${_nameOf(winner)} SURVIVES! ${line}`;
+    }
     sfx(winner < 0 ? 'land_bad' : 'mg_win');
     _after(() => { _destroy(); _onWin(winner); }, 1500);
 }
@@ -383,7 +463,7 @@ function _destroy() {
     _timers.forEach(clearTimeout); _timers.length = 0;
     _cleanups.forEach(f => { try { f(); } catch (e) {} }); _cleanups.length = 0;
     if (_af) { cancelAnimationFrame(_af); _af = null; }
-    _ctx = null; _canvas = null;
+    _ctx = null; _canvas = null; _zones = [];
     if (_overlay) { _overlay.remove(); _overlay = null; }
     _last = 0; _meteors = [[], []]; _spawned = 0;
 }
