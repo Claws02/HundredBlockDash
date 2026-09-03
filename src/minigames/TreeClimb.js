@@ -1,5 +1,6 @@
 // ============================================================
-// TREE CLIMB — two stems, one race, and a coin for every branch.
+// TREE CLIMB — a stem each, one race, and a coin for every branch.
+// TWO, THREE OR FOUR players, all climbing at once.
 //
 // A leaf sprouts on the left or the right of your stem. Tap that side to swing
 // up onto it. The NEXT leaf does not exist until you are standing on the last
@@ -15,15 +16,22 @@
 // The climbers are the players' real 3D board pieces, rendered once at the start
 // of the round and drawn as sprites.
 //
-// COIN GAME (R6b): every branch pays, and both players keep what they climbed.
+// COIN GAME (R6b): every branch pays, and everybody keeps what they climbed.
 // You are racing for the bonus, not for the right to be paid at all.
+//
+// LIVE (MG_PROFILE.live): one stem per seat, all of them climbing at the same
+// time. Nothing was ever shared but the clock — a private ladder, a private
+// purse, a private fall — so the conversion is the arrays and the zones. It is
+// `roomy`: a stem needs vertical room to scroll, and a quarter of a phone is
+// 206x400 with a 74 px branch spacing, which is five branches of visible tree.
 // ============================================================
 
 import { state } from '../core/GameState.js';
 import { CHAR_ICONS } from '../config/GameConfig.js';
 import { createCharacterMesh } from '../engine/Renderer.js';
 import { sfx, haptic } from '../engine/AudioManager.js';
-import { registerMinigameCleanup } from './MinigameManager.js';
+import { registerMinigameCleanup, slotCount, isBotSlot, seatFor } from './MinigameManager.js';
+import { zonesFor } from '../config/MinigameLayout.js';
 import * as Solo from './SoloArena.js';
 
 // ── Tunables ────────────────────────────────────────────────────────────────
@@ -53,8 +61,10 @@ let _W = 0, _H = 0;
 // Per player: height climbed, the side the pending leaf grew on, animation and
 // stun clocks, and the scrolling offset that makes the stem slide past.
 let _p = null;
-let _botDelay = 0;
-let _sprites = [null, null];      // the two climbers, pre-rendered from the 3D models
+let _n = 2;                       // slots, not seats
+let _botDelay = [];               // one per slot: every bot climbs at its own pace
+let _sprites = [];                // one climber per slot, pre-rendered from the 3D models
+let _zones = [];                  // one rect+rotation per slot, from MinigameLayout
 const _cleanups = [];
 const _timers   = [];
 
@@ -69,7 +79,7 @@ const _timers   = [];
 // If anything here fails the game falls back to the flat emoji climber, because
 // a minigame that will not start is far worse than one drawn simply.
 function _renderCharSprites() {
-    const out = [null, null];
+    const out = new Array(_n).fill(null);
     if (typeof THREE === 'undefined') return out;
     let gl = null;
     try {
@@ -89,8 +99,8 @@ function _renderCharSprites() {
         scene.add(rim);
         const cam = new THREE.PerspectiveCamera(30, 1, 0.1, 60);
 
-        for (let pid = 0; pid < 2; pid++) {
-            const p = state.players[pid];
+        for (let pid = 0; pid < _n; pid++) {
+            const p = state.players[seatFor(pid)];
             const grp = createCharacterMesh(p?.charType || 'slime', p?.color ?? 0xffffff);
             scene.add(grp);
             // Frame whatever the model happens to be — they range from a squat
@@ -118,7 +128,7 @@ function _renderCharSprites() {
             });
         }
     } catch (e) {
-        return [null, null];
+        return new Array(_n).fill(null);
     } finally {
         // Hand the context straight back — the board needs it more than we do.
         if (gl) { try { gl.forceContextLoss && gl.forceContextLoss(); } catch (e) {} gl.dispose(); }
@@ -178,9 +188,10 @@ function _pending(c) { return c.branches[c.height]; }
 export function start(isBot, onWin, botSkill = 0.55) {
     if (!state.mgActive) return;
     _done = false; _onWin = onWin; _isBot = isBot; _botSkill = botSkill;
-    _p = [_newClimber(), _newClimber()];
+    _n = Solo.isSolo() ? 1 : Math.max(2, Math.min(4, slotCount()));
+    _p = Array.from({ length: _n }, () => _newClimber());
     _last = 0; _elapsed = 0;
-    _botDelay = _botReact();
+    _botDelay = Array.from({ length: _n }, () => _botReact());
     _sprites = _renderCharSprites();
     registerMinigameCleanup(_destroy);           // R3
     _build();
@@ -214,12 +225,21 @@ function _build() {
     const onDown = e => {
         if (_done) return;
         e.preventDefault();
-        const half = e.clientX < _overlay.clientWidth / 2 ? -1 : 1;
-        // Alone there is no upside-down half to flip for: your left is left.
-        if (Solo.isSolo()) { _tap(0, half); return; }
-        const pid = e.clientY < _overlay.clientHeight / 2 ? 1 : 0;
-        if (pid === 1 && _isBot) return;
-        _tap(pid, pid === 0 ? half : -half);
+        // Alone there is no upside-down zone to flip for: your left is left.
+        if (Solo.isSolo()) {
+            _tap(0, e.clientX < _overlay.clientWidth / 2 ? -1 : 1);
+            return;
+        }
+        const r = _overlay.getBoundingClientRect();
+        const x = e.clientX - r.left, y = e.clientY - r.top;
+        const pid = _zoneAt(x, y);
+        if (pid < 0 || isBotSlot(pid)) return;   // a bot's stem ignores fingers
+        const z = _zones[pid], zr = z.rect;
+        // Left and right are read inside the player's OWN zone, and a seat at
+        // the far edge holds the screen the other way up — so their left is the
+        // screen's right, and the side is flipped before it meets the leaf.
+        const half = (x - zr.x) < zr.w / 2 ? -1 : 1;
+        _tap(pid, z.rot === 180 ? -half : half);
     };
     _overlay.addEventListener('pointerdown', onDown);
     _cleanups.push(() => _overlay.removeEventListener('pointerdown', onDown));
@@ -238,6 +258,16 @@ function _resize() {
     _canvas.width  = Math.round(_W * _dpr);
     _canvas.height = Math.round(_H * _dpr);
     _ctx.setTransform(_dpr, 0, 0, _dpr, 0, 0);
+    _zones = zonesFor(_n, _W, _H);
+}
+
+/** Which slot's zone contains this point, or -1. */
+function _zoneAt(x, y) {
+    for (let i = 0; i < _zones.length; i++) {
+        const r = _zones[i].rect;
+        if (x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h) return i;
+    }
+    return -1;
 }
 
 // ── Moves ───────────────────────────────────────────────────────────────────
@@ -304,19 +334,19 @@ function _botReact() {
     return (0.62 - _botSkill * 0.40 + Math.random() * 0.16) * 1000;
 }
 
-function _botStep(dtMs) {
-    const c = _p[1];
+function _botStep(pid, dtMs) {
+    const c = _p[pid];
     if (!c || c.anim || performance.now() < c.holdUntil) return;
-    _botDelay -= dtMs;
-    if (_botDelay > 0) return;
-    _botDelay = _botReact();
+    _botDelay[pid] -= dtMs;
+    if (_botDelay[pid] > 0) return;
+    _botDelay[pid] = _botReact();
     const want = _pending(c);
     // 15% easy → 5% hard. It was 23% easy, which was fine when a mistake cost a
     // moment — now that it costs one or two branches the errors compound, and
     // measured, the easy bot failed to reach the top inside the ceiling about
     // half the time. The tiers still separate cleanly on climb rate.
     const wrong = Math.random() < (0.20 - _botSkill * 0.18);
-    _tap(1, wrong ? -want : want);
+    _tap(pid, wrong ? -want : want);
 }
 
 // ── Loop (R1) ───────────────────────────────────────────────────────────────
@@ -327,7 +357,7 @@ function _tick(now) {
     _last = now;
     _elapsed += dt;
 
-    for (let i = 0; i < 2; i++) {
+    for (let i = 0; i < _n; i++) {
         const c = _p[i];
         if (c.anim) {
             c.anim.t += dt / c.anim.dur;
@@ -335,7 +365,9 @@ function _tick(now) {
         }
         if (c.shake > 0) c.shake = Math.max(0, c.shake - dt * 26);
     }
-    if (_isBot) _botStep(dt * 1000);
+    // Every bot climbs its own stem. This used to drive slot 1 alone, so above
+    // two seats the third and fourth climbers never left the ground.
+    for (let pid = 0; pid < _n; pid++) if (isBotSlot(pid)) _botStep(pid, dt * 1000);
     if (_done) return;
 
     if (_elapsed >= MATCH_TIME) { _finishOnHeight(); return; }
@@ -346,22 +378,37 @@ function _tick(now) {
 function _draw() {
     const ctx = _ctx;
     ctx.clearRect(0, 0, _W, _H);
-    _drawHalf(0);
     // No second climber, no rotation, no divider: the tree is the screen.
-    if (Solo.isSolo()) return;
-    ctx.save(); ctx.translate(_W, _H); ctx.rotate(Math.PI); _drawHalf(1); ctx.restore();
+    if (Solo.isSolo()) { _drawHalf(0); return; }
+    if (!_zones.length) _zones = zonesFor(_n, _W, _H);
+    _zones.forEach((z, pid) => {
+        const r = z.rect;
+        ctx.save();
+        // Clip to the zone: a stem is taller than its zone and would otherwise
+        // scroll straight over the neighbour above it.
+        ctx.beginPath(); ctx.rect(r.x, r.y, r.w, r.h); ctx.clip();
+        if (z.rot === 180) {
+            ctx.translate(r.x + r.w, r.y + r.h);
+            ctx.rotate(Math.PI);
+        } else {
+            ctx.translate(r.x, r.y);
+        }
+        _drawHalf(pid, r.w, r.h);
+        ctx.restore();
+    });
     _drawDivider();
 }
 
-// Everything is drawn in P1's frame — the bottom half — and the caller rotates
-// for P2, so the two halves are identical by construction (R5).
-function _drawHalf(pid) {
+// Drawn in the player's OWN zone, with 0,0 at its top-left corner: the caller
+// has already translated (and rotated a far seat), so every zone is identical
+// by construction (R5). `zw`/`zh` are that zone's size — the whole screen alone,
+// a half at two seats, a quarter at four.
+function _drawHalf(pid, zw, zh) {
     const ctx = _ctx, c = _p[pid];
-    // The TOP EDGE of this player's half, not its height — `_H - halfTop` is
-    // the height. Alone the playfield is the whole screen, so it starts at 0.
-    // Setting it to _H (as if it were a height) gave the half zero height and
-    // drew the entire tree below the bottom of the screen.
-    const halfTop = Solo.isSolo() ? 0 : _H / 2;
+    if (zw === undefined) { zw = _W; zh = _H; }
+    // Everything below used to measure from the top edge of a half. In zone
+    // coordinates that edge IS zero, and the height is simply the zone's.
+    const halfTop = 0;
     const a = c.anim;
     const falling = !!a && a.kind === 'fall';
     const recovering = performance.now() < c.holdUntil;
@@ -370,12 +417,12 @@ function _drawHalf(pid) {
     // sense of climbing comes from the world moving rather than from the
     // character drifting toward an edge it would eventually hit.
     // R1b: kept well clear of the outer edge, where the status pill floats.
-    const meY = _H - 168;
+    const meY = zh - 168;
     // Offset from centre so the two stems read as two trees. Drawn at the
     // centre they tile into one continuous trunk spanning the whole screen,
     // which looks tidy and is exactly the wrong thing — you are racing your
     // own stem, and the brief is two of them.
-    const cx  = _W * 0.37 + (c.shake ? Math.sin(performance.now() / 22) * c.shake : 0);
+    const cx  = zw * 0.37 + (c.shake ? Math.sin(performance.now() / 22) * c.shake : 0);
 
     // Visual height, which runs continuously through a jump or a fall so the
     // stem scrolls with the movement instead of snapping at the end of it.
@@ -388,17 +435,17 @@ function _drawHalf(pid) {
     // ── Stem ───────────────────────────────────────────────────────────────
     ctx.save();
     ctx.beginPath();
-    ctx.rect(0, halfTop, _W, _H - halfTop);
+    ctx.rect(0, halfTop, zw, zh - halfTop);
     ctx.clip();
 
     ctx.fillStyle = '#5b3a1e';
-    ctx.fillRect(cx - 17, halfTop - 40, 34, _H - halfTop + 60);
+    ctx.fillRect(cx - 17, halfTop - 40, 34, zh - halfTop + 60);
     ctx.fillStyle = 'rgba(0,0,0,.22)';
-    ctx.fillRect(cx + 5, halfTop - 40, 8, _H - halfTop + 60);
+    ctx.fillRect(cx + 5, halfTop - 40, 8, zh - halfTop + 60);
     // Bark texture, scrolling with the climb so the stem visibly moves.
     ctx.strokeStyle = 'rgba(0,0,0,.20)'; ctx.lineWidth = 2;
     for (let k = -2; k < 14; k++) {
-        const y = halfTop + ((k * 46 + (off % 46)) % (_H - halfTop + 92)) - 20;
+        const y = halfTop + ((k * 46 + (off % 46)) % (zh - halfTop + 92)) - 20;
         ctx.beginPath(); ctx.moveTo(cx - 14, y); ctx.lineTo(cx + 12, y + 7); ctx.stroke();
     }
 
@@ -410,7 +457,7 @@ function _drawHalf(pid) {
     const litIdx = c.height;
     for (let i = Math.max(0, Math.floor(climbed) - 5); i < c.branches.length; i++) {
         const y = meY + (climbed - (i + 1)) * SPACING;
-        if (y > _H + 60) continue;
+        if (y > zh + 60) continue;
         if (y < halfTop - 60) break;
         const live = i === litIdx && !falling;
         const pulse = live ? 0.75 + Math.sin(performance.now() / 180) * 0.25 : 1;
@@ -433,38 +480,38 @@ function _drawHalf(pid) {
     // ── HUD at this player's edge ──────────────────────────────────────────
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.font = '900 34px "Bebas Neue", sans-serif';
-    ctx.fillStyle = pid === 0 ? '#ff6b6b' : '#6bb0ff';
+    ctx.fillStyle = SLOT_ACCENT[pid] || '#ffffff';
     // Height climbed, and the clock — the clock IS the finish line now, so it
     // has to be the thing you can see from your own edge.
-    ctx.fillText(`${c.height}`, _W / 2 - 40, _H - 96);
+    ctx.fillText(`${c.height}`, zw / 2 - 40, zh - 96);
     const left = Math.max(0, MATCH_TIME - _elapsed);
     ctx.fillStyle = left <= 5 ? '#ef4444' : 'rgba(255,255,255,.82)';
-    ctx.fillText(`${Math.ceil(left)}s`, _W / 2 + 44, _H - 96);
+    ctx.fillText(`${Math.ceil(left)}s`, zw / 2 + 44, zh - 96);
     ctx.font = '800 11px "Nunito", system-ui, sans-serif';
     ctx.fillStyle = 'rgba(255,255,255,.42)';
-    ctx.fillText('BRANCHES', _W / 2 - 40, _H - 74);
-    ctx.fillText('LEFT', _W / 2 + 44, _H - 74);
+    ctx.fillText('BRANCHES', zw / 2 - 40, zh - 74);
+    ctx.fillText('LEFT', zw / 2 + 44, zh - 74);
     ctx.font = '800 14px "Nunito", system-ui, sans-serif';
     ctx.fillStyle = '#fcd34d';
-    ctx.fillText(`🪙 ${c.coins}`, _W / 2, _H - 56);
+    ctx.fillText(`🪙 ${c.coins}`, zw / 2, zh - 56);
 
     if (falling || recovering) {
         ctx.font = '900 20px "Bebas Neue", sans-serif';
         ctx.fillStyle = '#ef4444';
-        ctx.fillText('MISSED — FELL!', _W / 2, _H - 124);
+        ctx.fillText('MISSED — FELL!', zw / 2, zh - 124);
     }
 
     // Left/right tap hints, lit on the side the leaf is on so the control and
     // the answer are never ambiguous — shape and position, not colour (§4).
     for (const s of [-1, 1]) {
-        const bx = _W / 2 + s * (_W * 0.30);
+        const bx = zw / 2 + s * (zw * 0.30);
         const live = !a && !recovering && s === lit;
         ctx.globalAlpha = live ? 0.92 : 0.16;
         ctx.fillStyle = '#e7f6cf';
         ctx.beginPath();
-        ctx.moveTo(bx + s * 15, _H - 116);
-        ctx.lineTo(bx - s * 9, _H - 132);
-        ctx.lineTo(bx - s * 9, _H - 100);
+        ctx.moveTo(bx + s * 15, zh - 116);
+        ctx.lineTo(bx - s * 9, zh - 132);
+        ctx.lineTo(bx - s * 9, zh - 100);
         ctx.closePath(); ctx.fill();
         ctx.globalAlpha = 1;
     }
@@ -493,12 +540,15 @@ function _branch(ctx, cx, y, side, alpha, pulse = 1) {
 // The character each player actually chose, so the climber up the tree is the
 // one whose token is on the board. Falls back to a plain face if the type is
 // somehow unknown, which keeps the game playable rather than drawing nothing.
+// By SEAT, not by slot: the climber in slot 2 is a real player with a real
+// character, and reading state.players[2] only happens to be right when the
+// roster is the identity.
 function _charIcon(pid) {
-    return CHAR_ICONS[state.players[pid]?.charType] || null;
+    return CHAR_ICONS[state.players[seatFor(pid)]?.charType] || null;
 }
 
 function _climber(ctx, cx, y, pid, armSide, dazed, tumble = 0) {
-    const body = pid === 0 ? '#ff5a5a' : '#5a9bff';
+    const body = SLOT_ACCENT[pid] || '#ffffff';
     const sprite = _sprites[pid];
     const icon = _charIcon(pid);
     ctx.save();
@@ -552,27 +602,37 @@ function _climber(ctx, cx, y, pid, armSide, dazed, tumble = 0) {
 
 // A ladder on the centre line showing both climbers, so "am I winning?" is
 // answered without either player reading the other's half upside down.
-function _drawDivider() {
-    const ctx = _ctx, y = _H / 2;
-    ctx.strokeStyle = 'rgba(255,255,255,.14)'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(_W, y); ctx.stroke();
+const SLOT_ACCENT = ['#ff5a5a', '#5a9bff', '#5fd68a', '#ffd45f'];
 
-    const bw = _W * 0.72, bx = (_W - bw) / 2;
-    ctx.fillStyle = 'rgba(255,255,255,.10)';
-    _round(ctx, bx, y - 7, bw, 14, 7); ctx.fill();
+// The zone borders, plus one standings bar per climber stacked on the centre
+// line. At two seats this is the divider the face-off always had; at four it is
+// the cross between the quarters, and the bar sits where everybody can read it.
+function _drawDivider() {
+    const ctx = _ctx;
+    ctx.strokeStyle = 'rgba(255,255,255,.14)'; ctx.lineWidth = 2;
+    _zones.forEach(z => {
+        const r = z.rect;
+        ctx.strokeRect(r.x + 1, r.y + 1, r.w - 2, r.h - 2);
+    });
+
+    const y = _H / 2;
+    const bh = Math.max(4, Math.round(14 / _n));
+    const bw = _W * 0.44, bx = (_W - bw) / 2;
+    ctx.fillStyle = 'rgba(8,6,18,.72)';
+    _round(ctx, bx - 6, y - _n * bh / 2 - 5, bw + 52, _n * bh + 10, 7); ctx.fill();
     // With no finish line the bars are scaled to whoever is currently highest,
     // so the gap between them is the thing being read rather than progress
     // toward a number nobody is racing to.
-    const lead = Math.max(1, _p[0].height, _p[1].height);
-    for (let i = 0; i < 2; i++) {
-        const f = _p[i].height / lead;
-        ctx.fillStyle = i === 0 ? 'rgba(255,90,90,.85)' : 'rgba(90,155,255,.85)';
-        _round(ctx, bx, y - 7 + i * 7, Math.max(2, bw * f), 7, 3); ctx.fill();
+    const lead = Math.max(1, ..._p.map(c => c.height));
+    for (let i = 0; i < _n; i++) {
+        ctx.fillStyle = SLOT_ACCENT[i] || '#fff';
+        _round(ctx, bx, y - _n * bh / 2 + i * bh, Math.max(2, bw * (_p[i].height / lead)), bh - 1, 2);
+        ctx.fill();
     }
     ctx.fillStyle = 'rgba(255,255,255,.85)';
     ctx.font = '900 12px "Bebas Neue", sans-serif';
     ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-    ctx.fillText(`${_p[0].height}–${_p[1].height}`, bx + bw + 6, y);
+    ctx.fillText(_p.map(c => c.height).join('–'), bx + bw + 6, y);
 }
 
 function _round(ctx, x, y, w, h, r) {
@@ -593,8 +653,19 @@ function _ease(t) { const x = Math.min(1, t); return 1 - (1 - x) * (1 - x); }
 // something that had plainly not happened.
 function _finishOnHeight() {
     if (Solo.isSolo()) return _finishSolo();
-    const [a, b] = [_p[0].height, _p[1].height];
-    _finish(a === b ? -1 : (a > b ? 0 : 1), true);
+    _finish(_leader(), true);
+}
+
+/** The outright highest climber, or -1 if the top is shared. */
+function _leader() {
+    const best = Math.max(..._p.map(c => c.height));
+    const top = _p.reduce((a, c, i) => (c.height === best ? a.concat(i) : a), []);
+    return top.length === 1 ? top[0] : -1;
+}
+
+function _nameOf(pid) {
+    const p = state.players[seatFor(pid)];
+    return (p && p.name ? p.name : `P${pid + 1}`).toUpperCase();
 }
 
 /**
@@ -623,14 +694,14 @@ function _finish(winnerId, onHeight = false) {
     state.mgActive = false;
     const neu = document.getElementById('mg-neutral');
     if (neu) {
-        const score = `${_p[0].height}–${_p[1].height}`;
+        const score = _p.map(c => c.height).join('–');
         neu.textContent = winnerId < 0
-            ? `TIME! DEAD HEAT — ${_p[0].height} BRANCHES EACH`
-            : `TIME! P${winnerId + 1} CLIMBED HIGHEST — ${score}`;
+            ? `TIME! DEAD HEAT — ${score}`
+            : `TIME! ${_nameOf(winnerId)} CLIMBED HIGHEST — ${score}`;
     }
     sfx(winnerId < 0 ? 'land_bad' : 'mg_win');
     haptic('heavy');
-    const payouts = [Math.min(_p[0].coins, MAX_PAYOUT), Math.min(_p[1].coins, MAX_PAYOUT)];
+    const payouts = _p.map(c => Math.min(c.coins, MAX_PAYOUT));
     _after(() => { _destroy(); _onWin(winnerId, payouts); }, 1400);
 }
 
@@ -642,6 +713,6 @@ function _destroy() {
     if (_af) { cancelAnimationFrame(_af); _af = null; }
     _ctx = null; _canvas = null;
     if (_overlay) { _overlay.remove(); _overlay = null; }
-    _p = null; _sprites = [null, null];
+    _p = null; _sprites = []; _zones = [];
     _last = 0; _elapsed = 0; _W = 0; _H = 0;
 }

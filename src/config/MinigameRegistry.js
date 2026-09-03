@@ -381,7 +381,10 @@ export const MG_PROFILE = {
 
     meteordodge: { genre: 'scramble', control: 'thumb', wire: 'none',     seats: [2, 4], live: false },
     lootcatch:   { genre: 'scramble', control: 'thumb', wire: 'none',     seats: [2, 4], live: false },
-    treeclimb:   { genre: 'scramble', control: 'tap',   wire: 'none',     seats: [2, 4], live: false },
+    // roomy: the stem scrolls vertically at 74 px a branch, so a zone needs
+    // height to read as a climb. A phone quarter is 400 px — five branches of
+    // visible tree — which is not a race you can see coming.
+    treeclimb:   { genre: 'scramble', control: 'tap',   wire: 'none',     seats: [2, 4], live: true, roomy: true },
 
     tankclash:   { genre: 'aim',      control: 'dual',  wire: 'snapshot', seats: [2, 4], live: false },
     penalty:     { genre: 'aim',      control: 'thumb', wire: 'exact',    seats: [2, 2], live: false },

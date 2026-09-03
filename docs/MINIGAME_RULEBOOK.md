@@ -769,6 +769,21 @@ costs a frame of a readout. A seat that has finished shows its **final** score
 rather than its last tick, or somebody who has already put their number up
 appears to be losing it.
 
+### The duel stays a face-off
+
+One thing on the board is deliberately NOT the whole table: the **duel tile**,
+and the **ally steal/claim** fight that works the same way. Those are a wager
+between two named players — coins staked, one against one — and `qa/fourlocal.js`
+asserts the distinction rather than leaving it to drift: every round whose
+`mgContext` is a board round seats everybody, and only `duel`, `ally_steal` and
+`ally_claim` are allowed to seat two.
+
+It was put to the owner as a choice, because "nobody waits" argues for widening
+it: everybody plays the live game and the wager settles on which of the two
+duellists placed higher. The call was to **keep the face-off**. A duel is a
+confrontation between two people who chose each other, and at roughly one round
+in six the cost — two people watching for one game — is worth the thing it buys.
+
 ### What this does not reach
 
 Five games are live. Seventeen are not, and on a shared screen at three or four
