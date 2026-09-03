@@ -191,7 +191,7 @@ async function runSeats(browser, seats, budgetSec) {
             mgChecks.push({
                 moved, gained: moved.filter(x => x > 0).length,
                 lost: moved.filter(x => x < 0).length,
-                seats: after.seats, type: after.type,
+                seats: after.seats, type: after.type, ctx: after.ctx,
             });
             lastMgWins = null;
         }
