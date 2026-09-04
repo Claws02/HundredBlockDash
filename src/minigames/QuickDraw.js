@@ -283,7 +283,7 @@ function _finishOnScore() {
     document.getElementById('mg-neutral').textContent =
         w < 0 ? `TIME — DRAW  ${_scoreLine()}` : `TIME — ${_nameOf(w)} WINS!  ${_scoreLine()}`;
     sfx(w < 0 ? 'land_bad' : 'mg_win');
-    _after(() => { _destroy(); _onWin(w); }, 1300);
+    _after(() => { _destroy(); _onWin(w, null, _wins.slice(0, _n)); }, 1300);
 }
 
 /** The outright leader, or -1 if the top is shared. */
@@ -379,7 +379,7 @@ function _finish() {
     const neutral = document.getElementById('mg-neutral');
     if (neutral) neutral.textContent = winner < 0 ? 'DRAW!' : `${_nameOf(winner)} WINS!`;
     sfx(winner < 0 ? 'land_bad' : 'mg_win');
-    _after(() => { _destroy(); _onWin(winner); }, 1400);
+    _after(() => { _destroy(); _onWin(winner, null, _wins.slice(0, _n)); }, 1400);
 }
 
 function _destroy() {

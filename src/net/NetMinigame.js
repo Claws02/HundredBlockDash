@@ -15,9 +15,22 @@
 // THE SHAPE OF A ROUND
 //
 //   host    picks a game and a seed, and announces both to everybody playing
-//   all     play it alone on their own screen
+//   all     read the card and press READY
+//   host    waits for the last of them, then says GO
+//   all     play it alone on their own screen, starting on the same beat
 //   all     report a score back to the host
 //   host    ranks them, announces the result, and the board carries on
+//
+// THE GATE, AND WHY IT IS THERE
+//
+//   The first version had no third line. Each player's press took their own
+//   card down and started their own clock, so four phones began at four
+//   different moments and whoever pressed first was seconds into a thirty
+//   second round before the last player had started. A round scored by
+//   comparing what each player managed in the same time cannot be settled that
+//   way, and it does not read as one game either — it reads as four people
+//   playing alone. The press is a VOTE now, and the round begins for everybody
+//   when the last vote lands.
 //
 // WHAT GOES WRONG, AND WHAT IS DONE ABOUT IT
 //
@@ -37,6 +50,8 @@
 import { state } from '../core/GameState.js';
 import * as Scenes from '../ui/Scenes.js';
 import * as Session from './NetSession.js';
+import * as ReadyGate from './ReadyGate.js';
+import * as Commands from '../core/Commands.js';
 import * as SoloArena from '../minigames/SoloArena.js';
 import * as SoloRound from '../ui/SoloRound.js';
 import * as RoundBoard from '../ui/RoundBoard.js';
@@ -86,10 +101,34 @@ export function hostRun(type, seats, done) {
     // happening. The scene carries who is playing so a spectator can be shown
     // that rather than a playfield.
     Scenes.emit('soloGame', { game: type, seed, seats: seats.slice() });
-    _armGrace(ROUND_CAP_MS);
+    // The gate is opened BEFORE anybody sees the card, so a press that arrives
+    // while the host is still setting up is counted rather than dropped.
+    // Scoped to the seats playing: a spectator has no button to press and
+    // waiting on one would hang the round.
+    ReadyGate.openFor(ReadyGate.MINIGAME, seats, () => _goNow());
+    // The clock starts at GO, not at the announcement: the grace period is
+    // there to catch a phone that stops answering mid-game, and starting it
+    // while the table is still reading the card would spend it on reading.
     _startStandings();
-    // The host is a player too, and plays it the same way everybody else does.
+    // The host is a player too, and reads the card the same way everybody else
+    // does.
     playLocally(type, seed, seats);
+}
+
+/**
+ * Everybody is ready. Take the cards down and start the same game on every
+ * device on the same beat.
+ *
+ * The host tells the others and then tells itself, because `Scenes.emit` goes
+ * outward — the host is looking at its own screen and no announcement reaches
+ * it from anywhere.
+ */
+function _goNow() {
+    if (!_round || _round.started) return;
+    _round.started = true;
+    Scenes.emit('soloGo', { game: _round.type, seed: _round.seed });
+    _armGrace(ROUND_CAP_MS);
+    beginLocally(_round.type, _round.seed);
 }
 
 // How often a phone says where it has got to, and how often the host tells
@@ -226,6 +265,7 @@ export function abort() {
     if (_round && _round.timer) clearTimeout(_round.timer);
     _round = null;
     _localSeats = [];
+    _pending = null;
     SoloArena.reset();
 }
 
@@ -240,26 +280,55 @@ export function abort() {
  */
 export function playLocally(type, seed, seats) {
     _localSeats = Array.isArray(seats) ? seats.slice() : [];
+    _pending = { type, seed };
     const me = state.localSeat;
     const playing = _localSeats.includes(me);
 
     // The card goes up on every device, including the ones not playing: a phone
     // that goes quiet for thirty seconds with no explanation reads as a crash,
     // and a spectator who cannot see who is playing cannot follow the match.
+    //
+    // Pressing READY does not start anything here — it casts a vote. The host
+    // counts, and `beginNow` runs on every device at once when the count is
+    // complete. See the gate note at the top of this file.
     SoloRound.showIntro(type, _localSeats, playing, () => {
-        SoloArena.play(type, seed, score => {
-            _stopTicking();
-            SoloArena.reset();
-            RoundBoard.hideRail();
-            report(me, score);
-        }, ROUND_CAP_MS);
-        // Say where you have got to while you are getting there. This is the
-        // only thing the other three phones can see of you, and without it a
-        // parallel round is four people playing alone and comparing notes
-        // afterwards.
-        _startTicking(me);
+        if (!Session.isOnline()) { beginLocally(type, seed); return; }
+        if (Session.isHost()) {
+            ReadyGate.ack(ReadyGate.MINIGAME, me);
+            SoloRound.markWaiting(ReadyGate.pending(ReadyGate.MINIGAME));
+        } else {
+            // The client's vote travels as the generic gate intent, which the
+            // host answers with the envelope's seat still in hand.
+            Commands.run('gateAck', ReadyGate.MINIGAME);
+        }
     });
     return playing;
+}
+
+// What this device is waiting to play, so the GO beat knows what to start.
+let _pending = null;
+
+/**
+ * The gate has opened: take the card down and play. Runs on every device, off
+ * the host's `soloGo`, so all of the clocks start together.
+ */
+export function beginLocally(type, seed) {
+    const t = type || (_pending && _pending.type);
+    const sd = (seed === undefined || seed === null) ? (_pending && _pending.seed) : seed;
+    _pending = null;
+    SoloRound.beginNow();
+    const me = state.localSeat;
+    if (!_localSeats.includes(me)) return;   // a spectator watches the rail
+    SoloArena.play(t, sd, score => {
+        _stopTicking();
+        SoloArena.reset();
+        RoundBoard.hideRail();
+        report(me, score);
+    }, ROUND_CAP_MS);
+    // Say where you have got to while you are getting there. This is the only
+    // thing the other three phones can see of you, and without it a parallel
+    // round is four people playing alone and comparing notes afterwards.
+    _startTicking(me);
 }
 
 /** Show the round's scores. Every device runs this off the same announcement. */

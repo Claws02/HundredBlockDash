@@ -6,7 +6,7 @@ import {
     GATE_NUM_DICE, FINE_AMOUNT, BIG_FINE_AMOUNT, TRAP_AMOUNT, DUEL_STAKE,
     MAX_INV, MAX_ALLIES, ALLY_TURNS, ALLY_SPAWN_DELAY_TURNS, BUDDY_MAP_ROUNDS,
     BUDDY_NEAR_STEPS, BUDDY_MAX_STEPS,
-    MINIGAME_EVERY_N_TURNS, MINIGAME_REWARD, ITEMS, SPACE_META, SPACE_DESCS,
+    MINIGAME_EVERY_N_TURNS, ITEMS, SPACE_META, SPACE_DESCS,
     DISTRICT_HQ_FIRST_BONUS, DISTRICT_HQ_REVISIT_BONUS,
     FULL_CIRCUIT_BONUSES,
     ALLIES, BA_DISCOUNT, GRAND_MALL_DISCOUNT,
@@ -1617,10 +1617,21 @@ function _contest(pair, done, opts = {}) {
     // from the same seed and the scores are compared — which is both playable
     // across devices and the only version that works at four seats.
     if (_onlineContest) {
-        const started = _onlineContest(pair, winner => {
+        const started = _onlineContest(pair, (winner, table) => {
             if (opts.award) {
                 state.players[winner].mgWins++;
-                earnCoins(state.players[winner], MINIGAME_REWARD);
+                // PAID BY PLACE, the same ladder the shared-screen rounds use.
+                // The online round has a real table of scores, so the ranking
+                // is the honest one rather than "winner and everybody else".
+                const seats = Array.isArray(table) && table.length
+                    ? table.map(t => t.seat) : pair.slice();
+                const scores = Array.isArray(table) && table.length
+                    ? table.map(t => Number(t.score) || 0)
+                    : pair.map(id => (id === winner ? 1 : 0));
+                const coins = MinigameManager.placeCoins(scores);
+                seats.forEach((seat, i) => {
+                    if (coins[i] > 0 && state.players[seat]) earnCoins(state.players[seat], coins[i]);
+                });
             }
             UIManager.updateUI();
             done(winner);
@@ -1641,7 +1652,13 @@ function _contest(pair, done, opts = {}) {
         '🎲', { tier: 'shared' });
     if (opts.award) {
         state.players[winner].mgWins++;
-        earnCoins(state.players[winner], MINIGAME_REWARD);
+        // No game was played, so there is no ranking to pay from — the winner
+        // takes first place and the rest share what is left, which is what the
+        // ladder does with a result it cannot rank.
+        const coins = MinigameManager.placeCoins(pair.map(id => (id === winner ? 1 : 0)));
+        pair.forEach((seat, i) => {
+            if (coins[i] > 0 && state.players[seat]) earnCoins(state.players[seat], coins[i]);
+        });
     }
     UIManager.updateUI();
     Director.hold('POST_RESULT', () => { ModalManager.closeAllModals(); done(winner); });

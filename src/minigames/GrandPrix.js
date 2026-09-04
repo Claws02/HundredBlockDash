@@ -573,7 +573,10 @@ function _finish(winnerId) {
     _say(winnerId < 0 ? 'PHOTO FINISH — DEAD HEAT!' : `${_nameOf(winnerId)} TAKES THE FLAG! 🏁`);
     sfx(winnerId < 0 ? 'land_bad' : 'mg_win');
     haptic('heavy');
-    _after(() => { _destroy(); _onWin(winnerId); }, 1400);
+    // Standings are progress round the circuit, with anyone who took the flag
+    // ranked ahead of anyone still driving — a finisher always beats a runner.
+    const prog = _cars.map(c => (c.finished ? 1e9 - c.finished : c.lap * _track.len + c.d));
+    _after(() => { _destroy(); _onWin(winnerId, null, prog); }, 1400);
 }
 
 // ── Cleanup (R3) ────────────────────────────────────────────────────────────

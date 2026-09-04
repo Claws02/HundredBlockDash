@@ -359,7 +359,7 @@ function _finish() {
         neutral.textContent = winner < 0 ? `DRAW! ${line}` : `${_nameOf(winner)} WINS! ${line}`;
     }
     sfx(winner < 0 ? 'land_bad' : 'mg_win');
-    _after(() => { _destroy(); _onWin(winner); }, 1500);
+    _after(() => { _destroy(); _onWin(winner, null, _roundWins.slice(0, _n)); }, 1500);
 }
 
 function _destroy() {

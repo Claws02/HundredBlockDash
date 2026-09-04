@@ -49,6 +49,18 @@ export const BRIEFING_GATE = ReadyGate.BRIEFING;
 // A client never reaches this: the dispatcher forwards the press, and the host
 // applies it for that seat through the same ReadyGate.voteBriefing() this uses.
 // Offline there is no gate to hold — one player, one press, straight through.
+// The generic ready-gate vote. NetSync already answers this intent on the host
+// with the envelope's seat in hand; this is the definition that lets a CLIENT
+// send it at all, and that lets the host cast its own vote through the same
+// name. Offline there is no gate, so it is a no-op — the caller has already
+// done whatever the press meant.
+Commands.define({
+    gateAck: (id) => {
+        if (!Session.isOnline()) return;
+        ReadyGate.ack(id, Session.mySeat());
+    },
+});
+
 Commands.define({
     briefingReady: () => {
         if (!Session.isOnline()) { _closeBriefingHere(); return; }
@@ -259,6 +271,11 @@ function _replayScene(kind, p, Modal, UI) {
         case 'soloGame':
             import('./NetMinigame.js').then(N => N.playLocally(p.game, p.seed, p.seats || []));
             return;
+        // The gate opened. Every device takes its card down and starts the
+        // same game on this beat, which is what makes the clocks comparable.
+        case 'soloGo':
+            import('./NetMinigame.js').then(N => N.beginLocally(p.game, p.seed));
+            return;
         case 'soloStand':
             import('./NetMinigame.js').then(N => N.showStandings(p));
             return;
@@ -346,6 +363,7 @@ function _replayScene(kind, p, Modal, UI) {
             // device's. Passing only the count disabled the button belonging to
             // the very player everybody was waiting for.
             if (p.id === BRIEFING_GATE) UI.markBriefingWaiting(p.waiting);
+            else import('../ui/SoloRound.js').then(S => S.markWaiting(p.waiting));
             return;
         case 'gateOpen':
             // Everybody is in. Every device moves on at the same instant,

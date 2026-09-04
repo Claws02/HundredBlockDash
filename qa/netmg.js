@@ -152,8 +152,30 @@ const gs = page => page.evaluate(async () => (await import('/src/core/GameState.
         ok('both players are offered a START', cards.every(c => c.goVisible),
             `host ${cards[0].goVisible}, client ${cards[1].goVisible}`);
 
-        // ---- play it on both -------------------------------------------------
-        await Promise.all(pages.map(p => p.click('#btn-solo-go')));
+        // ---- NOBODY STARTS UNTIL EVERYBODY IS READY --------------------------
+        //
+        // The bug this guards: each player's press used to take their own card
+        // down and start their own clock, so four phones ran four different
+        // thirty-second rounds offset by however long people took to tap. A
+        // round scored by comparing what each player managed in the same time
+        // cannot be settled that way. Pressing ONE ready must start nothing.
+        await pages[0].click('#btn-solo-go');
+        await pages[0].waitForTimeout(1500);
+        const early = await Promise.all(pages.map(p => p.evaluate(() => ({
+            playfield: !!document.querySelector('#minigame-layer canvas'),
+            cardUp: (() => {
+                const l = document.getElementById('solo-layer');
+                return !!l && getComputedStyle(l).display !== 'none';
+            })(),
+        }))));
+        ok('one player pressing READY starts nothing',
+            !early[0].playfield && !early[1].playfield,
+            `host playfield ${early[0].playfield}, client ${early[1].playfield}`);
+        ok('the player who pressed is told what the round is waiting for',
+            early[0].cardUp, `host card still up: ${early[0].cardUp}`);
+
+        // ---- the last press opens the gate, and both start together ----------
+        await pages[1].click('#btn-solo-go');
         // The game is a dynamic import on each device; under swiftshader the
         // first one is not instant. Wait for it rather than sampling once.
         await Promise.all(pages.map(p => p.waitForFunction(

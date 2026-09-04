@@ -358,7 +358,7 @@ function _finish() {
     if (neutral) neutral.textContent =
         (winner < 0 ? 'DRAW!  ' : `${_nameOf(winner)} WINS!  `) + _scores.join(' · ');
     sfx(winner < 0 ? 'land_bad' : 'mg_win');
-    _after(() => { _destroy(); _onWin(winner); }, 1500);
+    _after(() => { _destroy(); _onWin(winner, null, _scores.slice(0, _n)); }, 1500);
 }
 
 function _nameOf(pid) {

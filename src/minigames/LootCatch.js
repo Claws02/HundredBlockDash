@@ -456,7 +456,7 @@ function _finish() {
     // Coin game: hand the manager every player's haul so they ALL bank it.
     // Snapshot the scores first — _destroy() clears them.
     const payouts = _score.map(v => Math.min(v, MAX_PAYOUT));
-    _after(() => { _destroy(); _onWin(winner, payouts); }, 1500);
+    _after(() => { _destroy(); _onWin(winner, payouts, _score.slice(0, _n)); }, 1500);
 }
 
 // ── Cleanup ───────────────────────────────────────────────────────────────────

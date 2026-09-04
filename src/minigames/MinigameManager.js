@@ -9,7 +9,7 @@ import { state, playerCount, setPlayerCount } from '../core/GameState.js';
 import * as Bot from '../core/Bot.js';
 import { MG_TYPES, MG_INFO, MG_ORIENTATIONS, MG_ORIENTATION_MAP, MG_WATCHDOG_MS,
          surfacesOf } from '../config/MinigameRegistry.js';
-import { MINIGAME_REWARD } from '../config/GameConfig.js';
+import { MINIGAME_REWARD, MINIGAME_PLACE_COINS } from '../config/GameConfig.js';
 import { sfx, haptic } from '../engine/AudioManager.js';
 import * as DualRead from '../ui/DualRead.js';
 
@@ -784,10 +784,57 @@ async function _launchGame() {
 
 // ---- Win / end ----
 
-const MINIGAME_TIE_REWARD = Math.floor(MINIGAME_REWARD / 2); // 5 coins each on tie
+
+// ============================================================
+// WHAT EACH PLACE IS WORTH
+// ============================================================
+/**
+ * Coins per index, ranked off `scores` (higher is better). The array's length
+ * IS the number of places, so this serves two on a sofa and four across
+ * phones from one ladder.
+ *
+ * TIES SHARE THE PLACES THEY OCCUPY. Two players level at the top of a
+ * four-way hold places 1 and 2 between them, so they split what those two
+ * places pay rather than both taking first. That keeps the ladder honest in
+ * both directions: a draw is worth more than losing and less than winning,
+ * which is the whole reason to have places at all.
+ *
+ * With no standings — the two-player games, which report a winner and nothing
+ * else — the winner takes first and the other takes second, which at two seats
+ * is exactly the 10/5 the ladder asks for anyway.
+ */
+export function placeCoins(scores) {
+    const n = scores.length;
+    const ladder = MINIGAME_PLACE_COINS[n] || MINIGAME_PLACE_COINS[4];
+    const pay = new Array(n).fill(0);
+    const order = scores.map((_, i) => i).sort((a, b) => scores[b] - scores[a]);
+    let place = 0;
+    while (place < order.length) {
+        const tiedAt = scores[order[place]];
+        let end = place;
+        while (end + 1 < order.length && scores[order[end + 1]] === tiedAt) end++;
+        let pot = 0;
+        for (let k = place; k <= end; k++) pot += (ladder[k] || 0);
+        const each = Math.floor(pot / (end - place + 1));
+        for (let k = place; k <= end; k++) pay[order[k]] = each;
+        place = end + 1;
+    }
+    return pay;
+}
+
+/** The same ladder, for a round that knows only who won. */
+function _placeCoins(standings, winnerSlot) {
+    const n = slotCount();
+    const scores = Array.isArray(standings) && standings.length >= n
+        ? standings.slice(0, n).map(v => Number(v) || 0)
+        : slots().map(i => (winnerSlot >= 0 && i === winnerSlot ? 1 : 0));
+    return placeCoins(scores);
+}
 
 // What each player banked from a coin game this round, for the result screen.
 let _lastPayouts = [0, 0];
+// What each player earned for their PLACE this round, for the same screen.
+let _lastPlaces = [];
 
 export function lastPayouts() { return _lastPayouts.slice(); }
 
@@ -820,7 +867,14 @@ function _creditPayouts(payouts) {
 // `winnerId` is a SLOT (0, 1, or -1 for a tie) — that is what the minigame
 // modules speak. Everything below translates it to a real seat before anything
 // the board reads is touched.
-export function winMinigame(winnerId, payouts) {
+//
+// `standings` is the third and newest argument: the game's own score per slot,
+// higher being better. It is what turns "the winner takes ten" into a LADDER —
+// 10 / 5 / 2 / 0 by place — so that at four seats the three people who did not
+// win still come out of a round they played with something proportional to how
+// they did. A game that does not pass it still pays correctly; the winner takes
+// first and everybody else second, which at two seats is the whole ladder.
+export function winMinigame(winnerId, payouts, standings) {
     if (_practiceMode) return _finishPractice(winnerId);
     // The arcade is a place to play the minigames, not a way to earn. It used to
     // run the full match payout — flat win reward, coin-game hauls, mgWins, the
@@ -836,23 +890,27 @@ export function winMinigame(winnerId, payouts) {
     _resolving = true;
     state.mgActive = false;
     _lastPayouts = _creditPayouts(payouts);
+    _lastPlaces = _placeCoins(standings, winnerId);
     if (winnerId < 0) {
-        // TIE — both players get coins, coin flip decides who goes first.
-        // "Both" means the two who played: in a four-player match the two
-        // spectators did not draw anything and must not be paid for it.
+        // NO OUTRIGHT WINNER. Everybody is still paid by PLACE: with standings
+        // the ladder ranks them properly, and without any it is a true draw and
+        // the tied places are split, which is where the old flat tie reward
+        // came from in the first place.
         const flipSlot   = Math.floor(Math.random() * slotCount());
         const flipWinner = seatFor(flipSlot);
         slots().forEach(slot => {
             const p = _sp(slot);
-            p.coins += MINIGAME_TIE_REWARD;
-            p.coinsEarned += MINIGAME_TIE_REWARD;
+            const c = _lastPlaces[slot] || 0;
+            p.coins += c;
+            p.coinsEarned += c;
         });
         import('../ui/UIManager.js').then(({ animateCoinDisplay, updateUI }) => {
             state.players.forEach((p, i) => animateCoinDisplay(i, p.coins));
             updateUI();
         });
         sfx('coin_gain');
-        document.getElementById('mg-neutral').textContent = `TIE! 🪙 BOTH +${MINIGAME_TIE_REWARD} — COIN FLIP!`;
+        document.getElementById('mg-neutral').textContent =
+            `NO OUTRIGHT WINNER — PAID BY PLACE (${_lastPlaces.join('·')}) 🪙`;
         // Flash both player zones
         // As on the win path: the zone flash belongs to the two-half face-off.
         // Above two slots the screen is not two halves and there is nothing to
@@ -868,7 +926,7 @@ export function winMinigame(winnerId, payouts) {
             z2?.classList.remove('mg-victory');
             document.getElementById('mg-neutral').textContent = `${state.players[flipWinner].name.toUpperCase()} GOES FIRST!`;
             _showScoreboard(-1, _lastPayouts, false, () => {
-                _resultToast(`🤝 TIE! Both get ${MINIGAME_TIE_REWARD} coins — coin flip: ${state.players[flipWinner].name} goes first!`, '#a855f7');
+                _resultToast(`🤝 No outright winner — everybody paid by place. ${state.players[flipWinner].name} goes first!`, '#a855f7');
                 endMinigame(flipWinner);
             });
         }, 700);
@@ -877,10 +935,17 @@ export function winMinigame(winnerId, payouts) {
     const winSeat = seatFor(winnerId);
     const winner  = state.players[winSeat];
     winner.mgWins++;
-    winner.coins += MINIGAME_REWARD;
-    winner.coinsEarned += MINIGAME_REWARD;
+    // EVERY SLOT IS PAID, by place. The winner's first place is still
+    // MINIGAME_REWARD, so winning is worth exactly what it always was; what has
+    // changed is that second and third are no longer worth nothing.
+    slots().forEach(slot => {
+        const p = _sp(slot);
+        const c = _lastPlaces[slot] || 0;
+        p.coins += c;
+        p.coinsEarned += c;
+    });
     import('../ui/UIManager.js').then(({ animateCoinDisplay, updateUI }) => {
-        animateCoinDisplay(winSeat, winner.coins);
+        state.players.forEach((p, i) => animateCoinDisplay(i, p.coins));
         updateUI();
     });
     sfx('mg_win');
@@ -891,7 +956,8 @@ export function winMinigame(winnerId, payouts) {
     const loseZone = slotCount() === 2 ? document.getElementById(`mg-p${2 - winnerId}`) : null;
     winZone?.classList.add('mg-victory');
     loseZone?.classList.add('mg-defeat');
-    document.getElementById('mg-neutral').textContent = `${winner.name.toUpperCase()} WINS! +${MINIGAME_REWARD} 🪙`;
+    document.getElementById('mg-neutral').textContent =
+        `${winner.name.toUpperCase()} WINS! +${_lastPlaces[winnerId] || MINIGAME_REWARD} 🪙`;
     setTimeout(() => {
         winZone?.classList.remove('mg-victory');
         loseZone?.classList.remove('mg-defeat');
@@ -941,6 +1007,15 @@ function _showScoreboard(winnerId, payouts, practice, done) {
     // live game, it is the whole table — there are no spectators to leave out
     // any more.
     const SLOT_HUE = ['#ff6b6b', '#6ba7ff', '#5fd68a', '#ffd45f'];
+    // Where a slot finished, by what its place paid: slots on the same money
+    // finished level, which is exactly what the ladder means by a shared place.
+    const _placeOf = i => {
+        const mine = _lastPlaces[i] || 0;
+        let better = 0;
+        _lastPlaces.slice(0, slotCount()).forEach(v => { if ((v || 0) > mine) better++; });
+        return better + 1;
+    };
+    const _ordinal = n => (n === 1 ? '1st' : n === 2 ? '2nd' : n === 3 ? '3rd' : `${n}th`);
     const cardsHTML = () => slots().map((i) => {
         const p = arcade ? state.players[i] : _sp(i);
         const isWin  = winnerId === i;
@@ -957,12 +1032,17 @@ function _showScoreboard(winnerId, payouts, practice, done) {
             </div>`;
         }
         const gained = (payouts && payouts[i]) || 0;
-        const bonus  = practice ? 0
-                     : isTie ? MINIGAME_TIE_REWARD
-                     : isWin ? MINIGAME_REWARD : 0;
+        // What this slot earned for its PLACE. Read from what was actually
+        // paid rather than recomputed from the winner, so the card cannot
+        // disagree with the bank.
+        const bonus  = practice ? 0 : (_lastPlaces[i] || 0);
+        const place  = _placeOf(i);
         const lines = [];
         if (gained) lines.push(`<span class="mg-sc-line">🪙 caught <b>+${gained}</b></span>`);
-        if (bonus)  lines.push(`<span class="mg-sc-line">🏆 win bonus <b>+${bonus}</b></span>`);
+        if (bonus) {
+            lines.push(`<span class="mg-sc-line">${place === 1 ? '🏆' : '🎖️'} ` +
+                       `${_ordinal(place)} place <b>+${bonus}</b></span>`);
+        }
         if (!lines.length) lines.push(`<span class="mg-sc-line mg-sc-dim">${practice ? 'practice — nothing at stake' : 'no coins this round'}</span>`);
         return `<div class="mg-sc-card ${isWin && !isTie ? 'mg-sc-win' : ''}">
             <div class="mg-sc-rank ${rankCls}">${rank}</div>

@@ -381,7 +381,7 @@ function _finish(winnerId) {
             : `${_nameOf(winnerId)} WINS! ${_scoreLine()}`;
     }
     sfx(winnerId < 0 ? 'land_bad' : 'mg_win');
-    _after(() => { _destroy(); _onWin(winnerId); }, 1500);
+    _after(() => { _destroy(); _onWin(winnerId, null, _score.slice(0, _n)); }, 1500);
 }
 
 function _after(fn, ms) {

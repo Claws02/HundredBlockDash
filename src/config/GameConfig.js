@@ -67,6 +67,23 @@ export const DEFAULT_PLAYERS = 2;
 
 export const MAX_INV             = 3;
 export const MINIGAME_REWARD     = 10;
+// WHAT EACH PLACE IS WORTH.
+//
+// A minigame used to pay the winner and nobody else, which at four players
+// meant three people came out of a round they had just played with nothing —
+// and once the bracket was gone and everybody played every round, "nothing"
+// was three quarters of the table, every time. Coming second in a four-way is
+// a real result and now pays like one.
+//
+// Indexed by seat count so the ladder scales with how the game is being
+// played: last place is always worth nothing, first is always worth
+// MINIGAME_REWARD, and the middle is where the interest is. Retune here — the
+// manager derives everything else from this table.
+export const MINIGAME_PLACE_COINS = {
+    2: [10, 5],
+    3: [10, 5, 2],
+    4: [10, 5, 2, 0],
+};
 export const MINIGAME_EVERY_N_TURNS = 4;
 
 // City Circuit scoring.

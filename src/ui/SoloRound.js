@@ -80,19 +80,47 @@ export function showIntro(type, seats, playing, onGo) {
             : 'Sit this one out. The scores come back here.';
     }
 
+    // START IS A VOTE, NOT A GO.
+    //
+    // It used to take this device's card down and start its game immediately,
+    // which meant four phones started four clocks at four different moments —
+    // whoever tapped first was already ten seconds in when the last player
+    // began. For a round scored by comparing what each player managed in the
+    // same time, that is not a fair comparison, and it does not feel like one
+    // game either. The press now says "I am ready" and the round begins for
+    // everybody at once, when the last of them has said it.
     const go = _el('btn-solo-go');
     if (go) {
         go.style.display = playing ? '' : 'none';
-        go.textContent = 'START';
+        go.textContent = 'READY';
         go.disabled = false;
+        go.classList.remove('is-waiting');
         go.onclick = () => {
             go.disabled = true;
+            go.classList.add('is-waiting');
+            go.textContent = '✓ READY';
             sfx('ui_confirm');
-            // The card comes down and the game takes the layer beneath it.
-            _layer(false);
             if (onGo) onGo();
         };
     }
+    if (_el('solo-wait')) _el('solo-wait').textContent = '';
+}
+
+/**
+ * How many are still to press. Repaints the waiting line under the button so a
+ * player who has pressed can see WHY nothing is happening yet.
+ */
+export function markWaiting(n) {
+    const el = _el('solo-wait');
+    if (!el) return;
+    el.textContent = n > 0
+        ? `Waiting for ${n} more player${n === 1 ? '' : 's'}…`
+        : 'Everybody ready — here we go!';
+}
+
+/** The gate opened: take the card down so the game has the layer. */
+export function beginNow() {
+    _layer(false);
 }
 
 /** The scoreboard. Every device shows the same table. */
