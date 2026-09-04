@@ -2360,6 +2360,7 @@ function _loop() {
     });
 
     if (_cityLive.length) _animateCityLife(time, dt);
+    _fadeOccluders(dt);
 
     // A BUDDY SPACE breathes, so it reads as live rather than painted on.
     if (_buddyPulse) {
@@ -2625,25 +2626,81 @@ function _dashesAlong(points) {
 let _blockTex = null;
 function _cityBlockTexture() {
     if (_blockTex || typeof document === 'undefined') return _blockTex;
-    const S = 128;
+    // THE GROUND BETWEEN THE DISTRICTS IS THE REST OF THE CITY.
+    //
+    // It used to be four flat squares on a flat field, a few percent apart in
+    // tone. From the street that is fine — you are looking at buildings — but
+    // from the map view, which is where anybody actually reads the board, the
+    // whole area between the four districts was a grey disc with a suggestion
+    // of a grid on it, and the city stopped existing anywhere the tiles did
+    // not go.
+    //
+    // Same idea, drawn properly: a street grid with centre lines, blocks in a
+    // spread of tones rather than two, and the occasional park and reservoir
+    // so the eye has something to land on. Still one 256px canvas, still
+    // multiplied by nothing, still costs one texture.
+    const S = 256;
     const c = document.createElement('canvas');
     c.width = c.height = S;
     const g = c.getContext('2d');
-    // Roads, then blocks between them. Everything within a few percent of the
-    // base colour: this has to survive being seen from two units away without
-    // turning the ground into wallpaper.
-    g.fillStyle = '#2b3040'; g.fillRect(0, 0, S, S);
-    for (let bx = 0; bx < 4; bx++) {
-        for (let by = 0; by < 4; by++) {
+
+    // Asphalt underneath — everything else is a block sitting on it.
+    g.fillStyle = '#2a2f3d'; g.fillRect(0, 0, S, S);
+
+    const N = 4, CELL = S / N;
+    for (let bx = 0; bx < N; bx++) {
+        for (let by = 0; by < N; by++) {
             const n = _sr(bx * 31 + by * 17);
-            const pad = 3 + n * 3;
-            g.fillStyle = n > 0.5 ? '#333a4d' : '#2f3646';
-            g.fillRect(bx * 32 + pad, by * 32 + pad, 32 - pad * 2, 32 - pad * 2);
+            const pad = 5 + n * 4;
+            const x = bx * CELL + pad, y = by * CELL + pad;
+            const w = CELL - pad * 2, h = CELL - pad * 2;
+            if (n > 0.88) {
+                // A reservoir. One per texture on average, and the only cool
+                // colour down there — it is what stops the field reading as
+                // one material at map distance.
+                g.fillStyle = '#26415c'; g.fillRect(x, y, w, h);
+                g.fillStyle = 'rgba(140,190,235,.16)';
+                for (let k = 0; k < 3; k++) g.fillRect(x + 3, y + 5 + k * 7, w - 6, 2);
+            } else if (n > 0.72) {
+                // A park, with a suggestion of tree cover.
+                g.fillStyle = '#33502f'; g.fillRect(x, y, w, h);
+                g.fillStyle = 'rgba(120,180,105,.30)';
+                for (let k = 0; k < 5; k++) {
+                    const tx = x + 4 + _sr(bx * 7 + by * 13 + k) * (w - 8);
+                    const ty = y + 4 + _sr(bx * 11 + by * 5 + k) * (h - 8);
+                    g.beginPath(); g.arc(tx, ty, 2.4, 0, Math.PI * 2); g.fill();
+                }
+            } else {
+                // An ordinary block. Four tones rather than two, and a couple
+                // of rooftop marks so it is not a plain rectangle from above.
+                const tone = ['#333a4d', '#2f3646', '#39415670', '#353d51'][Math.floor(n * 4) % 4];
+                g.fillStyle = tone; g.fillRect(x, y, w, h);
+                g.fillStyle = 'rgba(255,255,255,.045)';
+                g.fillRect(x + 2, y + 2, w - 4, 3);
+                if (n > 0.45) g.fillRect(x + w * 0.55, y + 6, w * 0.3, h * 0.35);
+            }
         }
     }
+
+    // Street centre lines, down the middle of every road the blocks left. This
+    // is the detail that makes it read as STREETS rather than as gaps.
+    g.strokeStyle = 'rgba(214,224,240,.20)';
+    g.lineWidth = 1;
+    g.setLineDash([6, 7]);
+    for (let i = 0; i < N; i++) {
+        const at = i * CELL;
+        g.beginPath(); g.moveTo(at, 0); g.lineTo(at, S); g.stroke();
+        g.beginPath(); g.moveTo(0, at); g.lineTo(S, at); g.stroke();
+    }
+    g.setLineDash([]);
+
     _blockTex = new THREE.CanvasTexture(c);
     _blockTex.wrapS = _blockTex.wrapT = THREE.RepeatWrapping;
-    _blockTex.repeat.set(9, 9);
+    // Fewer, larger blocks than the old 9×: at 9 the grid was finer than the
+    // roads the board itself is made of, which is what made it read as
+    // wallpaper rather than as city.
+    _blockTex.repeat.set(6, 6);
+    _blockTex.anisotropy = 4;
     return _blockTex;
 }
 
@@ -3076,6 +3133,94 @@ function _mkCivicBuilding(pos) {
     return grp;
 }
 
+// ============================================================
+// NOTHING STANDS BETWEEN YOU AND YOUR PIECE
+// ============================================================
+// The city is built close to the road on purpose — a board you look down at
+// from orbit is a diagram, not a place — but "close" and "in the way" are one
+// bad camera angle apart. On the ring road especially the follow camera sits
+// outside the circle looking in, so the block on the near side of the street is
+// squarely between the lens and the token, and the player is steering something
+// they cannot see.
+//
+// Moving the buildings back is the wrong fix twice over: far enough to never
+// occlude is far enough to look like a ring road through a car park, and it
+// cannot work anyway because the camera swings. So the buildings stay where
+// they are and GET OUT OF THE WAY instead — anything between the camera and the
+// active token fades to a ghost and comes back the moment the shot clears.
+//
+// A cylinder rather than a ray: a token is not a point, and a corner clipping
+// the edge of the frame is as bad as a wall across it.
+const OCCLUDE_R    = 4.2;    // world units either side of the camera→token line
+const OCCLUDE_MIN  = 0.20;   // how solid a faded prop stays — never invisible,
+                             // because a building that vanishes reads as a bug
+const OCCLUDE_RATE = 5.5;    // how fast it fades, per second
+
+const _occTmpA = new THREE.Vector3();
+const _occTmpB = new THREE.Vector3();
+const _occTmpC = new THREE.Vector3();
+
+/** Distance from `pt` to the segment a→b. */
+function _distToSeg(pt, a, b) {
+    _occTmpA.subVectors(b, a);
+    const lenSq = _occTmpA.lengthSq();
+    if (lenSq < 1e-6) return pt.distanceTo(a);
+    let t = _occTmpB.subVectors(pt, a).dot(_occTmpA) / lenSq;
+    t = Math.max(0, Math.min(1, t));
+    _occTmpC.copy(a).addScaledVector(_occTmpA, t);
+    return pt.distanceTo(_occTmpC);
+}
+
+function _fadeOccluders(dt) {
+    if (!_cityEnvGroup || !camera) return;
+    const p = state.players[state.activePlayer];
+    const token = p && p.mesh ? p.mesh.position : null;
+    const k = Math.min(1, OCCLUDE_RATE * dt);
+
+    _cityEnvGroup.children.forEach(m => {
+        if (!m.userData || !m.userData.occludes) return;
+        let want = 1;
+        if (token) {
+            // Only things actually BETWEEN the two — a building behind the
+            // token is part of the backdrop and must not flicker.
+            const dCam = m.position.distanceTo(camera.position);
+            const dTok = m.position.distanceTo(token);
+            const span = camera.position.distanceTo(token);
+            if (dCam < span && dTok < span &&
+                _distToSeg(m.position, camera.position, token) < OCCLUDE_R + (m.userData.occR || 0)) {
+                want = OCCLUDE_MIN;
+            }
+        }
+        const cur = m.userData.occNow === undefined ? 1 : m.userData.occNow;
+        const next = cur + (want - cur) * k;
+        m.userData.occNow = next;
+        const mats = Array.isArray(m.material) ? m.material : [m.material];
+        mats.forEach(mat => {
+            if (!mat) return;
+            // Only pay for transparency while it is actually being used: a
+            // transparent material is sorted every frame and the city has
+            // hundreds of them.
+            const solid = next > 0.995;
+            if (mat.transparent === solid) { mat.transparent = !solid; mat.needsUpdate = true; }
+            mat.opacity = next;
+            mat.depthWrite = solid;
+        });
+    });
+}
+
+/**
+ * Mark a prop as something the camera may need to see past, and say how wide it
+ * is so the test can account for its footprint rather than its centre.
+ */
+function _canOcclude(mesh, radius) {
+    if (!mesh) return mesh;
+    mesh.userData = mesh.userData || {};
+    mesh.userData.occludes = true;
+    mesh.userData.occR = radius || 0;
+    mesh.userData.occNow = 1;
+    return mesh;
+}
+
 // ---- Background skyline ----
 
 // A window grid, drawn once and shared by every tower on the horizon.
@@ -3144,12 +3289,37 @@ function _buildBackgroundSkyline() {
         }
         const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
         mesh.position.copy(pos); mesh.position.y = h / 2;
-        mesh.rotation.y = _sr(i * 23 + 9) * 0.5;
+        // SQUARE TO THE CITY, NOT TO NOTHING.
+        //
+        // The yaw used to be `_sr(...) * 0.5` — up to 29° of free rotation on
+        // every tower, independently. From the street that reads as jitter and
+        // is fine; from above, which is how anybody reading the board sees it,
+        // thirty-four boxes at thirty-four unrelated angles read as debris
+        // orbiting the map rather than as a city around it. Towers face the
+        // centre now, with a couple of degrees of slop so it is still a skyline
+        // and not a paling fence.
+        mesh.rotation.y = -angle + (_sr(i * 23 + 9) - 0.5) * 0.14;
         _cityEnvGroup.add(mesh);
     }
 }
 
 // ---- Per-node building placement ----
+
+/**
+ * Half the width of what each district puts on a plot, so the setback can be
+ * measured to the building's FACE rather than to its origin. Deliberately a
+ * table rather than a bounding-box measurement: the meshes are built after the
+ * position is chosen, and a generous constant costs a metre of pavement while
+ * measuring costs a build-then-move-then-rebuild.
+ */
+function _footprintHalf(district, isHQ) {
+    const base = district === 'ind'  ? 6.5
+               : district === 'fin'  ? 5.0
+               : district === 'ba'   ? 5.5
+               : district === 'shop' ? 5.0
+               : 4.5;                                   // ring / civic
+    return isHQ ? base * 1.35 : base;
+}
 
 function _buildAllDistrictBuildings() {
     const boardData = state.board;
@@ -3162,8 +3332,18 @@ function _buildAllDistrictBuildings() {
         const pos       = getPos(nodeId).clone();
 
         const outDir = _outwardDir(pos);
-        // Ring road: push inward (toward center); districts: push outward
-        const offset = district === 'ring' ? -10 : 12;
+        // THE PAVEMENT IS NOT NEGOTIABLE.
+        //
+        // The offset used to be a flat -10 inward on the ring and +12 outward
+        // in the districts, measured from the node to the building's ORIGIN —
+        // which says nothing about where its wall ends up. A factory is a good
+        // deal wider than a shopfront, so the same number put one politely back
+        // from the kerb and drove the other through it. The setback is measured
+        // to the FACE now: a fixed pavement, plus however much the building
+        // itself takes up.
+        const half   = _footprintHalf(district, isHQ);
+        const pave   = district === 'ring' ? 7.5 : 8.5;
+        const offset = (district === 'ring' ? -1 : 1) * (pave + half);
         const bPos = pos.clone().addScaledVector(outDir, offset);
         bPos.y = 0;
 
@@ -3179,6 +3359,8 @@ function _buildAllDistrictBuildings() {
 
         if (building) {
             building.rotation.y = _facingAngle(pos);
+            // Every block is something the camera may have to see past.
+            _canOcclude(building, half);
             _cityEnvGroup.add(building);
         }
     });
