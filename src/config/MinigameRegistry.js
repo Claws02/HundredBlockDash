@@ -396,7 +396,10 @@ export const MG_PROFILE = {
     clearout:    { genre: 'aim',      control: 'thumb', wire: 'events',   seats: [2, 4], live: false },
     orbdeflect:  { genre: 'aim',      control: 'thumb', wire: 'exact',    seats: [2, 2], live: false },
 
-    sumospheres: { genre: 'push',     control: 'thumb', wire: 'snapshot', seats: [2, 4], live: false },
+    // Not roomy: the RING is not divided — sumo is one arena everybody is
+    // shoving everybody else out of, and quartering it would be four people
+    // rolling around alone. Only the stick is partitioned.
+    sumospheres: { genre: 'push',     control: 'thumb', wire: 'snapshot', seats: [2, 4], live: true },
     // Not roomy: the ARENA is not divided. One grid the size of the screen that
     // everybody rides on — carving it into quarters would make four private
     // mazes, and cutting the other rider off is the whole game. Only the INPUT

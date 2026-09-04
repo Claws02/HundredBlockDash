@@ -45,7 +45,7 @@ const EXPECT = {
     penalty:     [false, null,     false],
     clearout:     [false, null,     true ],
     orbdeflect:  [false, null,     false],
-    sumospheres:  [false, null,     true ],
+    sumospheres:  [true,  'any',    true ],
     lightcycles:  [true,  'any',    true ],
     puck:        [false, null,     false],
     bombpass:    [false, null,     false],
@@ -58,8 +58,8 @@ const EXPECT = {
 
 // The headline counts from the plan. If a property changes and one of these
 // moves, the plan is out of date and should be updated deliberately.
-const EXPECT_PHONE_MANY = 5;    // LIVE games — converted to N slots
-const EXPECT_TABLET_MANY = 11;   // ...plus Odd One Out and Steady Hand, which declare `roomy`
+const EXPECT_PHONE_MANY = 6;    // LIVE games — converted to N slots
+const EXPECT_TABLET_MANY = 12;   // ...plus Odd One Out and Steady Hand, which declare `roomy`
 const EXPECT_ONLINE = 15;       // possible across devices
 const EXPECT_ONLINE_NOW = 6;    // running across devices today
 
