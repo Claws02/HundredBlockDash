@@ -313,44 +313,65 @@ contact, and only two games in the roster have it.
 
 ---
 
-## 9. The conversion queue
+## 9. The conversion queue — closed
 
 A game seats three or four people on one screen only once its own code has been
-written for it — `MG_PROFILE.live`. `surfacesOf()` reads that flag, the draw bag
+written for it (`MG_PROFILE.live`). `surfacesOf()` reads that flag, the draw bag
 filters on it, and a game that has not been converted is simply not dealt at
-three or four seats. So this is not a wish list; it is the pool.
+three or four seats.
 
-**Converted (live today) — 5:**
+**The queue is empty. Every remaining `false` is a decision, not a backlog
+item.**
 
-| Game | Genre | Why it was cheap | Screen |
+### Converted — 12 of 22
+
+| Game | Genre | Shape | Screen |
 |---|---|---|---|
-| **Quick Draw** | reflex | one shared signal, one private zone per seat, one tap | any |
-| **Shape Snap** (Sort Rush) | reflex | one shared target in the middle, a private button row per seat | any |
-| **Snap Strike** | reflex | one shared needle, a private lock per seat — the bar is the only private thing, and a bar fits anywhere | any |
-| **Odd One Out** | brain | already four private grids' worth of state in two-element arrays; nothing shared but the clock | tablet (`roomy`) |
-| **Steady Hand** | nerve | same again — a private target, a private finger, a private score. The target has to have somewhere to drift, so `roomy`. | tablet (`roomy`) |
+| **Quick Draw** | reflex | private zone each | any |
+| **Shape Snap** | reflex | private buttons, shared target | any |
+| **Snap Strike** | reflex | private bar, shared needle | any |
+| **Light Cycles** | push | **shared arena**, private stick | any |
+| **Grand Prix** | race | **shared circuit**, private throttle | any |
+| **Sumo Spheres** | push | **shared ring**, private stick | any |
+| **Odd One Out** | brain | private grid each | tablet |
+| **Steady Hand** | nerve | private target each | tablet |
+| **Grid Recall** | brain | private grid, shared pattern | tablet |
+| **Tree Climb** | scramble | private stem each | tablet |
+| **Meteor Dodge** | scramble | private sky each | tablet |
+| **Loot Catch** | scramble | private chute, shared loot | tablet |
 
-The pattern is visible in the table: **the cheapest conversions are the games
-whose players never touched each other.** A private playfield per seat widens
-from two to four by widening its arrays and asking `zonesFor()` where to put
-them. Nothing about the simulation changes.
+Two shapes, and the distinction is the whole lesson of this work:
 
-**Next, cheapest first:**
+- **A private playfield each** widens by sizing the arrays to `slotCount()` and
+  taking zones from `MinigameLayout.zonesFor()`. Six games. All of them are
+  `roomy` — a quarter of a *phone* is not enough for a playfield with motion in
+  it — so they are tablet games at three and four.
+- **A shared playfield** does not divide at all. The arena, the circuit and the
+  ring stay whole and only the INPUT is partitioned, because carving them up
+  would produce four people playing alone in adjacent boxes when the entire
+  point is that they are in each other's way. Three games — and because nothing
+  needs extra room, these are the ones that work at four **on a phone**.
 
-| Game | Genre | What it needs |
+### Staying two-player — and why
+
+| Game | Reason |
+|---|---|
+| **Puck · Bomb Pass · Orb Deflect · Penalty · Rhythm Forge** | Frame-exact contact. Your own timing IS the collision. |
+| **Memory Match · Four in a Row** | Taken in turns. At four that is three people watching one person think — the exact thing the bracket was removed for. |
+| **Clear Out** | Two-sided by construction: a wall with one gap, your side and their side, "empty YOUR side" as the win. Four sides is a new game, not a wider one. *(Owner's call.)* |
+| **Freeze** | Two-sided by construction: one corridor, two tokens creeping at each other from the ends. *(Owner's call.)* |
+| **Tank Clash** | Twin-stick. The control law gives one thumb per quarter screen, so it cannot be a shared-screen four-player game — but it is one of the **best** four-player games in the roster across devices, where everybody has a full screen. That is where it belongs. *(Owner's call.)* |
+
+Clear Out and Freeze have had their `seats` corrected to `[2, 2]` so the
+registry states the decision rather than implying unfinished work.
+
+### What a table actually gets
+
+| | phone | tablet |
 |---|---|---|
-| **Tree Climb** | scramble | private ladder per seat, tap control. Arrays and zones; 647 lines is the only cost. |
-| **Meteor Dodge**, **Loot Catch** | scramble | private playfield *with motion*, so both are `roomy`: a quarter of a phone is not a field to dodge in. Arrays, zones, and a `roomy: true`. |
-| **Grid Recall** | brain | private grids, shared finish line. Arrays and zones, plus deciding what "first to finish" means when four are racing. |
-| **Light Cycles**, **Grand Prix** | push / race | one shared playfield drawn once, plus a control band per seat. A bigger job than the four above: the playfield has to be re-cut for four trails rather than two. |
+| 2 players | 22 | 22 |
+| 3–4 players | **6** | **12** |
 
-**Not on the queue:**
-
-- **Sumo Spheres** — 475 lines of 3D with `_p1`/`_p2`/`_vel1`/`_vel2`/`_mom1`/
-  `_mom2` as separate variables. A rewrite, not a widening.
-- **Freeze** — its track is one vertical corridor with two tokens converging on
-  the centre. Four tokens need a different geometry, which is a design change
-  before it is a code change.
-- **The seven `exact` games** (Puck, Penalty, Orb Deflect, Rhythm Forge, Bomb
-  Pass, Memory Match, Four in a Row) — two-player by nature: frame-exact
-  contact, or a turn order. They stay two-player and that is the right answer.
+A six-round match on a tablet no longer repeats a game. On a phone it will, and
+`bagDepth()` says so in the lobby before the match rather than letting the third
+repeat say it.

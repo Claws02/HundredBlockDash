@@ -377,7 +377,10 @@ export const MG_PROFILE = {
     // second.
     steadyhand:  { genre: 'nerve',    control: 'thumb', wire: 'none',     seats: [2, 4], live: true, roomy: true },
     rhythmforge: { genre: 'nerve',    control: 'tap',   wire: 'exact',    seats: [2, 2], live: false },
-    freeze:      { genre: 'nerve',    control: 'thumb', wire: 'scalar',   seats: [2, 4], live: false },
+    // Two-sided by construction: ONE corridor with two tokens creeping at each
+    // other from the ends. Four tokens is a different game, not a wider one, so
+    // this stays a face-off. (Owner's call.)
+    freeze:      { genre: 'nerve',    control: 'thumb', wire: 'scalar',   seats: [2, 2], live: false },
 
     // roomy: a playfield with things falling through it. A phone quarter is
     // 206x400 and a meteor crosses it in well under a second — there is no
@@ -393,7 +396,10 @@ export const MG_PROFILE = {
 
     tankclash:   { genre: 'aim',      control: 'dual',  wire: 'snapshot', seats: [2, 4], live: false },
     penalty:     { genre: 'aim',      control: 'thumb', wire: 'exact',    seats: [2, 2], live: false },
-    clearout:    { genre: 'aim',      control: 'thumb', wire: 'events',   seats: [2, 4], live: false },
+    // Two-sided by construction: a wall with one gap, your side and their side,
+    // and "empty YOUR side" as the win. Four sides needs new geometry rather
+    // than wider arrays, so this stays a face-off. (Owner's call.)
+    clearout:    { genre: 'aim',      control: 'thumb', wire: 'events',   seats: [2, 2], live: false },
     orbdeflect:  { genre: 'aim',      control: 'thumb', wire: 'exact',    seats: [2, 2], live: false },
 
     // Not roomy: the RING is not divided — sumo is one arena everybody is
@@ -485,9 +491,12 @@ export function blockedReason(type, surface) {
     const p = profileOf(type);
     const s = surfacesOf(type);
     if (surface === 'many' && !s.sharedMany) {
-        if (p.control === 'dual') return 'Two-handed controls — won\'t fit a quarter screen.';
+        // Every one of these is now a DECISION rather than a backlog item. The
+        // conversion work is finished: what is left at two is left at two on
+        // purpose, and the reason a player reads should say so.
+        if (p.control === 'dual') return 'Two-handed controls — great across devices, not on one screen.';
         if (p.seats[1] <= 2)      return 'Built for two — the mechanic doesn\'t open up.';
-        return 'Not converted yet — still two slots in code.';
+        return 'Two-sided by design — a wall and a gap don\'t make four sides.';
     }
     if (surface === 'online' && !s.online) {
         return p.seats[1] <= 2 && MG_SHAPE[type] === 'table'

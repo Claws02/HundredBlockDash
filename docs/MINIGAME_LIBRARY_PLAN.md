@@ -110,7 +110,7 @@ racing hard — worth knowing before picking what to build next.
 ### Shared screen, 2P — **22 of 22**
 Everything. This is what the roster was built for and nothing changes.
 
-### Shared screen, 3–4P — **3 on a phone, 5 on a tablet**
+### Shared screen, 3–4P — **6 on a phone, 12 on a tablet**
 
 **This number was wrong when it was written, and the correction is the most
 important thing in this document.** The original claim was *7 on a phone, 14 on
@@ -124,13 +124,17 @@ watching — and under "nobody waits" that is not an answer.
 The honest gate is `MG_PROFILE.live`: **has this game's code been rewritten to
 seat everybody?** Four have.
 
-- **On a phone (3)** — Quick Draw · Shape Snap · Snap Strike.
-- **A tablet adds 2** — Odd One Out and Steady Hand, both `roomy`: Odd One Out's
-  grid climbs to 5×5 (a fifth of a phone quarter is a 34 px tile) and Steady
-  Hand's target needs somewhere to drift.
-- **Not yet converted (10)** — the games whose layouts fit but whose code does
-  not: Tree Climb · Meteor Dodge · Loot Catch · Grid Recall · Light Cycles ·
-  Grand Prix · Sumo Spheres · Clear Out · Freeze · Tank Clash.
+- **On a phone (6)** — Quick Draw · Shape Snap · Snap Strike · Light Cycles ·
+  Grand Prix · Sumo Spheres. The last three are the SHARED-playfield games: one
+  arena, one circuit, one ring, with only the stick or the pedal partitioned. A
+  whole arena needs no more room at four than at two.
+- **A tablet adds 6** — Odd One Out · Steady Hand · Grid Recall · Tree Climb ·
+  Meteor Dodge · Loot Catch. All `roomy`: each wants a private playfield with
+  motion in it, and a phone quarter is 206×400.
+- **Two-player by decision (10)** — five frame-exact, two turn-based, Clear Out
+  and Freeze (two-sided by construction), and Tank Clash (twin-stick — it is one
+  of the best four-player games in the roster, but across devices where everyone
+  has a full screen). See `MINIGAME_CATEGORIES.md` §9.
   The queue, cheapest first, is §9 of `MINIGAME_CATEGORIES.md`.
 - **Never (7)** — Puck · Bomb Pass · Orb Deflect · Penalty · Four in a Row ·
   Memory Match · Rhythm Forge. Frame-exact contact or a turn order; two-player
@@ -157,7 +161,7 @@ and the player never sees the taxonomy at all.** This is the part that makes the
 categories *do* something rather than be labels, and it is a three-line change
 in `nextMgType()`.
 
-A consequence worth stating: on a phone at four players the bag is 3 games deep,
+A consequence worth stating: on a phone at four players the bag is 6 games deep,
 and a match with six rounds will repeat. That is an argument for the tablet, and
 for the arcade telling you so.
 
@@ -249,8 +253,8 @@ piece of work in here — flag it as a phase of its own.
 
 ### What phase 3 changes, and what it does not
 
-A four-player match on a phone now draws from **3 games instead of 22** — the
-three that have actually been converted — so it can no longer deal Tank Clash to
+A four-player match on a phone now draws from **6 games instead of 22** — the
+six that have actually been converted — so it can no longer deal Tank Clash to
 four people who cannot hold it, or a turn-based board to a table of four.
 
 **The bracket is gone.** Phase 3 fixed *which* games come up; the conversion

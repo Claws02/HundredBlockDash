@@ -711,17 +711,32 @@ That is the property that made the conversion safe to do game by game.
 | Surface | Rule | Today |
 |---|---|---|
 | **Shared screen, 2P** | everything | 22 of 22 |
-| **Shared screen, 3–4P** | `live` **and** seats reach 3+ **and** control is not `dual` | 5 — and `roomy` puts two of them on a tablet |
+| **Shared screen, 3–4P** | `live` **and** seats reach 3+ **and** control is not `dual` | 12 — `roomy` puts six of them on a tablet |
 | **Online, 2–4P** | wire tier is anything but `exact` | 15, of which 6 (`wire: 'none'`) run today |
 
 **`roomy`** is the one thing the derivation cannot work out for itself: whether
-a quarter of a *phone* is enough room for this game's zone. Two games declare
-it. Odd One Out, because its grid climbs to 5×5 and a fifth of a phone quarter
-is a 34 px tile — under the 44 px the control law asks for; on a tablet quarter
-the same tile is 68 px. And Steady Hand, because its target *drifts*, and a
-206×400 field is one the target is off a wall in every second.
+a quarter of a *phone* is enough room for this game's zone. Six games declare
+it, and each for a measured reason — Odd One Out's grid reaches 5×5, which is a
+34 px tile on a phone quarter against the control law's 44 px floor; Grid
+Recall's 4×4 is 38 px; Steady Hand's target *drifts*, and Meteor Dodge's and
+Loot Catch's playfields have things falling the length of them; Tree Climb's
+stem scrolls at 74 px a branch, so a 400 px quarter shows five branches of tree.
 `eligibleTypes()` enforces it: on a phone at 3–4 seats, a `roomy` game is simply
 never dealt.
+
+### Two shapes of conversion, and the second is the interesting one
+
+**A private playfield each** widens the obvious way: size the arrays to
+`slotCount()`, take the zones from `zonesFor()`, give each bot its own timer.
+Six games went this way and all six are `roomy`.
+
+**A shared playfield does not divide at all.** Light Cycles, Grand Prix and Sumo
+Spheres keep one arena, one circuit, one ring — and partition only the INPUT, a
+floating stick or a throttle pad per quadrant. Quartering those would produce
+four people playing alone in adjacent boxes, when being in each other's way is
+the entire game. It is also why they are the games that work at four **on a
+phone**: a whole arena needs no more room at four than at two, only more
+control zones, and a control zone is a thumb.
 
 **A short bag is said out loud, not hidden.** `bagDepth()` returns how many
 games this table can play and how many more a tablet would add, and the lobby
@@ -786,11 +801,15 @@ in six the cost — two people watching for one game — is worth the thing it b
 
 ### What this does not reach
 
-Five games are live. Seventeen are not, and on a shared screen at three or four
-seats they are **not dealt** — the bag holds only what the table can actually
-play. That is the honest state: a 3–4 player match today draws from five games
-(three on a phone), and widening it is game-by-game conversion work, listed in
-`MINIGAME_CATEGORIES.md` §9.
+Twelve games are live and ten are not, and on a shared screen at three or four
+seats those ten are **not dealt** — the bag holds only what the table can
+actually play. Every one of the ten is now a decision rather than a backlog
+item, and `blockedReason()` says which: frame-exact contact (five), a turn order
+(two), two-sided by construction (Clear Out and Freeze), and twin-stick controls
+that need a screen each (Tank Clash). `MINIGAME_CATEGORIES.md` §9 has the table.
+
+A 3–4 player match draws from twelve games on a tablet and six on a phone, so a
+six-round match on a tablet no longer repeats.
 
 Online is a different eighteen: six parallel games run across phones today, nine
 more need the wire tiers in `MULTIPLAYER_PLAN.md`, and seven are `exact` — one
@@ -818,9 +837,8 @@ bystander problem (it is the bystander problem, dealt out one at a time).
 
 - **`MG_PROFILE.live` + `MinigameLayout.zonesFor()` + the N-seat roster in
   `MinigameManager`** — §11. One game, every seat in it, at once. Four games
-  converted (Quick Draw, Shape Snap, Snap Strike, Odd One Out, Steady Hand);
-  the rest are not
-  dealt at three or four seats. `qa/livegames.js` plays each of them at 3 and 4.
+  converted; the other ten are deliberately two-player and are not dealt at
+  three or four seats. `qa/livegames.js` plays every live game at 3 and at 4.
 - **The ready gate at N** — `_buildReadyButtons(n)`, one per seat, labelled and
   placed where that player is sitting; the countdown waits for all of them.
 - **Live standings across phones** — `mgTick` up, `soloStand` down, the same rail.
