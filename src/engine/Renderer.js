@@ -2647,28 +2647,37 @@ function _cityBlockTexture() {
     // Asphalt underneath — everything else is a block sitting on it.
     g.fillStyle = '#2a2f3d'; g.fillRect(0, 0, S, S);
 
-    const N = 4, CELL = S / N;
+    // Six blocks per tile rather than four, and the texture repeated four
+    // times rather than six: the same block size on the ground, but the
+    // REPEAT is much less frequent, which is what stops a lattice appearing.
+    const N = 6, CELL = S / N;
     for (let bx = 0; bx < N; bx++) {
         for (let by = 0; by < N; by++) {
             const n = _sr(bx * 31 + by * 17);
             const pad = 5 + n * 4;
             const x = bx * CELL + pad, y = by * CELL + pad;
             const w = CELL - pad * 2, h = CELL - pad * 2;
-            if (n > 0.88) {
-                // A reservoir. One per texture on average, and the only cool
-                // colour down there — it is what stops the field reading as
-                // one material at map distance.
-                g.fillStyle = '#26415c'; g.fillRect(x, y, w, h);
-                g.fillStyle = 'rgba(140,190,235,.16)';
-                for (let k = 0; k < 3; k++) g.fillRect(x + 3, y + 5 + k * 7, w - 6, 2);
-            } else if (n > 0.72) {
-                // A park, with a suggestion of tree cover.
-                g.fillStyle = '#33502f'; g.fillRect(x, y, w, h);
-                g.fillStyle = 'rgba(120,180,105,.30)';
-                for (let k = 0; k < 5; k++) {
+            // The first draft of this made one block in six a park and one in
+            // eight a reservoir, at full saturation. Tiled six times across the
+            // disc that is thirty-six bright green squares in a regular lattice
+            // — the ground stopped reading as a city and started reading as a
+            // quilt, and at street level the parks sat in the roadway like
+            // pasted-on lawn. They are BACKGROUND. One of each per texture at
+            // most, and close enough in tone to the blocks that they read as
+            // variation rather than as decoration.
+            if (n > 0.955) {
+                // A reservoir — the only cool note down there.
+                g.fillStyle = '#2c3a4a'; g.fillRect(x, y, w, h);
+                g.fillStyle = 'rgba(150,190,225,.10)';
+                for (let k = 0; k < 3; k++) g.fillRect(x + 3, y + 5 + k * 7, w - 6, 1.5);
+            } else if (n > 0.90) {
+                // A park.
+                g.fillStyle = '#36423a'; g.fillRect(x, y, w, h);
+                g.fillStyle = 'rgba(120,160,110,.16)';
+                for (let k = 0; k < 4; k++) {
                     const tx = x + 4 + _sr(bx * 7 + by * 13 + k) * (w - 8);
                     const ty = y + 4 + _sr(bx * 11 + by * 5 + k) * (h - 8);
-                    g.beginPath(); g.arc(tx, ty, 2.4, 0, Math.PI * 2); g.fill();
+                    g.beginPath(); g.arc(tx, ty, 2.2, 0, Math.PI * 2); g.fill();
                 }
             } else {
                 // An ordinary block. Four tones rather than two, and a couple
@@ -2696,10 +2705,11 @@ function _cityBlockTexture() {
 
     _blockTex = new THREE.CanvasTexture(c);
     _blockTex.wrapS = _blockTex.wrapT = THREE.RepeatWrapping;
-    // Fewer, larger blocks than the old 9×: at 9 the grid was finer than the
-    // roads the board itself is made of, which is what made it read as
-    // wallpaper rather than as city.
-    _blockTex.repeat.set(6, 6);
+    // Fewer repeats than the old 9×: at 9 the grid was finer than the roads
+    // the board itself is made of, which made it read as wallpaper; at 6 the
+    // tile itself became legible and read as a quilt. Four, with more blocks
+    // inside each tile, is the size where it is a city.
+    _blockTex.repeat.set(4, 4);
     _blockTex.anisotropy = 4;
     return _blockTex;
 }
