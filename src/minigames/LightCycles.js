@@ -26,7 +26,8 @@
 
 import { state } from '../core/GameState.js';
 import { sfx, haptic } from '../engine/AudioManager.js';
-import { registerMinigameCleanup } from './MinigameManager.js';
+import { registerMinigameCleanup, slotCount, isBotSlot, seatFor } from './MinigameManager.js';
+import { zonesFor } from '../config/MinigameLayout.js';
 
 // ── Tunables ────────────────────────────────────────────────────────────────
 const WIN_ROUNDS  = 2;      // best of 3
@@ -51,21 +52,26 @@ let _done = false, _onWin = null, _isBot = false, _botSkill = 0.55;
 let _overlay = null, _canvas = null, _ctx = null, _dpr = 1;
 let _af = null, _last = 0;
 let _W = 0, _H = 0, _cols = 0, _rows = 0, _ox = 0, _oy = 0;
-let _grid = null;                 // Int8Array: 0 empty, 1 P1 trail, 2 P2 trail
+let _n = 2;                       // slots, not seats
+let _grid = null;                 // Int8Array: 0 empty, slot+1 = that slot's trail
 let _cycles = [];                 // { cx, cy, dir, fx, fy, alive }
-let _wins = [0, 0];
+let _wins = [];
+let _zones = [];                  // input quadrants — the ARENA stays whole
 let _round = 0;
 let _roundT = 0, _graceT = 0;
 let _between = false;
 let _margin = 0;
 let _flash = 0, _flashMsg = '';
-let _botCd = 0;
-let _sticks = [null, null];
+let _botCd = [];                  // one cooldown per bot
+let _sticks = [];
 const _cleanups = [];
 const _timers   = [];
 
 // Direction indices: 0 up, 1 right, 2 down, 3 left.
 const DX = [0, 1, 0, -1], DY = [-1, 0, 1, 0];
+const SLOT_ACCENT = ['#ff5a5a', '#5a9bff', '#5fd68a', '#ffd45f'];
+const TRAIL       = ['#ff4d4d', '#4d9bff', '#4ade80', '#fbbf24'];
+const HEAD        = ['#ff8080', '#80bcff', '#86efac', '#fde68a'];
 
 function _after(fn, ms) {
     const id = setTimeout(() => { _timers.splice(_timers.indexOf(id), 1); fn(); }, ms);
@@ -77,8 +83,10 @@ function _after(fn, ms) {
 export function start(isBot, onWin, botSkill = 0.55) {
     if (!state.mgActive) return;
     _done = false; _onWin = onWin; _isBot = isBot; _botSkill = botSkill;
-    _wins = [0, 0]; _round = 0; _last = 0; _between = false;
-    _flash = 0; _flashMsg = ''; _botCd = 0; _sticks = [null, null];
+    _n = Math.max(2, Math.min(4, slotCount()));
+    _wins = new Array(_n).fill(0); _botCd = new Array(_n).fill(0);
+    _round = 0; _last = 0; _between = false;
+    _flash = 0; _flashMsg = ''; _sticks = [];
     registerMinigameCleanup(_destroy);   // R3
     _build();
     requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -113,18 +121,30 @@ function _build() {
     document.getElementById('mg-neutral').textContent = 'STEER WITH YOUR STICK — DON\'T CRASH!';
 }
 
-// A floating joystick in each half. The ring appears under the thumb and the
-// knob swings around it; pushing past a dead zone picks the nearest of the four
+// A floating joystick per player. The ring appears under the thumb and the knob
+// swings around it; pushing past a dead zone picks the nearest of the four
 // compass directions, in the player's own frame.
+//
+// THE ARENA IS NOT DIVIDED. This is the shape the layout module calls ARENA: one
+// grid the size of the screen that everybody rides on, because carving it into
+// quarters would make four private mazes rather than one contested space — and
+// cutting the other rider off is the entire game. What IS divided is the INPUT:
+// zonesFor() hands out a quadrant each, and a thumb in your quadrant steers your
+// cycle. The trails still cross the whole screen.
 function _buildSticks() {
-    _sticks = [null, null];
-    for (let pid = 0; pid < 2; pid++) {
-        const color = pid === 0 ? '#ff5a5a' : '#5a9bff';
+    _sticks = [];
+    const w = _overlay.clientWidth || window.innerWidth;
+    const h = _overlay.clientHeight || window.innerHeight;
+    const zones = zonesFor(_n, w, h);
+    for (let pid = 0; pid < _n; pid++) {
+        const color = SLOT_ACCENT[pid] || '#ffffff';
+        const zr = zones[pid].rect;
+        const far = zones[pid].rot === 180;
 
         const zone = document.createElement('div');
         zone.style.cssText = [
-            'position:absolute;left:0;right:0;z-index:5;',
-            pid === 0 ? 'top:50%;bottom:0;' : 'top:0;bottom:50%;',
+            'position:absolute;z-index:5;',
+            `left:${zr.x}px;top:${zr.y}px;width:${zr.w}px;height:${zr.h}px;`,
         ].join('');
 
         const base = document.createElement('div');
@@ -147,7 +167,8 @@ function _buildSticks() {
         _overlay.appendChild(zone);
         _sticks[pid] = { base, knob, zone, origin: null, pointerId: null };
 
-        const restTop = pid === 0 ? 'calc(100% - 84px)' : '84px';
+        // The stick rests at the player's own outer edge, where their thumb is.
+        const restTop = far ? '84px' : 'calc(100% - 84px)';
 
         const park = () => {
             const st = _sticks[pid];
@@ -164,7 +185,7 @@ function _buildSticks() {
         const onDown = e => {
             const st = _sticks[pid];
             if (_done || !st || st.pointerId !== null) return;
-            if (pid === 1 && _isBot) return;
+            if (isBotSlot(pid)) return;
             e.preventDefault();
             try { zone.setPointerCapture(e.pointerId); } catch (err) {}
             const r = zone.getBoundingClientRect();
@@ -266,15 +287,25 @@ function _startRound() {
     // nothing produced a mutual head-on crash every single round — a boring
     // default that made the opening about chicken rather than about space.
     // Started apart, the first decision is where to cut the other one off.
-    _cycles = [
-        { cx: Math.max(1, Math.floor(_cols * 0.32)), cy: _rows - 1 - _margin - 2, dir: 0, alive: true },
-        { cx: Math.min(_cols - 2, Math.ceil(_cols * 0.68)), cy: _margin + 2,      dir: 2, alive: true },
+    // Everybody starts on an edge facing the middle, spread so the first
+    // contested ground is dead centre and nobody begins in anybody's path.
+    // Four riders take the four edges; three take three of them.
+    const lo = i => Math.max(1 + _margin, i);
+    const hi = i => Math.min(_cols - 2 - _margin, i);
+    const loR = i => Math.max(1 + _margin, i);
+    const hiR = i => Math.min(_rows - 2 - _margin, i);
+    const STARTS = [
+        () => ({ cx: lo(Math.floor(_cols * 0.32)), cy: hiR(_rows - 3 - _margin), dir: 0 }),  // bottom, up
+        () => ({ cx: hi(Math.ceil(_cols * 0.68)),  cy: loR(_margin + 2),         dir: 2 }),  // top, down
+        () => ({ cx: lo(_margin + 2),              cy: loR(Math.floor(_rows * 0.32)), dir: 1 }),  // left, right
+        () => ({ cx: hi(_cols - 3 - _margin),      cy: hiR(Math.ceil(_rows * 0.68)),  dir: 3 }),  // right, left
     ];
+    _cycles = Array.from({ length: _n }, (_, i) => ({ ...STARTS[i](), alive: true }));
     _cycles.forEach((c, i) => _set(c.cx, c.cy, i + 1));
     _flash = 0.9; _flashMsg = `ROUND ${_round}`;
     sfx('go');
     const neu = document.getElementById('mg-neutral');
-    if (neu) neu.textContent = `ROUND ${_round}   P1 ${_wins[0]} · ${_wins[1]} P2`;
+    if (neu) neu.textContent = `ROUND ${_round}   ${_wins.join(' · ')}`;
 }
 
 function _idx(x, y) { return y * _cols + x; }
@@ -295,7 +326,7 @@ function _tick(now) {
     if (!_between) {
         _roundT += dt;
         _graceT = Math.max(0, _graceT - dt);
-        if (_isBot) _botThink(dt);
+        for (let pid = 0; pid < _n; pid++) if (isBotSlot(pid)) _botThink(pid, dt);
         _step(dt);
     }
     _draw();
@@ -309,15 +340,21 @@ function _step(dt) {
     while (_acc >= 1) {
         _acc -= 1;
         const dead = [];
-        // Both cycles move at the same instant, so a head-on is a genuine draw.
+        // Every cycle moves at the same instant, so a head-on is a genuine
+        // mutual crash rather than whoever the loop reached first.
         const next = _cycles.map(c => c.alive
             ? { x: c.cx + DX[c.dir], y: c.cy + DY[c.dir] }
             : null);
-        for (let i = 0; i < 2; i++) {
+        for (let i = 0; i < _n; i++) {
             const c = _cycles[i], n = next[i];
             if (!c.alive || !n) continue;
             const cell = _get(n.x, n.y);
-            const headOn = next[1 - i] && n.x === next[1 - i].x && n.y === next[1 - i].y;
+            // Head-on against ANY other rider, not just "the other one".
+            let headOn = false;
+            for (let j = 0; j < _n && !headOn; j++) {
+                if (j === i || !next[j]) continue;
+                if (n.x === next[j].x && n.y === next[j].y) headOn = true;
+            }
             if (cell !== 0 || headOn) dead.push(i);
         }
         if (dead.length) {
@@ -329,10 +366,15 @@ function _step(dt) {
                 return;
             }
             dead.forEach(i => { _cycles[i].alive = false; });
-            _endRound(dead.length === 2 ? -1 : 1 - dead[0]);
-            return;
+            // LAST ONE RIDING. At two seats a crash ended the round because it
+            // left exactly one alive; above two it usually does not, and the
+            // survivors carry on over the wreck's trail.
+            const alive = _cycles.reduce((a, c, i) => (c.alive ? a.concat(i) : a), []);
+            if (alive.length === 1) { _endRound(alive[0]); return; }
+            if (alive.length === 0) { _endRound(-1); return; }
+            sfx('land_bad');
         }
-        for (let i = 0; i < 2; i++) {
+        for (let i = 0; i < _n; i++) {
             const c = _cycles[i], n = next[i];
             if (!c.alive || !n) continue;
             c.cx = n.x; c.cy = n.y;
@@ -348,11 +390,11 @@ function _endRound(winnerId, why) {
     _flash = 1.4;
     // Both dying on the same tick isn't always a head-on — most often it's two
     // simultaneous wall crashes — so the wording covers either.
-    _flashMsg = winnerId < 0 ? 'BOTH CRASHED — NO SCORE'
-              : `P${winnerId + 1} TAKES ROUND ${_round}${why ? ' — ' + why : ''}`;
+    _flashMsg = winnerId < 0 ? 'EVERYBODY CRASHED — NO SCORE'
+              : `${_nameOf(winnerId)} TAKES ROUND ${_round}${why ? ' — ' + why : ''}`;
     sfx(winnerId < 0 ? 'land_bad' : 'coin_gain'); haptic('heavy');
     const neu = document.getElementById('mg-neutral');
-    if (neu) neu.textContent = `P1 ${_wins[0]} · ${_wins[1]} P2   —   BEST OF ${MAX_ROUNDS}`;
+    if (neu) neu.textContent = `${_wins.join(' · ')}   —   BEST OF ${MAX_ROUNDS}`;
 
     if (winnerId >= 0 && _wins[winnerId] >= WIN_ROUNDS) { _after(() => _finish(winnerId), GAP); return; }
     if (_round >= MAX_ROUNDS) { _after(_finishOnScore, GAP); return; }
@@ -365,12 +407,12 @@ function _endRound(winnerId, why) {
 // kill it, take the one that leaves it the most room. botSkill controls how
 // often it bothers to look, how deep the room count goes, and how often it just
 // picks at random instead.
-function _botThink(dt) {
-    const c = _cycles[1];
+function _botThink(pid, dt) {
+    const c = _cycles[pid];
     if (!c || !c.alive) return;
-    _botCd -= dt;
-    if (_botCd > 0) return;
-    _botCd = 0.09 + (1 - _botSkill) * 0.16;
+    _botCd[pid] -= dt;
+    if (_botCd[pid] > 0) return;
+    _botCd[pid] = 0.09 + (1 - _botSkill) * 0.16;
 
     const options = [c.dir, (c.dir + 1) % 4, (c.dir + 3) % 4];
     const safe = options.filter(d => _get(c.cx + DX[d], c.cy + DY[d]) === 0);
@@ -438,7 +480,7 @@ function _draw() {
         for (let x = 0; x < _cols; x++) {
             const v = _grid[_idx(x, y)];
             if (!v) continue;
-            ctx.fillStyle = v === 1 ? '#ff4d4d' : '#4d9bff';
+            ctx.fillStyle = TRAIL[v - 1] || '#ffffff';
             ctx.globalAlpha = 0.85;
             ctx.fillRect(_ox + x * CELL + 1, _oy + y * CELL + 1, CELL - 2, CELL - 2);
             ctx.globalAlpha = 1;
@@ -446,10 +488,10 @@ function _draw() {
     }
 
     // Heads, brighter, with a nose showing which way they are pointed
-    for (let i = 0; i < 2; i++) {
+    for (let i = 0; i < _n; i++) {
         const c = _cycles[i];
         if (!c) continue;
-        const color = i === 0 ? '#ff8080' : '#80bcff';
+        const color = HEAD[i] || '#ffffff';
         const x = _ox + c.cx * CELL, y = _oy + c.cy * CELL;
         ctx.fillStyle = c.alive ? color : '#5d6478';
         ctx.fillRect(x, y, CELL, CELL);
@@ -469,39 +511,59 @@ function _draw() {
         ctx.globalAlpha = 1;
     }
 
-    // Per-player HUD, each upright at its own edge
-    for (let pid = 0; pid < 2; pid++) {
+    // Per-player HUD, each upright at its own control zone. The zone is where
+    // that player is sitting, so their tally goes there rather than at a screen
+    // edge that belongs to somebody else.
+    if (!_zones.length) _zones = zonesFor(_n, w, h);
+    _zones.forEach((z, pid) => {
+        const r = z.rect;
         ctx.save();
-        if (pid === 1) { ctx.translate(w, h); ctx.rotate(Math.PI); }
-        ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
-        ctx.font = '900 22px "Bebas Neue", sans-serif';
-        ctx.fillStyle = pid === 0 ? '#ff6b6b' : '#6ba7ff';
-        ctx.fillText(`P${pid + 1}  ROUNDS ${_wins[pid]}`, 14, h - 54);
-        ctx.font = '800 11px "Nunito", system-ui, sans-serif';
-        ctx.fillStyle = 'rgba(255,255,255,.45)';
-        ctx.fillText(_graceT > 0 && !_between ? 'SAFE START…' : 'PUSH THE STICK TO STEER', 14, h - 40);
+        if (z.rot === 180) { ctx.translate(r.x + r.w, r.y + r.h); ctx.rotate(Math.PI); }
+        else               { ctx.translate(r.x, r.y); }
+        ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+        ctx.font = '900 20px "Bebas Neue", sans-serif';
+        ctx.fillStyle = SLOT_ACCENT[pid] || '#ffffff';
+        const dead = _cycles[pid] && !_cycles[pid].alive;
+        ctx.fillText(`${_nameOf(pid)}  ${_wins[pid]}${dead ? '  ✖' : ''}`, 10, 8);
         ctx.restore();
-    }
+    });
+    ctx.textBaseline = 'bottom';
+    ctx.textAlign = 'center';
+    ctx.font = '800 11px "Nunito", system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,.45)';
+    ctx.fillText(_graceT > 0 && !_between ? 'SAFE START…' : 'PUSH YOUR STICK TO STEER', w / 2, h - 8);
 
-    // Round banner, one copy per player
+    // Round banner, one copy per player, upright in their own zone
     if (_flash > 0 && _flashMsg) {
         ctx.globalAlpha = Math.min(1, _flash);
-        for (let pid = 0; pid < 2; pid++) {
+        _zones.forEach(z => {
+            const r = z.rect;
             ctx.save();
-            if (pid === 1) { ctx.translate(w, h); ctx.rotate(Math.PI); }
+            if (z.rot === 180) { ctx.translate(r.x + r.w, r.y + r.h); ctx.rotate(Math.PI); }
+            else               { ctx.translate(r.x, r.y); }
             ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-            ctx.font = '900 24px "Bebas Neue", sans-serif';
+            ctx.font = '900 20px "Bebas Neue", sans-serif';
             ctx.fillStyle = '#ffffff';
-            ctx.fillText(_flashMsg, w / 2, h * 0.70);
+            ctx.fillText(_flashMsg, r.w / 2, r.h * 0.5);
             ctx.restore();
-        }
+        });
         ctx.globalAlpha = 1;
     }
 }
 
 // ── End (R6) ────────────────────────────────────────────────────────────────
-function _finishOnScore() {
-    _finish(_wins[0] > _wins[1] ? 0 : _wins[1] > _wins[0] ? 1 : -1);
+function _finishOnScore() { _finish(_leader()); }
+
+/** The outright most rounds won, or -1 if the top is shared. */
+function _leader() {
+    const best = Math.max(..._wins);
+    const top = _wins.reduce((a, v, i) => (v === best ? a.concat(i) : a), []);
+    return top.length === 1 ? top[0] : -1;
+}
+
+function _nameOf(pid) {
+    const p = state.players[seatFor(pid)];
+    return (p && p.name ? p.name : `P${pid + 1}`).toUpperCase();
 }
 
 function _finish(winnerId) {
@@ -510,8 +572,8 @@ function _finish(winnerId) {
     state.mgActive = false;
     const neu = document.getElementById('mg-neutral');
     if (neu) neu.textContent = winnerId < 0
-        ? `DRAW — ${_wins[0]} EACH`
-        : `P${winnerId + 1} WINS ${_wins[0]}–${_wins[1]}!`;
+        ? `DRAW — ${_wins.join('–')}`
+        : `${_nameOf(winnerId)} WINS ${_wins.join('–')}!`;
     sfx(winnerId < 0 ? 'land_bad' : 'mg_win'); haptic('heavy');
     _after(() => { _destroy(); _onWin(winnerId); }, 1400);
 }
@@ -524,6 +586,6 @@ function _destroy() {
     if (_af) { cancelAnimationFrame(_af); _af = null; }
     _ctx = null; _canvas = null;
     if (_overlay) { _overlay.remove(); _overlay = null; }
-    _grid = null; _cycles = []; _seen.clear(); _sticks = [null, null];
+    _grid = null; _cycles = []; _seen.clear(); _sticks = []; _zones = [];
     _last = 0; _acc = 0; _W = 0; _H = 0;
 }

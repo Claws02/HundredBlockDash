@@ -397,7 +397,11 @@ export const MG_PROFILE = {
     orbdeflect:  { genre: 'aim',      control: 'thumb', wire: 'exact',    seats: [2, 2], live: false },
 
     sumospheres: { genre: 'push',     control: 'thumb', wire: 'snapshot', seats: [2, 4], live: false },
-    lightcycles: { genre: 'push',     control: 'thumb', wire: 'events',   seats: [2, 4], live: false },
+    // Not roomy: the ARENA is not divided. One grid the size of the screen that
+    // everybody rides on — carving it into quarters would make four private
+    // mazes, and cutting the other rider off is the whole game. Only the INPUT
+    // is divided, a floating stick per quadrant, which fits a phone.
+    lightcycles: { genre: 'push',     control: 'thumb', wire: 'events',   seats: [2, 4], live: true },
     puck:        { genre: 'push',     control: 'thumb', wire: 'exact',    seats: [2, 2], live: false },
     bombpass:    { genre: 'push',     control: 'tap',   wire: 'exact',    seats: [2, 2], live: false },
 
