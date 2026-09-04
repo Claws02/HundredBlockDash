@@ -2620,11 +2620,61 @@ function _duelFoe(p) {
     return Targeting.nearestRival(p) || state.players[(p.id + 1) % playerCount()];
 }
 
+// WHO DO YOU WANT? The beat before the wager.
+//
+// At two seats there is exactly one rival and nothing to decide, so the picker
+// is skipped entirely and the flow is the one that always shipped. Above two it
+// is the whole point of the square: the nearest rival is not always the one
+// worth fighting, and the person standing on the tile should be the one to say
+// so.
 function _openDuelModal(p) {
+    const foes = _duelCandidates(p);
+    if (foes.length <= 1) {
+        state.pendingDuelTarget = foes.length ? foes[0].id : null;
+        _openDuelBet(p);
+        return;
+    }
+    ModalManager.showDuelPicker(p, foes.map(f => _rivalCard(p, f)), rivalId => {
+        const chosen = state.players[rivalId] ? rivalId : foes[0].id;
+        state.pendingDuelTarget = chosen;
+        // A short hold so the choice lands before the wager card replaces it —
+        // the two screens are different beats and a straight swap reads as one
+        // flicker rather than as a decision that was made.
+        Director.hold('DUEL_OPEN', () => _openDuelBet(p));
+    });
+}
+
+function _openDuelBet(p) {
     const opp = _duelFoe(p);
     ModalManager.showDuelModal(p, opp, (betAmount) => {
         _startDuel(p, betAmount);
     });
+}
+
+/** Everybody who could actually be fought — a rival with nothing to stake
+ *  cannot be duelled, and offering them is offering a dead end. */
+function _duelCandidates(p) {
+    const able = Targeting.rivals(p).filter(q => q.coins > 0);
+    return able.length ? able : Targeting.rivals(p);
+}
+
+/**
+ * One rival, described for the choice: how far ahead or behind they are, what
+ * they are carrying, and the one thing that makes them stand out. `hot` marks
+ * the rival a bot takes and the card the eye should land on first.
+ */
+function _rivalCard(p, q) {
+    const lead = Targeting.leadingRival(p);
+    const rich = Targeting.richestRival(p);
+    const near = Targeting.nearestRival(p);
+    const gap  = Math.round((Targeting.progressOf(q) - Targeting.progressOf(p)) * 100);
+    let tag;
+    if (q.coins <= 0)          tag = 'nothing to stake';
+    else if (lead && q.id === lead.id) tag = gap > 0 ? `out in front — ${gap}% ahead` : 'leading the match';
+    else if (rich && q.id === rich.id) tag = 'the fattest purse';
+    else if (near && q.id === near.id) tag = 'right beside you';
+    else tag = gap >= 0 ? `${gap}% ahead of you` : `${-gap}% behind you`;
+    return { id: q.id, name: q.name, coins: q.coins, tag, hot: !!(rich && q.id === rich.id) };
 }
 
 function _startDuel(p, betAmount) {

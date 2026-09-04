@@ -302,6 +302,14 @@ function _replayScene(kind, p, Modal, UI) {
             if (player) Modal.openDropModal(player, p.newItemId, p.cost, p.returnState);
             return;
         }
+        // Who the lander is choosing to fight. Mirrored so the other phones
+        // watch the choice being made rather than seeing a duel appear with an
+        // opponent nobody saw picked.
+        case 'duelPick': {
+            const me = state.players[p.seat];
+            if (me) Modal.showDuelPicker(me, p.rivals || [], () => {});
+            return;
+        }
         case 'duelBet': {
             const me = state.players[p.seat], foe = state.players[p.foe];
             // The wager is sent as an intent, so the callback here only has to

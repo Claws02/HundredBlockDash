@@ -2862,3 +2862,48 @@ body:not(.tabletop-mode) #turn-banner.tb-show .tb-bottom.tb-mine {
     color: rgba(255,255,255,.55); text-align: center;
 }
 #btn-solo-go.is-waiting { opacity: .62; }
+
+/* ============================================================
+   CHOOSE YOUR RIVAL
+   ============================================================
+   One card per rival, because the choice is a COMPARISON: who is close
+   enough to be worth fighting, who is carrying enough to be worth taking it
+   from. Showing the name alone would make it a coin flip with extra steps, so
+   each card carries the two numbers the decision actually turns on and a tag
+   naming why this rival stands out. */
+.duel-pick-list { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+.duel-pick {
+    display: grid; grid-template-columns: 40px 1fr auto; align-items: center; gap: 10px;
+    width: 100%; padding: 11px 13px; border-radius: 13px; cursor: pointer;
+    background: rgba(255,255,255,.05);
+    border: 1px solid rgba(255,255,255,.12);
+    border-left: 4px solid var(--dp, rgba(255,255,255,.3));
+    font-family: 'Nunito', system-ui, sans-serif; text-align: left;
+    transition: transform .12s ease, background .12s ease, border-color .12s ease;
+}
+.duel-pick:active { transform: scale(.975); }
+.duel-pick.is-hot {
+    background: rgba(239,68,68,.16);
+    border-color: rgba(239,68,68,.6);
+}
+.duel-pick .dp-face { font-size: 27px; line-height: 1; text-align: center; }
+.duel-pick .dp-name {
+    font-family: 'Bebas Neue', sans-serif; font-size: 19px; letter-spacing: .5px;
+    color: #fff; line-height: 1.1;
+}
+.duel-pick .dp-tag {
+    display: block; font-family: 'Nunito', sans-serif; font-size: 11px;
+    color: rgba(255,255,255,.55); letter-spacing: .2px;
+}
+.duel-pick .dp-coins {
+    font-family: 'Bebas Neue', sans-serif; font-size: 20px; color: var(--gold);
+    white-space: nowrap;
+}
+/* The bot's pick lands as a highlight before the screen moves on, so a choice
+   made by the computer still reads as a choice rather than a jump cut. */
+@keyframes duelPickChosen {
+    0%   { transform: scale(1);    box-shadow: 0 0 0 0 rgba(239,68,68,.55); }
+    45%  { transform: scale(1.04); box-shadow: 0 0 0 12px rgba(239,68,68,0); }
+    100% { transform: scale(1);    box-shadow: 0 0 0 0 rgba(239,68,68,0); }
+}
+.duel-pick.is-chosen { animation: duelPickChosen .62s ease both; }

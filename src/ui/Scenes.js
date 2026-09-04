@@ -82,6 +82,7 @@ export const SCENE_TIER = {
     shop:         TIER.OWNER,
     useItems:     TIER.OWNER,
     dropPick:     TIER.OWNER,
+    duelPick:     TIER.OWNER,   // who to fight — the lander's decision
     duelBet:      TIER.OWNER,
     junction:     TIER.OWNER,
     allyEncounter:TIER.OWNER,

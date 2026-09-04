@@ -6,7 +6,8 @@
 import { state } from '../core/GameState.js';
 import * as Scenes from './Scenes.js';
 import * as Commands from '../core/Commands.js';
-import { ITEMS, MAX_INV, DISTRICT_SHOPS, BA_DISCOUNT, GRAND_MALL_DISCOUNT, DUEL_BET_OPTIONS } from '../config/GameConfig.js';
+import { ITEMS, MAX_INV, DISTRICT_SHOPS, BA_DISCOUNT, GRAND_MALL_DISCOUNT, DUEL_BET_OPTIONS,
+         PLAYER_SLOTS, CHAR_ICONS } from '../config/GameConfig.js';
 import * as DualRead from './DualRead.js';
 
 let _controller    = null;
@@ -159,6 +160,77 @@ export function openShop(district, discount) {
 // Landing on the tile now pays a stake, which guarantees the LANDER can always
 // afford the smallest bet; this handles the other half, where the OPPONENT is
 // the one who is broke and no stake to the lander can fix it.
+// ============================================================
+// CHOOSE YOUR RIVAL
+// ============================================================
+// The beat before the wager. A duel tile used to pick your opponent for you —
+// `nearestRival` — which at three and four seats quietly removed the only
+// interesting decision on the square from the person who had just landed on it.
+//
+// The cards carry the two numbers the choice actually turns on (how far ahead
+// or behind they are, and what they are carrying) plus a tag naming why that
+// rival stands out, because "pick one of three names" is a coin flip with extra
+// steps. A rival with nothing to stake is shown greyed with the reason, rather
+// than being hidden — knowing they are broke is worth seeing.
+let _duelPickCb = null;
+
+/**
+ * `rivals` is [{ id, name, coins, tag, hot }] built by the caller, which is the
+ * only place that knows the board. Returns nothing; the choice comes back
+ * through the `duelPick` command so a client's press takes the same route as
+ * every other decision.
+ */
+export function showDuelPicker(p, rivals, callback) {
+    Scenes.emit('duelPick', { seat: p.id, rivals });
+    _duelPickCb = callback;
+
+    const info = document.getElementById('duel-pick-info');
+    if (info) info.textContent = `${p.name} — who are you taking on?`;
+
+    const list = document.getElementById('duel-pick-list');
+    if (list) {
+        list.innerHTML = rivals.map(r => {
+            const slot = PLAYER_SLOTS[r.id] || PLAYER_SLOTS[0];
+            const face = CHAR_ICONS[state.players[r.id]?.charType] || slot.icon || '🙂';
+            return `<button class="duel-pick${r.hot ? ' is-hot' : ''}" data-rival="${r.id}" style="--dp:${slot.hex}">` +
+                   `<span class="dp-face">${face}</span>` +
+                   `<span><span class="dp-name">${_esc(r.name)}</span>` +
+                   `<span class="dp-tag">${_esc(r.tag)}</span></span>` +
+                   `<span class="dp-coins">${r.coins} 🪙</span></button>`;
+        }).join('');
+        list.querySelectorAll('.duel-pick').forEach(btn => {
+            btn.addEventListener('click', () => Commands.run('duelPick', +btn.dataset.rival));
+        });
+    }
+    showModal('duel-pick-modal');
+
+    // A bot chooses too, and its choice is shown landing on the card before the
+    // screen moves on — a jump cut would read as the game deciding for it.
+    if (p.isBot) {
+        const want = rivals.find(r => r.hot) || rivals[0];
+        setTimeout(() => {
+            const el = document.querySelector(`.duel-pick[data-rival="${want.id}"]`);
+            if (el) el.classList.add('is-chosen');
+            setTimeout(() => Commands.run('duelPick', want.id), 620);
+        }, 700);
+    }
+}
+
+// The choice, as a command, so a client's press is forwarded and the host runs
+// the duel — the same route the wager takes.
+Commands.define({
+    duelPick: rivalId => {
+        closeAllModals();
+        const cb = _duelPickCb; _duelPickCb = null;
+        if (cb) cb(rivalId);
+    },
+});
+
+function _esc(t) {
+    return String(t == null ? '' : t)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 export function showDuelModal(p, opp, callback) {
     Scenes.emit('duelBet', { seat: p.id, foe: opp.id });
     const maxBet = Math.min(p.coins, opp.coins);
