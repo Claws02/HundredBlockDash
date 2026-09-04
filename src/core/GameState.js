@@ -136,6 +136,12 @@ export const state = {
     // meant an 18-game roster still repeated itself inside four minigames more
     // often than not.
     mgBag:               [],
+    // 'phone' | 'tablet' — what the table is sharing at three or four seats.
+    // Decides whether the games that need a private playfield each are in the
+    // draw bag: quarters of a phone are 206x400 and under the floor, quarters
+    // of a tablet are 410x544 and over it. Measured on the viewport at setup;
+    // it means nothing at two seats or online, where nobody shares a screen.
+    mgDevice:            'phone',
     mgLastType:          '',
     mgReady:             [],   // per seat; sized by setPlayerCount()
     lastMinigameWinner:  -1,

@@ -11,7 +11,8 @@
 
 import { state } from '../core/GameState.js';
 import { sfx, haptic } from '../engine/AudioManager.js';
-import { registerMinigameCleanup } from './MinigameManager.js';
+import { registerMinigameCleanup, slotCount, isBotSlot, seatFor } from './MinigameManager.js';
+import { zonesFor } from '../config/MinigameLayout.js';
 import * as Solo from './SoloArena.js';
 
 // ── Tunables ─────────────────────────────────────────────────────────────────
@@ -31,14 +32,16 @@ let _overlay = null, _canvas = null, _ctx = null, _dpr = 1;
 let _af = null, _last = 0;
 
 let _round = 0;
-let _scores = [0, 0];
+let _n = 2;                   // how many are playing
+let _zones = [];              // one rect+rotation per slot
+let _scores = [];
 let _roundActive = false;
 let _phase = 0, _pos = 0.5, _prevPos = 0.5;
 let _rate = BASE_RATE, _hw = HW_START, _center = 0.5;
 let _roundElapsed = 0;
-let _locked = [null, null];   // locked position per player, or null
-let _result = [null, null];   // { score, label } per player, or null
-let _bot = null;              // { desired, reactDelay, done }
+let _locked = [];             // locked position per player, or null
+let _result = [];             // { score, label } per player, or null
+let _bots = [];               // per slot: { desired, reactDelay, done } or null
 
 const _cleanups = [];
 const _timers   = [];
@@ -59,7 +62,12 @@ function _triangle(x) { const m = x % 2; return 1 - Math.abs((m < 0 ? m + 2 : m)
 export function start(isBot, onWin, botSkill = 0.55) {
     if (!state.mgActive) return;
     _done = false; _onWin = onWin; _isBot = isBot; _botSkill = botSkill;
-    _last = 0; _round = 0; _scores = [0, 0];
+    _n = Solo.isSolo() ? 1 : Math.max(2, Math.min(4, slotCount()));
+    _last = 0; _round = 0;
+    _scores = new Array(_n).fill(0);
+    _locked = new Array(_n).fill(null);
+    _result = new Array(_n).fill(null);
+    _bots   = new Array(_n).fill(null);
     registerMinigameCleanup(_destroy);
     _build();
     requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -88,8 +96,9 @@ function _build() {
         if (_done || !_roundActive) return;
         e.preventDefault();
         // Alone the bar is the whole screen and every tap is yours.
-        const pid = Solo.isSolo() ? 0 : (e.clientY > _overlay.clientHeight / 2 ? 0 : 1);
-        if (pid === 1 && _isBot) return;
+        const r = _overlay.getBoundingClientRect();
+        const pid = Solo.isSolo() ? 0 : _zoneAt(e.clientX - r.left, e.clientY - r.top);
+        if (pid < 0 || isBotSlot(pid)) return;
         _lock(pid, _pos);
     };
     _overlay.addEventListener('pointerdown', onDown);
@@ -109,14 +118,15 @@ function _resize() {
     _canvas.width  = Math.round(w * _dpr);
     _canvas.height = Math.round(h * _dpr);
     _ctx.setTransform(_dpr, 0, 0, _dpr, 0, 0);
+    _zones = Solo.isSolo() ? [] : zonesFor(_n, _overlay.clientWidth, _overlay.clientHeight);
 }
 
 // ── Rounds ────────────────────────────────────────────────────────────────────
 function _startRound() {
     _roundActive = true;
     _roundElapsed = 0;
-    _locked = [null, null];
-    _result = [null, null];
+    _locked = new Array(_n).fill(null);
+    _result = new Array(_n).fill(null);
     _rate   = BASE_RATE + RATE_PER_ROUND * _round;
     _hw     = Math.max(0.06, HW_START - HW_PER_ROUND * _round);
     // Seeded across phones: the bullseye has to be in the same place and the
@@ -129,18 +139,19 @@ function _startRound() {
     _phase  = rnd(1) * 2;             // random start so it isn't memorisable
     _pos = _prevPos = _triangle(_phase);
 
-    // Bot plans this round: aim for centre with skill-scaled error, plus a
-    // reaction delay and an occasional whiff. Always noisy (§5).
-    if (_isBot) {
+    // EVERY bot plans its own round: aim for centre with skill-scaled error,
+    // plus a reaction delay and an occasional whiff. Always noisy (§5), and
+    // rolled per slot so three bots do not all lock on the same frame.
+    _bots = new Array(_n).fill(null);
+    for (let pid = 0; pid < _n; pid++) {
+        if (!isBotSlot(pid)) continue;
         const whiff = Math.random() < 0.30 * (1 - _botSkill);
         const err   = (1 - _botSkill) * BOT_MAX_ERR * _gauss();
-        _bot = {
+        _bots[pid] = {
             desired: whiff ? Math.random() : Math.min(0.98, Math.max(0.02, _center + err)),
             reactDelay: 0.35 + (1 - _botSkill) * 0.7 + Math.random() * 0.25,
             done: false,
         };
-    } else {
-        _bot = null;
     }
 
     document.getElementById('mg-neutral').textContent =
@@ -162,19 +173,21 @@ function _lock(pid, pos) {
     sfx(score >= 2 ? 'coin_gain' : score === 1 ? 'land_good' : 'land_bad');
     haptic(score >= 2 ? [40] : score === 1 ? [20] : [60]);
 
-    if (Solo.isSolo() ? _locked[0] !== null
-                      : (_locked[0] !== null && _locked[1] !== null)) _endRound();
+    // The round ends when everybody has locked — one player alone, two on a
+    // face-off, or four round a table.
+    if (_locked.every(l => l !== null)) _endRound();
 }
 
 function _endRound() {
     if (!_roundActive) return;
     _roundActive = false;
     // Anyone who never tapped misses.
-    Solo.pids().forEach(pid => { if (_result[pid] === null) _result[pid] = { score: 0, label: 'MISS' }; });
+    for (let pid = 0; pid < _n; pid++) if (_result[pid] === null) _result[pid] = { score: 0, label: 'MISS' };
 
     document.getElementById('mg-neutral').textContent = Solo.isSolo()
         ? `ROUND ${_round + 1}/${ROUNDS} — ${_scores[0]} POINTS`
-        : `P1 ${_scores[0]}  —  P2 ${_scores[1]}`;
+        : (_n > 2 ? _scores.join('  ·  ')
+                  : _scores.map((sc, i) => `P${i + 1} ${sc}`).join('  ·  '));
 
     _after(() => {
         if (_done) return;
@@ -199,13 +212,12 @@ function _tick() {
         _pos     = _triangle(_phase);
         _roundElapsed += dt;
 
-        if (_isBot && _bot && !_bot.done && _locked[1] === null && _roundElapsed >= _bot.reactDelay) {
-            // Lock when the needle crosses the bot's intended position this frame.
-            const lo = Math.min(_prevPos, _pos), hi = Math.max(_prevPos, _pos);
-            if (_bot.desired >= lo && _bot.desired <= hi) {
-                _bot.done = true;
-                _lock(1, _bot.desired);
-            }
+        // Lock each bot when the needle crosses its intended position.
+        const lo = Math.min(_prevPos, _pos), hi = Math.max(_prevPos, _pos);
+        for (let pid = 0; pid < _n; pid++) {
+            const b = _bots[pid];
+            if (!b || b.done || _locked[pid] !== null || _roundElapsed < b.reactDelay) continue;
+            if (b.desired >= lo && b.desired <= hi) { b.done = true; _lock(pid, b.desired); }
         }
 
         if (_roundActive && _roundElapsed >= ROUND_TIME) _endRound();
@@ -225,27 +237,45 @@ function _draw() {
         return;
     }
 
-    // Centre divider
-    _ctx.strokeStyle = 'rgba(255,255,255,0.12)';
-    _ctx.lineWidth = 2;
-    _ctx.beginPath(); _ctx.moveTo(0, h / 2); _ctx.lineTo(w, h / 2); _ctx.stroke();
+    if (!_zones.length) _zones = zonesFor(_n, w, h);
 
-    // P2 (top) — rotated 180° so it reads upright for them.
-    _ctx.save();
-    _ctx.translate(w, h / 2); _ctx.rotate(Math.PI);
-    _drawHalf(1, w, h / 2);
-    _ctx.restore();
+    // One bar per player, in that player's own zone, facing them. The needle
+    // is SHARED — the same sweep on every bar — which is what makes this a
+    // contest rather than four people playing alone: everybody is aiming at
+    // the same moving thing at the same instant.
+    _zones.forEach((z, pid) => {
+        const r = z.rect;
+        _ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+        _ctx.lineWidth = 2;
+        _ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1);
+        _ctx.save();
+        if (z.rot === 180) { _ctx.translate(r.x + r.w, r.y + r.h); _ctx.rotate(Math.PI); }
+        else               { _ctx.translate(r.x, r.y); }
+        _drawHalf(pid, r.w, r.h);
+        _ctx.restore();
+    });
+}
 
-    // P1 (bottom)
-    _ctx.save();
-    _ctx.translate(0, h / 2);
-    _drawHalf(0, w, h / 2);
-    _ctx.restore();
+/** Which slot's zone contains this point, or -1. */
+function _zoneAt(x, y) {
+    for (let i = 0; i < _zones.length; i++) {
+        const r = _zones[i].rect;
+        if (x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h) return i;
+    }
+    let best = -1, bestD = Infinity;
+    _zones.forEach((z, i) => {
+        const cy = z.rect.y + z.rect.h / 2;
+        const d = Math.abs(y - cy) + (x < z.rect.x || x > z.rect.x + z.rect.w ? 1e4 : 0);
+        if (d < bestD) { bestD = d; best = i; }
+    });
+    return best;
 }
 
 // Draws a player's identical bar into a (w × h) box with origin at top-left.
+const SLOT_ACCENT = ['#ff5a5a', '#5a9bff', '#5fd68a', '#ffd45f'];
+
 function _drawHalf(pid, w, h) {
-    const color  = pid === 0 ? '#ff5a5a' : '#5a9bff';
+    const color  = SLOT_ACCENT[pid] || '#ffffff';
     const margin = w * 0.10;
     const barW   = w - margin * 2;
     const barY   = h * 0.55;
@@ -285,7 +315,7 @@ function _drawHalf(pid, w, h) {
     _ctx.fillStyle = color;
     _ctx.font = '700 22px Nunito, sans-serif';
     _ctx.textAlign = 'center';
-    _ctx.fillText(Solo.isSolo() ? 'YOU' : `P${pid + 1}`, w / 2, h * 0.22);
+    _ctx.fillText(Solo.isSolo() ? 'YOU' : _nameOf(pid), w / 2, h * 0.22);
     _ctx.fillStyle = 'rgba(255,255,255,0.85)';
     _ctx.font = '900 30px "Bebas Neue", sans-serif';
     _ctx.fillText(`${_scores[pid]}`, w / 2, h * 0.40);
@@ -320,12 +350,20 @@ function _finish() {
     _done = true;
     _roundActive = false;
     state.mgActive = false;
-    const winner = _scores[0] > _scores[1] ? 0 : _scores[1] > _scores[0] ? 1 : -1;
+    // The outright leader, or a draw if the top is shared.
+    const best = Math.max(..._scores);
+    const top = _scores.reduce((a, sc, i) => (sc === best ? a.concat(i) : a), []);
+    const winner = top.length === 1 ? top[0] : -1;
     const neutral = document.getElementById('mg-neutral');
     if (neutral) neutral.textContent =
-        winner < 0 ? `DRAW! ${_scores[0]}-${_scores[1]}` : `P${winner + 1} WINS! ${_scores[0]}-${_scores[1]}`;
+        (winner < 0 ? 'DRAW!  ' : `${_nameOf(winner)} WINS!  `) + _scores.join(' · ');
     sfx(winner < 0 ? 'land_bad' : 'mg_win');
     _after(() => { _destroy(); _onWin(winner); }, 1500);
+}
+
+function _nameOf(pid) {
+    const p = state.players[seatFor(pid)];
+    return (p && p.name ? p.name : `P${pid + 1}`).toUpperCase();
 }
 
 // ── Cleanup ─────────────────────────────────────────────────────────────────
@@ -337,5 +375,5 @@ function _destroy() {
     if (_af) { cancelAnimationFrame(_af); _af = null; }
     _ctx = null; _canvas = null;
     if (_overlay) { _overlay.remove(); _overlay = null; }
-    _last = 0; _bot = null;
+    _last = 0; _bots = [];
 }

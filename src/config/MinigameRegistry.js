@@ -294,3 +294,224 @@ export const FALLBACK_TRIVIA = [
     { q: 'Who painted the Mona Lisa?',              a: 'Leonardo da Vinci', w: ['Michelangelo', 'Raphael', 'Picasso'] },
     { q: 'What is 7 x 8?',                          a: '56',               w: ['54', '48', '63'] },
 ];
+
+// ============================================================
+// THE PROFILE — four properties per game, three surfaces derived
+// ============================================================
+// A game is playable on three surfaces and each is blocked by something
+// completely different (docs/MINIGAME_LIBRARY_PLAN.md):
+//
+//   SHARED · 2P     nothing blocks it. A phone half is 412x400 and the whole
+//                   roster was built for exactly that.
+//   SHARED · 3-4P   the CONTROL LAW — a quarter screen holds one thumb — and
+//                   the SPLIT LAW — a private playfield each needs a tablet.
+//   SEPARATE · 2-4P netcode. Command versus contact.
+//
+// Those three could be three hand-written lists. They are not, because this
+// repo has stored the same fact twice before — MG_NET and MG_SHAPE — and they
+// drifted, and a probe had to be written to catch it. Three lists over
+// twenty-two games would drift by the third new game.
+//
+// So four properties are AUTHORED per game and the three surfaces are DERIVED
+// from them plus the shape MG_SHAPE already carries. Adding a game means
+// answering four questions; its badges then compute themselves.
+//
+//   genre    what the player DOES. The visible sub-category, and the only one
+//            of the four a player ever sees. People browse by verb.
+//   control  how much of a screen one player's controls need:
+//              'tap'   one finger, anywhere in your zone      (Quick Draw)
+//              'thumb' one continuous drag or hold            (Sumo, Puck)
+//              'dual'  two hands — a stick AND an action      (Tank Clash)
+//            Only 'dual' fails the control law, because two hands do not fit
+//            in a quarter screen. It says nothing about separate devices,
+//            where everybody has a whole screen and both hands.
+//   wire     what has to cross the wire for this to be played on four devices,
+//            cheapest first — see docs/MINIGAME_CATEGORIES.md §3:
+//              'none'     seeded solitaire; nothing crosses at all
+//              'stamp'    a timestamp per player (a signal race)
+//              'scalar'   one number per player, a few times a second
+//              'events'   discrete decisions, replayed identically everywhere
+//              'snapshot' host-authoritative entity state at ~20 Hz
+//              'exact'    the player's own timing IS the collision. Not online.
+//   seats    what the MECHANIC supports, which is neither of the above. Puck
+//            is one thumb and would fit four quarter-screens; two goals and
+//            four mallets is still a maul.
+//   roomy    TRUE when this game's per-player ZONE needs more than a quarter
+//            of a phone — a playfield with motion in it rather than a bar or a
+//            button cluster. Only meaningful on a converted game, and it is
+//            what puts one behind a tablet.
+//   live     TRUE when the game actually plays every seat AT ONCE, on one
+//            shared screen, right now — N slots, N zones, one winner.
+//
+//            This is the honest one, and it is deliberately not derived from
+//            anything. A game can pass the control law, support four seats in
+//            principle, and still be two hard-coded halves in its source; that
+//            game is not playable by four people and no amount of reasoning
+//            about its mechanic changes it. `live` is a statement about the
+//            CODE, set only when the conversion is done.
+//
+//            It is also why the earlier "a tablet fits 14" claim has come down.
+//            Seven of those fourteen are seeded solitaires, and the plan for
+//            them at 3-4 was a relay — one player at a time. Under "nobody
+//            waits" a relay is not an answer, and running four at once is not
+//            available either: each game is a module-level singleton with one
+//            set of state, so there is no way to have four of it on a screen.
+//            They stay two-player on one device and four-player across four.
+export const MG_GENRES = {
+    reflex:   { name: 'REFLEX',   blurb: 'Fastest finger wins.' },
+    nerve:    { name: 'NERVE',    blurb: 'Hold it, time it, don\'t flinch.' },
+    scramble: { name: 'SCRAMBLE', blurb: 'Dodge the falling, grab the good.' },
+    aim:      { name: 'AIM',      blurb: 'Hit the thing you are pointing at.' },
+    push:     { name: 'PUSH',     blurb: 'Take the space, shove them out.' },
+    race:     { name: 'RACE',     blurb: 'First past the post.' },
+    brain:    { name: 'BRAIN',    blurb: 'Remember it, outthink them.' },
+};
+
+export const MG_PROFILE = {
+    quickdraw:   { genre: 'reflex',   control: 'tap',   wire: 'stamp',    seats: [2, 4], live: true },
+    sortrush:    { genre: 'reflex',   control: 'tap',   wire: 'stamp',    seats: [2, 4], live: true },
+    snapstrike:  { genre: 'reflex',   control: 'tap',   wire: 'none',     seats: [2, 4], live: true },
+
+    // roomy: the target drifts, so a zone has to be somewhere to drift in. A
+    // quarter of a phone is 206x400 and the target would be off a wall every
+    // second.
+    steadyhand:  { genre: 'nerve',    control: 'thumb', wire: 'none',     seats: [2, 4], live: true, roomy: true },
+    rhythmforge: { genre: 'nerve',    control: 'tap',   wire: 'exact',    seats: [2, 2], live: false },
+    // Two-sided by construction: ONE corridor with two tokens creeping at each
+    // other from the ends. Four tokens is a different game, not a wider one, so
+    // this stays a face-off. (Owner's call.)
+    freeze:      { genre: 'nerve',    control: 'thumb', wire: 'scalar',   seats: [2, 2], live: false },
+
+    // roomy: a playfield with things falling through it. A phone quarter is
+    // 206x400 and a meteor crosses it in well under a second — there is no
+    // dodge in that, only a reflex test.
+    meteordodge: { genre: 'scramble', control: 'thumb', wire: 'none',     seats: [2, 4], live: true, roomy: true },
+    // roomy: same reason as Meteor Dodge — loot falls the length of the zone,
+    // and a 400 px drop is over before the basket has moved.
+    lootcatch:   { genre: 'scramble', control: 'thumb', wire: 'none',     seats: [2, 4], live: true, roomy: true },
+    // roomy: the stem scrolls vertically at 74 px a branch, so a zone needs
+    // height to read as a climb. A phone quarter is 400 px — five branches of
+    // visible tree — which is not a race you can see coming.
+    treeclimb:   { genre: 'scramble', control: 'tap',   wire: 'none',     seats: [2, 4], live: true, roomy: true },
+
+    tankclash:   { genre: 'aim',      control: 'dual',  wire: 'snapshot', seats: [2, 4], live: false },
+    penalty:     { genre: 'aim',      control: 'thumb', wire: 'exact',    seats: [2, 2], live: false },
+    // Two-sided by construction: a wall with one gap, your side and their side,
+    // and "empty YOUR side" as the win. Four sides needs new geometry rather
+    // than wider arrays, so this stays a face-off. (Owner's call.)
+    clearout:    { genre: 'aim',      control: 'thumb', wire: 'events',   seats: [2, 2], live: false },
+    orbdeflect:  { genre: 'aim',      control: 'thumb', wire: 'exact',    seats: [2, 2], live: false },
+
+    // Not roomy: the RING is not divided — sumo is one arena everybody is
+    // shoving everybody else out of, and quartering it would be four people
+    // rolling around alone. Only the stick is partitioned.
+    sumospheres: { genre: 'push',     control: 'thumb', wire: 'snapshot', seats: [2, 4], live: true },
+    // Not roomy: the ARENA is not divided. One grid the size of the screen that
+    // everybody rides on — carving it into quarters would make four private
+    // mazes, and cutting the other rider off is the whole game. Only the INPUT
+    // is divided, a floating stick per quadrant, which fits a phone.
+    lightcycles: { genre: 'push',     control: 'thumb', wire: 'events',   seats: [2, 4], live: true },
+    puck:        { genre: 'push',     control: 'thumb', wire: 'exact',    seats: [2, 2], live: false },
+    bombpass:    { genre: 'push',     control: 'tap',   wire: 'exact',    seats: [2, 2], live: false },
+
+    // Not roomy: the TRACK is not divided — everybody races the same circuit,
+    // which is what a race is. Only the throttle is partitioned, a pad per
+    // quadrant, and a pad needs no room at all.
+    grandprix:   { genre: 'race',     control: 'thumb', wire: 'scalar',   seats: [2, 4], live: true },
+
+    memorymatch: { genre: 'brain',    control: 'tap',   wire: 'exact',    seats: [2, 2], live: false },
+    fourinarow:  { genre: 'brain',    control: 'tap',   wire: 'exact',    seats: [2, 2], live: false },
+    // 'stamp', not 'none'. The grids are private but the FINISH LINE is shared —
+    // the round goes to whoever completes the pattern first — so it is a race
+    // against the others rather than a score compared afterwards, and a race
+    // needs each device to report when it finished. That shared finish is also
+    // why MG_NET has always had it as 'local' rather than 'parallel'.
+    // roomy: a 4x4 grid, and a quarter of a phone puts each tile at 38 px —
+    // under the 44 px the control law asks for. Tablet quarters give 76 px.
+    gridrecall:  { genre: 'brain',    control: 'tap',   wire: 'stamp',    seats: [2, 4], live: true, roomy: true },
+    // roomy: the grid climbs to 5x5 as you score, and a fifth of a phone quarter
+    // is a 34 px tile — under the 44 px the control law asks for. On a tablet
+    // quarter the same grid is 68 px a side, so 3-4 seats is a tablet game.
+    oddoneout:   { genre: 'brain',    control: 'tap',   wire: 'none',     seats: [2, 4], live: true, roomy: true },
+};
+
+// The order the wire tiers come in, cheapest first. Used by the READINESS sort:
+// the build queue for online play is exactly this order.
+export const MG_WIRE_ORDER = ['none', 'stamp', 'scalar', 'events', 'snapshot', 'exact'];
+
+/** The profile for `type`, with safe defaults for anything unclassified. */
+export function profileOf(type) {
+    return MG_PROFILE[type] || { genre: 'reflex', control: 'thumb', wire: 'exact', seats: [2, 2] };
+}
+
+/**
+ * The three surfaces `type` can be played on.
+ *
+ * THIS IS THE DERIVATION. Nothing else in the codebase may hand-maintain a list
+ * of what plays where; ask here instead. `qa/surfaces.js` holds it to a
+ * hand-written expectation so a wrong property shows up as a failing assertion
+ * rather than as a game nobody can start.
+ */
+export function surfacesOf(type) {
+    const p = profileOf(type);
+    const [minSeats, maxSeats] = p.seats;
+    // Does this game's ZONE need more than a quarter of a phone?
+    //
+    // Not the same question as MG_SHAPE, and deriving it from there was wrong.
+    // MG_SHAPE says whether players have private playfields; the split law's
+    // 300x300 floor applies to a playfield with MOTION in it — a storm to dodge,
+    // an arena to steer around. Snap Strike's private thing is a BAR and a tap
+    // zone, and a bar is perfectly happy in 206x400.
+    //
+    // So it is authored, not inferred. `roomy` is set only when a game has been
+    // converted AND its zone genuinely wants the room.
+    const needsTablet = !!p.roomy;
+    // LIVE is the gate, not a bonus on top of it. A game that is not live does
+    // not play three or four people on one screen, whatever its mechanic could
+    // support — the code has two slots and that is the whole story.
+    const manyOk = !!p.live && maxSeats >= 3 && p.control !== 'dual';
+    return {
+        sharedTwo:  minSeats <= 2,
+        sharedMany: manyOk,
+        // 'tablet' where a private playfield each is needed, 'any' otherwise.
+        manyDevice: manyOk ? (needsTablet ? 'tablet' : 'any') : null,
+        online:     p.wire !== 'exact',
+        onlineNow:  p.wire === 'none',   // the six that already run across phones
+    };
+}
+
+/**
+ * Why a game is NOT available on a surface, in the words a person would use.
+ *
+ * Greyed with a reason, never hidden — the documented practice for
+ * context-dependent unavailability, and doubly so in a testing area where
+ * "why isn't this here" is the question being asked.
+ */
+export function blockedReason(type, surface) {
+    const p = profileOf(type);
+    const s = surfacesOf(type);
+    if (surface === 'many' && !s.sharedMany) {
+        // Every one of these is now a DECISION rather than a backlog item. The
+        // conversion work is finished: what is left at two is left at two on
+        // purpose, and the reason a player reads should say so.
+        if (p.control === 'dual') return 'Two-handed controls — great across devices, not on one screen.';
+        if (p.seats[1] <= 2)      return 'Built for two — the mechanic doesn\'t open up.';
+        return 'Two-sided by design — a wall and a gap don\'t make four sides.';
+    }
+    if (surface === 'online' && !s.online) {
+        return p.seats[1] <= 2 && MG_SHAPE[type] === 'table'
+            ? 'Taken in turns — three would be watching.'
+            : 'Frame-exact contact — 2P only.';
+    }
+    return '';
+}
+
+/** Every game playable on `surface` ('two' | 'many' | 'online'), in registry order. */
+export function typesForSurface(surface) {
+    return MG_TYPES.filter(t => {
+        const s = surfacesOf(t);
+        if (surface === 'many')   return s.sharedMany;
+        if (surface === 'online') return s.online;
+        return s.sharedTwo;
+    });
+}
