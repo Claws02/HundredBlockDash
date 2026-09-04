@@ -152,7 +152,7 @@ async function throughIntro(page, seats) {
 // hard deadline that turns a hang into a reported failure.
 // Has to clear the boot budget above plus the 75 s of play, or the deadline
 // fires on a run that was working.
-const GAME_BUDGET_MS = t => (t ? 330000 : 220000);
+const GAME_BUDGET_MS = t => (t ? 400000 : 300000);
 
 async function playOne(type, seats, shotFor, roomy) {
     const tag = `${type}@${seats}P${roomy ? ' (tablet)' : ''}`;
@@ -203,7 +203,16 @@ async function playOne(type, seats, shotFor, roomy) {
         if (shotFor) await page.screenshot({ path: path.join(__dirname, shotFor) });
 
         // Drive real input across the whole surface until it resolves on its own.
-        const deadline = Date.now() + 75000;
+        // The play budget comes from the game, not from a round number. Grand
+        // Prix runs to a 70 s ceiling and four games declare their own watchdog
+        // in MG_WATCHDOG_MS because they end on a result rather than a clock; a
+        // flat 75 s reported the longest of them as "still running", which is a
+        // budget manufacturing a failure again.
+        const watchdog = await page.evaluate(async t => {
+            const R = await import('/src/config/MinigameRegistry.js');
+            return (R.MG_WATCHDOG_MS || {})[t] || 0;
+        }, type);
+        const deadline = Date.now() + Math.max(105000, watchdog + 20000);
         let resolved = null, board = -1;
         while (Date.now() < deadline) {
             const seen = await page.evaluate(() => {

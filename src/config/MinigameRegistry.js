@@ -405,7 +405,10 @@ export const MG_PROFILE = {
     puck:        { genre: 'push',     control: 'thumb', wire: 'exact',    seats: [2, 2], live: false },
     bombpass:    { genre: 'push',     control: 'tap',   wire: 'exact',    seats: [2, 2], live: false },
 
-    grandprix:   { genre: 'race',     control: 'thumb', wire: 'scalar',   seats: [2, 4], live: false },
+    // Not roomy: the TRACK is not divided — everybody races the same circuit,
+    // which is what a race is. Only the throttle is partitioned, a pad per
+    // quadrant, and a pad needs no room at all.
+    grandprix:   { genre: 'race',     control: 'thumb', wire: 'scalar',   seats: [2, 4], live: true },
 
     memorymatch: { genre: 'brain',    control: 'tap',   wire: 'exact',    seats: [2, 2], live: false },
     fourinarow:  { genre: 'brain',    control: 'tap',   wire: 'exact',    seats: [2, 2], live: false },

@@ -20,7 +20,8 @@
 
 import { state } from '../core/GameState.js';
 import { sfx, haptic } from '../engine/AudioManager.js';
-import { registerMinigameCleanup } from './MinigameManager.js';
+import { registerMinigameCleanup, slotCount, isBotSlot, seatFor } from './MinigameManager.js';
+import { zonesFor } from '../config/MinigameLayout.js';
 
 // ── Tunables ────────────────────────────────────────────────────────────────
 const LAPS        = 2;
@@ -40,9 +41,11 @@ let _overlay = null, _canvas = null, _ctx = null, _dpr = 1;
 let _af = null, _last = 0, _elapsed = 0;
 let _W = 0, _H = 0;
 let _track = null;          // { pts, len, cum, corners } — the closed circuit
+let _n = 2;                 // slots, not seats
 let _cars = null;
-let _held = [false, false];
-let _botPlan = null;        // committed braking margin for the corner ahead
+let _held = [];
+let _botPlan = [];          // committed braking margin for the corner ahead, per bot
+let _zones = [];            // throttle pads — the TRACK stays whole
 const _cleanups = [];
 const _timers   = [];
 
@@ -158,7 +161,11 @@ function _nextCorner(d, v) {
 export function start(isBot, onWin, botSkill = 0.55) {
     if (!state.mgActive) return;
     _done = false; _onWin = onWin; _isBot = isBot; _botSkill = botSkill;
-    _cars = [0, 1].map(() => ({ d: 0, v: 0, spinUntil: 0, spin: 0, spins: 0, lap: 0, finished: 0 }));
+    _n = Math.max(2, Math.min(4, slotCount()));
+    _held = new Array(_n).fill(false);
+    _botPlan = new Array(_n).fill(null);
+    _cars = Array.from({ length: _n },
+        () => ({ d: 0, v: 0, spinUntil: 0, spin: 0, spins: 0, lap: 0, finished: 0 }));
     _held = [false, false];
     _botPlan = null;
     _last = 0; _elapsed = 0;
@@ -187,21 +194,30 @@ function _build() {
     _overlay.appendChild(_canvas);
     _ctx = _canvas.getContext('2d');
 
-    // The track is shared, so the only thing partitioned is the throttle: your
-    // half of the screen is your pedal, wherever on it you press.
-    const half = e => e.clientY < _overlay.clientHeight / 2 ? 1 : 0;
+    // The track is shared — everybody races the same circuit, which is the
+    // point of a race — so the only thing partitioned is the THROTTLE: your
+    // zone of the screen is your pedal, wherever in it you press.
+    const padAt = e => {
+        const r = _overlay.getBoundingClientRect();
+        const x = e.clientX - r.left, y = e.clientY - r.top;
+        for (let i = 0; i < _zones.length; i++) {
+            const zr = _zones[i].rect;
+            if (x >= zr.x && x < zr.x + zr.w && y >= zr.y && y < zr.y + zr.h) return i;
+        }
+        return -1;
+    };
     const down = e => {
         if (_done) return;
         e.preventDefault();
-        const pid = half(e);
-        if (pid === 1 && _isBot) return;
+        const pid = padAt(e);
+        if (pid < 0 || isBotSlot(pid)) return;
         _held[pid] = true;
-        if (pid === 0) haptic([8]);
+        haptic([8]);
     };
     const up = e => {
         if (_done) return;
-        const pid = half(e);
-        if (pid === 1 && _isBot) return;
+        const pid = padAt(e);
+        if (pid < 0 || isBotSlot(pid)) return;
         _held[pid] = false;
     };
     _overlay.addEventListener('pointerdown', down);
@@ -229,6 +245,9 @@ function _resize() {
     _canvas.width  = Math.round(_W * _dpr);
     _canvas.height = Math.round(_H * _dpr);
     _ctx.setTransform(_dpr, 0, 0, _dpr, 0, 0);
+    // The throttle pads. Built here rather than in _build so the first pointer
+    // event already has them — a pad that does not exist yet reads as no pad.
+    _zones = zonesFor(_n, _W, _H);
     // R1b: the status pill floats at both outer edges, so the circuit is built
     // inside an inset box rather than the raw viewport.
     _track = _buildTrack(_W, _H - 150);
@@ -248,9 +267,16 @@ function _drive(pid, dt, now) {
     if (now < c.spinUntil) { c.spin += dt * 13; c.v = 0; return; }
     c.spin = 0;
 
-    const other = _cars[1 - pid];
-    const behind = (other.lap * _track.len + other.d) - (c.lap * _track.len + c.d);
-    const slip = (behind > 12 && behind < SLIP_RANGE) ? 1 + SLIP_GAIN : 1;
+    // Slipstream off the NEAREST car ahead, not off "the other one". With four
+    // on the circuit the tow belongs to whoever you are actually tucked behind.
+    const mine = c.lap * _track.len + c.d;
+    let gap = Infinity;
+    for (let i = 0; i < _n; i++) {
+        if (i === pid) continue;
+        const d = (_cars[i].lap * _track.len + _cars[i].d) - mine;
+        if (d > 12 && d < gap) gap = d;
+    }
+    const slip = gap < SLIP_RANGE ? 1 + SLIP_GAIN : 1;
 
     if (_held[pid]) {
         c.v += ACCEL * dt;
@@ -272,10 +298,10 @@ function _drive(pid, dt, now) {
         c.v = 0;
         c.d = before;
         sfx('land_bad');
-        if (pid === 0) haptic([40, 60, 40]);
+        haptic([40, 60, 40]);
     }
 
-    if (c.lap >= LAPS) { c.finished = _elapsed; sfx(pid === 0 ? 'mg_win' : 'mg_lose'); }
+    if (c.lap >= LAPS) { c.finished = _elapsed; sfx('mg_win'); }
 }
 
 // ── Bot (§5) ────────────────────────────────────────────────────────────────
@@ -285,31 +311,33 @@ function _drive(pid, dt, now) {
 // recomputed live from actual speed. Rolling the margin per frame made the
 // throttle stutter at the randomness rate and both tiers measured identically;
 // computing the distance once from top speed made it brake down every straight.
-function _botStep(now) {
-    if (!_isBot) return;
-    const c = _cars[1];
-    if (c.finished || now < c.spinUntil) { _held[1] = false; _botPlan = null; return; }
+function _botStep(pid, now) {
+    const c = _cars[pid];
+    if (c.finished || now < c.spinUntil) { _held[pid] = false; _botPlan[pid] = null; return; }
 
     const here = _limitAt(c.d);
     if (here !== Infinity) {
-        _botPlan = null;
-        const cushion = 6 + (1 - _botSkill) * 26;
-        _held[1] = c.v < here - cushion;
+        _botPlan[pid] = null;
+        // A touch of per-slot variation, or every bot brakes on the same metre
+        // and four cars run nose to tail for the whole race.
+        const cushion = 6 + (1 - _botSkill) * 26 + pid * 3;
+        _held[pid] = c.v < here - cushion;
         return;
     }
     const nc = _nextCorner(c.d, c.v);
-    if (!nc) { _held[1] = true; _botPlan = null; return; }
+    if (!nc) { _held[pid] = true; _botPlan[pid] = null; return; }
 
-    if (!_botPlan || Math.abs(_botPlan.limit - nc.limit) > 1 || nc.gap > _botPlan.gap + 40) {
+    const plan = _botPlan[pid];
+    if (!plan || Math.abs(plan.limit - nc.limit) > 1 || nc.gap > plan.gap + 40) {
         const late = Math.random() < (0.24 - _botSkill * 0.21);   // 19% easy → 6% hard
-        _botPlan = {
+        _botPlan[pid] = {
             limit: nc.limit, gap: nc.gap,
             margin: late ? -22 : (3 + (1 - _botSkill) * 20 + Math.random() * 10),
         };
     }
-    _botPlan.gap = nc.gap;
+    _botPlan[pid].gap = nc.gap;
     const need = Math.max(0, (c.v * c.v - nc.limit * nc.limit) / (2 * DRAG_OFF));
-    _held[1] = nc.gap > need + _botPlan.margin;
+    _held[pid] = nc.gap > need + _botPlan[pid].margin;
 }
 
 // ── Loop ────────────────────────────────────────────────────────────────────
@@ -320,24 +348,43 @@ function _tick(now) {
     _last = now;
     _elapsed += dt;
 
-    _botStep(now);
-    _drive(0, dt, now);
-    _drive(1, dt, now);
+    for (let pid = 0; pid < _n; pid++) if (isBotSlot(pid)) _botStep(pid, now);
+    for (let pid = 0; pid < _n; pid++) _drive(pid, dt, now);
 
-    if (_cars[0].finished && _cars[1].finished) {
-        _finish(_cars[0].finished <= _cars[1].finished ? 0 : 1); return;
+    // THE CHEQUERED FLAG GOES TO THE FIRST CAR ACROSS IT. Once somebody has
+    // finished the race is decided — the rest are racing for nothing the board
+    // reads — so the only reason to wait at all is to let a car a length behind
+    // cross too rather than freezing the screen on them.
+    const done = _cars.reduce((a, c, i) => (c.finished ? a.concat(i) : a), []);
+    if (done.length === _n) { _finish(_firstHome()); return; }
+    if (done.length) {
+        const firstAt = Math.min(...done.map(i => _cars[i].finished));
+        if (_elapsed - firstAt > 2.2) { _finish(_firstHome()); return; }
     }
-    if (_cars[0].finished || _cars[1].finished) {
-        const w = _cars[0].finished ? 0 : 1;
-        if (_elapsed - _cars[w].finished > 2.2) { _finish(w); return; }
-    }
-    if (_elapsed >= MATCH_TIME) {
-        const a = _cars[0].lap * _track.len + _cars[0].d;
-        const b = _cars[1].lap * _track.len + _cars[1].d;
-        _finish(Math.abs(a - b) < 6 ? -1 : (a > b ? 0 : 1));
-        return;
-    }
+    if (_elapsed >= MATCH_TIME) { _finish(_furthest()); return; }
     _draw();
+}
+
+/** Whoever crossed the line first, or -1 if nobody has. */
+function _firstHome() {
+    let best = -1, at = Infinity;
+    for (let i = 0; i < _n; i++) {
+        if (_cars[i].finished && _cars[i].finished < at) { at = _cars[i].finished; best = i; }
+    }
+    return best;
+}
+
+/** Out of time: furthest round the circuit, with a 6-unit dead heat band. */
+function _furthest() {
+    const prog = _cars.map(c => c.lap * _track.len + c.d);
+    const best = Math.max(...prog);
+    const top = prog.reduce((a, v, i) => (v > best - 6 ? a.concat(i) : a), []);
+    return top.length === 1 ? top[0] : -1;
+}
+
+function _nameOf(pid) {
+    const p = state.players[seatFor(pid)];
+    return (p && p.name ? p.name : `P${pid + 1}`).toUpperCase();
 }
 
 // ── Draw ────────────────────────────────────────────────────────────────────
@@ -425,23 +472,41 @@ function _draw() {
     }
 
     // The cars, on their own racing line so they never hide each other.
-    for (let i = 1; i >= 0; i--) _car(i, ROAD);
+    for (let i = _n - 1; i >= 0; i--) _car(i, ROAD);
 
-    _hud(0);
-    ctx.save(); ctx.translate(_W, _H); ctx.rotate(Math.PI); _hud(1); ctx.restore();
+    // One HUD per throttle pad, upright where that driver is sitting.
+    if (!_zones.length) _zones = zonesFor(_n, _W, _H);
+    _zones.forEach((z, pid) => {
+        const r = z.rect;
+        ctx.save();
+        if (z.rot === 180) { ctx.translate(r.x + r.w, r.y + r.h); ctx.rotate(Math.PI); }
+        else               { ctx.translate(r.x, r.y); }
+        _hud(pid, r.w, r.h);
+        ctx.restore();
+    });
 }
+
+// Four cars on one racing line would sit on top of each other, so each takes
+// its own lane across the width of the road — spread about the centre line.
+function _laneOf(pid) {
+    if (_n <= 2) return (pid === 0 ? -1 : 1) * LANE_W / 2;
+    return (pid - (_n - 1) / 2) * (LANE_W / (_n - 1)) * 1.15;
+}
+
+const CAR_BODY = ['#ff5a5a', '#5a9bff', '#4ade80', '#fbbf24'];
+const CAR_HUD  = ['#ff6b6b', '#6bb0ff', '#5fd68a', '#ffd45f'];
 
 function _car(pid, ROAD) {
     const ctx = _ctx, c = _cars[pid];
     const p = _at(c.d);
     const nx = Math.cos(p.ang + Math.PI / 2), ny = Math.sin(p.ang + Math.PI / 2);
-    const lane = (pid === 0 ? -1 : 1) * LANE_W / 2;
+    const lane = _laneOf(pid);
     const x = p.x + nx * lane, y = p.y + ny * lane;
 
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(p.ang + (c.spin || 0));
-    const body = pid === 0 ? '#ff5a5a' : '#5a9bff';
+    const body = CAR_BODY[pid] || '#ffffff';
     ctx.fillStyle = 'rgba(0,0,0,.45)';
     _round(ctx, -13, -8, 26, 16, 5); ctx.fill();
     ctx.fillStyle = body;
@@ -458,25 +523,26 @@ function _car(pid, ROAD) {
     }
 }
 
-function _hud(pid) {
+// Drawn in the driver's own zone: 0,0 is its corner, `zw`/`zh` its size.
+function _hud(pid, zw, zh) {
     const ctx = _ctx, c = _cars[pid];
     const spinning = performance.now() < c.spinUntil;
-    const color = pid === 0 ? '#ff6b6b' : '#6bb0ff';
+    const color = CAR_HUD[pid] || '#ffffff';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const small = _n > 2;
 
-    ctx.font = '900 27px "Bebas Neue", sans-serif';
+    ctx.font = `900 ${small ? 20 : 27}px "Bebas Neue", sans-serif`;
     ctx.fillStyle = spinning ? '#ef4444' : color;
-    ctx.fillText(spinning ? 'SPUN OUT!' : `${Math.round(c.v)}`, _W / 2 - 52, _H - 96);
-    ctx.font = '900 27px "Bebas Neue", sans-serif';
+    ctx.fillText(spinning ? 'SPUN!' : `${Math.round(c.v)}`, zw * 0.5 - (small ? 34 : 52), zh - 62);
     ctx.fillStyle = color;
-    ctx.fillText(`LAP ${Math.min(LAPS, c.lap + 1)}/${LAPS}`, _W / 2 + 56, _H - 96);
+    ctx.fillText(`LAP ${Math.min(LAPS, c.lap + 1)}/${LAPS}`, zw * 0.5 + (small ? 38 : 56), zh - 62);
 
     ctx.font = '800 11px "Nunito", system-ui, sans-serif';
     ctx.fillStyle = 'rgba(255,255,255,.45)';
-    if (!spinning) ctx.fillText('SPEED', _W / 2 - 52, _H - 76);
+    if (!spinning) ctx.fillText('SPEED', zw * 0.5 - (small ? 34 : 52), zh - 44);
 
     // Throttle bar with the next corner's limit marked on the same scale.
-    const bw = Math.min(_W * 0.60, 240), bx = (_W - bw) / 2, by = _H - 62;
+    const bw = Math.min(zw * 0.60, 240), bx = (zw - bw) / 2, by = zh - 30;
     ctx.fillStyle = 'rgba(255,255,255,.12)';
     _round(ctx, bx, by, bw, 12, 6); ctx.fill();
     ctx.fillStyle = _held[pid] ? '#4ade80' : 'rgba(255,255,255,.30)';
@@ -504,7 +570,7 @@ function _finish(winnerId) {
     if (_done) return;
     _done = true;
     state.mgActive = false;
-    _say(winnerId < 0 ? 'PHOTO FINISH — DEAD HEAT!' : `P${winnerId + 1} TAKES THE FLAG! 🏁`);
+    _say(winnerId < 0 ? 'PHOTO FINISH — DEAD HEAT!' : `${_nameOf(winnerId)} TAKES THE FLAG! 🏁`);
     sfx(winnerId < 0 ? 'land_bad' : 'mg_win');
     haptic('heavy');
     _after(() => { _destroy(); _onWin(winnerId); }, 1400);
@@ -518,6 +584,6 @@ function _destroy() {
     if (_af) { cancelAnimationFrame(_af); _af = null; }
     _ctx = null; _canvas = null;
     if (_overlay) { _overlay.remove(); _overlay = null; }
-    _track = null; _cars = null; _held = [false, false]; _botPlan = null;
+    _track = null; _cars = null; _zones = []; _held = []; _botPlan = [];
     _last = 0; _elapsed = 0; _W = 0; _H = 0;
 }
