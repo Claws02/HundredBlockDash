@@ -3203,18 +3203,30 @@ function _fadeOccluders(dt) {
         }
         const cur = m.userData.occNow === undefined ? 1 : m.userData.occNow;
         const next = cur + (want - cur) * k;
+        if (Math.abs(next - cur) < 0.002 && (next > 0.995 || next < OCCLUDE_MIN + 0.005)) {
+            m.userData.occNow = next;
+            return;                                  // settled; nothing to write
+        }
         m.userData.occNow = next;
-        const mats = Array.isArray(m.material) ? m.material : [m.material];
-        mats.forEach(mat => {
-            if (!mat) return;
-            // Only pay for transparency while it is actually being used: a
-            // transparent material is sorted every frame and the city has
-            // hundreds of them.
-            const solid = next > 0.995;
+        // The materials this building OWNS. A building is a Group — it has no
+        // `.material` of its own, which is what the first version of this
+        // reached for, so it wrote opacity onto `undefined` and nothing ever
+        // faded. And its meshes share the district materials with every other
+        // building on the street, so writing to those would have ghosted the
+        // whole district at once. _canOcclude clones them per building; this
+        // walks that list.
+        const mats = m.userData.occMats;
+        if (!mats) return;
+        // Only pay for transparency while it is actually being used: a
+        // transparent material is sorted every frame and the city has
+        // hundreds of them.
+        const solid = next > 0.995;
+        for (let i = 0; i < mats.length; i++) {
+            const mat = mats[i];
             if (mat.transparent === solid) { mat.transparent = !solid; mat.needsUpdate = true; }
             mat.opacity = next;
             mat.depthWrite = solid;
-        });
+        }
     });
 }
 
@@ -3228,7 +3240,39 @@ function _canOcclude(mesh, radius) {
     mesh.userData.occludes = true;
     mesh.userData.occR = radius || 0;
     mesh.userData.occNow = 1;
+
+    // GIVE IT ITS OWN MATERIALS. The district materials in _CM are shared by
+    // every building on the street — the whole point of them — so fading "this
+    // building" through a shared material would fade the entire district. One
+    // clone per unique material per building, collected once here so the
+    // per-frame path is a flat array walk rather than a traverse.
+    const owned = [];
+    const seen = new Map();
+    mesh.traverse(n => {
+        if (!n.material) return;
+        const list = Array.isArray(n.material) ? n.material : [n.material];
+        const next = list.map(mat => {
+            if (!mat) return mat;
+            if (!seen.has(mat)) {
+                const c = mat.clone();
+                seen.set(mat, c);
+                owned.push(c);
+                _occOwned.push(c);
+            }
+            return seen.get(mat);
+        });
+        n.material = Array.isArray(n.material) ? next : next[0];
+    });
+    mesh.userData.occMats = owned;
     return mesh;
+}
+
+// Every material cloned for a fadeable prop, so a map rebuild can hand them
+// back rather than leaving one set per City Circuit match on the GPU.
+const _occOwned = [];
+function _disposeOccluderMaterials() {
+    _occOwned.forEach(m => { try { m.dispose(); } catch (e) {} });
+    _occOwned.length = 0;
 }
 
 // ---- Background skyline ----
@@ -3382,6 +3426,8 @@ function _buildAllDistrictBuildings() {
 
 function _buildCityScene() {
     if (_cityEnvGroup) { scene.remove(_cityEnvGroup); _cityEnvGroup = null; }
+    // The per-building material clones belong to the city that is going away.
+    _disposeOccluderMaterials();
     // Every animated prop holds a material reference. Rebuilding without
     // clearing these would keep ticking materials belonging to a disposed
     // scene — the same class of leak removeAllyMarker() once had.

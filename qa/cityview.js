@@ -191,16 +191,26 @@ const ok = (n, c, d) => (c ? pass : fail).push(`${n}${d ? ` — ${d}` : ''}`);
             const env = R.getScene().getObjectByName('cityEnv');
             const m = env.children.find(c => c.uuid === id);
             if (!m) return null;
-            const mat = Array.isArray(m.material) ? m.material[0] : m.material;
-            return { occNow: m.userData.occNow, opacity: mat ? mat.opacity : null,
+            // A building is a GROUP with no material of its own — reaching for
+            // m.material is what crashed the first version of this check, and
+            // it is the same mistake the renderer's fade was making.
+            const mats = m.userData.occMats || [];
+            const mat = mats[0] || null;
+            return { occNow: m.userData.occNow,
+                     mats: mats.length,
+                     opacity: mat ? mat.opacity : null,
                      transparent: mat ? mat.transparent : null };
         }, fade.id);
         ok('a building put in the way actually fades',
            !!after && after.occNow < 0.6,
            `was ${fade.before.toFixed(2)}, now ${after ? after.occNow.toFixed(2) : 'n/a'}`);
-        ok('...and the material is told to draw it that way',
-           !!after && after.transparent === true && after.opacity < 0.6,
-           after ? `opacity ${after.opacity.toFixed(2)}, transparent ${after.transparent}` : 'n/a');
+        ok('...and the building owns materials to draw it that way',
+           !!after && after.mats > 0, after ? `${after.mats} owned materials` : 'n/a');
+        ok('...and those materials are actually set transparent',
+           !!after && after.transparent === true &&
+           typeof after.opacity === 'number' && after.opacity < 0.6,
+           after ? `opacity ${after.opacity === null ? 'null' : after.opacity.toFixed(2)}, ` +
+                   `transparent ${after.transparent}` : 'n/a');
     } else {
         ok('a building put in the way actually fades', false, 'could not stage the test');
     }
