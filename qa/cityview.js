@@ -56,17 +56,38 @@ const ok = (n, c, d) => (c ? pass : fail).push(`${n}${d ? ` — ${d}` : ''}`);
         return S.gameState === 'PRE_ROLL';
     }, null, { timeout: 120000 }).catch(() => {});
 
+    // Minigames resolve fast so the board keeps moving; the samples below are
+    // only taken on the board itself.
+    await page.evaluate(() => window.__QA.setMinigameFastResolve(1200));
+
     // Walk a few turns so the token travels and the camera swings through a
     // range of angles — one pose proves very little about a camera that moves.
+    //
+    // ONLY SAMPLE WHEN THE FOLLOW CAMERA IS ACTUALLY ON THE BOARD. The first
+    // version of this did not check, stepped straight into a minigame, and
+    // sampled with the camera parked on a minigame layer and the token
+    // nowhere near it. Every sample came back "nothing in the way" — a clean
+    // pass that meant only that it had not been looking at the city. A probe
+    // that cannot tell the city from a minigame cannot report on either.
     const samples = [];
-    for (let turn = 0; turn < 7; turn++) {
-        for (let i = 0; i < 26; i++) {
-            await page.evaluate(() => window.__QA.step());
-            await page.waitForTimeout(110);
-        }
+    const deadline = Date.now() + 300000;
+    while (samples.length < 7 && Date.now() < deadline) {
+        await page.evaluate(() => window.__QA.step());
+        await page.waitForTimeout(120);
+        const onBoard = await page.evaluate(() => {
+            const S = window.__QA.snapshot();
+            return (S.gameState === 'PRE_ROLL' || S.gameState === 'MOVING')
+                && (S.cameraState === 'FOLLOW' || S.cameraState === 'MOVING');
+        });
+        if (!onBoard) continue;
         // Let the fade settle: it is a lerp, and sampling mid-transition would
         // report a building that is on its way out as though it were solid.
-        await page.waitForTimeout(700);
+        await page.waitForTimeout(650);
+        const stillOn = await page.evaluate(() => {
+            const S = window.__QA.snapshot();
+            return (S.gameState === 'PRE_ROLL' || S.gameState === 'MOVING');
+        });
+        if (!stillOn) continue;
         const s = await page.evaluate(async () => {
             const R = await import('/src/engine/Renderer.js');
             const S = (await import('/src/core/GameState.js')).state;
@@ -112,8 +133,8 @@ const ok = (n, c, d) => (c ? pass : fail).push(`${n}${d ? ` — ${d}` : ''}`);
         if (s) samples.push(s);
     }
 
-    ok('the renderer exposes a follow camera and a city to test',
-       samples.length > 0, `${samples.length} samples`);
+    ok('sampled the board, not a minigame, enough times to mean something',
+       samples.length >= 5, `${samples.length} board samples`);
     if (samples.length) {
         const worst = Math.max(...samples.map(s => s.blocking));
         ok('nothing solid stands between the camera and the active piece',
@@ -129,6 +150,59 @@ const ok = (n, c, d) => (c ? pass : fail).push(`${n}${d ? ` — ${d}` : ''}`);
         const behind = Math.max(...samples.map(s => s.dimBehind));
         ok('the backdrop behind the piece is left alone',
            behind === 0, `${behind} props faded while behind the token`);
+    }
+
+    // ---- and prove the fade FIRES ------------------------------------------
+    //
+    // Everything above shows the corridor is clear. That is the outcome we
+    // want, but on its own it cannot tell "the fade is working" apart from
+    // "the fade is dead code and the setback alone is carrying it" — in seven
+    // samples nothing was ever ghosted, so the mechanism was never exercised.
+    // So: put the camera deliberately on the far side of a building from the
+    // token, and watch that building get out of the way.
+    const fade = await page.evaluate(async () => {
+        const R = await import('/src/engine/Renderer.js');
+        const S = (await import('/src/core/GameState.js')).state;
+        const cam = R.getCamera(), scene = R.getScene();
+        const p = S.players[S.activePlayer];
+        if (!cam || !scene || !p || !p.mesh) return null;
+        const env = scene.getObjectByName('cityEnv');
+        const props = env.children.filter(m => m.userData && m.userData.occludes);
+        if (!props.length) return null;
+        // Pick the prop nearest the token and stand the camera right behind it,
+        // so it is unambiguously in the way.
+        let victim = props[0], best = Infinity;
+        props.forEach(m => {
+            const d = m.position.distanceTo(p.mesh.position);
+            if (d < best) { best = d; victim = m; }
+        });
+        const away = victim.position.clone().sub(p.mesh.position).normalize();
+        cam.position.copy(victim.position).addScaledVector(away, 14);
+        cam.position.y = 8;
+        cam.lookAt(p.mesh.position);
+        const before = victim.userData.occNow === undefined ? 1 : victim.userData.occNow;
+        return { id: victim.uuid, before, gap: Math.round(best) };
+    });
+    if (fade) {
+        // The lerp needs a moment of real frames to run.
+        await page.waitForTimeout(1400);
+        const after = await page.evaluate(async (id) => {
+            const R = await import('/src/engine/Renderer.js');
+            const env = R.getScene().getObjectByName('cityEnv');
+            const m = env.children.find(c => c.uuid === id);
+            if (!m) return null;
+            const mat = Array.isArray(m.material) ? m.material[0] : m.material;
+            return { occNow: m.userData.occNow, opacity: mat ? mat.opacity : null,
+                     transparent: mat ? mat.transparent : null };
+        }, fade.id);
+        ok('a building put in the way actually fades',
+           !!after && after.occNow < 0.6,
+           `was ${fade.before.toFixed(2)}, now ${after ? after.occNow.toFixed(2) : 'n/a'}`);
+        ok('...and the material is told to draw it that way',
+           !!after && after.transparent === true && after.opacity < 0.6,
+           after ? `opacity ${after.opacity.toFixed(2)}, transparent ${after.transparent}` : 'n/a');
+    } else {
+        ok('a building put in the way actually fades', false, 'could not stage the test');
     }
 
     const real = errors.filter(e => !/ResizeObserver|AudioContext|play\(\) failed/.test(e));
