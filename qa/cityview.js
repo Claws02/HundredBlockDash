@@ -70,15 +70,19 @@ const ok = (n, c, d) => (c ? pass : fail).push(`${n}${d ? ` — ${d}` : ''}`);
     // pass that meant only that it had not been looking at the city. A probe
     // that cannot tell the city from a minigame cannot report on either.
     const samples = [];
+    // What the match was actually doing, so a run that collects nothing says
+    // why rather than just reporting a zero.
+    const census = {};
     const deadline = Date.now() + 300000;
     while (samples.length < 7 && Date.now() < deadline) {
         await page.evaluate(() => window.__QA.step());
         await page.waitForTimeout(120);
-        const onBoard = await page.evaluate(() => {
+        const st = await page.evaluate(() => {
             const S = window.__QA.snapshot();
-            return (S.gameState === 'PRE_ROLL' || S.gameState === 'MOVING')
-                && (S.cameraState === 'FOLLOW' || S.cameraState === 'MOVING');
+            return `${S.gameState}/${S.cameraState}`;
         });
+        census[st] = (census[st] || 0) + 1;
+        const onBoard = /^(PRE_ROLL|MOVING)\//.test(st) && /\/(FOLLOW|MOVING)$/.test(st);
         if (!onBoard) continue;
         // Let the fade settle: it is a lerp, and sampling mid-transition would
         // report a building that is on its way out as though it were solid.
@@ -133,8 +137,10 @@ const ok = (n, c, d) => (c ? pass : fail).push(`${n}${d ? ` — ${d}` : ''}`);
         if (s) samples.push(s);
     }
 
+    const seen = Object.entries(census).sort((a, b) => b[1] - a[1])
+        .slice(0, 6).map(([k, v]) => `${k}×${v}`).join(', ');
     ok('sampled the board, not a minigame, enough times to mean something',
-       samples.length >= 5, `${samples.length} board samples`);
+       samples.length >= 5, `${samples.length} board samples; states seen: ${seen}`);
     if (samples.length) {
         const worst = Math.max(...samples.map(s => s.blocking));
         ok('nothing solid stands between the camera and the active piece',
@@ -163,6 +169,12 @@ const ok = (n, c, d) => (c ? pass : fail).push(`${n}${d ? ` — ${d}` : ''}`);
     const fade = await page.evaluate(async () => {
         const R = await import('/src/engine/Renderer.js');
         const S = (await import('/src/core/GameState.js')).state;
+        // PARK THE CAMERA FIRST. While cameraState is FOLLOW the render loop
+        // rewrites camera.position every frame, so a staged pose survives
+        // exactly one tick — which is why this first read 1.00 -> 0.99 and
+        // looked like a fade that barely worked rather than a test that was
+        // being undone. 'MINIGAME' is the state mapshot.js parks in.
+        S.cameraState = 'MINIGAME';
         const cam = R.getCamera(), scene = R.getScene();
         const p = S.players[S.activePlayer];
         if (!cam || !scene || !p || !p.mesh) return null;
