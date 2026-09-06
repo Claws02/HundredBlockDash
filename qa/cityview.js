@@ -182,6 +182,23 @@ const ok = (n, c, d) => (c ? pass : fail).push(`${n}${d ? ` — ${d}` : ''}`);
         // being undone. 'MINIGAME' is the state mapshot.js parks in.
         S.cameraState = 'MINIGAME';
         const cam = R.getCamera(), scene = R.getScene();
+        // ...AND KEEP IT PARKED. Setting the state once is not enough: the turn
+        // flow re-asserts FOLLOW on its own timers during a board turn, and the
+        // follow rig then rewrites camera.position on the very next frame. The
+        // first version of this staged the shot once and measured 1.00 -> 1.00,
+        // which reads exactly like a broken fade and was in fact a test being
+        // undone. Re-pin it every frame for the measurement window instead.
+        if (window.__QA_pin) cancelAnimationFrame(window.__QA_pin);
+        const pin = (px, py, pz, tx, ty, tz) => {
+            const step = () => {
+                S.cameraState = 'MINIGAME';
+                cam.position.set(px, py, pz);
+                cam.lookAt(tx, ty, tz);
+                window.__QA_pin = requestAnimationFrame(step);
+            };
+            step();
+        };
+        window.__QA_startPin = pin;
         const p = S.players[S.activePlayer];
         if (!cam || !scene || !p || !p.mesh) return null;
         const env = scene.getObjectByName('cityEnv');
@@ -199,6 +216,8 @@ const ok = (n, c, d) => (c ? pass : fail).push(`${n}${d ? ` — ${d}` : ''}`);
         cam.position.y = 8;
         cam.lookAt(p.mesh.position);
         const before = victim.userData.occNow === undefined ? 1 : victim.userData.occNow;
+        pin(cam.position.x, cam.position.y, cam.position.z,
+            p.mesh.position.x, p.mesh.position.y, p.mesh.position.z);
         return { id: victim.uuid, before, gap: Math.round(best) };
     });
     if (fade) {
@@ -206,6 +225,7 @@ const ok = (n, c, d) => (c ? pass : fail).push(`${n}${d ? ` — ${d}` : ''}`);
         await page.waitForTimeout(1400);
         const after = await page.evaluate(async (id) => {
             const R = await import('/src/engine/Renderer.js');
+            if (window.__QA_pin) { cancelAnimationFrame(window.__QA_pin); window.__QA_pin = null; }
             const env = R.getScene().getObjectByName('cityEnv');
             const m = env.children.find(c => c.uuid === id);
             if (!m) return null;
