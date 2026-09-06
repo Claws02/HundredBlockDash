@@ -77,8 +77,13 @@ const ok = (n, c, d) => (c ? pass : fail).push(`${n}${d ? ` — ${d}` : ''}`);
     while (samples.length < 7 && Date.now() < deadline) {
         await page.evaluate(() => window.__QA.step());
         await page.waitForTimeout(120);
-        const st = await page.evaluate(() => {
-            const S = window.__QA.snapshot();
+        // cameraState comes from the STATE MODULE, not from the agent's
+        // snapshot — the snapshot does not carry it, so this gate compared
+        // against `undefined` on every tick and never matched. That is the
+        // whole reason a run reported "0 board samples" while the census
+        // showed the match plainly playing (MOVING x93, PRE_ROLL x17).
+        const st = await page.evaluate(async () => {
+            const S = (await import('/src/core/GameState.js')).state;
             return `${S.gameState}/${S.cameraState}`;
         });
         census[st] = (census[st] || 0) + 1;
@@ -87,9 +92,10 @@ const ok = (n, c, d) => (c ? pass : fail).push(`${n}${d ? ` — ${d}` : ''}`);
         // Let the fade settle: it is a lerp, and sampling mid-transition would
         // report a building that is on its way out as though it were solid.
         await page.waitForTimeout(650);
-        const stillOn = await page.evaluate(() => {
-            const S = window.__QA.snapshot();
-            return (S.gameState === 'PRE_ROLL' || S.gameState === 'MOVING');
+        const stillOn = await page.evaluate(async () => {
+            const S = (await import('/src/core/GameState.js')).state;
+            return (S.gameState === 'PRE_ROLL' || S.gameState === 'MOVING')
+                && (S.cameraState === 'FOLLOW' || S.cameraState === 'MOVING');
         });
         if (!stillOn) continue;
         const s = await page.evaluate(async () => {
