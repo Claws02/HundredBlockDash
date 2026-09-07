@@ -702,7 +702,7 @@ function _finish(winnerId, onHeight = false) {
     sfx(winnerId < 0 ? 'land_bad' : 'mg_win');
     haptic('heavy');
     const payouts = _p.map(c => Math.min(c.coins, MAX_PAYOUT));
-    _after(() => { _destroy(); _onWin(winnerId, payouts); }, 1400);
+    _after(() => { _destroy(); _onWin(winnerId, payouts, _p.map(c => c.height)); }, 1400);
 }
 
 // ── Cleanup (R3) ────────────────────────────────────────────────────────────

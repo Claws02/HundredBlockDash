@@ -511,7 +511,12 @@ function _checkWin() {
             neutralEl.textContent = winner < 0 ? 'DRAW!' : `${_nameOf(winner)} WINS!`;
         }
         if (winner >= 0) sfx('mg_win');
-        _after(() => { _destroy(); _onWin(winner); }, 1500);
+        // Standings are survival: still in the ring beats out of it, and among
+        // those out, whoever lasted longest ranks higher.
+        // A finite sentinel, not Infinity: two of those subtract to NaN and a
+        // NaN comparator scrambles the sort rather than ranking anything.
+        const rank = _balls.map((_, i) => (_falling[i] ? _outAt[i] : Number.MAX_SAFE_INTEGER));
+        _after(() => { _destroy(); _onWin(winner, null, rank); }, 1500);
     }, 900);
 }
 

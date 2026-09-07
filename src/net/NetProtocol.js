@@ -133,13 +133,15 @@ function _playerOf(p) {
 //   • A beat only belongs here if the host raises it for the whole table or
 //     mirrors it to one player — which means the host has its own copy open,
 //     which means its absence from this list genuinely means "it is over".
-//   • A parallel minigame round (#solo-layer) is deliberately NOT here, and it
-//     is the exception that shows what the rule is really saying. Its card is
-//     dismissed by each player individually when they start playing, so the
-//     devices are MEANT to be out of step — that is the whole design. Under
-//     this list the host pressing START closed everybody else's card and the
-//     round could not be played. It gets an explicit take-down instead (the
-//     `soloClose` scene), which is the same guarantee arrived at honestly.
+//   • A parallel minigame round (#solo-layer) is deliberately NOT here, and the
+//     reason has changed. It used to be that each player dismissed their own
+//     card when they started playing, so the devices were MEANT to be out of
+//     step. They are not any more: READY is a vote, the host holds a gate, and
+//     every card comes down together on `soloGo`. But the take-down is still
+//     explicit rather than driven by this list, because the host's own card is
+//     down for the whole round while it plays — under this list that absence
+//     would read as "the round is over" and close the scoreboard on everybody
+//     the moment the host started. `soloClose` says it once, honestly.
 export const BEAT_OVERLAYS = [
     'ally-arrival',      // the buddy report — the one that stranded a client
     'gate-overlay',

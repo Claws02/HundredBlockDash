@@ -23,8 +23,10 @@ import * as Session from './NetSession.js';
 import * as Scenes from '../ui/Scenes.js';
 import * as UIManager from '../ui/UIManager.js';
 
-/** The opening briefing: the one gate there is so far. */
+/** The opening briefing. */
 export const BRIEFING = 'briefing';
+/** A parallel minigame round: nobody starts playing until everybody is ready. */
+export const MINIGAME = 'minigame';
 
 // Gates the host is holding: id → { seats: Set, done, total }
 const _open = new Map();
@@ -49,6 +51,23 @@ export function open(id, done) {
     const seats = new Set();
     state.players.forEach((p, i) => { if (p.isBot) seats.add(i); });
     _open.set(id, { seats, done, total: state.players.length });
+    _maybeFinish(id);
+}
+
+/**
+ * Host: hold `id` until every seat in `seats` has pressed.
+ *
+ * The difference from open() is WHO is counted. The briefing is the whole
+ * table, but a minigame round is the seats playing it — a spectator has no
+ * START button to press, and waiting on one would hang the round forever.
+ * Bots in the list are counted as present immediately, as above.
+ */
+export function openFor(id, seats, done) {
+    if (!Session.isHost()) return;
+    const list = (Array.isArray(seats) ? seats : []).filter(i => typeof i === 'number');
+    const acked = new Set();
+    list.forEach(i => { if (state.players[i] && state.players[i].isBot) acked.add(i); });
+    _open.set(id, { seats: acked, done, total: list.length, only: new Set(list) });
     _maybeFinish(id);
 }
 
@@ -87,6 +106,9 @@ export function ack(id, seat) {
     if (!Session.isHost()) return;
     const g = _open.get(id);
     if (!g || typeof seat !== 'number') return;
+    // A gate opened for a subset ignores a press from outside it, or a
+    // spectator tapping something could complete a round they are not in.
+    if (g.only && !g.only.has(seat)) return;
     g.seats.add(seat);
     // Everybody's card updates as the count moves, so waiting is visible
     // rather than a button that stopped doing anything.

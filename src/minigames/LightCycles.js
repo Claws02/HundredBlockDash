@@ -575,7 +575,7 @@ function _finish(winnerId) {
         ? `DRAW — ${_wins.join('–')}`
         : `${_nameOf(winnerId)} WINS ${_wins.join('–')}!`;
     sfx(winnerId < 0 ? 'land_bad' : 'mg_win'); haptic('heavy');
-    _after(() => { _destroy(); _onWin(winnerId); }, 1400);
+    _after(() => { _destroy(); _onWin(winnerId, null, _wins.slice(0, _n)); }, 1400);
 }
 
 // ── Cleanup (R3) ────────────────────────────────────────────────────────────
