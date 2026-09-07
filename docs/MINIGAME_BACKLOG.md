@@ -390,3 +390,88 @@ Memory Match's ceiling is 58 s and Four in a Row's is 52 s. Both are stated
 exceptions rather than oversights: they are the roster's slow beats, and the
 pacing contrast is what makes the frantic games feel frantic. A memory game with
 few enough cards to finish in 30 s is not a memory game.
+
+
+---
+
+# Round three: the four-player audit
+
+*Written after the 3–4 player conversion. Twelve of the twenty-two games now
+seat three and four; this is what that revealed.*
+
+## `roomy` is a synonym for "leaderboard"
+
+The conversion split the twelve live games into two classes on a purely
+technical test — does a quarter of a **phone** give this game enough room? The
+answer sorted them perfectly along a line nobody was measuring:
+
+| Needs a tablet (`roomy`) | Plays on a phone |
+|---|---|
+| Steady Hand · Meteor Dodge · Loot Catch | Quick Draw · Shape Snap · Snap Strike |
+| Tree Climb · Grid Recall · Odd One Out | Sumo Spheres · Light Cycles · Grand Prix |
+| **every one a private playfield** | **every one a shared object** |
+
+That is not a coincidence, it is the same fact stated twice. **A game needs more
+room per player exactly when each player has their own copy of the field** — and
+"each player has their own copy" is precisely what §Rule 1 calls a leaderboard.
+
+Two consequences, and they are the same consequence:
+
+1. **At four players on a tablet, half the pool is four people playing
+   solitaire.** The post-mortem above condemned this shape at two players. At
+   four it is worse, not better: the thing you are not interacting with has gone
+   from one person to three.
+2. **The tablet recommendation exists BECAUSE of those six games.** The phone
+   pool is six precisely because the six shared-object games need no extra room.
+
+So fixing the interaction problem and fixing the shallow phone pool are **not
+two jobs**. Give a `roomy` game one shared thing to fight over and it stops
+needing a private field, which means it stops needing a tablet. Every one of
+these repairs moves a game from the right column to the left.
+
+## The repair list, best value first
+
+Each of these is a change of GEOMETRY, not of verb — the game stays what it is.
+
+| Game | Today | One shared thing | Notes |
+|---|---|---|---|
+| **Odd One Out** | four private grids | **one grid.** First to tap the odd tile scores it; the grid immediately re-rolls. | The cheapest and best fix on this list. Turns a scan-race into a genuine race — you can see the others' fingers coming. Loses nothing. |
+| **Loot Catch** | same loot, four chutes | **one chute.** Loot falls down a shared field and catching a coin DENIES it to everyone else. | Its own description already admits the problem: *"the exact same loot falls on both sides."* Same loot is not shared loot. |
+| **Steady Hand** | four private targets | **one target.** You bank time only while you are the only finger on it, or the closest. | Contact becomes contest: crowding the target is a legitimate tactic. |
+| **Tree Climb** | four private stems | **one tree, four climbers.** Same branches, and a climber you pass can be knocked back a branch. | Already a race; this makes it a race you can interfere in. |
+| **Meteor Dodge** | four private skies | **one sky.** Four pods, and a pod you shove is a pod in the path. | Biggest change of the six — collision between pods is new physics. |
+| **Grid Recall** | private grids, shared pattern, shared finish | already half-shared — **lowest priority.** | The race is real; only the grids are separate. Leave until last. |
+
+Doing the first three would take the phone pool from six games to nine and cut
+the leaderboard count in half.
+
+## What the roster is still missing
+
+Measured against the canon in §What the genre actually does, with four players
+now the target rather than two:
+
+1. **RACE has exactly one game.** Grand Prix. It was the thinnest genre before
+   the conversion and it still is. A second racer with CONTACT — a steeplechase
+   on one shared track where you can shoulder somebody into a hurdle — fills the
+   gap and passes Rule 1 by construction.
+2. **No asymmetric game above two players.** Penalty is the roster's only
+   asymmetric format and it is two-player-only. **One-versus-three** is an entire
+   category with zero coverage: one player controls something big and slow, three
+   control something small and fast. The tension is completely different from
+   anything in the arcade.
+3. **No team format.** `MINIGAME_RULEBOOK.md` sketches TEAMS 2v2 and nothing
+   implements it. A four-way or 2v2 **tug of war** is the cheapest possible
+   entry: one rope is the purest shared object there is, and its whole state is
+   one number per player — `wire: 'scalar'`, so it is nearly free online.
+4. **Only two coin games.** Loot Catch and Tree Climb. The payday round is a
+   good beat and it fires about one round in eleven.
+
+## The rule, restated for four players
+
+§Rule 1 becomes sharper, not looser, with more people at the table:
+
+> **If a player could leave the room and nobody else's screen would change, it
+> is not a multiplayer game.**
+
+At two players that test caught four games. At four it catches six more — and
+`roomy` is how to spot them without playing a single round.
