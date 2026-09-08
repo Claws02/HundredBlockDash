@@ -76,7 +76,7 @@ const ok = (n, c, d) => (c ? pass : fail).push(n + (d ? ` — ${d}` : ''));
             if (gg > 185 && r < 165 && b < 165) { sum += ((i / 4) % cv.width); n++; }
         }
         if (n < 8) return null;
-        const stemX = cv.clientWidth * 0.37;
+        const stemX = cv.clientWidth * 0.5;
         return (sum / n / dpr) > stemX ? 1 : -1;
     });
 

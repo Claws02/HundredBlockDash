@@ -25,7 +25,6 @@ const MG_MODULES = {
     oddoneout:   () => import('./OddOneOut.js'),
     steadyhand:  () => import('./SteadyHand.js'),
     sortrush:    () => import('./SortRush.js'),
-    meteordodge: () => import('./MeteorDodge.js'),
     lootcatch:   () => import('./LootCatch.js'),
     freeze:      () => import('./Freeze.js'),
     clearout:    () => import('./ClearOut.js'),

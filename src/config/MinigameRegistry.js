@@ -14,7 +14,6 @@ export const MG_TYPES = [
     'oddoneout',
     'steadyhand',
     'sortrush',
-    'meteordodge',
     'lootcatch',
     'freeze',
     'clearout',
@@ -44,7 +43,6 @@ export const MG_INFO = {
     oddoneout:   { icon: '🔍', title: 'ODD ONE OUT',   desc: 'Every tile on your grid is the same shade except one. Tap the odd tile to score and get a fresh, harder grid — more tiles, subtler difference. A wrong tap locks you briefly. Most correct in 30 seconds wins!' },
     steadyhand:  { icon: '🎯', title: 'STEADY HAND',   desc: 'A target drifts around your half — keep your finger on it to bank time! It speeds up as the round goes on. Whoever holds the target longest after 22 seconds wins.' },
     sortrush:    { icon: '🔺', title: 'SHAPE SNAP',    desc: 'One shape flashes up in the middle — both of you are looking at the same one. Slam the matching button on your side before your rival does to take the round. The four buttons get shuffled every round, so you have to actually find it. Wrong button locks you out; jumping early hands them the round. FIRST TO 3 WINS!' },
-    meteordodge: { icon: '☄️', title: 'METEOR DODGE',  desc: 'Drag your pod along the base of your half to dodge falling meteors. Three lives each — lose them all and you\'re out. The storm gets faster and thicker over time. Survive with the most lives after 30 seconds to win!' },
     lootcatch:   { icon: '🧺', title: 'LOOT CATCH',    desc: '💰 PAYDAY ROUND — every coin you catch is REAL money, and BOTH players keep every coin they scoop, win or lose. Slide your basket to grab 🪙 coins and 💎 gems (worth 3) and dodge every 💣. The exact same loot falls on both sides. Most caught after 34 seconds wins the bonus and rolls first — but nobody leaves empty-handed.' },
     freeze:      { icon: '👁️', title: 'FREEZE',        desc: 'One Crown in the middle, one track, and an Eye that picks a side. HOLD your half to creep toward the Crown — but when the Eye turns and looks at YOU, freeze or get sent back. It does not always watch both of you: when it stares at your rival, that is your free run. Get spotted and your scuffle covers their footsteps and hands them a free step. First to the Crown wins!' },
     clearout:    { icon: '🥏', title: 'CLEAR OUT',     desc: 'A wall splits the arena with one small gap. You start with 4 discs on your side — drag back and release to slingshot them through the gap onto your rival\'s side. Discs collide and ricochet! First to empty their own side wins (or fewest discs on your side when the clock runs out).' },
@@ -150,7 +148,6 @@ export const MG_NET = {
     oddoneout:   'parallel',
     steadyhand:  'parallel',
     sortrush:    'local',
-    meteordodge: 'parallel',
     lootcatch:   'parallel',
     freeze:      'local',
     clearout:    'local',
@@ -192,7 +189,6 @@ export const MG_PAYOUT = {
 // thing on theirs, all of that is wrong — and it is wrong in the specific way
 // that makes somebody look for a second player who is not there.
 export const MG_NET_INFO = {
-    meteordodge: 'Drag your pod along the bottom to dodge the falling meteors. Three lives — lose them all and your round is over. The storm gets faster and thicker as it goes. Everyone is dodging the same storm at the same time: survive longest with the most lives.',
     lootcatch:   '💰 PAYDAY — every coin you catch is REAL money and you keep it whatever happens. Slide your basket to grab 🪙 coins and 💎 gems (worth 3), and dodge every 💣. The same loot falls on every phone. Biggest haul takes the round — but nobody leaves empty-handed.',
     steadyhand:  'A target drifts around your screen — keep your finger on it to bank time. It speeds up as the round goes on. The same target, on the same path, on every phone: whoever holds it longest wins.',
     oddoneout:   'Every tile on your grid is the same shade except one. Tap the odd tile and a fresh, harder grid appears — more tiles, subtler difference. A wrong tap locks you out briefly. Everyone gets the same grids: most found in 30 seconds wins.',
@@ -236,7 +232,6 @@ export const MG_SHAPE = {
     oddoneout:   'split',
     steadyhand:  'split',
     sortrush:    'arena',   // one shape in the middle, both racing for it
-    meteordodge: 'split',
     lootcatch:   'split',
     freeze:      'arena',   // one crown, one track, one eye watching both
     clearout:    'arena',   // discs cross the wall onto their side
@@ -273,7 +268,6 @@ export const MG_ORIENTATION_MAP = {
     oddoneout:   'faceoff',
     steadyhand:  'faceoff',
     sortrush:    'faceoff',
-    meteordodge: 'faceoff',
     lootcatch:   'faceoff',
     freeze:      'faceoff',
     clearout:    'faceoff',
@@ -383,11 +377,8 @@ export const MG_PROFILE = {
     freeze:      { genre: 'nerve',    control: 'thumb', wire: 'scalar',   seats: [2, 2], live: false },
 
     // roomy: a playfield with things falling through it. A phone quarter is
-    // 206x400 and a meteor crosses it in well under a second — there is no
-    // dodge in that, only a reflex test.
-    meteordodge: { genre: 'scramble', control: 'thumb', wire: 'none',     seats: [2, 4], live: true, roomy: true },
-    // roomy: same reason as Meteor Dodge — loot falls the length of the zone,
-    // and a 400 px drop is over before the basket has moved.
+    // 206x400 and the drop is over before the basket has moved — there is no
+    // catch in that, only a reflex test.
     lootcatch:   { genre: 'scramble', control: 'thumb', wire: 'none',     seats: [2, 4], live: true, roomy: true },
     // roomy: the stem scrolls vertically at 74 px a branch, so a zone needs
     // height to read as a climb. A phone quarter is 400 px — five branches of

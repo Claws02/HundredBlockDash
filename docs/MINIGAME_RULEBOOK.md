@@ -446,13 +446,14 @@ compromise:
    a pressure readout would be trading the entire reason parallel play works for
    a nicety.
 3. **It reads the number the game already reports.** Every parallel game exports
-   `soloScore()`. Some are composites — Meteor Dodge's is `lives * 1000 + dodges`
-   — so a formatter table says how to display one:
+   `soloScore()`. Some are composites — Grand Prix ranks on
+   `lap * trackLength + distance`, one number carrying two — so a formatter table
+   says how to display one:
 
    ```js
    export const MG_PRESSURE = {
-       meteordodge: { label: 'LIVES', format: s => `${Math.floor(s / 1000)}❤ ${s % 1000}` },
-       lootcatch:   { label: 'COINS', format: s => `${s}🪙` },
+       grandprix:   { label: 'LAP',    format: s => `L${Math.floor(s / TRACK_LEN) + 1}` },
+       lootcatch:   { label: 'COINS',  format: s => `${s}🪙` },
        treeclimb:   { label: 'HEIGHT', format: s => `${s}m` },
    };
    ```

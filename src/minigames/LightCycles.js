@@ -487,13 +487,28 @@ function _draw() {
     const ax = _ox + _mx * CELL, ay = _oy + _my * CELL;
     const aw = (_cols - _mx * 2) * CELL, ah = (_rows - _my * 2) * CELL;
     if (_mx > 0 || _my > 0) {
-        ctx.fillStyle = 'rgba(90,20,26,.55)';
+        // Hazard hatching, not a red wash. Slot 0's trail is red too, and a
+        // glowing red field around a red rider is genuinely hard to read at
+        // speed — by round three the closed-in band is a third of the screen.
+        // Stripes over near-black say 'structure, do not enter' in a way no
+        // amount of colour does, and they cannot be mistaken for a trail.
         const cw = _cols * CELL, ch = _rows * CELL;
-        const mx = _mx * CELL, my = _my * CELL;
-        ctx.fillRect(_ox, _oy, cw, my);
-        ctx.fillRect(_ox, _oy + ch - my, cw, my);
-        ctx.fillRect(_ox, _oy, mx, ch);
-        ctx.fillRect(_ox + cw - mx, _oy, mx, ch);
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(_ox, _oy, cw, ch);
+        ctx.rect(ax, ay, aw, ah);
+        ctx.clip('evenodd');
+        ctx.fillStyle = 'rgba(44,10,14,.94)';
+        ctx.fillRect(_ox, _oy, cw, ch);
+        ctx.strokeStyle = 'rgba(255,74,58,.15)';
+        ctx.lineWidth = 6;
+        ctx.beginPath();
+        for (let x = -ch; x < cw; x += 22) {
+            ctx.moveTo(_ox + x, _oy);
+            ctx.lineTo(_ox + x + ch, _oy + ch);
+        }
+        ctx.stroke();
+        ctx.restore();
     }
 
     // The boundary is the thing that kills you, so it is the thing that reads
@@ -505,7 +520,7 @@ function _draw() {
     const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 300);
     ctx.save();
     ctx.beginPath(); ctx.rect(ax, ay, aw, ah); ctx.clip();
-    const bleed = CELL * 1.8, hot = 0.26 + 0.10 * pulse;
+    const bleed = CELL * 1.1, hot = 0.15 + 0.07 * pulse;
     const band = (x, y, bw, bh, gx0, gy0, gx1, gy1) => {
         const g = ctx.createLinearGradient(gx0, gy0, gx1, gy1);
         g.addColorStop(0, `rgba(255,58,48,${hot})`);
@@ -523,7 +538,7 @@ function _draw() {
     ctx.strokeStyle = `rgba(255,86,70,${0.62 + 0.28 * pulse})`;
     ctx.lineWidth = 3;
     ctx.shadowColor = 'rgba(255,50,40,0.95)';
-    ctx.shadowBlur = 12 + 6 * pulse;
+    ctx.shadowBlur = 10 + 5 * pulse;
     ctx.strokeRect(ax + 1.5, ay + 1.5, aw - 3, ah - 3);
     ctx.restore();
 
