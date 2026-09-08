@@ -21,12 +21,13 @@ import { sfx, haptic } from '../engine/AudioManager.js';
 import { registerMinigameCleanup } from './MinigameManager.js';
 
 // ── Tunables ────────────────────────────────────────────────────────────────
-// A full 7×6 board is a two-to-four-minute game between people — measured, the
-// harness took 63 s just to fill it. 6×5 is still four-in-a-row and still has
-// real depth, but it typically resolves in 12–18 moves, which fits the arcade's
-// 15–40 s slot.
-const COLS       = 6;
-const ROWS       = 5;
+// The classic board, 7 wide and 6 tall. It shipped 6×5 to keep rounds short —
+// a full board measured 63 s to fill in the harness — but a narrower board is a
+// different game: 6×5 quietly removes the seventh column that the whole body of
+// four-in-a-row theory is built on, and players who know the game feel it
+// immediately. Length is the watchdog's problem, not the board's.
+const COLS       = 7;
+const ROWS       = 6;
 // No clocks of any kind — neither a shot clock nor a match clock. Playing a move
 // FOR somebody in a thinking game takes away the only thing they are there to
 // do, and calling a draw on a stopwatch over a position one of you was about to
