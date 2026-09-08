@@ -41,10 +41,18 @@ const GRACE       = 0.9;    // s at round start where a crash is undone
 // for while they are dodging a wall.
 //
 // It still terminates on its own: the grid is finite, every step fills a cell
-// permanently, and the arena closes in a further two cells each round, so the
-// space available strictly shrinks until a crash is forced.
+// permanently, and the arena closes in a further slice each round, so the space
+// available strictly shrinks until a crash is forced.
 const GAP         = 1250;   // ms between rounds
-const MARGIN      = [0, 2, 4];   // cells of wall closed in, per round
+// Wall closed in per round, as a FRACTION of each axis rather than a cell
+// count. This was [0, 2, 4] cells, which is not the same squeeze on every
+// screen: CELL is a fixed 26 css px, so a tablet lays out around 31 columns and
+// loses 13% of its width by round three, while a phone lays out around 15 and
+// loses more than half of it. The round-three arena on a phone was a corridor.
+// Taken per axis and proportionally, every screen loses the same share of the
+// same shape, and the tablet's numbers — which are the ones this was tuned on —
+// come out unchanged.
+const MARGIN_FRAC = [0, 0.065, 0.13];
 const JOY_R       = 50;     // joystick base radius, css px
 
 // ── Module state ────────────────────────────────────────────────────────────
@@ -60,7 +68,8 @@ let _zones = [];                  // input quadrants — the ARENA stays whole
 let _round = 0;
 let _roundT = 0, _graceT = 0;
 let _between = false;
-let _margin = 0;
+let _mx = 0, _my = 0;        // wall thickness in cells, per axis
+let _mFrac = 0;              // this round's share, re-applied on resize
 let _flash = 0, _flashMsg = '';
 let _botCd = [];                  // one cooldown per bot
 let _sticks = [];
@@ -86,6 +95,7 @@ export function start(isBot, onWin, botSkill = 0.55) {
     _n = Math.max(2, Math.min(4, slotCount()));
     _wins = new Array(_n).fill(0); _botCd = new Array(_n).fill(0);
     _round = 0; _last = 0; _between = false;
+    _mFrac = 0; _mx = 0; _my = 0;
     _flash = 0; _flashMsg = ''; _sticks = [];
     registerMinigameCleanup(_destroy);   // R3
     _build();
@@ -270,6 +280,16 @@ function _resize() {
     _ox = Math.round((_W - _cols * CELL) / 2);
     _oy = Math.round((_H - _rows * CELL) / 2);
     if (!_grid || _grid.length !== _cols * _rows) _grid = new Int8Array(_cols * _rows);
+    _applyMargin();
+}
+
+// Cells of wall on each axis for this round's share. Re-derived on resize so a
+// rotation mid-round keeps the arena the same proportion of the screen rather
+// than the same number of cells. Any non-zero share is worth at least one cell:
+// a shrink nobody can see is not a shrink.
+function _applyMargin() {
+    _mx = _mFrac > 0 ? Math.max(1, Math.round(_cols * _mFrac)) : 0;
+    _my = _mFrac > 0 ? Math.max(1, Math.round(_rows * _mFrac)) : 0;
 }
 
 // ── Rounds ──────────────────────────────────────────────────────────────────
@@ -279,7 +299,8 @@ function _startRound() {
     _between = false;
     _roundT = 0;
     _graceT = GRACE;
-    _margin = MARGIN[Math.min(_round - 1, MARGIN.length - 1)];
+    _mFrac = MARGIN_FRAC[Math.min(_round - 1, MARGIN_FRAC.length - 1)];
+    _applyMargin();
     _grid.fill(0);
     // Facing the middle from each end: P1 comes up from the bottom, P2 comes
     // down from the top, so the first contested ground is dead centre.
@@ -290,15 +311,15 @@ function _startRound() {
     // Everybody starts on an edge facing the middle, spread so the first
     // contested ground is dead centre and nobody begins in anybody's path.
     // Four riders take the four edges; three take three of them.
-    const lo = i => Math.max(1 + _margin, i);
-    const hi = i => Math.min(_cols - 2 - _margin, i);
-    const loR = i => Math.max(1 + _margin, i);
-    const hiR = i => Math.min(_rows - 2 - _margin, i);
+    const lo = i => Math.max(1 + _mx, i);
+    const hi = i => Math.min(_cols - 2 - _mx, i);
+    const loR = i => Math.max(1 + _my, i);
+    const hiR = i => Math.min(_rows - 2 - _my, i);
     const STARTS = [
-        () => ({ cx: lo(Math.floor(_cols * 0.32)), cy: hiR(_rows - 3 - _margin), dir: 0 }),  // bottom, up
-        () => ({ cx: hi(Math.ceil(_cols * 0.68)),  cy: loR(_margin + 2),         dir: 2 }),  // top, down
-        () => ({ cx: lo(_margin + 2),              cy: loR(Math.floor(_rows * 0.32)), dir: 1 }),  // left, right
-        () => ({ cx: hi(_cols - 3 - _margin),      cy: hiR(Math.ceil(_rows * 0.68)),  dir: 3 }),  // right, left
+        () => ({ cx: lo(Math.floor(_cols * 0.32)), cy: hiR(_rows - 3 - _my), dir: 0 }),  // bottom, up
+        () => ({ cx: hi(Math.ceil(_cols * 0.68)),  cy: loR(_my + 2),         dir: 2 }),  // top, down
+        () => ({ cx: lo(_mx + 2),                  cy: loR(Math.floor(_rows * 0.32)), dir: 1 }),  // left, right
+        () => ({ cx: hi(_cols - 3 - _mx),          cy: hiR(Math.ceil(_rows * 0.68)),  dir: 3 }),  // right, left
     ];
     _cycles = Array.from({ length: _n }, (_, i) => ({ ...STARTS[i](), alive: true }));
     _cycles.forEach((c, i) => _set(c.cx, c.cy, i + 1));
@@ -310,7 +331,7 @@ function _startRound() {
 
 function _idx(x, y) { return y * _cols + x; }
 function _get(x, y) {
-    if (x < _margin || y < _margin || x >= _cols - _margin || y >= _rows - _margin) return -1;  // wall
+    if (x < _mx || y < _my || x >= _cols - _mx || y >= _rows - _my) return -1;  // wall
     return _grid[_idx(x, y)];
 }
 function _set(x, y, v) { if (x >= 0 && y >= 0 && x < _cols && y < _rows) _grid[_idx(x, y)] = v; }
@@ -463,17 +484,48 @@ function _draw() {
     // is visible rather than just felt.
     ctx.fillStyle = '#080c18';
     ctx.fillRect(_ox, _oy, _cols * CELL, _rows * CELL);
-    if (_margin > 0) {
-        ctx.fillStyle = 'rgba(120,140,190,.10)';
-        const m = _margin * CELL, cw = _cols * CELL, ch = _rows * CELL;
-        ctx.fillRect(_ox, _oy, cw, m);
-        ctx.fillRect(_ox, _oy + ch - m, cw, m);
-        ctx.fillRect(_ox, _oy, m, ch);
-        ctx.fillRect(_ox + cw - m, _oy, m, ch);
+    const ax = _ox + _mx * CELL, ay = _oy + _my * CELL;
+    const aw = (_cols - _mx * 2) * CELL, ah = (_rows - _my * 2) * CELL;
+    if (_mx > 0 || _my > 0) {
+        ctx.fillStyle = 'rgba(90,20,26,.55)';
+        const cw = _cols * CELL, ch = _rows * CELL;
+        const mx = _mx * CELL, my = _my * CELL;
+        ctx.fillRect(_ox, _oy, cw, my);
+        ctx.fillRect(_ox, _oy + ch - my, cw, my);
+        ctx.fillRect(_ox, _oy, mx, ch);
+        ctx.fillRect(_ox + cw - mx, _oy, mx, ch);
     }
-    ctx.strokeStyle = 'rgba(140,170,230,.30)'; ctx.lineWidth = 2;
-    ctx.strokeRect(_ox + _margin * CELL + 1, _oy + _margin * CELL + 1,
-                   (_cols - _margin * 2) * CELL - 2, (_rows - _margin * 2) * CELL - 2);
+
+    // The boundary is the thing that kills you, so it is the thing that reads
+    // as dangerous: a red rim that bleeds inward. The blue hairline it replaces
+    // was the same colour family as the floor and the trails, so nothing about
+    // it said 'wall' — riders learned the edge by dying on it. The inward
+    // falloff matters more than the line: at speed you are watching the ground
+    // ahead of your own head, not the frame of the screen.
+    const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 300);
+    ctx.save();
+    ctx.beginPath(); ctx.rect(ax, ay, aw, ah); ctx.clip();
+    const bleed = CELL * 1.8, hot = 0.26 + 0.10 * pulse;
+    const band = (x, y, bw, bh, gx0, gy0, gx1, gy1) => {
+        const g = ctx.createLinearGradient(gx0, gy0, gx1, gy1);
+        g.addColorStop(0, `rgba(255,58,48,${hot})`);
+        g.addColorStop(1, 'rgba(255,58,48,0)');
+        ctx.fillStyle = g;
+        ctx.fillRect(x, y, bw, bh);
+    };
+    band(ax, ay, aw, bleed, ax, ay, ax, ay + bleed);
+    band(ax, ay + ah - bleed, aw, bleed, ax, ay + ah, ax, ay + ah - bleed);
+    band(ax, ay, bleed, ah, ax, ay, ax + bleed, ay);
+    band(ax + aw - bleed, ay, bleed, ah, ax + aw, ay, ax + aw - bleed, ay);
+    ctx.restore();
+
+    ctx.save();
+    ctx.strokeStyle = `rgba(255,86,70,${0.62 + 0.28 * pulse})`;
+    ctx.lineWidth = 3;
+    ctx.shadowColor = 'rgba(255,50,40,0.95)';
+    ctx.shadowBlur = 12 + 6 * pulse;
+    ctx.strokeRect(ax + 1.5, ay + 1.5, aw - 3, ah - 3);
+    ctx.restore();
 
     // Trails
     for (let y = 0; y < _rows; y++) {
