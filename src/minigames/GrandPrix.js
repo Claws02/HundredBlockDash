@@ -30,6 +30,25 @@ const ACCEL       = 150;
 const DRAG_OFF    = 210;    // deceleration with the throttle shut
 const DRAG_ON     = 24;     // natural drag while accelerating (caps top speed)
 const SPIN_MS     = 950;
+// GRIP.
+//
+// Going over a corner's limit used to spin you instantly — one frame planted,
+// the next frame stopped and facing the wrong way, with nothing in between. It
+// made the corner a trap rather than a thing you drive, and the only way to
+// read it was the gauge at the bottom of the screen, so you raced the gauge and
+// not the track.
+//
+// Now the car loses grip gradually. Over the limit, `slide` fills at a rate set
+// by HOW FAR over you are; the car yaws and scrubs speed while it does, which
+// is both the warning and the punishment. Lift and it drains back. Only a slide
+// that fills all the way spins you. Clipping a limit by a few percent through a
+// short corner is survivable if you catch it — which is the thing that was
+// missing, because catching a slide is the whole skill of driving quickly.
+const SLIDE_GAIN    = 9.0;   // slide per second, per 100% over the limit
+const SLIDE_RECOVER = 1.4;   // slide drained per second back under the limit
+const SLIDE_SCRUB   = 0.55;  // fraction of speed lost per second at full slide
+const WOBBLE_MAX    = 0.30;  // rad of yaw at full slide
+const WOBBLE_HZ     = 13;    // rad/s of the wobble itself
 const SLIP_GAIN   = 0.13;   // top-speed bonus for the trailing car
 const SLIP_RANGE  = 220;    // track units within which the slipstream applies
 const MATCH_TIME  = 70;     // s ceiling; furthest round the circuit takes it
@@ -165,7 +184,7 @@ export function start(isBot, onWin, botSkill = 0.55) {
     _held = new Array(_n).fill(false);
     _botPlan = new Array(_n).fill(null);
     _cars = Array.from({ length: _n },
-        () => ({ d: 0, v: 0, spinUntil: 0, spin: 0, spins: 0, lap: 0, finished: 0 }));
+        () => ({ d: 0, v: 0, spinUntil: 0, spin: 0, spins: 0, slide: 0, lap: 0, finished: 0 }));
     _held = [false, false];
     _botPlan = null;
     _last = 0; _elapsed = 0;
@@ -264,7 +283,7 @@ function _drive(pid, dt, now) {
     const c = _cars[pid];
     if (c.finished) return;
 
-    if (now < c.spinUntil) { c.spin += dt * 13; c.v = 0; return; }
+    if (now < c.spinUntil) { c.spin += dt * 13; c.v = 0; c.slide = 0; return; }
     c.spin = 0;
 
     // Slipstream off the NEAREST car ahead, not off "the other one". With four
@@ -290,12 +309,26 @@ function _drive(pid, dt, now) {
     c.d += c.v * dt;
     if (c.d >= _track.len) { c.d -= _track.len; c.lap++; if (c.lap < LAPS) sfx('countdown'); }
 
-    // Over the limit anywhere in a corner and you're gone.
+    // Over the limit the car starts to let go, and keeps letting go for as long
+    // as it is over. Sliding scrubs speed, which is often enough on its own to
+    // bring you back under and save it.
     const lim = _limitAt(c.d);
     if (lim !== Infinity && c.v > lim) {
+        const was = c.slide;
+        c.slide = Math.min(1, c.slide + (c.v / lim - 1) * SLIDE_GAIN * dt);
+        c.v -= c.v * SLIDE_SCRUB * c.slide * dt;
+        // One tick when it first goes light, so the wobble is felt and not only
+        // seen — this is the moment there is still something to be done about.
+        if (was < 0.30 && c.slide >= 0.30 && !isBotSlot(pid)) haptic([18]);
+    } else {
+        c.slide = Math.max(0, c.slide - SLIDE_RECOVER * dt);
+    }
+
+    if (c.slide >= 1) {
         c.spinUntil = now + SPIN_MS;
         c.spins++;
         c.v = 0;
+        c.slide = 0;
         c.d = before;
         sfx('land_bad');
         haptic([40, 60, 40]);
@@ -505,7 +538,12 @@ function _car(pid, ROAD) {
 
     ctx.save();
     ctx.translate(x, y);
-    ctx.rotate(p.ang + (c.spin || 0));
+    // Yaw with the slide, so a car that is about to go is visibly fighting
+    // for it a good half second before it does.
+    const wob = c.slide > 0
+        ? Math.sin(performance.now() / 1000 * WOBBLE_HZ * Math.PI * 2) * c.slide * WOBBLE_MAX
+        : 0;
+    ctx.rotate(p.ang + (c.spin || 0) + wob);
     const body = CAR_BODY[pid] || '#ffffff';
     ctx.fillStyle = 'rgba(0,0,0,.45)';
     _round(ctx, -13, -8, 26, 16, 5); ctx.fill();
@@ -541,17 +579,23 @@ function _hud(pid, zw, zh) {
     ctx.fillStyle = 'rgba(255,255,255,.45)';
     if (!spinning) ctx.fillText('SPEED', zw * 0.5 - (small ? 34 : 52), zh - 44);
 
-    // Throttle bar with the next corner's limit marked on the same scale.
-    const bw = Math.min(zw * 0.60, 240), bx = (zw - bw) / 2, by = zh - 30;
-    ctx.fillStyle = 'rgba(255,255,255,.12)';
-    _round(ctx, bx, by, bw, 12, 6); ctx.fill();
-    ctx.fillStyle = _held[pid] ? '#4ade80' : 'rgba(255,255,255,.30)';
-    _round(ctx, bx, by, bw * Math.min(1, c.v / V_MAX), 12, 6); ctx.fill();
-    const nc = _nextCorner(c.d, V_MAX);
-    if (nc) {
-        const lx = bx + bw * Math.min(1, nc.limit / V_MAX);
-        ctx.fillStyle = c.v > nc.limit ? '#ef4444' : '#fbbf24';
-        ctx.fillRect(lx - 1.5, by - 4, 3, 20);
+    // The throttle bar used to live here, with the next corner's limit marked
+    // on the same scale. It went because it was the whole game: you watched a
+    // bar approach a tick and lifted, and the circuit outside it might as well
+    // not have been drawn. The limit is painted on the tarmac at every corner
+    // entry and the car itself tells you when it is going light — race those.
+    //
+    // What is left in the strip is the grip warning, and only while there is
+    // something to do about it.
+    if (c.slide > 0.05 && !spinning) {
+        const gw = Math.min(zw * 0.42, 170), gx = (zw - gw) / 2, gy = zh - 26;
+        ctx.fillStyle = 'rgba(255,255,255,.10)';
+        _round(ctx, gx, gy, gw, 7, 3.5); ctx.fill();
+        ctx.fillStyle = c.slide > 0.66 ? '#ef4444' : '#fbbf24';
+        _round(ctx, gx, gy, gw * c.slide, 7, 3.5); ctx.fill();
+        ctx.font = '900 12px "Bebas Neue", sans-serif';
+        ctx.fillStyle = c.slide > 0.66 ? '#ef4444' : '#fbbf24';
+        ctx.fillText('GRIP', zw * 0.5, gy - 10);
     }
 }
 

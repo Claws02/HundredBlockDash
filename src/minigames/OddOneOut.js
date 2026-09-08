@@ -40,6 +40,7 @@ let _base  = [];
 let _odd   = [];
 let _oddColor = [];
 let _lockUntil = [];
+let _misses    = [];   // consecutive wrong taps, per slot
 let _flashWrong = [];
 let _botNextAt = [];         // one per slot: above two seats there is more than one bot
 let _zones = [];             // one rect+rotation per slot, from MinigameLayout
@@ -74,6 +75,7 @@ export function start(isBot, onWin, botSkill = 0.55) {
     _odd        = new Array(_n).fill(0);
     _oddColor   = new Array(_n).fill('');
     _lockUntil  = new Array(_n).fill(0);
+    _misses     = new Array(_n).fill(0);
     _flashWrong = new Array(_n).fill(0);
     _botNextAt  = new Array(_n).fill(0);
     _puzzles = 0; _k = 0;
@@ -188,7 +190,12 @@ function _newPuzzle(pid) {
     const n = Math.min(3 + Math.floor(_score[pid] / 3), 5);
     const hue = _rand(360);
     const baseL = 52;
-    const delta = Math.max(7, 32 - _score[pid] * 2);   // shrinks as you score
+    // Shrinks as you score — and opens back up while you are missing. A player
+    // who genuinely cannot see the difference at this width would otherwise sit
+    // on grid after grid they have no way of solving, and the game has no other
+    // way of telling that apart from bad luck.
+    const ease  = Math.min(_misses[pid], 3) * 4;
+    const delta = Math.max(7, 32 - _score[pid] * 2 + ease);
     _gridN[pid] = n;
     _base[pid]  = `hsl(${hue},60%,${baseL}%)`;
     _oddColor[pid] = `hsl(${hue},60%,${baseL + (_rnd() < 0.5 ? delta : -delta)}%)`;
@@ -209,12 +216,23 @@ function _tap(pid, idx) {
     if (_done || _elapsed < _lockUntil[pid]) return;
     if (idx === _odd[pid]) {
         _score[pid]++;
+        _misses[pid] = 0;
         sfx('coin_gain'); haptic([15]);
         _newPuzzle(pid);
     } else {
         _lockUntil[pid] = _elapsed + LOCK;
         _flashWrong[pid] = LOCK;
+        _misses[pid]++;
         sfx('land_bad'); haptic([60]);
+        // A fresh grid, not the same one back. Leaving the puzzle up meant a
+        // player who could not pick the odd cell out was handed it again the
+        // instant the lockout expired, and again after that — the whole thirty
+        // seconds could go on one grid they were never going to solve. The
+        // lockout is the price of a wrong tap; being stuck was not meant to be
+        // part of it. Rerolling is not a free out either: the new grid is as
+        // hard as the one before, because difficulty tracks your SCORE, which a
+        // wrong tap does not move.
+        _newPuzzle(pid);
         if (isBotSlot(pid)) _botNextAt[pid] = _elapsed + LOCK + 0.15;
     }
 }

@@ -47,11 +47,23 @@ const PEEK_MS     = 680;             // how long a non-matching pair stays face 
 // that matches still removes two cards permanently, so a played game always
 // terminates.
 
-// Twelve faces, each drawn with 180° rotational symmetry.
-const FACES = ['circle', 'ring', 'square', 'diamond', 'star4', 'star6',
-               'hex', 'oct', 'plus', 'ex', 'bars', 'dots'];
-const FACE_TINT = ['#f87171', '#fb923c', '#fbbf24', '#a3e635', '#34d399', '#22d3ee',
-                   '#60a5fa', '#a78bfa', '#f472b6', '#fda4af', '#e2e8f0', '#94a3b8'];
+// Twelve faces, each drawn with 180° rotational symmetry so one drawing serves
+// both players leaning in from opposite sides.
+//
+// The previous set leaned on regular polygons — a four-point star and a six, a
+// hexagon and an octagon, a circle and a ring — and at the size a card is on a
+// phone those are four ways of drawing the same blob. A memory game lives or
+// dies on how quickly you can tell one card from another and how well the
+// difference sticks, so the confusable ones are gone and what replaced them
+// differs in SILHOUETTE: an hourglass, an S, a spiral, a pair of outward
+// chevrons. All still read the same upside down.
+const FACES = ['disc', 'ring', 'square', 'diamond', 'plus', 'ex',
+               'bowtie', 'ess', 'spiral', 'bars', 'dots', 'chevrons'];
+// One tint per face, walked around the wheel so no two are neighbours — the old
+// palette had three pinks and two greys in it, which put the colour cue to work
+// against the shape cue instead of alongside it.
+const FACE_TINT = ['#f87171', '#22d3ee', '#fbbf24', '#a78bfa', '#4ade80', '#fb7185',
+                   '#38bdf8', '#fb923c', '#c084fc', '#a3e635', '#f472b6', '#e2e8f0'];
 
 // ── Module state ────────────────────────────────────────────────────────────
 let _done = false, _onWin = null, _isBot = false, _botSkill = 0.55;
@@ -344,10 +356,23 @@ function _draw() {
         ctx.translate(-w / 2, -h / 2);
 
         if (showFace) {
+            // The whole card carries the face's colour, not just the glyph on
+            // it. A tinted card is a block of colour you can take in from across
+            // the table and still be holding two turns later; a grey card with a
+            // small coloured mark on it is a thing you have to look AT. Shape
+            // still does the identifying work (§4) — the tint is a second cue,
+            // never the only one.
+            const tint = card.face === -1 ? '#fcd34d' : FACE_TINT[card.face % FACE_TINT.length];
             ctx.fillStyle = card.face === -1 ? '#3a2c08' : '#101a2e';
             _round(ctx, 0, 0, w, h, 9); ctx.fill();
-            ctx.strokeStyle = card.face === -1 ? '#fcd34d' : 'rgba(255,255,255,.22)';
-            ctx.lineWidth = 2; ctx.stroke();
+            if (card.face !== -1) {
+                ctx.save(); ctx.globalAlpha = 0.20;
+                ctx.fillStyle = tint;
+                _round(ctx, 0, 0, w, h, 9); ctx.fill();
+                ctx.restore();
+            }
+            ctx.strokeStyle = card.face === -1 ? '#fcd34d' : tint;
+            ctx.lineWidth = 2.5; ctx.stroke();
             if (card.face === -1) _jackpot(ctx, w / 2, h / 2, Math.min(w, h) * 0.30);
             else _face(ctx, card.face, w / 2, h / 2, Math.min(w, h) * 0.30);
         } else {
@@ -375,17 +400,54 @@ function _face(ctx, f, cx, cy, r) {
     ctx.lineWidth = Math.max(2.5, r * 0.22);
     ctx.lineCap = 'round';
     switch (name) {
-        case 'circle': ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill(); break;
-        case 'ring':   ctx.beginPath(); ctx.arc(cx, cy, r * 0.82, 0, Math.PI * 2); ctx.stroke(); break;
+        case 'disc':   ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill(); break;
+        case 'ring':   ctx.beginPath(); ctx.arc(cx, cy, r * 0.80, 0, Math.PI * 2); ctx.stroke(); break;
         case 'square': ctx.fillRect(cx - r * 0.85, cy - r * 0.85, r * 1.7, r * 1.7); break;
         case 'diamond':
             ctx.beginPath();
             ctx.moveTo(cx, cy - r); ctx.lineTo(cx + r, cy); ctx.lineTo(cx, cy + r); ctx.lineTo(cx - r, cy);
             ctx.closePath(); ctx.fill(); break;
-        case 'star4': _star(ctx, cx, cy, r, r * 0.32, 4); ctx.fill(); break;
-        case 'star6': _star(ctx, cx, cy, r, r * 0.46, 6); ctx.fill(); break;
-        case 'hex':   _poly(ctx, cx, cy, r, 6); ctx.fill(); break;
-        case 'oct':   _poly(ctx, cx, cy, r, 8); ctx.fill(); break;
+        // Two triangles meeting at their points. A half turn swaps them, which
+        // is the same picture.
+        case 'bowtie':
+            ctx.beginPath();
+            ctx.moveTo(cx - r, cy - r * 0.85); ctx.lineTo(cx, cy); ctx.lineTo(cx - r, cy + r * 0.85);
+            ctx.closePath(); ctx.fill();
+            ctx.beginPath();
+            ctx.moveTo(cx + r, cy - r * 0.85); ctx.lineTo(cx, cy); ctx.lineTo(cx + r, cy + r * 0.85);
+            ctx.closePath(); ctx.fill(); break;
+        // An S is its own half turn — one of the few letters that is.
+        case 'ess':
+            ctx.beginPath();
+            ctx.arc(cx, cy - r * 0.45, r * 0.5, Math.PI * 0.75, Math.PI * 1.9);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.arc(cx, cy + r * 0.45, r * 0.5, Math.PI * 1.75, Math.PI * 0.9);
+            ctx.stroke(); break;
+        // Two arms out of the middle, which is what makes a spiral survive the
+        // half turn where a single-armed one would not.
+        case 'spiral':
+            for (const dir of [1, -1]) {
+                ctx.beginPath();
+                for (let k = 0; k <= 26; k++) {
+                    const a = k / 26 * Math.PI * 1.9;
+                    const rr = r * (0.14 + 0.86 * (k / 26));
+                    const px = cx + dir * Math.cos(a) * rr, py = cy + dir * Math.sin(a) * rr;
+                    if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+                }
+                ctx.stroke();
+            }
+            break;
+        // Pointing away from each other, so neither end is the "top".
+        case 'chevrons':
+            for (const dir of [1, -1]) {
+                ctx.beginPath();
+                ctx.moveTo(cx - r * 0.55, cy + dir * r * 0.42);
+                ctx.lineTo(cx, cy + dir * r * 0.98);
+                ctx.lineTo(cx + r * 0.55, cy + dir * r * 0.42);
+                ctx.stroke();
+            }
+            break;
         case 'plus':
             ctx.beginPath();
             ctx.moveTo(cx - r, cy); ctx.lineTo(cx + r, cy);
@@ -412,27 +474,6 @@ function _jackpot(ctx, cx, cy, r) {
     ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
     ctx.strokeStyle = '#92700a'; ctx.lineWidth = Math.max(2, r * 0.16);
     ctx.beginPath(); ctx.arc(cx, cy, r * 0.62, 0, Math.PI * 2); ctx.stroke();
-}
-
-function _poly(ctx, cx, cy, r, n) {
-    ctx.beginPath();
-    for (let i = 0; i < n; i++) {
-        const a = (i / n) * Math.PI * 2 + Math.PI / n;
-        i === 0 ? ctx.moveTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r)
-                : ctx.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
-    }
-    ctx.closePath();
-}
-
-function _star(ctx, cx, cy, r, ri, points) {
-    ctx.beginPath();
-    for (let i = 0; i < points * 2; i++) {
-        const rad = i % 2 ? ri : r;
-        const a = (i / (points * 2)) * Math.PI * 2 - Math.PI / 2;
-        i === 0 ? ctx.moveTo(cx + Math.cos(a) * rad, cy + Math.sin(a) * rad)
-                : ctx.lineTo(cx + Math.cos(a) * rad, cy + Math.sin(a) * rad);
-    }
-    ctx.closePath();
 }
 
 function _hud(pid) {

@@ -1,10 +1,10 @@
 // ============================================================
-// LOOT CATCH — collect & select. Coins and bombs rain down each
-// player's half; slide your basket to scoop coins and dodge bombs.
-// Most coins after 30 s wins. Spawns are mirrored to both halves so
-// the challenge is identical — a pure test of who collects cleaner.
-// Fills the "collect & select" verb (distinct from Meteor Dodge's
-// pure evade — here you chase the good and reject the bad).
+// LOOT CATCH — collect & select. Loot drops in WAVES down four lanes:
+// mostly bombs, with a coin hidden among them. Steer your basket into
+// the coin's lane before the wave lands, and out of everyone else's.
+// Most coins after 34 s wins, and every coin caught is real money.
+// Waves are identical in every chute, so the hauls being compared were
+// earned off the same loot.
 //
 // Built on src/minigames/_template.js — see docs/MINIGAME_STANDARD.md.
 // ============================================================
@@ -24,18 +24,40 @@ import * as Solo from './SoloArena.js';
 // the rain is thicker: a good run should be worth several turns of board income,
 // and the player who loses still walks away with something to show for it.
 const GAME_TIME    = 34;     // seconds — a little longer, it's the payday game
-const SPAWN_START  = 0.62;   // s between spawns at the start (was 0.85)
-const SPAWN_END    = 0.34;   // s between spawns at the end   (was 0.42)
+
+// WAVES, NOT DRIZZLE.
+//
+// This used to drop one item at a time at a random x, about a third of them
+// bombs. That is not a game: with the whole width to move in and one thing
+// falling, the basket was never anywhere it did not want to be, and a greedy
+// sweep across the screen collected nearly everything. Raising the bomb rate
+// alone would not have fixed it — a bomb at a random x is a thing you step
+// around, not a thing that costs you a coin.
+//
+// So loot falls in waves down four fixed LANES: three items at a time, landing
+// together, of which typically one is loot and the rest are bombs. Now the
+// question every wave asks is a real one — which lane, and can I get there from
+// where the last wave left me — and the answer is sometimes no. That is the
+// difficulty: not reflex, but a route you have to commit to a second ahead.
+const LANES        = [0.15, 0.3833, 0.6167, 0.85];
+const WAVE_ITEMS   = 3;      // lanes filled per wave — one lane usually stays open
+// ...but not always, once the round is properly under way. A wave down all four
+// lanes has no empty lane to hide in: the only move left is to stand in the
+// least bad one, and choosing between a bomb and a bomb is a different decision
+// from choosing between a bomb and open air.
+const FULL_WAVE_AT = 0.45;   // progress after which full waves start appearing
+const FULL_WAVE_P  = 0.25;   // ...and how often they do
+const WAVE_START   = 1.15;   // s between waves at the start
+const WAVE_END     = 0.80;   // s between waves at the end
 const FALL_START   = 0.58;   // half-heights per SECOND at the start
-const FALL_END     = 1.05;   // half-heights per second at the end
-// 0.36, up from 0.26. Play-tested, the basket was never in real danger — you
-// could sweep the whole half collecting everything and simply never meet a
-// bomb often enough to have to choose. Better than one item in three is now a
-// hazard, so a greedy line across the screen actually costs you.
-const BOMB_CHANCE  = 0.36;   // probability a spawned item is a bomb
+const FALL_END     = 0.95;   // half-heights per second at the end
+// Share of ALL items that are bombs, which with three-item waves works out to
+// roughly one piece of loot per wave. Some waves are all bombs; late on, some
+// carry two.
+const BOMB_CHANCE  = 0.70;
 const COIN_VALUE   = 1;
 const GEM_VALUE    = 3;      // rarer, worth three coins
-const GEM_CHANCE   = 0.14;   // share of non-bomb items that are gems
+const GEM_CHANCE   = 0.18;   // share of non-bomb items that are gems
 const BOMB_PENALTY = 2;
 // Hard ceiling on what one round can pay out, so a freak run can never hand
 // somebody the match off a minigame. Measured: a perfect bot run banks ~70, so
@@ -43,7 +65,21 @@ const BOMB_PENALTY = 2;
 // spare, which is deliberate: it makes the last stretch about the WIN bonus.
 // The two other coin games (Tree Climb, Memory Match) use the same number.
 const MAX_PAYOUT   = 30;
-const BASKET_W     = 0.20;   // basket width as a fraction of half-width
+// Narrower than it was, and the catch test is now the item's CENTRE over the
+// basket rather than its rim brushing the basket's. Both exist for the same
+// reason: adjacent lanes are 0.233 apart, and a catch window any wider than
+// that would scoop the bomb next door along with the coin, which would make a
+// coin sitting beside a bomb simply untakeable.
+const BASKET_W     = 0.16;   // basket width as a fraction of half-width
+// How fast the basket follows your finger, in half-widths per second. It used
+// to teleport: wherever you touched, it was, which made every wave reachable
+// and meant no wave was ever a decision. Measured at 1.15 the far lane was
+// still always reachable — a wave is visible for a second and a half at the
+// start — so the number is set from the other end: a hop to the next lane costs
+// a third of a second and is nearly free, while crossing the whole run takes a
+// full second, which is longer than a late wave spends falling. Neighbours are
+// cheap; the far side is a commitment you sometimes cannot make.
+const BASKET_SPEED = 0.70;
 const ITEM_R       = 0.045;  // item radius as a fraction of half-width
 
 // ── Module state ──────────────────────────────────────────────────────────────
@@ -54,9 +90,10 @@ let _af = null, _last = 0, _t = 0;
 let _n       = 2;            // slots, not seats
 let _items   = [];           // per player: { x, y, vy, bomb } in 0..1 local coords
 let _basket  = [];           // per player basket centre x (0..1)
+let _aim     = [];           // per player: where the finger is asking it to go
 let _score   = [];
 let _spawnAcc = 0;
-let _dropped  = 0;   // how many items have fallen — the index the seed is read at
+let _waves    = 0;   // waves dropped so far — the index the shared seed is read at
 let _botTarget = [], _botRetargetIn = [];
 let _flash = [];             // per-player catch feedback { type, t }
 let _zones = [];             // one rect+rotation per slot, from MinigameLayout
@@ -77,11 +114,12 @@ export function start(isBot, onWin, botSkill = 0.55) {
     _last = 0; _t = 0;
     _items  = Array.from({ length: _n }, () => []);
     _basket = new Array(_n).fill(0.5);
+    _aim    = new Array(_n).fill(0.5);
     _score  = new Array(_n).fill(0);
     _flash  = new Array(_n).fill(null);
     _botTarget = new Array(_n).fill(0.5);
     _botRetargetIn = new Array(_n).fill(0);
-    _spawnAcc = 0; _dropped = 0;
+    _spawnAcc = 0; _waves = 0;
     registerMinigameCleanup(_destroy);
     _build();
     requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -112,7 +150,7 @@ function _build() {
         const x = e.clientX - rect.left, y = e.clientY - rect.top;
         // Alone the chute is the whole screen and every finger is yours.
         if (Solo.isSolo()) {
-            _basket[0] = Math.max(BASKET_W / 2,
+            _aim[0] = Math.max(BASKET_W / 2,
                 Math.min(1 - BASKET_W / 2, x / _overlay.clientWidth));
             return;
         }
@@ -122,7 +160,7 @@ function _build() {
         // so their fraction runs the other way.
         const z = _zones[pid], r = z.rect;
         const lx = z.rot === 180 ? (r.x + r.w - x) / r.w : (x - r.x) / r.w;
-        _basket[pid] = Math.max(BASKET_W / 2, Math.min(1 - BASKET_W / 2, lx));
+        _aim[pid] = Math.max(BASKET_W / 2, Math.min(1 - BASKET_W / 2, lx));
     };
     _overlay.addEventListener('pointerdown', move);
     _overlay.addEventListener('pointermove', move);
@@ -177,37 +215,58 @@ function _progress() { return Math.min(_t / GAME_TIME, 1); }
 
 function _update(dt) {
     const p = _progress();
-    // Late "gold rush": coins become more common in the final stretch.
-    // The late gold rush still tilts toward coins, but less generously — at half
-    // the bomb rate the closing stretch was a free-for-all.
-    const bombChance = p > 0.75 ? BOMB_CHANCE * 0.72 : BOMB_CHANCE;
-    const spawnEvery = SPAWN_START + (SPAWN_END - SPAWN_START) * p;
+    // Late "gold rush": loot gets a little more common in the closing stretch,
+    // so a run that started badly still has something to chase.
+    const bombChance = p > 0.75 ? BOMB_CHANCE * 0.86 : BOMB_CHANCE;
+    const waveEvery  = WAVE_START + (WAVE_END - WAVE_START) * p;
     const fallSpeed  = FALL_START + (FALL_END - FALL_START) * p;
 
     _spawnAcc += dt;
-    while (_spawnAcc >= spawnEvery) {
-        _spawnAcc -= spawnEvery;
-        // Mirrored spawn — identical item to both halves for fairness. Across
-        // phones the seed does the same job between DEVICES: the same coins,
-        // gems and bombs fall on all of them, so the hauls being compared were
-        // earned from the same loot.
-        // Drawn BY INDEX, not from a running stream: spawns are timer-driven
-        // inside an animation frame, so two phones consume a shared stream at
-        // different moments and the loot diverges. The 6th item is the 6th item
-        // on every phone.
-        const rnd  = k => (Solo.isSolo() ? Solo.draw(_dropped * 4 + k) : Math.random());
-        const x    = 0.1 + rnd(0) * 0.8;
-        const bomb = rnd(1) < bombChance;
-        const gem  = !bomb && rnd(2) < GEM_CHANCE;
-        const vy   = fallSpeed * (0.9 + rnd(3) * 0.2);
-        _dropped++;
-        // The same item into every chute: the hauls being compared have to be
-        // earned from the same loot, whether that is two players on one screen
-        // or four on four phones.
-        for (let pid = 0; pid < _n; pid++) _items[pid].push({ x, y: -ITEM_R, vy, bomb, gem });
+    while (_spawnAcc >= waveEvery) {
+        _spawnAcc -= waveEvery;
+        // The same wave into every chute: the hauls being compared have to be
+        // earned off the same loot, whether that is two players on one screen or
+        // four on four phones. Across phones the shared seed does that job, and
+        // it is drawn BY INDEX rather than from a running stream — waves are
+        // timer-driven inside an animation frame, so two phones would consume a
+        // stream at different moments and drift apart. The 6th wave is the 6th
+        // wave on every device.
+        const rnd = k => (Solo.isSolo() ? Solo.draw(_waves * 16 + k) : Math.random());
+
+        // Pick which lanes this wave uses — one lane always stays open, so
+        // there is always somewhere to be. Fisher-Yates on a copy, off the
+        // shared draws, then take the first WAVE_ITEMS.
+        const lanes = LANES.map((_, i) => i);
+        for (let i = lanes.length - 1; i > 0; i--) {
+            const j = Math.floor(rnd(i - 1) * (i + 1));   // keys 0..2
+            [lanes[i], lanes[j]] = [lanes[j], lanes[i]];
+        }
+        const full = p > FULL_WAVE_AT && rnd(13) < FULL_WAVE_P;
+        const used = lanes.slice(0, full ? LANES.length : WAVE_ITEMS);
+
+        // Composition. Each item rolls against the bomb rate independently, so
+        // an all-bomb wave and a two-loot wave are both possible and neither is
+        // scripted. The lane order is already shuffled, so which lane the loot
+        // lands in carries no pattern to learn.
+        const vy = fallSpeed * (0.92 + rnd(12) * 0.16);
+        for (let k = 0; k < used.length; k++) {
+            const bomb = rnd(4 + k) < bombChance;          // keys 4..7
+            const gem  = !bomb && rnd(8 + k) < GEM_CHANCE;  // keys 8..11
+            const x    = LANES[used[k]];
+            for (let pid = 0; pid < _n; pid++) _items[pid].push({ x, y: -ITEM_R, vy, bomb, gem });
+        }
+        _waves++;
     }
 
-    for (let pid = 0; pid < _n; pid++) _stepItems(pid, dt);
+    for (let pid = 0; pid < _n; pid++) {
+        // The basket chases the finger at a fixed rate rather than snapping to
+        // it. Bots run through _botUpdate, which sets their own aim.
+        if (!isBotSlot(pid) || Solo.isSolo()) {
+            const d = _aim[pid] - _basket[pid];
+            _basket[pid] += Math.max(-BASKET_SPEED * dt, Math.min(BASKET_SPEED * dt, d));
+        }
+        _stepItems(pid, dt);
+    }
 
     const left = Math.ceil(GAME_TIME - _t);
     const neu = document.getElementById('mg-neutral');
@@ -225,7 +284,10 @@ function _stepItems(pid, dt) {
         it.y += it.vy * dt;
         // Catch test when the item reaches the basket line.
         if (it.y >= BASKET_Y && it.y - it.vy * dt < BASKET_Y + 0.06) {
-            if (Math.abs(it.x - _basket[pid]) < BASKET_W / 2 + ITEM_R) {
+            // The item's CENTRE has to be over the basket. Adding the item's
+            // radius here made the window wider than the gap between lanes, so
+            // a coin beside a bomb could not be taken without taking the bomb.
+            if (Math.abs(it.x - _basket[pid]) < BASKET_W / 2) {
                 _catch(pid, it);
                 arr.splice(i, 1);
                 continue;
@@ -249,32 +311,50 @@ function _catch(pid, it) {
 }
 
 // ── Bot ───────────────────────────────────────────────────────────────────────
+// The bot plays the same problem a person does: pick a lane for the next wave
+// and get there in time. It scores every lane on what is about to land in it —
+// loot is worth going for, a bomb is worth avoiding, and both count for less the
+// further away the lane is, because distance is time it may not have.
 function _botUpdate(pid, dt) {
     const arr = _items[pid];
-    // Find the most urgent item: lowest coin to grab, or a bomb to dodge.
-    let targetCoin = null, dodge = null;
-    for (const it of arr) {
-        if (it.y < 0.2 || it.y > BASKET_Y + 0.05) continue;
-        if (it.bomb) {
-            if (Math.abs(it.x - _basket[pid]) < BASKET_W && (!dodge || it.y > dodge.y)) dodge = it;
-        } else if (!targetCoin || it.y > targetCoin.y) {
-            targetCoin = it;
-        }
-    }
     _botRetargetIn[pid] -= dt;
     if (_botRetargetIn[pid] <= 0) {
-        _botRetargetIn[pid] = 0.12 + (1 - _botSkill) * 0.25;   // slower reactions at low skill
-        const err = (1 - _botSkill) * 0.22 * (Math.random() + Math.random() - 1);
-        if (targetCoin) _botTarget[pid] = targetCoin.x + err;
-        if (dodge && (!targetCoin || dodge.y > targetCoin.y - 0.1)) {
-            // sidestep the bomb
-            _botTarget[pid] = dodge.x + (dodge.x < 0.5 ? 0.28 : -0.28) + err;
+        _botRetargetIn[pid] = 0.14 + (1 - _botSkill) * 0.30;   // slower reactions at low skill
+        // Reach: how far it could travel before the lowest live item lands.
+        let soonest = Infinity;
+        for (const it of arr) {
+            if (it.y > BASKET_Y) continue;
+            const eta = (BASKET_Y - it.y) / Math.max(it.vy, 0.01);
+            if (eta < soonest) soonest = eta;
         }
-        _botTarget[pid] = Math.max(BASKET_W / 2, Math.min(1 - BASKET_W / 2, _botTarget[pid]));
+        const reach = soonest === Infinity ? 1 : BASKET_SPEED * soonest;
+
+        let best = _basket[pid], bestScore = -Infinity;
+        for (const lane of LANES) {
+            if (Math.abs(lane - _basket[pid]) > reach + 0.02) continue;
+            let sc = 0;
+            for (const it of arr) {
+                if (it.y > BASKET_Y || Math.abs(it.x - lane) > BASKET_W / 2) continue;
+                sc += it.bomb ? -BOMB_PENALTY * 1.6 : (it.gem ? GEM_VALUE : COIN_VALUE);
+            }
+            // Hedge toward the middle when nothing separates two lanes. The
+            // basket cannot cross the whole run inside one late wave, so where
+            // you wait between waves is most of the game: parked on an outside
+            // lane, half the next wave is already out of reach. This is the
+            // difference between a bot that plays each wave and one that plays
+            // the round.
+            sc -= Math.abs(lane - 0.5) * 0.35;
+            sc -= Math.abs(lane - _basket[pid]) * 0.05;
+            if (sc > bestScore) { bestScore = sc; best = lane; }
+        }
+        // Misjudgement at low skill: the wrong lane, or the right one missed.
+        const err = (1 - _botSkill) * 0.20 * (Math.random() + Math.random() - 1);
+        _botTarget[pid] = Math.max(BASKET_W / 2, Math.min(1 - BASKET_W / 2, best + err));
     }
-    const speed = (1.6 + _botSkill * 2.4);   // basket tracking speed (half-widths/s)
+    // Same speed cap the human basket has — a bot that could outrun the player's
+    // own basket would be beating them at something they were never offered.
     const d = _botTarget[pid] - _basket[pid];
-    _basket[pid] += Math.max(-speed * dt, Math.min(speed * dt, d));
+    _basket[pid] += Math.max(-BASKET_SPEED * dt, Math.min(BASKET_SPEED * dt, d));
 }
 
 // ── Draw ─────────────────────────────────────────────────────────────────────
@@ -322,6 +402,18 @@ function _drawHalf(pid, w, hh) {
     _ctx.fillStyle = SLOT_TINT[pid] || 'rgba(255,255,255,0.04)';
     _ctx.fillRect(0, 0, w, hh);
 
+    // Lane guides. The wave lands in four fixed places, and the whole game is
+    // choosing between them, so they are drawn rather than left to be inferred
+    // from where things happened to fall last time.
+    _ctx.strokeStyle = 'rgba(255,255,255,0.055)';
+    _ctx.lineWidth = 1;
+    _ctx.beginPath();
+    for (const lane of LANES) {
+        _ctx.moveTo(Math.round(lane * w) + 0.5, 0);
+        _ctx.lineTo(Math.round(lane * w) + 0.5, BASKET_Y * hh);
+    }
+    _ctx.stroke();
+
     const R = ITEM_R * w;
     for (const it of _items[pid]) {
         const x = it.x * w, y = it.y * hh;
@@ -333,6 +425,17 @@ function _drawHalf(pid, w, hh) {
     // Basket
     const bx = _basket[pid] * w, by = BASKET_Y * hh;
     const bw = BASKET_W * w;
+    // Where the finger is asking it to go. The basket has a top speed, so it
+    // lags a fast drag; without a mark showing what was asked for, that lag
+    // reads as the touch being dropped rather than as the basket travelling.
+    const ax = _aim[pid] * w;
+    if (Math.abs(ax - bx) > 3) {
+        _ctx.strokeStyle = accent; _ctx.globalAlpha = 0.30; _ctx.lineWidth = 2;
+        _ctx.beginPath();
+        _ctx.moveTo(ax, by - 4); _ctx.lineTo(ax, by + R * 1.7);
+        _ctx.stroke();
+        _ctx.globalAlpha = 1;
+    }
     _ctx.fillStyle = accent;
     _ctx.beginPath();
     _ctx.moveTo(bx - bw / 2, by);
