@@ -28,7 +28,28 @@ const SUDDEN_MAX  = 4;      // extra kicks (2 pairs) before a level match is a d
 //
 // It still terminates: a fixed number of kicks, sudden death capped, and the
 // only unbounded wait is a human choosing not to shoot.
-const FLIGHT      = 0.68;   // s of ball flight — the keeper's reaction window
+// THE STRIKE IS A PULL-BACK.
+//
+// The taker used to drag a reticle around the mouth and let go, which made a
+// penalty a menu: pick a corner, release, and every kick left the boot at
+// exactly the same speed. There was nothing to weigh. Now you pull the ball
+// back and let it go — how FAR you pull is how hard it is hit, and how far
+// across you pull is where it goes.
+//
+// Power buys flight time off the keeper and spends it on height, because a ball
+// hit harder gets up. The two ends of the range are both bad: a rolled ball is
+// placed wherever you like and the keeper has most of a second to get there,
+// and the hardest strike in the range clears the bar. What is worth having is
+// in between, which is the only reason to have a power control at all.
+const PULL_MIN    = 26;    // css px of pull below which the shot is a pass-back
+const PULL_MAX    = 190;   // ...and at which it is struck as hard as it can be
+const PULL_SPAN_X = 0.26;  // fraction of screen width = full left-to-right
+const FLIGHT_SOFT = 0.94;  // s of ball flight at no power
+const FLIGHT_HARD = 0.44;  // ...and at full — the keeper's reaction window
+const BASE_Y      = 0.86;  // height in the mouth at no power: along the ground
+const RISE        = 0.95;  // how far up the mouth full power lifts it
+// BASE_Y - RISE goes negative, which is over the bar: roughly the top tenth of
+// the power range is unusable, and finding that edge is the skill.
 const SETTLE      = 1.15;   // s to read the outcome before the next kick
 const GOAL_W      = 0.86;   // goal width as a fraction of canvas width
 const GOAL_H      = 0.20;   // goal height as a fraction of the shooter's half
@@ -38,8 +59,17 @@ const KEEPER_W    = 0.15;   // keeper's reach as a fraction of goal width
 // can only dive at a human speed, so tracking the ball is a race they can lose.
 // At 1.5 a full-width dive takes ~0.66 s against a 0.68 s flight — reachable
 // from the middle, not from the far post.
-const KEEPER_DIVE = 1.5;
+// Slowed from 1.5. Against the old fixed 0.68 s flight a full-width dive took
+// 0.66 s and the keeper could reach almost anything from the middle. With the
+// flight now set by the taker, the keeper's speed has to be the constant the
+// taker is buying time against: at 1.05 a full-width dive is 0.95 s, so a
+// rolled ball is still coverable and a hard one is not.
+const KEEPER_DIVE = 1.05;
 const POST_MISS   = 0.965;  // aim beyond this fraction of half-width hits the post
+// How much of their reach the keeper keeps against a ball at the crossbar. A
+// high ball is a harder save, which is what makes power worth carrying at all
+// once it has bought its flight time.
+const HIGH_GUARD  = 0.62;
 // The status pill floats at each player's outer edge, which is exactly where
 // the goal sits — without this inset the mouth is drawn behind it.
 const PAD_Y       = 48;     // css px reserved at the top and bottom
@@ -56,7 +86,9 @@ let _shooter = 0;               // whose kick this is
 let _phase = 'aim';             // 'aim' | 'flight' | 'settle' | 'over'
 let _phaseT = 0;
 let _aim = { x: 0.5, y: 0.5 };  // 0..1 within the goal mouth
-let _aimAnchor = null;          // where the aim drag began, and the aim it began from
+let _aimAnchor = null;          // where the pull began
+let _power = 0;                 // 0..1, from how far the ball has been pulled back
+let _flight = FLIGHT_SOFT;      // this kick's flight time, set at the strike
 let _dragging = false;
 let _keeper = 0.5;              // 0..1 along the goal line
 let _keeperTarget = 0.5;        // where the keeper's finger is asking to be
@@ -79,7 +111,8 @@ export function start(isBot, onWin, botSkill = 0.55) {
     _done = false; _onWin = onWin; _isBot = isBot; _botSkill = botSkill;
     _score = [0, 0]; _kick = 0; _shooter = 0;
     _phase = 'aim'; _phaseT = 0;
-    _aim = { x: 0.5, y: 0.5 }; _aimAnchor = null; _keeper = 0.5; _keeperCommitted = null;
+    _aim = { x: 0.5, y: BASE_Y }; _aimAnchor = null; _power = 0; _flight = FLIGHT_SOFT;
+    _keeper = 0.5; _keeperCommitted = null;
     _dragging = false; _outcome = ''; _last = 0; _elapsed = 0; _botAimTimer = null;
     registerMinigameCleanup(_destroy);   // R3
     _build();
@@ -192,26 +225,35 @@ function _goalRect() {
 // be inside your opponent's half, and every real thumb position clamped to 0 or
 // 1. You could pick a side and nothing else.
 //
-// It is a relative drag now. Press anywhere in your half and the reticle moves
-// from where it was by how far you have dragged, scaled so a comfortable thumb
-// sweep covers the whole mouth. AIM_SPAN_* is that sweep, as a fraction of the
-// screen.
-const AIM_SPAN_X = 0.34;   // of screen width  = full left-to-right of the goal
-const AIM_SPAN_Y = 0.20;   // of screen height = full bar-to-line of the goal
-
+// Press anywhere in your half, drag AWAY from the goal to load, and let go. The
+// ball goes the other way from the pull, so the gesture reads the way a kick
+// does: back, then through it.
 function _beginAimDrag(cx, cy) {
-    _aimAnchor = { x: cx, y: cy, ax: _aim.x, ay: _aim.y };
+    _aimAnchor = { x: cx, y: cy };
 }
 
 function _setAim(cx, cy) {
     if (!_aimAnchor) { _beginAimDrag(cx, cy); return; }
-    // P2 holds the phone upside-down, so their "right" and "up" are the screen's
-    // left and down. Without this the aim ran backwards for one of the players.
+    // P2 holds the phone upside-down, so their "away from goal" and "right" are
+    // the screen's up and left. Without this the pull ran backwards for one of
+    // the two players.
     const flip = _shooter === 1 ? -1 : 1;
-    const dx = (cx - _aimAnchor.x) * flip;
-    const dy = (cy - _aimAnchor.y) * flip;
-    _aim.x = Math.max(0, Math.min(1, _aimAnchor.ax + dx / (_W * AIM_SPAN_X)));
-    _aim.y = Math.max(0, Math.min(1, _aimAnchor.ay + dy / (_H * AIM_SPAN_Y)));
+    const px = (cx - _aimAnchor.x) * flip;
+    const py = (cy - _aimAnchor.y) * flip;
+
+    // Power is the whole length of the pull, not just its backward part: a
+    // sideways drag is still a wind-up, and measuring only the component away
+    // from goal meant a shot into the corner could not be hit hard.
+    const len = Math.hypot(px, py);
+    _power = Math.max(0, Math.min(1, (len - PULL_MIN) / (PULL_MAX - PULL_MIN)));
+
+    // Sideways sets where in the mouth it goes; the ball travels opposite the
+    // pull, hence the minus.
+    _aim.x = Math.max(0, Math.min(1, 0.5 - px / (_W * PULL_SPAN_X)));
+    // Height is not steered. It comes out of the power, because that is what
+    // hitting a ball harder does to it — and it is what stops full power being
+    // a free choice.
+    _aim.y = BASE_Y - RISE * _power;
 }
 
 // The keeper tracks their finger along the goal line — but the line is at THEIR
@@ -263,7 +305,7 @@ function _beginKick() {
     _shooter = _kick % 2;
     _phase = 'aim'; _phaseT = 0;
     _outcome = ''; _keeperCommitted = null; _dragging = false;
-    _aim = { x: 0.5, y: 0.45 };
+    _aim = { x: 0.5, y: BASE_Y }; _power = 0; _flight = FLIGHT_SOFT;
     _aimAnchor = null;
     _keeper = 0.5; _keeperTarget = 0.5;
     const g = _goalRect();
@@ -288,7 +330,14 @@ function _beginKick() {
                 const side = Math.random() < 0.5 ? -1 : 1;
                 const reach = 0.30 + _botSkill * 0.62 + (1 - _botSkill) * Math.random() * 0.34;
                 _aim.x = 0.5 + side * Math.min(0.52, reach / 2);
-                _aim.y = 0.25 + Math.random() * 0.6;
+                // It picks a power the same way a person does — hard enough to
+                // beat the dive, short of the range that clears the bar. A weak
+                // bot misjudges the top of that range and skies one now and
+                // then, which is the mistake the mechanic is built to allow.
+                const ceiling = BASE_Y / RISE;                    // over the bar above this
+                _power = Math.max(0, Math.min(1,
+                    ceiling * (0.62 + _botSkill * 0.30) + (1 - _botSkill) * (Math.random() - 0.35) * 0.34));
+                _aim.y = BASE_Y - RISE * _power;
                 _shoot();
             }, delay);
         }
@@ -316,16 +365,22 @@ function _shoot() {
     _keeperCommitted = _keeper;
     _keeperTarget = _keeper;
 
+    // How long the keeper has, bought with power.
+    _flight = FLIGHT_SOFT + (FLIGHT_HARD - FLIGHT_SOFT) * _power;
+
     const g = _goalRect();
     const aimS = _aimScreenX();
     _ball.from = { x: _ball.x, y: _ball.y };
-    _ball.to = { x: g.x + aimS * g.w, y: g.y + _aim.y * g.h };
+    _ball.to = { x: g.x + aimS * g.w, y: g.y + Math.max(-0.14, _aim.y) * g.h };
 
-    // Off the woodwork is settled now, because it is purely about the aim.
-    // Whether it is SAVED or a GOAL is NOT settled here any more — the keeper is
-    // still diving, and that is decided when the ball actually arrives.
+    // Off the woodwork and over the bar are both settled now, because both are
+    // purely about where the ball was sent. Whether it is SAVED or a GOAL is
+    // NOT settled here — the keeper is still diving, and that is decided when
+    // the ball actually arrives.
     const edge = Math.abs(_aim.x - 0.5) * 2;
-    _outcome = edge > POST_MISS ? 'POST' : '';
+    _outcome = _aim.y < 0 ? 'OVER'
+             : edge > POST_MISS ? 'POST'
+             : '';
     sfx('boost'); haptic([18]);
 }
 
@@ -334,14 +389,22 @@ function _resolveKick() {
     // Settling this at the moment of the strike made the keeper a coin flip:
     // they committed blind and then watched. Now they have the flight to react,
     // and a capped dive speed means reacting is not the same as reaching.
-    if (_outcome !== 'POST') {
-        const reach = KEEPER_W / 2 + 0.055;             // half the keeper's span
+    if (_outcome !== 'POST' && _outcome !== 'OVER') {
+        // Half the keeper's span, cut down for a ball up near the bar — a high
+        // one is a harder save, and that is what makes the height power buys
+        // worth carrying once it has bought its flight time.
+        const high = 1 - Math.max(0, Math.min(1, _aim.y));
+        const reach = (KEEPER_W / 2 + 0.055) * (1 - (1 - HIGH_GUARD) * high);
         _outcome = Math.abs(_keeperScreenX() - _aimScreenX()) <= reach ? 'SAVED' : 'GOAL';
     }
     if (_outcome === 'GOAL') { _score[_shooter]++; sfx('coin_gain'); haptic('heavy'); }
     else sfx('land_bad');
     const neu = document.getElementById('mg-neutral');
-    if (neu) neu.textContent = `${_outcome === 'GOAL' ? '⚽ GOAL!' : _outcome === 'POST' ? '🥅 OFF THE POST!' : '🧤 SAVED!'}   P1 ${_score[0]} · ${_score[1]} P2`;
+    const said = _outcome === 'GOAL' ? '⚽ GOAL!'
+               : _outcome === 'POST' ? '🥅 OFF THE POST!'
+               : _outcome === 'OVER' ? '🚀 OVER THE BAR!'
+               : '🧤 SAVED!';
+    if (neu) neu.textContent = `${said}   P1 ${_score[0]} · ${_score[1]} P2`;
     _phase = 'settle'; _phaseT = 0;
 }
 
@@ -373,7 +436,7 @@ function _tick(now) {
         const step = KEEPER_DIVE * dt;
         _keeper += Math.max(-step, Math.min(step, want - _keeper));
 
-        const p = Math.min(1, _phaseT / FLIGHT);
+        const p = Math.min(1, _phaseT / _flight);
         _ball.x = _ball.from.x + (_ball.to.x - _ball.from.x) * p;
         _ball.y = _ball.from.y + (_ball.to.y - _ball.from.y) * p;
         if (p >= 1) _resolveKick();
@@ -435,17 +498,41 @@ function _draw() {
         ctx.beginPath(); ctx.moveTo(_ball.x, _ball.y); ctx.lineTo(ax, ay); ctx.stroke();
         ctx.setLineDash([]); ctx.globalAlpha = 1;
 
-        // Name the placement you are committing to, so the drag has a readable
-        // result rather than being a guess at a dot's position.
-        const side = _aim.x < 0.30 ? 'LEFT' : _aim.x > 0.70 ? 'RIGHT' : 'CENTRE';
-        const hgt  = _aim.y < 0.38 ? 'HIGH' : _aim.y > 0.72 ? 'LOW' : 'MID';
+        // The pull itself, drawn from the ball. Without a line showing what has
+        // been wound up, a slingshot is a thumb moving on a blank screen.
+        if (_aimAnchor && _dragging) {
+            ctx.strokeStyle = 'rgba(255,255,255,.30)'; ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(_ball.x, _ball.y);
+            ctx.lineTo(_ball.x - (ax - _ball.x) * 0.30, _ball.y - (ay - _ball.y) * 0.30);
+            ctx.stroke();
+        }
+
+        // Name what you are committing to, so the pull has a readable result
+        // rather than being a guess at where a dot ended up. Height is not
+        // steered — it is what the power did — so it is reported next to the
+        // power rather than as a separate choice.
+        const side  = _aim.x < 0.30 ? 'LEFT' : _aim.x > 0.70 ? 'RIGHT' : 'CENTRE';
         const risky = Math.abs(_aim.x - 0.5) * 2 > 0.88;
+        const over  = _aim.y < 0;
         ctx.save();
         if (_shooter === 1) { ctx.translate(_W, _H); ctx.rotate(Math.PI); }
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+
+        // Power bar, with the point it starts clearing the bar marked on it.
+        const bw = Math.min(_W * 0.46, 190), bx = (_W - bw) / 2, by = _H * 0.585;
+        ctx.fillStyle = 'rgba(255,255,255,.14)';
+        _roundRect(ctx, bx, by, bw, 9, 4.5); ctx.fill();
+        ctx.fillStyle = over ? '#ef4444' : _power > 0.72 ? '#fbbf24' : '#4ade80';
+        _roundRect(ctx, bx, by, bw * _power, 9, 4.5); ctx.fill();
+        const barX = bx + bw * Math.min(1, BASE_Y / RISE);
+        ctx.fillStyle = '#ef4444';
+        ctx.fillRect(barX - 1.5, by - 4, 3, 17);
+
         ctx.font = '900 15px "Bebas Neue", sans-serif';
-        ctx.fillStyle = risky ? '#fbbf24' : 'rgba(255,255,255,.72)';
-        ctx.fillText(`${hgt} ${side}${risky ? '  ·  POST RISK' : ''}`, _W / 2, _H * 0.56);
+        ctx.fillStyle = over ? '#ef4444' : risky ? '#fbbf24' : 'rgba(255,255,255,.72)';
+        ctx.fillText(over ? 'OVER THE BAR' : `${side}${risky ? '  ·  POST RISK' : ''}`,
+                     _W / 2, _H * 0.545);
         ctx.restore();
     }
 
@@ -487,7 +574,7 @@ function _drawSide(pid, w, h) {
     ctx.font = '800 12px "Nunito", system-ui, sans-serif';
     ctx.fillStyle = 'rgba(255,255,255,.62)';
     const role = _phase === 'aim'
-        ? (shooting ? 'SHOOT — drag to aim, release to strike. Take your time.'
+        ? (shooting ? 'SHOOT — pull the ball back and let go. Further = harder = higher.'
                     : 'KEEP — slide to set your feet')
         : _phase === 'flight'
             ? (shooting ? 'STRUCK!' : 'DIVE! — keep sliding')
