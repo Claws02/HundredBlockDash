@@ -702,8 +702,13 @@ function _finish(winnerId, onHeight = false) {
     }
     sfx(winnerId < 0 ? 'land_bad' : 'mg_win');
     haptic('heavy');
-    const payouts = _p.map(c => Math.min(c.coins, MAX_PAYOUT));
-    _after(() => { _destroy(); _onWin(winnerId, payouts, _p.map(c => c.height)); }, 1400);
+    // BOTH of these are read NOW, not inside the timer. _destroy() nulls _p, and
+    // the callback calls _destroy() before _onWin — so a standings array built
+    // in there is built from nothing and throws, which is exactly what it did:
+    // every Tree Climb round ended on a TypeError and never reported a result.
+    const payouts   = _p.map(c => Math.min(c.coins, MAX_PAYOUT));
+    const standings = _p.map(c => c.height);
+    _after(() => { _destroy(); _onWin(winnerId, payouts, standings); }, 1400);
 }
 
 // ── Cleanup (R3) ────────────────────────────────────────────────────────────
