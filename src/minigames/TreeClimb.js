@@ -418,11 +418,12 @@ function _drawHalf(pid, zw, zh) {
     // character drifting toward an edge it would eventually hit.
     // R1b: kept well clear of the outer edge, where the status pill floats.
     const meY = zh - 168;
-    // Offset from centre so the two stems read as two trees. Drawn at the
-    // centre they tile into one continuous trunk spanning the whole screen,
-    // which looks tidy and is exactly the wrong thing — you are racing your
-    // own stem, and the brief is two of them.
-    const cx  = zw * 0.37 + (c.shake ? Math.sin(performance.now() / 22) * c.shake : 0);
+    // Centred in the zone. This was 0.37 — pushed off-centre back when every
+    // stem was drawn into one undivided frame, where two trunks at the middle
+    // would have tiled into a single continuous trunk spanning the screen.
+    // Each player now has a zone of their own holding exactly one tree, so the
+    // offset has no job left and only parks the tree off to one side.
+    const cx  = zw * 0.5 + (c.shake ? Math.sin(performance.now() / 22) * c.shake : 0);
 
     // Visual height, which runs continuously through a jump or a fall so the
     // stem scrolls with the movement instead of snapping at the end of it.
@@ -701,8 +702,13 @@ function _finish(winnerId, onHeight = false) {
     }
     sfx(winnerId < 0 ? 'land_bad' : 'mg_win');
     haptic('heavy');
-    const payouts = _p.map(c => Math.min(c.coins, MAX_PAYOUT));
-    _after(() => { _destroy(); _onWin(winnerId, payouts, _p.map(c => c.height)); }, 1400);
+    // BOTH of these are read NOW, not inside the timer. _destroy() nulls _p, and
+    // the callback calls _destroy() before _onWin — so a standings array built
+    // in there is built from nothing and throws, which is exactly what it did:
+    // every Tree Climb round ended on a TypeError and never reported a result.
+    const payouts   = _p.map(c => Math.min(c.coins, MAX_PAYOUT));
+    const standings = _p.map(c => c.height);
+    _after(() => { _destroy(); _onWin(winnerId, payouts, standings); }, 1400);
 }
 
 // ── Cleanup (R3) ────────────────────────────────────────────────────────────

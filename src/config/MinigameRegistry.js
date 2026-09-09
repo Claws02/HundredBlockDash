@@ -14,7 +14,8 @@ export const MG_TYPES = [
     'oddoneout',
     'steadyhand',
     'sortrush',
-    'meteordodge',
+    'framematch',
+    'speedboat',
     'lootcatch',
     'freeze',
     'clearout',
@@ -41,20 +42,21 @@ export const MG_INFO = {
     snapstrike:  { icon: '💥', title: 'SNAP STRIKE',   desc: 'A needle sweeps your bar — tap to lock it on the bullseye! PERFECT, GREAT, and GOOD snaps score 3, 2, and 1 points. The bar speeds up and the target shrinks across 5 rounds. Highest total wins!' },
     quickdraw:   { icon: '🤠', title: 'QUICK DRAW',    desc: 'Both halves say WAIT. The instant they flip to DRAW, tap as fast as you can — first finger wins the round! But tap too early and you false-start and lose it. Best of 3 wins the duel.' },
     gridrecall:  { icon: '🧠', title: 'GRID RECALL',   desc: 'A pattern of tiles flashes on your 3×3 grid, then vanishes — race to tap it all back from memory! The FIRST player to nail the whole pattern wins the round, but one wrong tile knocks you out. The pattern grows and the flash shortens across 4 rounds. Win the most rounds to take it!' },
-    oddoneout:   { icon: '🔍', title: 'ODD ONE OUT',   desc: 'Every tile on your grid is the same shade except one. Tap the odd tile to score and get a fresh, harder grid — more tiles, subtler difference. A wrong tap locks you briefly. Most correct in 30 seconds wins!' },
+    oddoneout:   { icon: '🔍', title: 'ODD ONE OUT',   desc: 'Every tile on your grid is the same shade except one. Tap the odd tile to score and get a fresh, harder grid — more tiles, subtler difference. A wrong tap locks you briefly and deals a new grid, so you are never stuck on one you cannot see. Most correct in 30 seconds wins!' },
     steadyhand:  { icon: '🎯', title: 'STEADY HAND',   desc: 'A target drifts around your half — keep your finger on it to bank time! It speeds up as the round goes on. Whoever holds the target longest after 22 seconds wins.' },
+    framematch:  { icon: '🖼️', title: 'FRAME MATCH',   desc: 'One face in the middle, cut into three strips. The top and bottom are the face you were shown — the MIDDLE swaps for somebody else\'s every second. Tap your side the moment the face is whole. Tap when it is not and you sit out a second and a half. FIRST TO 3 ROUNDS!' },
+    speedboat:   { icon: '🚤', title: 'SPEED BOAT',    desc: 'One river, one set of rocks, and a camera on your own boat. DRAG to steer across the water, TAP to change gear — SLOW, CRUISE, FLAT OUT. Flat out finishes in fifteen seconds and is also the gear where the next line of rocks arrives before you can reach the gap in it, and a hit at speed costs more. Boats shove each other. FIRST TO THE FLAG!' },
     sortrush:    { icon: '🔺', title: 'SHAPE SNAP',    desc: 'One shape flashes up in the middle — both of you are looking at the same one. Slam the matching button on your side before your rival does to take the round. The four buttons get shuffled every round, so you have to actually find it. Wrong button locks you out; jumping early hands them the round. FIRST TO 3 WINS!' },
-    meteordodge: { icon: '☄️', title: 'METEOR DODGE',  desc: 'Drag your pod along the base of your half to dodge falling meteors. Three lives each — lose them all and you\'re out. The storm gets faster and thicker over time. Survive with the most lives after 30 seconds to win!' },
-    lootcatch:   { icon: '🧺', title: 'LOOT CATCH',    desc: '💰 PAYDAY ROUND — every coin you catch is REAL money, and BOTH players keep every coin they scoop, win or lose. Slide your basket to grab 🪙 coins and 💎 gems (worth 3) and dodge every 💣. The exact same loot falls on both sides. Most caught after 34 seconds wins the bonus and rolls first — but nobody leaves empty-handed.' },
-    freeze:      { icon: '👁️', title: 'FREEZE',        desc: 'One Crown in the middle, one track, and an Eye that picks a side. HOLD your half to creep toward the Crown — but when the Eye turns and looks at YOU, freeze or get sent back. It does not always watch both of you: when it stares at your rival, that is your free run. Get spotted and your scuffle covers their footsteps and hands them a free step. First to the Crown wins!' },
+    lootcatch:   { icon: '🧺', title: 'LOOT CATCH',    desc: '💰 PAYDAY ROUND — every coin you catch is REAL money, and everybody keeps what they scoop, win or lose. Loot drops in waves down four lanes: mostly 💣, with a 🪙 coin or a 💎 gem (worth 3) hidden among them. Pick the lane and get there — the basket takes time to cross, so the far coin is a gamble. The same waves fall on every side. Biggest haul after 34 seconds wins the bonus and rolls first, but nobody leaves empty-handed.' },
+    freeze:      { icon: '👁️', title: 'FREEZE',        desc: 'One Eye in the middle of one track, and it picks a side. HOLD your half to run at it — but when the Eye turns and looks at YOU, freeze or get sent back. It does not always watch both of you: when it stares at your rival, that is your free run. Get spotted and your scuffle covers their footsteps and hands them a free step. FIRST HAND ON THE EYE WINS!' },
     clearout:    { icon: '🥏', title: 'CLEAR OUT',     desc: 'A wall splits the arena with one small gap. You start with 4 discs on your side — drag back and release to slingshot them through the gap onto your rival\'s side. Discs collide and ricochet! First to empty their own side wins (or fewest discs on your side when the clock runs out).' },
     puck:        { icon: '🏒', title: 'PUCK',          desc: 'Air hockey. One puck, one table, a goal at each end. Drag your mallet anywhere in your half — the puck bounces off the walls and off whoever gets to it. Strike on the move to add pace, use the side walls for angles, and don\'t get caught upfield. FIRST TO 5 GOALS!' },
-    penalty:     { icon: '⚽', title: 'PENALTY',       desc: 'One shoots, one keeps, then you swap. The SHOOTER drags to aim and releases to strike. The KEEPER slides along the line and commits the instant the ball is hit — so it\'s a read of each other, not a test of your thumbs. Aim near a post and the keeper can\'t reach it, but the woodwork can. 3 kicks each, most goals wins!' },
+    penalty:     { icon: '⚽', title: 'PENALTY',       desc: 'One shoots, one keeps, then you swap. The SHOOTER pulls the ball back and lets go — how far you pull is how hard it is hit, and a harder ball gets UP. The KEEPER slides along the line and keeps diving through the flight, so a soft shot gives them time to reach it. Hit it hard enough to beat the dive, and not so hard it clears the bar. Aim near a post and the keeper cannot reach it, but the woodwork can. 3 kicks each, most goals wins!' },
     lightcycles: { icon: '🏍️', title: 'LIGHT CYCLES',  desc: 'Two cycles, one arena, solid trails behind both. Push your stick to steer — up, down, left, right. Crash into any wall — theirs, yours, or the arena\'s — and you lose the round. Every metre you take is a metre they can\'t have. Best of 3, and the arena closes in each round.' },
     fourinarow:  { icon: '🔴', title: 'FOUR IN A ROW', desc: 'The classic, on one shared board you both read from your own edge. Tap a column on your side to drop a disc. First to line up four — across, down or diagonally — wins. No clock on this one: take as long over a move as you need.' },
     memorymatch: { icon: '🃏', title: 'MEMORY MATCH',  desc: '🪙 COIN GAME — lay the phone flat and both lean in. 25 cards: twelve pairs and one lone JACKPOT. Turn two on your go; match them and you keep the coins AND go again. Miss and they flip back — but now you both know what\'s there. Every pair pays, win or lose, and the jackpot pays triple. Most pairs takes it.' },
     bombpass:    { icon: '💣', title: 'BOMB PASS',     desc: 'One lit bomb, and neither of you wants it. While it\'s on YOUR side, tap to smack it back — every return sends it faster. Let it reach the wall behind you and it goes off in your hands. Swing while it\'s on their side and you whiff, and you\'re locked out just long enough to regret it. Watch the fuse: when it burns out the bomb blows wherever it is. Best of 3!' },
-    grandprix:   { icon: '🏎️', title: 'GRAND PRIX',    desc: 'One circuit, both cars, one view — the whole track is on screen and you can see the race. HOLD your half for gas and let go to slow: there is no brake and no steering. Every corner has a speed painted on it, and arriving over that speed spins you out for a full second. Lift too early and they\'re gone; lift too late and you\'re facing the wrong way. Whoever\'s behind gets a slipstream. 2 laps!' },
+    grandprix:   { icon: '🏎️', title: 'GRAND PRIX',    desc: 'One circuit, every car, one view — the whole track is on screen and you can see the race. HOLD your half for gas and let go to slow: there is no brake and no steering. Every corner has a speed painted on it, and over that speed the car starts to let go — it wobbles and scrubs off pace, and if you do not lift it spins. Catch the slide and you keep the lap. Whoever is behind gets a slipstream. 2 laps!' },
     treeclimb:   { icon: '🌳', title: 'TREE CLIMB',    desc: '🪙 COIN GAME — 30 SECONDS, and whoever is HIGHEST when it runs out wins. A leaf sprouts LEFT or RIGHT — tap that side and you jump onto it, and only then does the next one grow. Sides don\'t just alternate, so watch it: two in a row happens. Grab the wrong side and you fall to the last branch on THAT side. Coins bank as you climb and a fall never takes them back.' },
 };
 
@@ -150,7 +152,8 @@ export const MG_NET = {
     oddoneout:   'parallel',
     steadyhand:  'parallel',
     sortrush:    'local',
-    meteordodge: 'parallel',
+    framematch:  'local',      // "first finger wins" once the picture is whole
+    speedboat:   'local',      // one river, boats that touch — a shared simulation
     lootcatch:   'parallel',
     freeze:      'local',
     clearout:    'local',
@@ -192,10 +195,9 @@ export const MG_PAYOUT = {
 // thing on theirs, all of that is wrong — and it is wrong in the specific way
 // that makes somebody look for a second player who is not there.
 export const MG_NET_INFO = {
-    meteordodge: 'Drag your pod along the bottom to dodge the falling meteors. Three lives — lose them all and your round is over. The storm gets faster and thicker as it goes. Everyone is dodging the same storm at the same time: survive longest with the most lives.',
-    lootcatch:   '💰 PAYDAY — every coin you catch is REAL money and you keep it whatever happens. Slide your basket to grab 🪙 coins and 💎 gems (worth 3), and dodge every 💣. The same loot falls on every phone. Biggest haul takes the round — but nobody leaves empty-handed.',
+    lootcatch:   '💰 PAYDAY — every coin you catch is REAL money and you keep it whatever happens. Loot falls in waves down four lanes, mostly 💣 with a 🪙 coin or 💎 gem (worth 3) among them. Slide to the lane the loot is in and be there before it lands — the basket has a top speed, so crossing the screen costs you. The same waves fall on every phone. Biggest haul takes the round, and nobody leaves empty-handed.',
     steadyhand:  'A target drifts around your screen — keep your finger on it to bank time. It speeds up as the round goes on. The same target, on the same path, on every phone: whoever holds it longest wins.',
-    oddoneout:   'Every tile on your grid is the same shade except one. Tap the odd tile and a fresh, harder grid appears — more tiles, subtler difference. A wrong tap locks you out briefly. Everyone gets the same grids: most found in 30 seconds wins.',
+    oddoneout:   'Every tile on your grid is the same shade except one. Tap the odd tile and a fresh, harder grid appears — more tiles, subtler difference. A wrong tap locks you out briefly and deals a new grid, so you are never stuck staring at one you cannot see. Most found in 30 seconds wins.',
     snapstrike:  'A needle sweeps your bar — tap to lock it on the bullseye. PERFECT, GREAT and GOOD snaps score 3, 2 and 1. Five rounds, the bar speeding up and the target shrinking. The same bullseye on every phone: highest total wins.',
     treeclimb:   '🪙 PAYDAY — 30 seconds, and coins bank as you climb. A leaf sprouts LEFT or RIGHT: tap that side to jump onto it. Sides do not just alternate, so watch it. Grab the wrong side and you fall to the last branch on THAT side — but a fall never takes your coins back. Everyone climbs the same tree; highest takes the round.',
 };
@@ -236,9 +238,10 @@ export const MG_SHAPE = {
     oddoneout:   'split',
     steadyhand:  'split',
     sortrush:    'arena',   // one shape in the middle, both racing for it
-    meteordodge: 'split',
+    framematch:  'arena',   // one picture in the middle, everybody reading it
+    speedboat:   'arena',   // one river; what is split is the CAMERA, not the water
     lootcatch:   'split',
-    freeze:      'arena',   // one crown, one track, one eye watching both
+    freeze:      'arena',   // one track, and the eye at the end of it is the prize
     clearout:    'arena',   // discs cross the wall onto their side
     puck:        'arena',
     penalty:     'arena',   // + ASYM: the two seats are doing different jobs
@@ -273,7 +276,8 @@ export const MG_ORIENTATION_MAP = {
     oddoneout:   'faceoff',
     steadyhand:  'faceoff',
     sortrush:    'faceoff',
-    meteordodge: 'faceoff',
+    framematch:  'faceoff',
+    speedboat:   'faceoff',
     lootcatch:   'faceoff',
     freeze:      'faceoff',
     clearout:    'faceoff',
@@ -370,6 +374,20 @@ export const MG_GENRES = {
 export const MG_PROFILE = {
     quickdraw:   { genre: 'reflex',   control: 'tap',   wire: 'stamp',    seats: [2, 4], live: true },
     sortrush:    { genre: 'reflex',   control: 'tap',   wire: 'stamp',    seats: [2, 4], live: true },
+    // Not roomy, and it is the clearest case in the roster of why that is a
+    // question about the ZONE and not about the game. The picture is big and it
+    // is shared: it sits in the middle of the table and every seat reads the
+    // same one. What a seat needs of its own is somewhere to put a thumb.
+    framematch:  { genre: 'reflex',   control: 'tap',   wire: 'stamp',    seats: [2, 4], live: true },
+    // Not roomy, and this is the case where that is a judgement rather than a
+    // measurement. A zone holds a scrolling stretch of river with rocks in it,
+    // which sounds exactly like the games behind a tablet — but the player sets
+    // how fast the river comes at them. A zone shows just under two river widths
+    // ahead whatever its shape — the view is held constant in world units rather
+    // than in pixels for exactly this reason — which is a shade over two seconds
+    // of warning at the slowest gear and just under one at the fastest. The zone
+    // size sets the risk here instead of deciding whether the game works.
+    speedboat:   { genre: 'race',     control: 'thumb', wire: 'exact',    seats: [2, 4], live: true },
     snapstrike:  { genre: 'reflex',   control: 'tap',   wire: 'none',     seats: [2, 4], live: true },
 
     // roomy: the target drifts, so a zone has to be somewhere to drift in. A
@@ -383,11 +401,8 @@ export const MG_PROFILE = {
     freeze:      { genre: 'nerve',    control: 'thumb', wire: 'scalar',   seats: [2, 2], live: false },
 
     // roomy: a playfield with things falling through it. A phone quarter is
-    // 206x400 and a meteor crosses it in well under a second — there is no
-    // dodge in that, only a reflex test.
-    meteordodge: { genre: 'scramble', control: 'thumb', wire: 'none',     seats: [2, 4], live: true, roomy: true },
-    // roomy: same reason as Meteor Dodge — loot falls the length of the zone,
-    // and a 400 px drop is over before the basket has moved.
+    // 206x400 and the drop is over before the basket has moved — there is no
+    // catch in that, only a reflex test.
     lootcatch:   { genre: 'scramble', control: 'thumb', wire: 'none',     seats: [2, 4], live: true, roomy: true },
     // roomy: the stem scrolls vertically at 74 px a branch, so a zone needs
     // height to read as a climb. A phone quarter is 400 px — five branches of

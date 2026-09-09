@@ -34,11 +34,12 @@ const ok = (n, c, d) => (c ? pass : fail).push(n + (d ? ` — ${d}` : ''));
 const EXPECT = {
     quickdraw:    [true,  'any',    true ],
     sortrush:     [true,  'any',    true ],
+    framematch:   [true,  'any',    true ],
+    speedboat:    [true,  'any',    false],
     snapstrike:   [true,  'any',    true ],
     steadyhand:   [true,  'tablet', true ],
     rhythmforge: [false, null,     false],
     freeze:       [false, null,     true ],
-    meteordodge:  [true,  'tablet', true ],
     lootcatch:    [true,  'tablet', true ],
     treeclimb:    [true,  'tablet', true ],
     tankclash:   [false, null,     true ],   // dual controls, but great online
@@ -58,10 +59,10 @@ const EXPECT = {
 
 // The headline counts from the plan. If a property changes and one of these
 // moves, the plan is out of date and should be updated deliberately.
-const EXPECT_PHONE_MANY = 6;    // LIVE games — converted to N slots
-const EXPECT_TABLET_MANY = 12;   // ...plus Odd One Out and Steady Hand, which declare `roomy`
+const EXPECT_PHONE_MANY = 8;    // LIVE games — converted to N slots
+const EXPECT_TABLET_MANY = 13;   // ...plus the `roomy` games, which need the extra room
 const EXPECT_ONLINE = 15;       // possible across devices
-const EXPECT_ONLINE_NOW = 6;    // running across devices today
+const EXPECT_ONLINE_NOW = 5;    // running across devices today
 
 function asModule(file) {
     const tmp = path.join(os.tmpdir(), `_qa_surf_${Date.now()}.mjs`);
@@ -111,7 +112,7 @@ function asModule(file) {
     const now    = R.MG_TYPES.filter(t => R.surfacesOf(t).onlineNow);
 
     ok('every game is playable by two on one phone',
-       R.typesForSurface('two').length === R.MG_TYPES.length, `${R.typesForSurface('two').length}/22`);
+       R.typesForSurface('two').length === R.MG_TYPES.length, `${R.typesForSurface('two').length}/${R.MG_TYPES.length}`);
     ok(`a phone seats 3-4 for ${EXPECT_PHONE_MANY} games`,
        phone.length === EXPECT_PHONE_MANY, `${phone.length}: ${phone.join(', ')}`);
     ok(`a tablet seats 3-4 for ${EXPECT_TABLET_MANY}`,

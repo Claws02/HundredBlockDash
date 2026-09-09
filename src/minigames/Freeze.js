@@ -8,10 +8,17 @@
 //
 // Three changes make it a duel:
 //
-//   1. ONE TRACK, ONE CROWN. The Crown sits on the centre line and both players
-//      creep inward toward it from their own edge. Both tokens are on screen for
-//      both players, so you can always see exactly how much road your rival has
-//      left. That is the shared object the old version was missing.
+//   1. ONE TRACK, ONE EYE. The Eye sits on the centre line and both players
+//      creep inward toward it from their own edge. Both runners are on screen
+//      for both players, so you can always see exactly how much road your rival
+//      has left. That is the shared object the old version was missing.
+//
+//      The Eye is also the PRIZE. There used to be a crown at the centre with
+//      the Eye parked beside it, and the runners stopped a tenth of the screen
+//      short of both — you won by filling a progress bar next to a trophy you
+//      never touched. One object, and you win by putting your hand on it: the
+//      thing watching you is the thing you are creeping up on, which is the
+//      whole of grandmother's footsteps in one picture.
 //
 //   2. THE EYE PICKS A SIDE. It does not simply say STOP to everybody. It wakes,
 //      turns, and watches P1, or P2, or both. If it is not looking at you, you
@@ -56,6 +63,7 @@ let _done = false, _onWin = null, _isBot = false, _botSkill = 0.55;
 let _overlay = null, _canvas = null, _ctx = null, _dpr = 1;
 let _af = null, _last = 0, _t = 0;
 
+let _stride = [0, 0];           // running animation, advanced only while moving
 let _phase = 'sleep';           // 'sleep' | 'stir' | 'watch'
 let _phaseLeft = SLEEP[0];
 let _gaze = 'both';             // who the NEXT/current watch is aimed at
@@ -85,6 +93,7 @@ export function start(isBot, onWin, botSkill = 0.55) {
     _phase = 'sleep'; _phaseLeft = SLEEP[0]; _gazeAnim = 0;
     _gaze = GAZE_TABLE[Math.floor(Math.random() * GAZE_TABLE.length)];
     _progress = [0, 0]; _holding = [false, false];
+    _stride = [0, 0];
     _locked = [0, 0]; _caught = [0, 0]; _gift = [0, 0];
     _pointers = [new Set(), new Set()];
     _botReleaseAt = Infinity;
@@ -302,8 +311,13 @@ function _draw() {
     _ctx.globalAlpha = 1;
 
     const cx = w / 2;
-    const startPad = h * 0.085;              // where each player's token begins
-    const goalPad  = h * 0.10;               // how close to the middle the Crown is
+    const startPad = h * 0.085;              // where each player's runner begins
+    // The goal is the Eye's rim, not a gap short of it. A full progress bar has
+    // to put a hand on the thing you are racing for, or the finish is an
+    // abstraction sitting next to the prize.
+    const R = _eyeR(w);
+    const reach = Math.max(11, w * 0.042);   // runner radius, matched in _drawToken
+    const goalPad  = R * 0.80 + reach * 0.55;
     const p1Start = h - startPad, p1Goal = mid + goalPad;
     const p2Start = startPad,     p2Goal = mid - goalPad;
 
@@ -325,7 +339,7 @@ function _draw() {
 
     _drawEye(cx, mid, w);
 
-    // Tokens, both visible to both players.
+    // Runners, both visible to both players.
     _drawToken(0, cx, p1Start + (p1Goal - p1Start) * _progress[0], w);
     _drawToken(1, cx, p2Start + (p2Goal - p2Start) * _progress[1], w);
 
@@ -334,55 +348,68 @@ function _draw() {
     _ctx.save(); _ctx.translate(w, h); _ctx.rotate(Math.PI); _drawHud(1, w, h); _ctx.restore();
 }
 
-// The Crown, and the Eye above it whose pupil says who is being watched.
+function _eyeR(w) { return Math.min(w * 0.20, 96); }
+
+// THE EYE. Dead centre, and the thing both players are running at — the prize
+// and the hazard are one object.
 function _drawEye(cx, mid, w) {
-    const R = Math.min(w * 0.15, 74);
-
-    // Crown on its pedestal, dead centre — the thing both of you want.
-    _ctx.textAlign = 'center'; _ctx.textBaseline = 'middle';
-    _ctx.font = `${Math.round(R * 0.62)}px serif`;
-    _ctx.fillText('👑', cx, mid);
-
-    // Halo whose colour reinforces the phase (but never carries it alone).
+    const R = _eyeR(w);
     const col = _phase === 'watch' ? '#ef4444' : _phase === 'stir' ? '#f59e0b' : '#22c55e';
-    _ctx.strokeStyle = col; _ctx.globalAlpha = 0.30 + 0.35 * _gazeAnim;
-    _ctx.lineWidth = 3;
-    _ctx.beginPath(); _ctx.arc(cx, mid, R * 0.92, 0, Math.PI * 2); _ctx.stroke();
+    const ex = cx, ey = mid;
+
+    // A glow that swells as the lid opens, so the phase is readable from the far
+    // side of the table before any detail of the eye is.
+    const g = _ctx.createRadialGradient(ex, ey, R * 0.2, ex, ey, R * 1.75);
+    g.addColorStop(0, col); g.addColorStop(1, 'rgba(0,0,0,0)');
+    _ctx.globalAlpha = 0.10 + 0.26 * _gazeAnim;
+    _ctx.fillStyle = g;
+    _ctx.beginPath(); _ctx.arc(ex, ey, R * 1.75, 0, Math.PI * 2); _ctx.fill();
     _ctx.globalAlpha = 1;
 
-    // The Eye: a lens on the left of the Crown, big enough to read at a glance.
-    const ex = cx - R * 1.35, ey = mid;
+    // The socket it sits in, which is what a runner's hand lands on.
+    _ctx.fillStyle = '#111a2e';
+    _ctx.beginPath(); _ctx.arc(ex, ey, R * 0.86, 0, Math.PI * 2); _ctx.fill();
+    _ctx.strokeStyle = col; _ctx.globalAlpha = 0.55 + 0.45 * _gazeAnim;
+    _ctx.lineWidth = 3;
+    _ctx.beginPath(); _ctx.arc(ex, ey, R * 0.86, 0, Math.PI * 2); _ctx.stroke();
+    _ctx.globalAlpha = 1;
+
     if (_gazeAnim < 0.10) {
         // Properly shut, not a thin sliver — a closed lid reads as "asleep" at a
         // glance, which is the whole cue for "you may move".
-        _ctx.strokeStyle = col; _ctx.lineWidth = 4; _ctx.lineCap = 'round';
+        _ctx.strokeStyle = col; _ctx.lineWidth = 5; _ctx.lineCap = 'round';
         _ctx.beginPath();
         _ctx.arc(ex, ey - R * 0.16, R * 0.56, 0.16 * Math.PI, 0.84 * Math.PI);
         _ctx.stroke();
         for (let i = -1; i <= 1; i++) {           // lashes
             _ctx.beginPath();
             _ctx.moveTo(ex + i * R * 0.34, ey + R * 0.36);
-            _ctx.lineTo(ex + i * R * 0.40, ey + R * 0.52);
+            _ctx.lineTo(ex + i * R * 0.40, ey + R * 0.54);
             _ctx.stroke();
         }
     } else {
         _ctx.save();
         _ctx.beginPath();
-        _ctx.ellipse(ex, ey, R * 0.62, R * 0.62 * _gazeAnim, 0, 0, Math.PI * 2);
+        _ctx.ellipse(ex, ey, R * 0.70, R * 0.70 * _gazeAnim, 0, 0, Math.PI * 2);
         _ctx.fillStyle = '#f4f6ff'; _ctx.fill();
         _ctx.lineWidth = 3; _ctx.strokeStyle = col; _ctx.stroke();
         _ctx.clip();
         // Pupil position IS the message: down = watching P1, up = watching P2,
-        // centred = watching both.
+        // centred = watching both. Iris then pupil, so the direction of the look
+        // is readable even when the lid is only part way open.
         const look = _gaze === 'p1' ? 1 : _gaze === 'p2' ? -1 : 0;
-        const py = ey + look * R * 0.30 * _gazeAnim;
-        _ctx.beginPath(); _ctx.arc(ex, py, R * 0.26, 0, Math.PI * 2);
-        _ctx.fillStyle = '#12172a'; _ctx.fill();
+        const py = ey + look * R * 0.32 * _gazeAnim;
+        _ctx.beginPath(); _ctx.arc(ex, py, R * 0.34, 0, Math.PI * 2);
+        _ctx.fillStyle = '#2a3f6b'; _ctx.fill();
+        _ctx.beginPath(); _ctx.arc(ex, py, R * 0.19, 0, Math.PI * 2);
+        _ctx.fillStyle = '#0b1020'; _ctx.fill();
+        _ctx.beginPath(); _ctx.arc(ex - R * 0.12, py - R * 0.13, R * 0.07, 0, Math.PI * 2);
+        _ctx.fillStyle = 'rgba(255,255,255,.8)'; _ctx.fill();
         _ctx.restore();
     }
 
-    // And in words, once per player. Both copies sit to the RIGHT of the Crown,
-    // stacked either side of the centre line, so neither lands on the eye.
+    // And in words, once per player, beside the Eye and clear of both approaches
+    // so neither copy sits on a runner's path.
     const label = _phase === 'sleep' ? 'ASLEEP'
                 : _phase === 'stir'  ? 'WAKING'
                 : _gaze === 'both'   ? 'BOTH'
@@ -390,39 +417,92 @@ function _drawEye(cx, mid, w) {
     _ctx.font = '900 15px "Bebas Neue", sans-serif';
     _ctx.fillStyle = col;
     _ctx.textAlign = 'center'; _ctx.textBaseline = 'middle';
-    _ctx.fillText(label, cx + R * 1.15, mid + R * 0.34);
+    _ctx.fillText(label, cx + R * 1.30, mid + R * 0.40);
     _ctx.save();
-    _ctx.translate(cx + R * 1.15, mid - R * 0.34); _ctx.rotate(Math.PI);
+    _ctx.translate(cx - R * 1.30, mid - R * 0.40); _ctx.rotate(Math.PI);
     _ctx.fillText(label, 0, 0);
     _ctx.restore();
 }
 
+// A RUNNER, not a counter.
+//
+// This was a disc with "P1" written on it, which is a token on a progress bar
+// and reads like one — the game is people creeping up on something and the
+// screen showed two dots getting closer to a number. A figure that runs while
+// it advances, stands still when it stops, and is caught mid-stride when it is
+// spotted turns the same numbers into the thing they are describing, and it is
+// legible from across a table in a way a filled bar never is.
 function _drawToken(pid, cx, y, w) {
     const accent = pid === 0 ? '#ff5a5a' : '#5a9bff';
     const r = Math.max(11, w * 0.042);
     const frozen = _locked[pid] > 0;
     const moving = _holding[pid] && !frozen && !_watched(pid);
+    // Runners face the middle: P1 comes up from the bottom, P2 down from the top.
+    const face = pid === 0 ? -1 : 1;
 
-    if (moving) {                                  // motion puff behind the token
-        _ctx.globalAlpha = 0.22; _ctx.fillStyle = '#ffffff';
-        const back = pid === 0 ? y + r * 1.5 : y - r * 1.5;
-        _ctx.beginPath(); _ctx.arc(cx, back, r * 0.5, 0, Math.PI * 2); _ctx.fill();
+    // The stride only advances while the runner does, so a frozen figure is
+    // caught in whatever pose it was in — which is exactly the joke the playground
+    // game is built on.
+    if (moving) _stride[pid] += 0.20;
+    const sw = Math.sin(_stride[pid]);
+
+    if (moving) {
+        // Dust, kicked out to the SIDES rather than straight out behind. In line
+        // with the runner it sat directly above or below the head and read as a
+        // second, greyer head rather than as motion.
+        _ctx.globalAlpha = 0.18; _ctx.fillStyle = '#ffffff';
+        for (let k = 0; k < 2; k++) {
+            const back = y - face * r * (1.15 + k * 0.55);
+            const off  = r * (0.55 + k * 0.35) * (k % 2 ? -1 : 1) * (sw >= 0 ? 1 : -1);
+            _ctx.beginPath();
+            _ctx.arc(cx + off, back, r * (0.30 - k * 0.10), 0, Math.PI * 2);
+            _ctx.fill();
+        }
         _ctx.globalAlpha = 1;
     }
     // Ring showing this player is currently pinned by the gaze.
     if (_watched(pid) && !frozen) {
         _ctx.strokeStyle = '#ef4444'; _ctx.lineWidth = 3; _ctx.globalAlpha = 0.8;
-        _ctx.beginPath(); _ctx.arc(cx, y, r * 1.55, 0, Math.PI * 2); _ctx.stroke();
+        _ctx.beginPath(); _ctx.ellipse(cx, y, r * 1.5, r * 1.9, 0, 0, Math.PI * 2); _ctx.stroke();
         _ctx.globalAlpha = 1;
     }
-    _ctx.beginPath(); _ctx.arc(cx, y, r, 0, Math.PI * 2);
-    _ctx.fillStyle = frozen ? '#78849b' : accent;
-    _ctx.fill();
-    _ctx.lineWidth = 3; _ctx.strokeStyle = 'rgba(255,255,255,0.55)'; _ctx.stroke();
 
-    _ctx.fillStyle = '#fff'; _ctx.font = `900 ${Math.round(r * 0.95)}px "Bebas Neue", sans-serif`;
+    const body = frozen ? '#78849b' : accent;
+    _ctx.strokeStyle = body; _ctx.lineCap = 'round'; _ctx.lineWidth = Math.max(3, r * 0.34);
+
+    // Legs and arms both keep a RESTING SPREAD that the swing is added to. Swing
+    // alone put both legs at the same place the moment the stride crossed zero,
+    // which is every time a runner stops — and a standing figure with its limbs
+    // folded into the body line is a lollipop, not a person.
+    const legL = sw * 0.62 + 0.30, legR = sw * 0.62 - 0.30;
+    _ctx.beginPath();
+    _ctx.moveTo(cx, y + r * 0.35);
+    _ctx.lineTo(cx + legL * r, y + r * 1.05);
+    _ctx.moveTo(cx, y + r * 0.35);
+    _ctx.lineTo(cx + legR * r, y + r * 1.05);
+    _ctx.stroke();
+    // Arms, swinging opposite the legs.
+    const armL = -sw * 0.58 + 0.26, armR = -sw * 0.58 - 0.26;
+    _ctx.beginPath();
+    _ctx.moveTo(cx, y - r * 0.15);
+    _ctx.lineTo(cx + armL * r, y + r * 0.28);
+    _ctx.moveTo(cx, y - r * 0.15);
+    _ctx.lineTo(cx + armR * r, y + r * 0.28);
+    _ctx.stroke();
+    // Body and head, leaning into the run.
+    _ctx.beginPath();
+    _ctx.moveTo(cx, y + r * 0.4);
+    _ctx.lineTo(cx + (moving ? face * r * 0.12 : 0), y - r * 0.35);
+    _ctx.stroke();
+    _ctx.beginPath();
+    _ctx.arc(cx + (moving ? face * r * 0.16 : 0), y - r * 0.72, r * 0.42, 0, Math.PI * 2);
+    _ctx.fillStyle = body; _ctx.fill();
+    _ctx.lineWidth = 2; _ctx.strokeStyle = 'rgba(255,255,255,0.55)'; _ctx.stroke();
+
+    _ctx.fillStyle = frozen ? '#cbd5e1' : accent;
+    _ctx.font = `900 ${Math.round(r * 0.72)}px "Bebas Neue", sans-serif`;
     _ctx.textAlign = 'center'; _ctx.textBaseline = 'middle';
-    _ctx.fillText(`P${pid + 1}`, cx, y + 1);
+    _ctx.fillText(`P${pid + 1}`, cx + r * 1.7, y);
 
     if (_caught[pid] > 0) {
         _ctx.globalAlpha = Math.min(1, _caught[pid] * 2);
@@ -461,7 +541,7 @@ function _finish(winnerId) {
     _done = true;
     state.mgActive = false;
     const neu = document.getElementById('mg-neutral');
-    if (neu) neu.textContent = winnerId < 0 ? 'DRAW!' : `P${winnerId + 1} TAKES THE CROWN!`;
+    if (neu) neu.textContent = winnerId < 0 ? 'DRAW!' : `P${winnerId + 1} TOUCHES THE EYE!`;
     sfx(winnerId < 0 ? 'land_bad' : 'mg_win');
     _after(() => { _destroy(); _onWin(winnerId); }, 1500);
 }

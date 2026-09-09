@@ -63,6 +63,13 @@ let _wins    = [];
 let _round   = 0;
 let _target  = null;         // the shape being asked for this round
 let _live    = false;        // true once the shape is up and answers count
+// The pending reveal for the round being waited on. A round can END during the
+// suspense window — a false start hands it straight over — and until this was
+// held and cancelled, that round's reveal still fired: a shape appeared out of
+// nowhere during the gap, went live against a target nobody was shown properly,
+// and was then replaced by the next round's shape a second later. That is the
+// centre shape "changing after it appears".
+let _revealT = null;
 let _lockedUntil = [];
 let _out     = [];           // jumped this round: locked out of it
 let _roundStart  = 0;
@@ -71,6 +78,12 @@ const _botTimers = new Set();
 const _cleanups = [];
 const _timers   = [];
 
+function _cancel(id) {
+    if (id == null) return;
+    clearTimeout(id);
+    const i = _timers.indexOf(id);
+    if (i >= 0) _timers.splice(i, 1);
+}
 function _after(fn, ms) {
     const id = setTimeout(() => { _timers.splice(_timers.indexOf(id), 1); fn(); }, ms);
     _timers.push(id);
@@ -83,6 +96,7 @@ export function start(isBot, onWin, botSkill = 0.55) {
     _done = false; _onWin = onWin; _isBot = isBot; _botSkill = botSkill;
     _n = Math.max(2, Math.min(4, slotCount()));
     _wins = new Array(_n).fill(0); _round = 0; _target = null; _live = false;
+    _revealT = null;
     _lockedUntil = new Array(_n).fill(0); _out = new Array(_n).fill(false);
     _roundStart = 0; _elapsed = 0; _last = 0;
     _botTimers.clear();
@@ -271,7 +285,9 @@ function _nextRound() {
     _setStageLabel('GET READY…');
 
     const wait = SUSPENSE_MIN + Math.random() * (SUSPENSE_MAX - SUSPENSE_MIN);
-    _after(() => {
+    _cancel(_revealT);
+    _revealT = _after(() => {
+        _revealT = null;
         if (_done || !_stageShape) return;
         _target = SHAPES[Math.floor(Math.random() * SHAPES.length)];
         _stageShape.innerHTML = _shapeSVG(_target.id, _target.color, 96);
@@ -343,6 +359,10 @@ function _endRound(winnerId, why) {
     if (_done) return;
     _live = false;
     _target = null;
+    // Kill this round's reveal if it has not fired yet. It has not whenever the
+    // round ended inside the suspense window, which is exactly what a false
+    // start does.
+    _cancel(_revealT); _revealT = null;
     _botTimers.forEach(t => { clearTimeout(t); const i = _timers.indexOf(t); if (i >= 0) _timers.splice(i, 1); });
     _botTimers.clear();
 
@@ -444,6 +464,7 @@ function _finish(winnerId) {
 function _destroy() {
     _done = true;
     _timers.forEach(clearTimeout); _timers.length = 0;
+    _revealT = null;
     _cleanups.forEach(f => { try { f(); } catch (e) {} }); _cleanups.length = 0;
     if (_af) { cancelAnimationFrame(_af); _af = null; }
     if (_overlay) { _overlay.remove(); _overlay = null; }

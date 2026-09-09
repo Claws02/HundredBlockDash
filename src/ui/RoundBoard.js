@@ -40,13 +40,9 @@ const _slot = seat => PLAYER_SLOTS[seat] || PLAYER_SLOTS[0];
 // Scores are integers so they can be compared without asking how any one game
 // counts. Turning one back into something readable is per-game.
 const TENTHS = new Set(['steadyhand']);
-const LIVES  = new Set(['meteordodge']);
 function fmt(type, score) {
     if (score == null) return '—';
     if (TENTHS.has(type)) return `${(score / 10).toFixed(1)}s`;
-    // Meteor Dodge's score is lives × 1000 + dodges, which is a sort key and
-    // not a thing to show anybody.
-    if (LIVES.has(type)) return `${'♥'.repeat(Math.max(0, Math.floor(score / 1000)))} ${score % 1000}`;
     return String(score);
 }
 

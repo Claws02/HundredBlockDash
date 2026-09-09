@@ -29,7 +29,17 @@ const PUCK_MAX     = 1.95;   // table-widths per second
 const PUCK_MIN     = 0.10;   // below this the puck is nudged so play never dies
 const FRICTION     = 0.35;   // velocity lost per second
 const WALL_REST    = 0.94;
-const STRIKE_BOOST = 1.30;   // how much of the mallet's own speed transfers
+// Mallet restitution: how much of the puck's own closing pace comes back off a
+// mallet that is standing still. Everything a swing adds arrives through the
+// impulse being computed on the puck's speed RELATIVE to the mallet, so pace is
+// something you put in with your hand rather than a bonus term bolted on after.
+const MALLET_REST  = 0.90;
+const STRIKE_GAIN  = 1.10;   // a little extra bite on top, so a swing rewards
+// A finger can jump the width of the table between two frames — a lost pointer,
+// a scroll, a slow frame — and the mallet's measured velocity is that jump over
+// a few milliseconds, which is a number in the thousands. Capped, so a glitchy
+// touch cannot fire the puck off at the speed limit.
+const MALLET_V_MAX = 2.6;    // table-widths per second
 const RESET_PAUSE  = 900;    // ms between a goal and the face-off
 // The status pill floats at each player's outer edge, and the goal mouth is at
 // exactly that edge — without this inset the mouth is drawn behind the pill.
@@ -196,9 +206,12 @@ function _tick(now) {
 function _physics(dt, now) {
     // Mallet velocity, measured from actual movement — this is what makes
     // striking on the move add pace.
+    const mvMax = MALLET_V_MAX * _W;
     for (const m of _mallets) {
         m.vx = (m.x - m.px) / Math.max(dt, 1e-4);
         m.vy = (m.y - m.py) / Math.max(dt, 1e-4);
+        const ms = Math.hypot(m.vx, m.vy);
+        if (ms > mvMax) { m.vx = m.vx / ms * mvMax; m.vy = m.vy / ms * mvMax; }
         m.px = m.x; m.py = m.y;
     }
 
@@ -239,16 +252,31 @@ function _physics(dt, now) {
             const min = pr + mr;
             if (d >= min || d === 0) continue;
             const nx = dx / d, ny = dy / d;
-            // Push out of the overlap, then reflect and add the mallet's own
-            // motion along the normal — the strike.
+            // Push out of the overlap first, always — an overlap left in place
+            // is a contact that fires again next frame.
             _puck.x = m.x + nx * min;
             _puck.y = m.y + ny * min;
-            const along = _puck.vx * nx + _puck.vy * ny;
-            _puck.vx -= 2 * along * nx;
-            _puck.vy -= 2 * along * ny;
-            const mAlong = m.vx * nx + m.vy * ny;
-            if (mAlong > 0) { _puck.vx += nx * mAlong * STRIKE_BOOST; _puck.vy += ny * mAlong * STRIKE_BOOST; }
-            sfx('boost'); haptic([12]);
+
+            // Then the strike, computed on the puck's speed RELATIVE to the
+            // mallet and only when the two are actually closing.
+            //
+            // This used to reflect the puck's absolute velocity unconditionally
+            // and then add the mallet's motion as a separate bonus, which is
+            // where the puck went to die on a quick strike. Tap at it and the
+            // mallet stays in contact over several frames: the first frame sent
+            // the puck away, and every frame after reflected a puck that was
+            // already leaving straight back INTO the mallet, so a rally of
+            // little reflections cancelled each other out and friction ate what
+            // was left. It also meant a mallet that swept PAST the puck struck
+            // it along a normal pointing the wrong way, taking pace off a shot
+            // that looked like the hardest one you could play.
+            const rvx = _puck.vx - m.vx, rvy = _puck.vy - m.vy;
+            const along = rvx * nx + rvy * ny;
+            if (along >= 0) continue;                 // already separating
+            const j = -(1 + MALLET_REST) * along * STRIKE_GAIN;
+            _puck.vx += nx * j;
+            _puck.vy += ny * j;
+            _clack();
         }
     }
 
@@ -275,6 +303,17 @@ function _thud() {
     if (now - _lastThud < 60) return;     // don't machine-gun the sfx in substeps
     _lastThud = now;
     sfx('dice_land');
+}
+
+// Same throttle for the mallet. Carrying the puck on the face of the mallet is
+// a legal thing to do and it is a contact on every frame while it lasts; unthrottled
+// that was a burst of overlapping strike sounds.
+let _lastClack = 0;
+function _clack() {
+    const now = performance.now();
+    if (now - _lastClack < 70) return;
+    _lastClack = now;
+    sfx('boost'); haptic([12]);
 }
 
 function _goal(scorerId) {

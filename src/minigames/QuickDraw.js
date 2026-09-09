@@ -32,7 +32,13 @@ import { zonesFor } from '../config/MinigameLayout.js';
 const WINS_NEEDED = 2;     // best of 3
 const ARM_MIN     = 1.4;   // s — shortest wait before DRAW
 const ARM_MAX     = 3.0;   // s — longest wait
-const TIE_WINDOW  = 0.05;  // s — taps this close count as a tie (replay)
+// s — taps this close count as a tie (replay). Halved from 50 ms: the clock
+// underneath is performance.now(), which resolves far finer than either, so
+// the window is purely how much of a photo finish we refuse to call. On one
+// shared screen both taps hit the same clock and 25 ms is a real gap.
+// ACROSS PHONES it is not, and cannot be — two devices have no common clock —
+// which is why the online path still ranks on the host's arrival order.
+const TIE_WINDOW  = 0.025;
 // Ceilings (§3). Without these the round sat in the 'fire' phase forever if
 // neither player drew, and the match only ended when the manager's 90 s tie
 // watchdog fired — the last game in the roster that could reach it.
