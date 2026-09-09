@@ -475,3 +475,110 @@ now the target rather than two:
 
 At two players that test caught four games. At four it catches six more — and
 `roomy` is how to spot them without playing a single round.
+
+---
+
+# Round four: the play audit, and two games built out of it
+
+The previous round was written from the code. This one was written from playing
+the games, which found different things — the code round found which games could
+not seat four people, and this one found which ones were not worth seating four
+people at.
+
+## What was fixed
+
+| Game | What was wrong | What it is now |
+|---|---|---|
+| **Four in a Row** | shipped on a 6×5 board to keep rounds short | 7×6. A narrower board is a different game: it removes the seventh column that the whole body of four-in-a-row theory rests on, and players who know the game feel it. Length is the watchdog's problem. |
+| **Tree Climb** | stem drawn at 0.37 of the frame | centred. The offset dated from every climber sharing one undivided canvas; each has a zone of its own now. |
+| **Quick Draw** | 50 ms tie window | 25 ms. `performance.now()` resolves far finer, so the window is only how much of a photo finish we decline to call. |
+| **Light Cycles** | arena closed in by a fixed 2 then 4 CELLS | a fraction of each axis. Fixed cells took 13% of a tablet's width and more than half a phone's; the round-three phone arena was a corridor. The edges are red now, with hazard hatching on the closed-in band, because a blue hairline in the floor's own colour family never said "wall". |
+| **Meteor Dodge** | — | archived. It needed a tablet and asked for the same beat Loot Catch already covers, with less reason to move. |
+| **Loot Catch** | one item at a time at a random x, a third of them bombs, a basket that teleported to your finger | waves down four lanes, three at a time, seven in ten of them bombs, and a basket with a top speed. See below. |
+| **Shape Snap** | centre shape changed after it appeared | a round can end inside the suspense window — a false start hands it over — and its reveal was still pending. Cancelled now. |
+| **Puck** | puck died when struck quickly | the impulse reflected the puck's ABSOLUTE velocity every frame the two overlapped, so a jab reflected a puck that was already leaving straight back into the mallet. Relative velocity, gated on closing. Measured: 81% of samples at the speed floor before, 5–49% after. |
+| **Odd One Out** | wrong tap left the same grid up | a wrong tap deals a fresh grid, and consecutive misses widen the colour difference. Nobody spends thirty seconds on one grid they cannot solve. |
+| **Grand Prix** | instant spin at the limit; a gauge at the bottom you raced instead of the track | grip goes gradually — the car yaws and scrubs speed, lift and it comes back, only a full slide spins you. The gauge is gone; the limits are painted on the tarmac. |
+| **Memory Match** | four ways of drawing the same blob, three pinks and two greys | faces that differ in silhouette, tints walked around the wheel, and the colour carried across the whole card. |
+
+## The Loot Catch rebuild, because it is the pattern
+
+Loot Catch is the clearest case in the roster of a game that was *arranged*
+rather than *designed*. It had all the parts — a thing to catch, a thing to
+avoid, a basket, a clock — and no question in it. One item fell at a time, at a
+random x, with the whole width to move in and a basket that went wherever your
+finger was. There was never a moment where you could not have both.
+
+The repair was not more bombs. More bombs at random positions is more things to
+step around, and stepping around things you have infinite time to step around is
+not a decision either. What it needed was a **question with a wrong answer**:
+
+- Loot falls in **waves down four fixed lanes**, three at a time, landing
+  together.
+- Seven in ten items are bombs, so a wave is typically two bombs and one coin.
+- The basket has a **top speed**. A hop to the next lane is nearly free;
+  crossing the whole run takes longer than a late wave spends falling.
+
+Now every wave asks: *which lane, and can I get there from where the last wave
+left me* — and the answer is sometimes no. Past the halfway mark some waves fill
+all four lanes, so the only move left is the least bad one.
+
+**The general form:** a game is not difficult because its numbers are hostile.
+It is difficult when it asks you something at a moment when you cannot have
+everything. Raising a hazard rate never creates that moment; taking away the
+ability to be everywhere does.
+
+## Two new games
+
+**FRAME MATCH** — one portrait in the middle of the table, cut into three
+horizontal bands. Top and bottom are the target's and never change; the middle
+is somebody else's and swaps every second. When the middle is the target's own,
+the face is whole for exactly one second, and the first person to tap their pad
+in that second takes the round. Best of five. A wrong tap costs a second and a
+half.
+
+It is the roster's cleanest example of **shared playfield, partitioned input**:
+there is one picture, in one place, and the only thing each seat owns is
+somewhere to put a thumb. That is what lets four people play it on a phone —
+nobody needs a playfield of their own, because the playfield is the thing in the
+middle they are all already looking at. It also answers the `roomy` question
+from the other side: a game can be *visually* large and still not want a tablet,
+because `roomy` is a question about the ZONE.
+
+Difficulty is in the decoys, not the clock. The frame rate never changes — a
+second is a second in round five. What narrows is what separates a decoy from
+the real thing: round one lets the eyes be a different colour, round five leaves
+only where they are looking.
+
+**SPEED BOAT** — one river, one set of rocks, and a camera per seat locked to
+its own boat. Drag to steer, tap to change gear: SLOW, CRUISE, FLAT OUT.
+
+This is the second RACE game the list above asked for, and it has the contact
+that request specified: boats shove each other, and the boat that is behind pays
+for the contact. It is also a **shared world with private viewports**, which is
+a structure the roster did not have — `MG_SHAPE` calls it an arena, and it is,
+but what is split is the camera rather than the water.
+
+The design is one number against another. Flat out covers the course in fifteen
+seconds and is the fastest anything can go; it is also the gear where the next
+line of rocks arrives before you can reach the gap in it, and a hit at speed
+costs more than a hit at a crawl. On the measured rates a cruising boat finishes
+a couple of seconds ahead of a flat-out one, and a slow boat is a long way
+behind both — so the throttle is a decision with a wrong answer at either end.
+That is only true of an average player: somebody reading two lines of rocks
+ahead can hold flat out through a stretch they are already lined up for, and
+they should win. The gear is meant to be worth thinking about, not to have one
+right answer.
+
+## Still open
+
+The repair list above is untouched except for Loot Catch and Odd One Out, and
+both of those were fixed in a different direction than it proposed — the list
+said "one shared chute", and what shipped kept the private chutes and made the
+decision inside one hard. That is a smaller change and it fixed the thing that
+was actually wrong; the shared-chute versions remain the better long-term
+answer and remain unbuilt.
+
+Of the four gaps named above, RACE is now two games and the other three are
+untouched: **no asymmetric game above two players**, **no team format**, and
+**only two coin games**.

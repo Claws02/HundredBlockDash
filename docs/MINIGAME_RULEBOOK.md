@@ -141,7 +141,7 @@ a player to.** The one that does is the one the roster is built on.
 ### 3.1 ARENA — one playfield, everyone at once
 
 Puck, Sumo Spheres, Tank Clash, Light Cycles, Clear Out, Bomb Pass, Grand Prix,
-Freeze, Quick Draw, Shape Snap, Orb Deflect, Penalty.
+Freeze, Quick Draw, Shape Snap, Frame Match, Speed Boat, Orb Deflect, Penalty.
 
 One puck, one arena, one signal. Nothing is divided except the **controls**, so
 a third and fourth player cost a control band and not a square inch of the
@@ -189,6 +189,46 @@ people reach into, so playing it across devices means agreeing on a physics step
 and reconciling input latency. That is Phase C in `MULTIPLAYER_PLAN.md` and it
 is a bigger job than the whole board was. Until then an ARENA online is a
 **duel with spectators** — see §6.4.
+
+#### 3.1a The shared object need not be an object
+
+An ARENA is usually read as a physical space with things moving in it, and the
+seating diagram above assumes the playfield is the middle of the screen. Neither
+is required. What makes a game an ARENA is that **every seat is acting on the
+same state**, and there are two variants of that worth naming because both are
+cheap seats and neither looks like a puck.
+
+**The shared SIGHT.** Quick Draw, Shape Snap and Frame Match have no simulation
+at all. There is one thing in the middle — a signal, a shape, a picture — and
+every seat is reading it. Nothing is divided but the pads, so a fourth player
+costs a control band and nothing else, and the pressure is free in the strongest
+form there is: everybody can see the same thing at the same moment, so nobody
+has to be told who was quicker.
+
+This is also the answer to a question `roomy` gets wrong on first reading. Frame
+Match puts a large picture on the screen and is still not `roomy`, because
+`roomy` is a question about the ZONE and the picture is not in anybody's zone.
+
+**The shared WORLD with private CAMERAS.** Speed Boat is one river with one set
+of rocks, and each seat's zone is a camera locked to its own boat. The state is
+shared — boats collide, and passing somebody is a thing that happens to them —
+but no seat sees the whole of it.
+
+This costs more zone than a shared sight: a camera is a playfield-sized view
+even though the playfield is shared. It is worth it when the world is longer
+than a screen, which is the case a plain ARENA cannot handle at all — you cannot
+put a thirty-length river in 412×648 and still see a rock in time.
+
+Two things it needs that a plain ARENA does not:
+
+1. **A ladder.** Four people looking at four cameras cannot see each other's
+   boats. Without a readout of who is where, the round is four solitaires that
+   happen to share a screen — which is exactly the failure Rule 1 names.
+2. **A view held constant in WORLD units, not pixels.** A two-seat zone is wide
+   and short and a four-seat zone is narrow and tall. If the visible distance
+   falls out of the pixel height, the same gear gives two players different
+   amounts of warning and the game is not the same game at every seat count.
+   Stretch the picture instead; nobody racing notices.
 
 ### 3.2 SPLIT — a playfield each, everyone at once
 
@@ -802,19 +842,25 @@ in six the cost — two people watching for one game — is worth the thing it b
 
 ### What this does not reach
 
-Twelve games are live and ten are not, and on a shared screen at three or four
-seats those ten are **not dealt** — the bag holds only what the table can
-actually play. Every one of the ten is now a decision rather than a backlog
-item, and `blockedReason()` says which: frame-exact contact (five), a turn order
-(two), two-sided by construction (Clear Out and Freeze), and twin-stick controls
+Thirteen of the twenty-three games are live and ten are not, and on a shared
+screen at three or four seats those ten are **not dealt** — the bag holds only
+what the table can actually play. Every one of the ten is a decision rather than
+a backlog item, and `blockedReason()` says which: frame-exact contact, a turn
+order, two-sided by construction (Clear Out and Freeze), and twin-stick controls
 that need a screen each (Tank Clash). `MINIGAME_CATEGORIES.md` §9 has the table.
 
-A 3–4 player match draws from twelve games on a tablet and six on a phone, so a
-six-round match on a tablet no longer repeats.
+A 3–4 player match draws from thirteen games on a tablet and eight on a phone,
+so a six-round match no longer repeats on either.
 
-Online is a different eighteen: six parallel games run across phones today, nine
-more need the wire tiers in `MULTIPLAYER_PLAN.md`, and seven are `exact` — one
-simulation two people reach into — and stay two-player.
+Online is a different split: five parallel games run across phones today, ten
+more need the wire tiers in `MULTIPLAYER_PLAN.md`, and the rest are `exact` —
+one simulation two people reach into — and stay two-player.
+
+These counts move whenever the roster does, and they are copied here by hand
+from `qa/surfaces.js`, which derives each of them from `MG_PROFILE` and fails
+when the number it computes stops matching the number written into the probe.
+That check is on the probe, not on this paragraph — if the two ever disagree,
+the probe is right.
 
 The two claims this section used to make and no longer does: that all
 twenty-two games are playable by three or four people locally (they were,
@@ -830,16 +876,16 @@ bystander problem (it is the bystander problem, dealt out one at a time).
 - `src/config/MinigameLayout.js` — the four structures as geometry: the seat
   ring, the chrome budget, `frameFor()`, `shapesFor()`, `railFor()`, and the
   300×300 law measured against whatever viewport it is handed.
-- `MG_SHAPE` / `MG_MODIFIER` in `MinigameRegistry.js` — all 22 shipped games
+- `MG_SHAPE` / `MG_MODIFIER` in `MinigameRegistry.js` — every shipped game
   classified, and `MG_NET` shown to agree with it.
 - `qa/layout.js` — 63 assertions, no browser. Overlap, containment, rotation,
   the law at three viewports, the "a third player is free" claim at 2/3/4, the
   rail's geometry, and the two registries agreeing.
 
 - **`MG_PROFILE.live` + `MinigameLayout.zonesFor()` + the N-seat roster in
-  `MinigameManager`** — §11. One game, every seat in it, at once. Four games
-  converted; the other ten are deliberately two-player and are not dealt at
-  three or four seats. `qa/livegames.js` plays every live game at 3 and at 4.
+  `MinigameManager`** — §11. One game, every seat in it, at once. Thirteen games
+  are live; the other ten are deliberately two-player and are not dealt at three
+  or four seats. `qa/livegames.js` plays every live game at 3 and at 4.
 - **The ready gate at N** — `_buildReadyButtons(n)`, one per seat, labelled and
   placed where that player is sitting; the countdown waits for all of them.
 - **Live standings across phones** — `mgTick` up, `soloStand` down, the same rail.
@@ -854,17 +900,16 @@ bystander problem (it is the bystander problem, dealt out one at a time).
 - **Any game using `frameFor()`.** All 22 compute their own halves. Nothing is
   broken by this — the module is additive — but the law is only enforced on
   games that ask.
-- **A ready gate for more than two seats.** Beats 3–5 are hard-wired to two:
-  `index.html` has exactly two `#mg-ready-*` buttons, `setReady` waits on
-  `state.mgReady[0] && state.mgReady[1]`, and the intro card's dual confirm is
-  `_introReady = [false, false]`. An ARENA, TABLE or RELAY round with three or
-  four people on one device fits on the screen and currently cannot be started
-  by all of them. **This is the first thing to build** — it gates every
-  structure in §3 except the one that already runs across phones without a
-  gate at all.
-- **ARENA, TABLE or RELAY at three or four players.** The geometry says they fit.
-  Whether four people around one phone can play any of them is a question a
-  probe cannot answer, and the answer is a person with the phone.
+- **TABLE or RELAY at three or four players.** The geometry says they fit, and
+  ARENA and SPLIT both now have live games at four, but no turn-based game has
+  been converted. Whether four people around one phone enjoy taking turns is a
+  question a probe cannot answer, and the answer is a person with the phone.
+
+(The N-seat ready gate is listed under **Built** above. It used to be the first
+item here, describing `index.html`'s two hard-wired `#mg-ready-*` buttons and
+`setReady`'s `mgReady[0] && mgReady[1]`; `_buildReadyButtons(n)` replaced both,
+and `qa/livegames.js` asserts one button per seat and a countdown that waits for
+the last of them.)
 
 **The one number to argue with:** `MIN_PLAY = 300`. It is derived, not measured
 — five targets and their gaps, plus headroom, checked against the 412×400 that
