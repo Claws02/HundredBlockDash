@@ -100,6 +100,10 @@ export function snapshot(state) {
         // The end-of-match chart is drawn from this, so it has to arrive before
         // the win screen does.
         hist: (state.history || []).slice(-120),
+        // Which Office holds the live Star. The comet is mirrored as an effect,
+        // but the effect is a one-off: a client that joined late, or replayed a
+        // dropped frame, needs the standing fact as well.
+        starNode: state.starNode || null,
     };
 }
 
@@ -121,6 +125,13 @@ function _playerOf(p) {
         bought: p.itemsBought,
         streak: p.consecutiveMgWins,
         cab: !!p.cabbieUsedThisRound,
+        // Star Territory. Stars ARE the score on that board, so a client whose
+        // snapshot did not carry them would paint every HUD and the whole win
+        // screen at zero while the host played a real match.
+        stars: p.stars || 0,
+        shards: p.shards || 0,
+        starsBought: p.starsBought || 0,
+        shardStars: p.shardStars || 0,
     };
 }
 

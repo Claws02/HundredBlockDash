@@ -287,6 +287,14 @@ window.__QA = (function () {
             const b = Math.random() < 0.5 ? byId('btn-shop-offer-enter') : byId('btn-shop-offer-skip');
             return tap(b, 'shop offer') && 'SHOP_OFFER';
         }
+        // The Territory Office (Star Territory). Weighted to BUY rather than
+        // 50/50: the probes need the purchase path exercised, and a coin flip on
+        // a card that only comes up a few times a match leaves it untested for
+        // whole runs. RIDE ON still gets taken often enough to cover the skip.
+        if (visId('star-offer-modal')) {
+            const b = Math.random() < 0.8 ? byId('btn-star-buy') : byId('btn-star-skip');
+            return tap(b, 'star offer') && 'STAR_OFFER';
+        }
         if (visId('shop-modal')) {
             const buys = [...byId('shop-items-list').querySelectorAll('.btn-buy:not([disabled])')];
             if (buys.length && Math.random() < 0.55) return tap(buys[Math.floor(Math.random() * buys.length)], 'buy') && 'BUY';
@@ -409,7 +417,10 @@ window.__QA = (function () {
         // City match length. A four-player match at 12 rounds is 48 board turns
         // plus 12 minigames — too long for a probe budget, so the seat-count
         // configs ask for the short one.
-        if (opts.map === 'city_circuit' && opts.rounds) {
+        // Round-count picker. Every round-limited board shares it — naming
+        // City here meant a Star Territory run silently played the default
+        // twelve rounds however short a match the probe asked for.
+        if (opts.rounds) {
             const c = document.querySelector(`[data-city-rounds="${opts.rounds}"]`);
             if (c) tap(c, 'rounds ' + opts.rounds);
         }

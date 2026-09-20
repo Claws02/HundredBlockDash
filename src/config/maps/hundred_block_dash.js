@@ -23,6 +23,8 @@ export default {
     branches:    {},
     regionKeys:  [],        // realms are positional, not named regions
     regionNames: {},
+    hub:     null,          // no hub: there is no road you come back to
+    stars:   null,
     botBias: {},
     layout:  { kind: 'hbd_curve' },
     gateNode: null,         // the Rift's position is computed from the length
@@ -40,4 +42,9 @@ export default {
         realms:        true,   // per-space biome re-skinning
         routeChoice:   false,
     },
+
+    // Coins plus the finish bonus. `finishBonus` is applied by WinScreen, which
+    // is the only place that knows whether the bonuses have already been paid on
+    // a networked host — so it is added there rather than here.
+    score(p) { return { value: p.coins, tiebreak: [typeof p.pos === 'number' ? p.pos : 0] }; },
 };

@@ -1,10 +1,32 @@
 # Star Territory — build spec
 
-**Date:** 2026-08-23
-**Branch:** `claude/game-map-design-scov1x`
-**Status:** spec. Nothing in `src/` is built yet.
+**Date:** 2026-08-23 · **updated 2026-09-20 against the built board**
+**Branch:** `claude/game-map-design-scov1x`, then `claude/star-territory-map-f7if8l`
+**Status:** **phases 0–5 built.** The map is selectable, plays end to end, and is
+scored on Stars. `qa/star.js` is the probe that holds it.
 **Companion:** `docs/THIRD_MAP_DESIGN.md` (the analysis and the options this
 settles).
+
+> ### What building it changed
+>
+> Three things in this document were wrong, and the probe found all three by
+> walking the real graph rather than trusting a table:
+>
+> 1. **§2.2's lap figures.** "23 spaces taking one territory" and "56 taking all
+>    four" assume ELEVEN-node lobes. Sixty playable nodes over a twelve-node hub
+>    and four lobes forces TWELVE, and twelve is also the only size that yields
+>    the 15 / 18 / 21 Office distances the whole balance model in §4.5 is derived
+>    from. The real figures are **24** and **60**, and the table below is
+>    corrected. The Office distances were right.
+> 2. **§2.6's "junction → first lobe node: 5.7".** 5.74 units is real, but it is
+>    the HUB NODE → JUNCTION half-step, not the junction-to-lobe leg. That leg is
+>    11.87. Both are measured in the probe now.
+> 3. **Two §2.6 headings.** The document had two sections numbered 2.6; the
+>    second (the hub pool argument) is 2.7 below.
+>
+> Everything else built as specced. The four levers, the dispatch rule, the
+> price ladder and the Shard lane are all in `src/core/Stars.js` and are
+> asserted by `qa/star.js` rather than argued for here.
 
 Four decisions were taken on the brief and this document is what they turn into:
 
@@ -108,17 +130,19 @@ Measured by walking the real directed graph, not estimated:
 | Trip | Spaces | ≈ turns @3.5 |
 |---|---:|---:|
 | Hub lap, no territory | 12 | 3.4 |
-| Hub lap taking one territory | 23 | 6.6 |
-| Hub lap taking all four | 56 | 16 |
+| Hub lap taking one territory | **24** | 6.9 |
+| Hub lap taking all four | **60** | 17 |
 | Junction → that territory's Office | 7 | 2.0 |
 | START → nearest Office (`rail_6`) | 9 | 2.6 |
 | Office → **nearest** other Office | **15** | 4.3 |
 | Office → middle Office | **18** | 5.1 |
 | Office → **farthest** Office | **21** | 6.0 |
 
-> **Corrected.** An earlier draft of this table estimated 12 / 18. The real
-> figures off the graph are **15 / 18 / 21** — every trip is 3–4 spaces longer
-> than guessed, and §4.5 is re-derived accordingly.
+> **Corrected twice.** An earlier draft estimated the Office distances at
+> 12 / 18; the real figures off the graph are **15 / 18 / 21**. The lap rows
+> were then wrong in the other direction — they were computed against an
+> eleven-node lobe, which the sixty-node budget rules out. A territory is
+> **12 extra spaces**, not 11. `qa/star.js` walks all of it.
 
 Because the board is a **directed** cycle, these distances are asymmetric:
 `rail_6 → mine_6` is 15 steps but `mine_6 → rail_6` is 21. That is what makes
@@ -133,13 +157,14 @@ chase, short enough that the trailing player can win it.
 The layout was generated and stress-tested before being written down. Against
 City Circuit's ~10-unit step:
 
-| Measure | Result |
-|---|---|
-| Step along any road | **10.4 – 11.4 units** (City: ~10) |
-| Closest **non-adjacent** pair of nodes | **10.4 units** — a full step apart, nothing crowds |
-| Junction → first lobe node | 5.7 |
-| Last lobe node → rejoin node | 11.9 |
-| Board radius | 72 |
+| Measure | Result | Re-measured in `qa/star.js` |
+|---|---|---|
+| Step along a road | **10.4 – 11.4 units** (City: ~10) | 10.35 lobe · 11.39 hub ✅ |
+| Closest **non-adjacent** pair | **10.4 units** — a full step apart | 10.35 (`rail_0`/`rail_11`) ✅ |
+| Hub node → junction | *(was mislabelled)* 5.7 | 5.74 ✅ |
+| Junction → first lobe node | *(was 5.7 — wrong row)* | 11.87 |
+| Last lobe node → rejoin node | 11.9 | 11.44 ✅ |
+| Board radius | 72 | 71.5 (no node sits on the extremity) ✅ |
 
 The middle row is the one that matters, and it is what killed the teardrop:
 non-adjacent nodes must not be closer than adjacent ones, or the board reads as
@@ -193,7 +218,7 @@ out of a real audit; there is no reason to re-derive them.
 `THIRD_MAP_DESIGN.md` §5 — this is a lap map and nothing on it may move you
 along the track.
 
-### 2.6 · The hub must not be filler
+### 2.7 · The hub must not be filler
 
 Twelve nodes everybody crosses constantly. Perdition is the **only** pool outside
 Boot Hill carrying two reds, and it holds a duel and a magnet. It is where you
@@ -468,14 +493,28 @@ whole biome / surface / dressing / lighting / landmark / overhead system.
 
 ### 5.4 · Phases
 
-| # | Phase | Ends with |
-|---|---|---|
-| 0 | ~~Map-module refactor~~ — **done**, `d2c5254` | Both boards play; `qa/mapmodules.js` 30/30, layout identical to 1e-9 u |
-| 1 | The board — graph, layout, pools, junctions, briefing. No Star | You can walk a Clover lap; plays as a City variant |
-| 2 | Dressing — biomes, surfaces, props, lights, landmarks, spans, arrival banners | It looks like a place |
-| 3 | The Star — state, offer, purchase, dispatch, Shards, HUD, bot | The map is the map |
-| 4 | Set pieces — claim, comet dispatch, shard fusion | It feels like the biggest moment on the board |
-| 5 | Scoring & polish — win screen, chart series, bounty pool, `qa/star.js` | Shippable |
+| # | Phase | Ends with | Status |
+|---|---|---|---|
+| 0 | Map-module refactor | Both boards play; `qa/mapmodules.js` green | ✅ `d2c5254` |
+| 1 | The board — graph, layout, pools, junctions, briefing | You can walk a Clover lap | ✅ |
+| 2 | Dressing — biomes, surfaces, props, lights, landmarks, spans | It looks like a place | ✅ |
+| 3 | The Star — state, offer, purchase, dispatch, Shards, HUD, bot | The map is the map | ✅ |
+| 4 | Set pieces — claim, comet dispatch, shard fusion | The biggest moment on the board | ✅ |
+| 5 | Scoring & polish — win screen, bounty pool, `qa/star.js` | Shippable | ✅ |
+
+**What phase 1–5 actually touched**
+
+| File | Why |
+|---|---|
+| `src/config/maps/star_territory.js` | new — graph, pools, layout, Star constants, `score()` |
+| `src/core/Stars.js` | new — the rules, the arithmetic, and nothing else |
+| `qa/star.js` | new — 40-odd assertions, all measured rather than restated |
+| `src/engine/Renderer.js` | `clover` layout kind, the plinth mesh, the whole Wild West dressing pass |
+| `src/engine/SetPieces.js` | `starClaim` (the comet) and `shardFuse` |
+| `src/core/GameController.js` | the Office pass-through, the purchase, the Shard grants, the lap counter |
+| `src/config/ContractPool.js` | per-map decks, eight Wild West cards |
+| `src/core/WinScreen.js` | score is `ActiveMap.score()` — a value plus a tiebreak CHAIN |
+| `ActiveMap` / `GameState` / `Bot` / `NetProtocol` / `NetSync` / `UIManager` | the seams the spec predicted, plus three it did not: the hub key, the `districtsVisited` literal, and the bot's hardcoded `ind_0` |
 
 ## 6. The bot
 
@@ -530,16 +569,41 @@ Three additions to `Bot.js`, all in the existing shape:
 - `MapRegistry.js` now carries an inert `available: false` stub for this map;
   `qa/parsecheck.sh` is green on the change.
 
-**NOT verified — nothing here is built or played:**
-- All balance in §4.5. The *distances* are measured but **coin income is inferred
-  from pool composition**, not sampled from real matches, and turn count assumes
-  a mean roll of 3.5 with no boosts. **Sample it in phase 3, before tuning
-  anything by feel** — `SHARDS_PER_STAR` especially.
-- The 4.4 s set-piece budget is a paper figure, and the container renders at
-  roughly half speed, so it cannot be timed here.
-- Whether the Clover reads as a board at the game's *camera* distance. The
-  numbers in §2.6 prove the tiles do not collide; they say nothing about what a
-  follow camera 19 units back and 26 up actually frames when a lobe curves away.
+**Verified by the build, 2026-09-20 — `qa/star.js`, driving the real game:**
+- Topology, furniture and pool arithmetic: 64 nodes, 60 playable, 12 fixed
+  squares, 48 random slots, the §2.5 totals to the card, 6 red = 1 per 10, and
+  zero movement tiles.
+- **All distances re-measured on the directed graph**, which is how §2.2's two
+  contradictory tables were caught. 15 / 18 / 21 stands; 23 / 56 does not.
+- **Geometry measured off the built layout**, not the formula: uniform steps,
+  the closest non-adjacent pair a full step out, every lobe clear of the hub.
+- Every Star rule: the price ladder, dispatch to the farthest Office, the Gate
+  holding the Mine's Office out of rotation, Shards redeeming at four, a Shard
+  being stakeable and a Star not.
+- The per-map bounty split, including that no hint still points at a City
+  district.
+- A real 1P match: the board deals, tokens stay on real squares, the live Star
+  is always on an Office, and the win screen ranks 1 Star + 5 coins ABOVE
+  0 Stars + 400 coins.
+- **The board photographed at three camera distances** (`qa/mapshot.js
+  star_territory`). Four fixes came out of looking rather than out of any
+  assertion: the goods-shed roofs rendered as oil drums, the horizon crowded
+  the lobes, Boot Hill read as gravel, and its mesa read as a wedding cake.
+
+**STILL NOT verified:**
+- **All balance in §4.5.** The distances are measured; **coin income is still
+  inferred from pool composition**, not sampled from real matches, and the turn
+  count assumes a mean roll of 3.5 with no boosts. `SHARDS_PER_STAR` is
+  untouched at 4 on purpose — **measure it over real matches before tuning it
+  by feel.**
+- The 4.4 s set-piece budget is still a paper figure. The container renders at
+  roughly half speed, so the claim cinematic cannot be timed here.
 - Whether four levers fixes two-player Star luck or over-corrects into a game
-  where the Star stops mattering.
-- Effort figures are judgement, not a broken-down schedule.
+  where the Star stops mattering. This is risk 1 and it is **unproven until
+  played by people**. Watch it first.
+- Whether the Star readout, the BUY/RIDE ON card and the comet read well on a
+  real phone. They are correct in the DOM and in the scene graph; that is not
+  the same claim.
+- Set-piece LOAD. Star Territory now has thirteen set pieces where City had
+  eleven. `TURN_FLOW.md` §11 already flags "too many things stopping to be
+  looked at", and nothing here measures it.

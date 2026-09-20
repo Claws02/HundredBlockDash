@@ -5,6 +5,29 @@
 import { MAPS, DEFAULT_MAP } from '../config/maps/index.js';
 import { PLAYER_SLOTS, DEFAULT_PLAYERS, MIN_PLAYERS, MAX_PLAYERS } from '../config/GameConfig.js';
 
+// The active map module, read DIRECTLY rather than through ActiveMap.js —
+// which imports this file, and a cycle that happens to resolve at runtime is
+// still a cycle. Same reasoning resetPlayers() already used for the start
+// square; it is now a helper because a second thing needs it.
+function _map() {
+    // `state` is still in its temporal dead zone while the object literal below
+    // is being evaluated, and makePlayer() runs there to build the opening two
+    // seats. `typeof` does not help — it throws on a TDZ binding too — so the
+    // read is guarded and falls back to the default map, which resetPlayers()
+    // then overwrites with the real one before any match starts.
+    let id = null;
+    try { id = state.selectedMap; } catch (_) { /* module init */ }
+    return MAPS[id] || MAPS[DEFAULT_MAP];
+}
+
+// A fresh visit tally, keyed by whatever regions THIS board has. It used to be
+// the literal `{ fin: 0, ba: 0, shop: 0, ind: 0 }` in two places, so a board
+// with different regions counted visits into keys nothing ever read and the
+// dominance/bounty passes saw four zeroes forever.
+function _freshVisits() {
+    return Object.fromEntries((_map().regionKeys || []).map(k => [k, 0]));
+}
+
 // ============================================================
 // PLAYER FACTORY
 // ============================================================
@@ -23,7 +46,17 @@ export function makePlayer(id) {
         _shielded: false,
         // City Circuit tracking
         allies: [],          // up to MAX_ALLIES: { type, turnsRemaining, shieldCharges?, mesh }
-        districtsVisited: { fin: 0, ba: 0, shop: 0, ind: 0 },
+        districtsVisited: _freshVisits(),
+        // ---- Star Territory ----
+        // Stars are the SCORE on that board and can never be taken. Shards can:
+        // four of them redeem into a Star for free, and a duel may be staked
+        // with one instead of coins. Both are carried by every seat on every
+        // board so nothing has to branch before reading them — they simply stay
+        // at zero where the map has no Offices.
+        stars:  0,
+        shards: 0,
+        starsBought: 0,      // travel-lane Stars, for the win card
+        shardStars:  0,      // Stars that came from redeeming four Shards
         districtHQsThisLoop: new Set(),
         fullCircuitsCompleted: 0,
         contractsClaimed: 0,
@@ -175,6 +208,15 @@ export const state = {
     // 0..1 board progress so the same chart works for both maps.
     history: [],
 
+    // ---- Star Territory ----
+    // Which Office is holding the live Star. ONE Star is live at a time and its
+    // location is never hidden: the HUD, the map view, the round report and the
+    // briefing all read this. null means the board has no Star system running.
+    starNode:        null,
+    // Set while the dispatch set piece is in flight, so the HUD can say where
+    // the Star is GOING before the comet lands. Cleared when it arrives.
+    starInFlight:    null,
+
     // Board — map of nodeId → { type, owner? }
     board: {},
 };
@@ -190,7 +232,8 @@ export function resetPlayers() {
         p.inv = []; p.mesh = null;
         p._shielded = false;
         p.allies = [];
-        p.districtsVisited = { fin: 0, ba: 0, shop: 0, ind: 0 };
+        p.districtsVisited = _freshVisits();
+        p.stars = 0; p.shards = 0; p.starsBought = 0; p.shardStars = 0;
         p.districtHQsThisLoop = new Set();
         p.fullCircuitsCompleted = 0;
         p.contractsClaimed = 0;
@@ -230,5 +273,7 @@ export function resetPlayers() {
     state.pendingShopDiscount = 1.0;
     state.pendingForcedMove   = 0;
     state.pendingResultOverride = null;
+    state.starNode           = null;
+    state.starInFlight       = null;
     state.history            = [];
 }

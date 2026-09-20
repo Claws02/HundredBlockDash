@@ -65,6 +65,12 @@ const FX = {
     hqPayout:     (a, done) => SetPieces.hqPayout(_seat(a.seat), a.amount, done || (() => {})),
     duelFaceoff:  (a, done) => SetPieces.duelFaceoff(_seat(a.a), _seat(a.b), done || (() => {})),
     swap:         (a, done) => Renderer.playSwapCinematic(_seat(a.a), _seat(a.b), done || (() => {})),
+    // Star Territory. Both are named entirely by DATA a client can resolve on
+    // its own — a seat, two node ids — so the comet crosses every device's
+    // board, which is the whole point of beat 4: it is how the OTHER player
+    // learns where the next Star went without reading a HUD.
+    starClaim:    (a, done) => SetPieces.starClaim(_seat(a.seat), a.node, a.to, done || (() => {})),
+    shardFuse:    (a, done) => SetPieces.shardFuse(_seat(a.seat), done || (() => {})),
 };
 
 export const FX_NAMES = Object.keys(FX);

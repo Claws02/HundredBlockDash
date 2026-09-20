@@ -1,5 +1,16 @@
 # The four districts
 
+> **Since 2026-09-20 this rule governs three boards, not one.** Star Territory
+> carries five more `DISTRICT_BIOMES` entries built to exactly the contract
+> below — 🤠 Perdition, 🚂 Ironwood Railyard, ⛏️ Cinder Mine, 🐎 Longhorn Ranch
+> and 🏜️ Boot Hill Badlands, each with its own time of day, surface, prop set,
+> lamp and motes. The six dressing passes in `Renderer.js` iterate the table and
+> ask `_districtNodes(key)` which nodes on the CURRENT board belong to each, so a
+> region that is not on this map contributes nothing and costs nothing. One
+> table, and no board builds another board's scenery. The one line that was NOT
+> data-driven — a hardcoded `['fin','ba','shop','ind']` in the surface pass — is
+> now `ActiveMap.regionKeys()`.
+
 City Circuit is a lap map whose only real decision is *which road to take*. That
 decision is only interesting if the roads are different places.
 

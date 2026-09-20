@@ -19,6 +19,7 @@ import {
 import { MAP_REGISTRY } from '../config/MapRegistry.js';
 import * as Bot from './Bot.js';
 import { initCityBoard, generateBoard } from './BoardSetup.js';
+import * as Stars from './Stars.js';
 import { calculateWinner } from './WinScreen.js';
 import { initContracts, checkContract as _checkContract } from './Contracts.js';
 import { earnCoins, loseCoins } from './Economy.js';
@@ -405,6 +406,11 @@ export function startGame() {
             generateBoard();
         } else {
             initCityBoard();
+            // One Star is live from the first frame. Placing it here rather than
+            // on the first turn means the briefing, the map view and the HUD all
+            // have somewhere to point before anybody rolls — rule 1 is that its
+            // location is never hidden, and "not yet decided" is hidden.
+            Stars.initStars();
         }
         Renderer.init(document.getElementById('game-container'));
         UIManager.initCoinDisplays();
@@ -676,11 +682,15 @@ export function moveThroughGraph(player, stepsTotal) {
             // more tiles this roll covers once the road is chosen.
             _offerBranchChoice(nextId, (chosenId) => {
                 _noteDistrictEntry(player, chosenId);
-                // If entering Industrial and gate is closed
-                if (ActiveMap.graph()[nextId]?.next?.includes(chosenId) && ActiveMap.graph()[chosenId]?.district === 'ind' && chosenId === 'ind_0' && !state.gateOpen) {
+                // Turning down a road that starts at a gate which is still
+                // shut. This used to name City's `ind_0` three times over, so
+                // the second graph board's rockslide would have been walked
+                // straight past — the check is about THE MAP'S gate node now.
+                if (ActiveMap.has('gate') && chosenId === ActiveMap.gateNode() && !state.gateOpen) {
+                    const gateNode = ActiveMap.gateNode();
                     _pendingStepsAfterGate = stepsLeft - 1;
-                    player.pos = 'ind_0'; // position them at gate
-                    Renderer.animatePlayerHop(player, 'ind_0', () => {
+                    player.pos = gateNode;      // position them at the gate
+                    Renderer.animatePlayerHop(player, gateNode, () => {
                         triggerGateChallenge(player);
                     });
                     return;
@@ -746,9 +756,18 @@ function _noteDistrictEntry(player, nodeId) {
     if (!dist) return;
     // Back on the Ring Road: clear the latch so the next entry counts again
     // (a contract for this district may not have been dealt yet).
-    if (dist === 'ring') { player._lastDistrictEntered = null; return; }
+    if (ActiveMap.isHub(dist)) { player._lastDistrictEntered = null; return; }
     if (player._lastDistrictEntered === dist) return;
     player._lastDistrictEntered = dist;
+    // WHERE THERE IS NO HQ, ENTERING IS THE VISIT.
+    //
+    // districtsVisited is incremented at the HQ on City Circuit, and Star
+    // Territory has no HQs — the Offices replaced them. Without this the
+    // territory tally stayed at four zeroes all match, which the win card's
+    // chips and two of the bounties both read.
+    if (!ActiveMap.has('hqBonus') && ActiveMap.regionKeys().includes(dist)) {
+        player.districtsVisited[dist] = (player.districtsVisited[dist] || 0) + 1;
+    }
     _checkContract(player, 'enter_district', dist);
     // Say where you have arrived. Turning off the ring into a district is the
     // one deliberate journey a player makes on this board, and it used to
@@ -773,9 +792,10 @@ function _noteDistrictEntry(player, nodeId) {
 // Now: build the list of interruptions this square owes, in a fixed order, and
 // walk it with an index. One continuation, one place that decides the turn is
 // over, and each step gets the whole screen until it hands back.
-const PASS_STEPS = ['hq', 'steal', 'buddy', 'shop'];
+const PASS_STEPS = ['plinth', 'hq', 'steal', 'buddy', 'shop'];
 
 function _checkPassThroughShop(player, nodeId, stepsLeft, continueMove) {
+    _noteLap(player, nodeId);
     const b   = state.board[nodeId];
     // Whoever else is standing on this square with a buddy to lose. At two
     // seats this is the other player; at four it is the one you actually
@@ -788,6 +808,11 @@ function _checkPassThroughShop(player, nodeId, stepsLeft, continueMove) {
     // also fire the buddy step, and nothing re-reads state a later step changed.
     const due = PASS_STEPS.filter(k => {
         if (stepsLeft <= 0) return false;
+        // PASSING THE OFFICE IS ENOUGH (spec §4.2.2). It copies the HQ rule,
+        // which pays on pass-through and is the most satisfying moment on City
+        // Circuit — and it removes "I rolled a 5 instead of a 4 and lost the
+        // match", which on a board scored in Stars would be the whole match.
+        if (k === 'plinth') return Stars.isLiveOffice(nodeId);
         if (k === 'hq')    return b?.type === 'hq' && !!ActiveMap.regionOf(nodeId);
         if (k === 'steal') return hasBuddies && !!mark;
         if (k === 'buddy') return hasBuddies && state.allyOnMap && state.allyOnMap.nodeId === nodeId;
@@ -802,6 +827,11 @@ function _checkPassThroughShop(player, nodeId, stepsLeft, continueMove) {
         if (idx >= due.length) { state.gameState = 'MOVING'; continueMove(); return; }
         const step = due[idx++];
         state.gameState = 'MOVING';
+
+        if (step === 'plinth') {
+            _offerStar(player, nodeId, next);
+            return;
+        }
 
         if (step === 'hq') {
             // District HQ pays for PASSING it, not just for stopping on it.
@@ -869,6 +899,20 @@ function _checkPassThroughShop(player, nodeId, stepsLeft, continueMove) {
     };
 
     next();
+}
+
+// A LAP IS PASSING START, ON A BOARD THAT DOES NOT COUNT HQs.
+//
+// City Circuit counts a circuit when you have collected all four District HQs,
+// which is the right rule there because the HQs are what a circuit is FOR. Star
+// Territory has no HQs, and its lap is the plain thing: back past the Marshal's
+// Office. It is the second tiebreak on that board (§4.4), so it has to be
+// counted somewhere, and passing START is the only definition that does not
+// need a system the board no longer runs.
+function _noteLap(player, nodeId) {
+    if (!ActiveMap.isGraph() || ActiveMap.has('circuitBonus')) return;
+    if (nodeId !== ActiveMap.startPos()) return;
+    player.fullCircuitsCompleted = (player.fullCircuitsCompleted || 0) + 1;
 }
 
 function _onLand(player) {
@@ -1255,6 +1299,28 @@ export function resolveSpaceEffect(p, spaceType, space) {
             const disc    = distKey === 'ba' ? BA_DISCOUNT : 1.0;
             Fx.play('shopGlow', { node: p.pos });
             Director.hold('SHOP_OPEN', () => openShop(distKey, disc)); return null;
+        }
+        case 'plinth': {
+            // Landing exactly on it. The pass-through step above only fires
+            // while there are steps LEFT, so the one case it cannot cover is
+            // stopping dead on the Office — which, on a board scored in Stars,
+            // is the last place the offer may go missing.
+            const region = ActiveMap.regionName(ActiveMap.regionOf(p.pos));
+            if (!Stars.isLiveOffice(p.pos)) {
+                _checkContract(p, 'visit_plinth');
+                return `⭐ The ${region} Office, standing empty.\n${Stars.statusLine()}.`;
+            }
+            _checkContract(p, 'visit_plinth');
+            // Rule 6 has to be SAID, and on a landing it is said with a card
+            // rather than a toast — walking all the way here and being told
+            // nothing is the one moment on the board that would read as a bug.
+            const price = Stars.priceFor(p);
+            if (p.coins < price) {
+                return `⭐ The Star is here — and the bond is ${price}.\n` +
+                       `You are carrying ${p.coins}. The trip was the gamble.`;
+            }
+            _offerStar(p, p.pos, () => Director.hold('POST_RESULT', finishTurn));
+            return null;
         }
         case 'hq': {
             const gNode  = ActiveMap.graph()[p.pos];
@@ -1686,6 +1752,9 @@ function _afterAllyReveal(then) {
 function _resolveMinigameResult(winnerId) {
     state.mgContext = null;
     let msg, icon;
+    // Read BEFORE the branch below clears it: the Shard grant further down asks
+    // the same question, and by then the flag has already been reset.
+    const tied = state.lastMinigameTied;
     if (state.lastMinigameTied) {
         state.lastMinigameTied = false;
         msg = playerCount() > 2
@@ -1711,6 +1780,11 @@ function _resolveMinigameResult(winnerId) {
         _checkContract(state.players[winnerId], 'win_minigame');
         _checkContract(state.players[winnerId], 'win_minigames', null, state.players[winnerId].consecutiveMgWins);
     }
+    // The Shard is granted BEFORE the card goes up, so the card's own toast
+    // queue carries "took a Shard" in the same beat as "wins the round" rather
+    // than a beat behind it. A redemption raises its own set piece, which sits
+    // behind the result card and plays as it is dismissed.
+    if (Stars.enabled() && !tied) _awardShard(state.players[winnerId], 'minigame');
     ModalManager.showMessage('MINIGAME OVER', msg, icon, { tier: 'shared' });
     Renderer.startPostMinigameFlyover(() => { state.cameraState = 'FOLLOW'; });
     if (ActiveMap.has('roundLimit')) UIManager.updateRoundCounter(state.currentRound, _cityRounds());
@@ -1944,7 +2018,21 @@ export function resolveGateRoll() {
                     Renderer.updateSingleTile();
                     if (state.gameState === 'GATE') Renderer.focusOnGate(p);
                 });
-                document.getElementById('gate-result').textContent = '🔓 INDUSTRIAL ZONE OPEN!';
+                // A FOURTH DESTINATION, NOT JUST A DISTRICT.
+                //
+                // On City Circuit the Gate guards a district that pays coins.
+                // Here it also guards one of the four Offices, so breaking it
+                // puts a fourth place the Star can be sent into rotation for the
+                // rest of the match — this Gate is worth SCORE. Saying so is the
+                // difference between a reward and a door.
+                const opened = Stars.officesOpenedByGate();
+                if (opened.length) {
+                    const where = opened.map(id => ActiveMap.regionName(ActiveMap.regionOf(id))).join(' · ');
+                    UIManager.toast(`⭐ The ${where} Office joins the rotation!`, '#fbbf24', { urgent: true });
+                }
+                document.getElementById('gate-result').textContent = Stars.enabled()
+                    ? '🔓 THE ROCKSLIDE BREAKS!'
+                    : '🔓 INDUSTRIAL ZONE OPEN!';
                 document.getElementById('gate-result').style.color = '#4ade80';
                 document.getElementById('gate-open-banner').style.display = 'block';
                 document.getElementById('gate-continue-btn').textContent = 'ENTER ZONE';
@@ -2154,6 +2242,134 @@ export function shopOfferEnter() {
 }
 
 export function shopOfferSkip() { ModalManager.closeAllModals(); _afterPassThroughShop(); }
+
+// ============================================================
+// THE STAR — buying, dispatch, Shards
+// ============================================================
+//
+// The rules live in core/Stars.js. This is the turn flow around them: who gets
+// asked, what they are told, which beat each answer costs, and the set pieces.
+//
+// Deliberately the shop's shape (`_checkPassThroughShop` -> modal -> command ->
+// `_afterPassThroughShop`), because the shop's shape is already the answer to
+// "interrupt a move, take the screen, and give the walk back afterwards". A
+// second mechanism for the same job is a second place for the walk to be lost.
+
+// Which Office the open offer belongs to. Read by the BUY command, cleared on
+// either answer — an offer left set would let the NEXT press buy a Star from an
+// Office the player is nowhere near.
+let _pendingStarNode = null;
+
+function _offerStar(player, nodeId, cont) {
+    const price = Stars.priceFor(player);
+
+    // Rule 6: can't afford it, nothing happens, nothing is refunded. The trip
+    // was the gamble, and a consolation payout was considered and cut — it
+    // softens the only moment on the board with real teeth. It is still SAID,
+    // because walking past a Star in silence reads as a bug.
+    if (player.coins < price) {
+        UIManager.toast(`⭐ The bond is ${price} — ${player.name} has ${player.coins}.`,
+            '#f59e0b', { urgent: true });
+        Director.hold('PASSTHROUGH', cont);
+        return;
+    }
+
+    if (player.isBot) {
+        if (!Bot.starBuy(player, price)) { Director.hold('PASSTHROUGH', cont); return; }
+        Director.hold('PASSTHROUGH', () => _buyStar(player, nodeId, cont));
+        return;
+    }
+
+    state.gameState = 'ACKNOWLEDGE';
+    _pendingStarNode = nodeId;
+    _passThroughResumeHop = cont;
+    ModalManager.showStarOffer(player, nodeId, price);
+}
+
+export function starOfferBuy() {
+    ModalManager.closeAllModals();
+    const player = state.players[state.activePlayer];
+    const nodeId = _pendingStarNode;
+    _pendingStarNode = null;
+    // The offer can only be answered for the Office it was raised at, and only
+    // while the Star is still standing there.
+    if (!nodeId || !Stars.isLiveOffice(nodeId) || Stars.priceFor(player) > player.coins) {
+        _afterPassThroughShop();
+        return;
+    }
+    const resume = _passThroughResumeHop; _passThroughResumeHop = null;
+    _buyStar(player, nodeId, () => {
+        state.pendingReturnState = null;
+        state.gameState = 'MOVING';
+        if (resume) Director.hold('PASSTHROUGH', resume);
+    });
+}
+
+export function starOfferSkip() {
+    _pendingStarNode = null;
+    ModalManager.closeAllModals();
+    _afterPassThroughShop();
+}
+
+/**
+ * Post the bond, take the Star, send the next one away.
+ *
+ * STATE FIRST, ANIMATION SECOND — TURN_FLOW.md §7. The set piece runs about
+ * four and a half seconds and an interrupted one must never cost anybody a
+ * Star, so every number has already moved before the first frame plays.
+ */
+function _buyStar(player, nodeId, cont) {
+    const result = Stars.buy(player, nodeId);
+    _checkContract(player, 'buy_star', null, player.starsBought);
+    _checkContract(player, 'visit_plinth');
+    UIManager.updateUI();
+    sfx('coin_gain');
+    state.gameState = 'ACKNOWLEDGE';
+
+    const region = ActiveMap.regionName(ActiveMap.regionOf(result.to));
+    Fx.play('starClaim', { seat: player.id, node: nodeId, to: result.to, stars: result.stars }, () => {
+        Renderer.endCinematic();
+        state.cameraState = 'FOLLOW';
+        UIManager.toast(
+            `⭐ ${player.name} pins on Star ${result.stars}! −${result.price} coins · the next is at the ${region} Office`,
+            '#fbbf24', { urgent: true });
+        UIManager.updateUI();
+        Renderer.drawTiles();
+        cont();
+    });
+}
+
+/**
+ * A Shard, and the free Star four of them turn into.
+ *
+ * The second lane exists for the player who is behind on coins with no path to
+ * an Office (spec §4.3). It is deliberately the SMALLER lane — travel is the
+ * primary one, because travel is what the board is for — so a Shard is a toast
+ * and only the redemption gets a set piece.
+ */
+function _awardShard(player, reason, then) {
+    const r = Stars.grantShard(player, reason);
+    if (!r.granted) { then && then(); return; }
+    _checkContract(player, 'hold_shards', null, player.shards);
+    UIManager.updateUI();
+    if (!r.redeemed) {
+        const need = Stars.shardsPerStar();
+        UIManager.toast(`✨ ${player.name} takes a Star Shard — ${r.shards}/${need}`, '#c084fc');
+        then && then();
+        return;
+    }
+    _checkContract(player, 'buy_star', null, player.starsBought);
+    Fx.play('shardFuse', { seat: player.id, stars: r.stars }, () => {
+        Renderer.endCinematic();
+        state.cameraState = 'FOLLOW';
+        UIManager.toast(`⭐ Four Shards fuse — ${player.name} pins on Star ${r.stars}!`, '#fbbf24', { urgent: true });
+        UIManager.updateUI();
+        then && then();
+    });
+}
+
+/** Exported for the probe, which needs to award a Shard without playing a round. */
+export function awardShard(player, reason, then) { _awardShard(player, reason, then); }
 
 // Drop a continuation that no longer belongs to the move in progress. A slot
 // left set from an abandoned move would make the NEXT shop close resume a walk
@@ -2710,7 +2926,10 @@ function _startDuel(p, betAmount) {
         state.pendingDuelTarget = null;
         state.gameState = 'ACKNOWLEDGE';
         Renderer.startPostMinigameFlyover(() => { state.cameraState = 'FOLLOW'; });
-        Director.hold('POST_RESULT', finishTurn);
+        // A duel is one of the two things that pays a Star Shard. The other is
+        // the round minigame — both are "you beat somebody", which is the lane
+        // a player with no coins and no route to an Office still has.
+        _awardShard(winner, 'duel', () => Director.hold('POST_RESULT', finishTurn));
     }, { title: '⚔️ DUEL DRAW' });
 }
 
@@ -2757,6 +2976,8 @@ Commands.define({
     closeShop:     closeShopModal,
     shopEnter:     shopOfferEnter,
     shopSkip:      shopOfferSkip,
+    starBuy:       starOfferBuy,
+    starSkip:      starOfferSkip,
     dropConfirm:   confirmDrop,
     dropCancel:    cancelDrop,
     customDice:    confirmCustomDice,

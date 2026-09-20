@@ -9,6 +9,8 @@ import * as Commands from '../core/Commands.js';
 import { ITEMS, MAX_INV, DISTRICT_SHOPS, BA_DISCOUNT, GRAND_MALL_DISCOUNT, DUEL_BET_OPTIONS,
          PLAYER_SLOTS, CHAR_ICONS } from '../config/GameConfig.js';
 import * as DualRead from './DualRead.js';
+import * as ActiveMap from '../config/ActiveMap.js';
+import * as Stars from '../core/Stars.js';
 
 let _controller    = null;
 let _wired         = false;
@@ -408,6 +410,34 @@ export function showShopOffer() {
     showModal('shop-offer-modal');
 }
 
+// ---- Territory Office offer (Star Territory) ----
+
+/**
+ * The BUY / RIDE ON card.
+ *
+ * It names the price, what is left afterwards, and WHERE THE NEXT STAR WILL GO
+ * — because the dispatch is the consequence of the decision and a player should
+ * be able to weigh it before they press, not learn it from the cinematic.
+ */
+export function showStarOffer(player, nodeId, price) {
+    state.gameState = 'ACKNOWLEDGE';
+    const region = ActiveMap.regionName(ActiveMap.regionOf(nodeId));
+    const to = Stars.dispatchTarget(player, nodeId);
+    const toName = to ? ActiveMap.regionName(ActiveMap.regionOf(to)) : null;
+    const title = document.getElementById('star-offer-title');
+    const desc  = document.getElementById('star-offer-desc');
+    const note  = document.getElementById('star-offer-note');
+    if (title) title.textContent = `${(player.stars || 0) === 0 ? 'THE SHERIFF\u2019S STAR' : `STAR ${(player.stars || 0) + 1}`}`;
+    if (desc) desc.innerHTML =
+        `The Star is on its plinth at the <b>${region} Office</b>.<br>` +
+        `Post a bond of <b>${price}</b> and pin it on — you would have <b>${player.coins - price}</b> left.`;
+    if (note) note.innerHTML = toName
+        ? `The next Star is dispatched to the <b>${toName} Office</b>.`
+        : 'No other Office is open — the Star stays where it is.';
+    showModal('star-offer-modal');
+}
+
+
 // ---- Wire static buttons (called once at init) ----
 
 function _wireStaticButtons() {
@@ -426,6 +456,8 @@ function _wireStaticButtons() {
     // Shop offer
     document.getElementById('btn-shop-offer-enter').addEventListener('click', () => Commands.run('shopEnter'));
     document.getElementById('btn-shop-offer-skip').addEventListener('click',  () => Commands.run('shopSkip'));
+    document.getElementById('btn-star-buy').addEventListener('click',  () => Commands.run('starBuy'));
+    document.getElementById('btn-star-skip').addEventListener('click', () => Commands.run('starSkip'));
 
     // Custom dice
     document.getElementById('custom-dice-modal').addEventListener('click', e => {

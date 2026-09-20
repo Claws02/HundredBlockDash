@@ -42,6 +42,30 @@ export function layout()      { return active().layout; }
 export function startPos()    { return active().start; }
 export function gateNode()    { return active().gateNode; }
 
+// The road everybody is always on — City's ring, Star Territory's Perdition.
+// Seven places across four modules used to compare against the literal 'ring',
+// which silently means "the hub" on one board and nothing at all on another.
+export function hubKey()      { return active().hub; }
+export function isHub(key)    { return !!key && key === active().hub; }
+
+// The Star rules, or null on a board that has no Offices. This is the whole
+// per-map surface src/core/Stars.js reads — it never imports a map file.
+export function stars()       { return active().stars || null; }
+export function plinths()     { return active().stars?.plinths || []; }
+
+// The final score, as the map defines it: { value, tiebreak: [...] }. City and
+// HBD score on coins, Star Territory on Stars with coins as the FIRST tiebreak
+// rather than as a fraction of a Star — folding the two into one number would
+// mean inventing an exchange rate the game never states.
+export function score(p) {
+    const fn = active().score;
+    return fn ? fn(p) : { value: p.coins, tiebreak: [] };
+}
+
+// The declared road runs under the board (the faint guide tubes). [] on a
+// linear board, which draws its path as a tube along the curve instead.
+export function roads()       { return active().layout?.roads || []; }
+
 // The Rift is the harder wall (20): it gates the run to the Crown and a player
 // who cannot break it loses real ground. City's Gate only guards one district
 // on a lap map, so it stays at 15. This used to be a function in GameConfig

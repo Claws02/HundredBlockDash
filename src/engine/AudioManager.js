@@ -86,6 +86,11 @@ export function sfx(name) {
             case 'boost':       _beep(784, 'square', 0.3, t, 0.06, ctx); _beep(1046, 'square', 0.25, t + 0.07, 0.1, ctx); break;
             case 'land_good':   _beep(660, 'sine', 0.25, t, 0.1, ctx); break;
             case 'land_bad':    _beep(220, 'triangle', 0.3, t, 0.15, ctx); break;
+            // The Star leaving for its new Office. A rising run plus a breath of
+            // noise, because the comet crosses the whole board and needs to be
+            // heard by whoever is not looking at the screen at that moment.
+            case 'star_fly':    [523, 698, 880, 1175].forEach((f, i) => _beep(f, 'sine', 0.3, t + i * .09, 0.16, ctx));
+                                _noise(0.12, t, 0.5, ctx); haptic([20, 40, 20]); break;
         }
     } catch (e) {}
 }
