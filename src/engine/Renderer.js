@@ -4551,8 +4551,13 @@ function _buildTerritoryGround() {
 
     // The plain everything stands on.
     const tex = _prairieTexture();
+    // WIDE ENOUGH TO PUT THE HORIZON ON. The first pass made this 150 and then
+    // moved the mesas out to 155–210 to stop them crowding the lobes, which
+    // left every one of them standing on nothing — photographed at
+    // qa/shot-map-star_territory-top.png as a visible disc edge with rock
+    // floating past it.
     const base = new THREE.Mesh(
-        new THREE.CircleGeometry(150, 64),
+        new THREE.CircleGeometry(260, 72),
         new THREE.MeshStandardMaterial({
             color: tex ? 0xffffff : 0x8a7048, roughness: 0.98, map: tex || null }));
     base.rotation.x = -Math.PI / 2;
@@ -4767,9 +4772,17 @@ function _mkRailShed(pos, seed) {
     // before the fix. A full cylinder pushed down into the walls gives the
     // corrugated crown a goods shed actually has, and the buried half costs
     // nothing because nothing can see it.
-    const roof = new THREE.Mesh(new THREE.CylinderGeometry(3.3, 3.3, 9.3, 14), iron);
+    const roof = new THREE.Mesh(new THREE.CylinderGeometry(2.6, 2.6, 9.3, 14), iron);
     roof.rotation.z = Math.PI / 2;
-    roof.position.y = h - 1.5; g.add(roof);
+    // Sunk most of the way into the walls. At radius 3.3 sitting 1.5 down it
+    // was still wider than the 6.5-deep body and read as a drum lying on the
+    // shed from directly above; this leaves a crown rather than a barrel.
+    roof.position.y = h - 1.7; g.add(roof);
+    // An eave lip either side, so the roof meets a wall instead of floating.
+    [-3.1, 3.1].forEach(z => {
+        const eave = new THREE.Mesh(new THREE.BoxGeometry(9.6, 0.22, 0.5), iron);
+        eave.position.set(0, h - 0.1, z); g.add(eave);
+    });
     // Sliding door on a rail.
     const door = new THREE.Mesh(new THREE.BoxGeometry(3.2, h * 0.75, 0.2), _dressMat(0x46382b, { rough: 0.9 }));
     door.position.set(-1.4, h * 0.375, 3.3); g.add(door);
@@ -4791,13 +4804,24 @@ function _mkMineWorks(pos, seed) {
     const g = new THREE.Group();
     const rock   = _dressMat(0x3a322c, { rough: 0.98 });
     const timber = _dressMat(0x5b452e, { rough: 0.94 });
-    // The wall of the working, in three rough slabs so it is not a box.
+    // THE ROCK FACE IS A BACKDROP, NOT A WALL.
+    //
+    // The first pass built three boxes up to 7 wide and 9.5 tall at every node,
+    // set 14 units back — from the street camera they closed the road off
+    // completely and read as grey crates rather than as rock
+    // (qa/shot-map-star_territory-street.png). They are also registered with
+    // the occluder fader at the region's footprint half of 5.5, which an
+    // 11-unit spread badly underestimates, so the fade could not rescue them.
+    //
+    // Now: tapered, few-sided prisms — the same shape language as the buttes in
+    // Boot Hill and the mesas on the horizon — kept inside the footprint they
+    // declare, and low enough to see the board over.
     for (let i = 0; i < 3; i++) {
-        const w = 4.0 + _seeded(seed * 5 + i) * 3.0;
-        const h = 5.0 + _seeded(seed * 7 + i) * 4.5;
-        const slab = new THREE.Mesh(new THREE.BoxGeometry(w, h, 4.5 + _seeded(i) * 2), rock);
-        slab.position.set((i - 1) * 3.6, h / 2, -_seeded(seed + i) * 1.6);
-        slab.rotation.y = (_seeded(seed * 3 + i) - 0.5) * 0.5;
+        const r = 1.7 + _seeded(seed * 5 + i) * 1.5;
+        const h = 3.2 + _seeded(seed * 7 + i) * 3.0;
+        const slab = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.62, r, h, 6), rock);
+        slab.position.set((i - 1) * 3.0, h / 2, -0.6 - _seeded(seed + i) * 1.4);
+        slab.rotation.y = _seeded(seed * 3 + i) * 1.4;
         g.add(slab);
     }
     // The adit: a timber frame round a black hole, which is the one shape that
@@ -4920,9 +4944,14 @@ function _buildMesaHorizon() {
         // Mesas are WIDE and FLAT-TOPPED. The height range is deliberately
         // narrow and the width range is not: a horizon of tall thin shapes is a
         // skyline, and this one must not read as one.
-        const tall = _sr(i * 7 + 4) > 0.78;
-        const h = tall ? 30 + _sr(i * 11 + 5) * 20 : 13 + _sr(i * 13 + 6) * 14;
-        const w = 22 + _sr(i * 17 + 7) * 34;
+        // WIDE AND LOW. At 30–50 units tall against a 22–56 width these still
+        // read as slabs on end from the street camera — which is the one thing
+        // a mesa horizon must not do, because a slab on end is a tower. The
+        // height band is cut hard and the width band is not: the silhouette has
+        // to be wider than it is tall, always.
+        const tall = _sr(i * 7 + 4) > 0.8;
+        const h = tall ? 20 + _sr(i * 11 + 5) * 12 : 9 + _sr(i * 13 + 6) * 9;
+        const w = 34 + _sr(i * 17 + 7) * 46;
         // A TAPERED, FEW-SIDED PRISM, not a box. Cutting the top back and giving
         // it six faces is what makes a shape read as weathered rock; a box at
         // this distance reads as a building no matter what colour it is.
