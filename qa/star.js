@@ -32,8 +32,13 @@
 //      holding the Mine's Office out of rotation, Shards redeeming at four, and
 //      that a Star once pinned on can never be taken.
 //   7. BOUNTIES — this board's cards deal and City's do not.
-//   8. A REAL MATCH — it plays, the HUD says where the Star is, and the win
-//      screen scores on Stars rather than coins.
+//   8. THE PURCHASE PATH — a seat walked PAST the live Office through the real
+//      movement code, the real pass-through chain and the real BUY command.
+//      Deterministic on purpose: this assertion used to be "play for 150
+//      seconds and see if anybody won a Star", which measures the host's CPU
+//      rather than the board and failed once with nothing wrong.
+//   9. A REAL MATCH — it plays without invariant violations, the HUD says where
+//      the Star is, and the win screen scores on Stars rather than coins.
 //
 // usage: node star.js
 // ============================================================
@@ -500,9 +505,79 @@ const ok = (name, cond, detail) => results.push({ name, pass: !!cond, detail });
     ok('the HUD says where the Star is, permanently',
         opening.stripShown && /Office/.test(opening.stripText), opening.stripText);
 
-    // Drive real turns. The Star is nine spaces from START, so a handful of
-    // rounds is enough for at least one seat to reach an Office — which is the
-    // only way to prove the purchase path works end to end.
+    // ---- THE PURCHASE PATH, DRIVEN DETERMINISTICALLY -------------------
+    //
+    // This used to be "play for 150 seconds and assert somebody won a Star".
+    // That measures the MACHINE, not the board: under CPU contention one run
+    // managed three board turns, no round ended, no minigame fired, and it
+    // failed with nothing wrong. An assertion whose result depends on how busy
+    // the host is will eventually be ignored, which is worse than not having
+    // it.
+    //
+    // So: put a seat three squares before the live Office with money in its
+    // pocket and walk it past, through the real movement code, the real
+    // pass-through chain and the real BUY command. Same path a player takes,
+    // and it takes the same time every run.
+    const purchase = await page.evaluate(async () => {
+        const { state } = await import('/src/core/GameState.js');
+        const GC = await import('/src/core/GameController.js');
+        const AM = await import('/src/config/ActiveMap.js');
+        const office = state.starNode;
+        const region = AM.regionOf(office);
+        const p = state.players[0];
+        state.activePlayer = 0;
+        p.isBot = false;
+        p.coins = 60; p.stars = 0; p.starsBought = 0;
+        p.pos = `${region}_3`;              // three short of the Office at _6
+        const before = { coins: p.coins, node: office };
+        state.gameState = 'PRE_ROLL';
+        GC.moveThroughGraph(p, 5);          // a roll that carries them PAST it
+        return { before, region, office };
+    });
+    await page.waitForFunction(() => {
+        const el = document.getElementById('star-offer-modal');
+        return el && getComputedStyle(el).display !== 'none';
+    }, null, { timeout: 20000 }).catch(() => {});
+
+    const offered = await page.evaluate(() => {
+        const el = document.getElementById('star-offer-modal');
+        const shown = !!el && getComputedStyle(el).display !== 'none';
+        return { shown, text: shown ? el.textContent.replace(/\s+/g, ' ').trim() : '' };
+    });
+    ok('PASSING the Office raises the offer — landing on it is not required',
+        offered.shown, offered.text.slice(0, 160));
+    ok('the card names the bond and where the next Star will go',
+        /bond of 20/.test(offered.text) && /dispatched to/.test(offered.text),
+        offered.text.slice(0, 200));
+
+    const bought = await page.evaluate(async () => {
+        const { state } = await import('/src/core/GameState.js');
+        const Commands = await import('/src/core/Commands.js');
+        // The real command the button runs — state is applied before the set
+        // piece starts (TURN_FLOW.md §7), so this is readable immediately.
+        Commands.run('starBuy');
+        const p = state.players[0];
+        return { stars: p.stars, bought: p.starsBought, coins: p.coins, now: state.starNode };
+    });
+    ok('posting the bond pins the Star on and charges 20',
+        bought.stars === 1 && bought.bought === 1 && bought.coins === 40,
+        JSON.stringify(bought));
+    ok('the next Star is dispatched somewhere else',
+        bought.now && bought.now !== purchase.office,
+        `${purchase.office} -> ${bought.now}`);
+    ok('the dispatch is the FARTHEST Office from the buyer',
+        await page.evaluate(async (from) => {
+            const S = await import('/src/core/Stars.js');
+            const { state } = await import('/src/core/GameState.js');
+            const d = S.boardSteps(state.players[0].pos, state.starNode);
+            return S.openOffices()
+                .filter(id => id !== from)
+                .every(id => S.boardSteps(state.players[0].pos, id) <= d);
+        }, purchase.office),
+        `landed on ${bought.now}`);
+
+    // Now let it play. The turns are for invariants and page errors — what the
+    // board does over time — rather than for an outcome the clock decides.
     await page.evaluate(() => window.__QA.setMinigameFastResolve(1500));
     const t0 = Date.now();
     while (Date.now() - t0 < 150000) {
@@ -539,9 +614,6 @@ const ok = (name, cond, detail) => results.push({ name, pass: !!cond, detail });
     ok('every token is on a real square', played.posValid);
     ok('the live Star is always standing on an Office',
         played.offices.includes(played.starNode), `${played.starNode} of ${JSON.stringify(played.offices)}`);
-    ok('at least one Star was won in the first rounds',
-        played.stars.some(n => n > 0) || played.shards.some(n => n > 0),
-        `stars ${JSON.stringify(played.stars)}, shards ${JSON.stringify(played.shards)}`);
     ok('every Star is accounted for by a lane it came from',
         played.stars.every((n, i) => n === played.bought[i] + played.fused[i]),
         `stars ${JSON.stringify(played.stars)} vs bought ${JSON.stringify(played.bought)} + fused ${JSON.stringify(played.fused)}`);

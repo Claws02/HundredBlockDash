@@ -4816,12 +4816,21 @@ function _mkMineWorks(pos, seed) {
     // Now: tapered, few-sided prisms — the same shape language as the buttes in
     // Boot Hill and the mesas on the horizon — kept inside the footprint they
     // declare, and low enough to see the board over.
+    // Varied hard, and near-plumb. The first fix made them the right SIZE and
+    // left them identical: the same 62%-taper hexagon twenty-four times over,
+    // in one grey, reads as a row of chess pawns. Three tones, a wide height
+    // spread, and walls that stand almost vertical — rock is cut back at the
+    // top by weather, not moulded.
+    const tones = [0x3a322c, 0x2f2823, 0x453b33];
     for (let i = 0; i < 3; i++) {
-        const r = 1.7 + _seeded(seed * 5 + i) * 1.5;
-        const h = 3.2 + _seeded(seed * 7 + i) * 3.0;
-        const slab = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.62, r, h, 6), rock);
+        const r = 1.4 + _seeded(seed * 5 + i) * 2.4;
+        const h = 2.2 + _seeded(seed * 7 + i) * 5.2;
+        const slab = new THREE.Mesh(
+            new THREE.CylinderGeometry(r * 0.84, r, h, 5 + Math.floor(_seeded(seed * 9 + i) * 3)),
+            _dressMat(tones[Math.floor(_seeded(seed * 11 + i) * tones.length)], { rough: 0.99 }));
         slab.position.set((i - 1) * 3.0, h / 2, -0.6 - _seeded(seed + i) * 1.4);
         slab.rotation.y = _seeded(seed * 3 + i) * 1.4;
+        slab.scale.z = 0.7 + _seeded(seed * 13 + i) * 0.7;
         g.add(slab);
     }
     // The adit: a timber frame round a black hole, which is the one shape that
@@ -4896,7 +4905,7 @@ function _mkBadlandsRock(pos, seed) {
             const r = (5.2 - k * 0.6) * (0.75 + _seeded(seed + i * 3 + k) * 0.45);
             const lh = h / layers;
             const slab = new THREE.Mesh(
-                new THREE.CylinderGeometry(r * 0.92, r, lh, 6),
+                new THREE.CylinderGeometry(r * 0.94, r, lh, 5 + (k % 3)),
                 _dressMat(strata[(k + i) % strata.length], { rough: 0.99 }));
             slab.position.y = y + lh / 2;
             slab.rotation.y = _seeded(seed * 11 + k) * 1.2;
@@ -4950,13 +4959,18 @@ function _buildMesaHorizon() {
         // height band is cut hard and the width band is not: the silhouette has
         // to be wider than it is tall, always.
         const tall = _sr(i * 7 + 4) > 0.8;
-        const h = tall ? 20 + _sr(i * 11 + 5) * 12 : 9 + _sr(i * 13 + 6) * 9;
-        const w = 34 + _sr(i * 17 + 7) * 46;
+        const h = tall ? 17 + _sr(i * 11 + 5) * 10 : 8 + _sr(i * 13 + 6) * 7;
+        const w = 40 + _sr(i * 17 + 7) * 50;
         // A TAPERED, FEW-SIDED PRISM, not a box. Cutting the top back and giving
         // it six faces is what makes a shape read as weathered rock; a box at
         // this distance reads as a building no matter what colour it is.
+        // NEAR-VERTICAL WALLS. The taper was 0.34 top against 0.5 bottom — a 68%
+        // ratio, which is a cooling tower, and photographing the street camera
+        // showed a horizon of them. Real strata are cut back by weather at the
+        // top and stand almost plumb below it, so the top is barely narrower
+        // than the base and the flat cap does the talking.
         const mesa = new THREE.Mesh(
-            new THREE.CylinderGeometry(w * 0.34, w * 0.5, h, 6, 1),
+            new THREE.CylinderGeometry(w * 0.45, w * 0.5, h, 6, 1),
             mats[i % mats.length]);
         mesa.position.set(Math.cos(angle) * r, h / 2 - 1, Math.sin(angle) * r);
         mesa.rotation.y = _sr(i * 23 + 9) * 1.2;
