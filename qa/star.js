@@ -553,14 +553,25 @@ const ok = (name, cond, detail) => results.push({ name, pass: !!cond, detail });
     const bought = await page.evaluate(async () => {
         const { state } = await import('/src/core/GameState.js');
         const Commands = await import('/src/core/Commands.js');
-        // The real command the button runs — state is applied before the set
+        const p = state.players[0];
+        // ISOLATE THE BOND FROM THE BOUNTY BOARD.
+        //
+        // This asserted `coins === 40` and got 70: the purchase fires the
+        // buy_star emitter, and if "Pin on a Sheriff's Star" (w01, +30) happens
+        // to be one of the three dealt cards, the board pays it in the same
+        // call. That is the game working — a bounty for the thing you just did
+        // — and an assertion about the BOND has no business depending on which
+        // cards were shuffled out. qa/verify.js covers the bounty side.
+        state.activeContracts = [];
+        const before = p.coins;
+        // The real command the button runs. State is applied before the set
         // piece starts (TURN_FLOW.md §7), so this is readable immediately.
         Commands.run('starBuy');
-        const p = state.players[0];
-        return { stars: p.stars, bought: p.starsBought, coins: p.coins, now: state.starNode };
+        return { stars: p.stars, bought: p.starsBought, spent: before - p.coins,
+                 now: state.starNode };
     });
-    ok('posting the bond pins the Star on and charges 20',
-        bought.stars === 1 && bought.bought === 1 && bought.coins === 40,
+    ok('posting the bond pins the Star on and charges exactly the bond',
+        bought.stars === 1 && bought.bought === 1 && bought.spent === 20,
         JSON.stringify(bought));
     ok('the next Star is dispatched somewhere else',
         bought.now && bought.now !== purchase.office,
