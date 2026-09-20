@@ -905,6 +905,9 @@ body[data-hud-mode="solo"] #star-strip { top: calc(var(--rival-h) + 38px); }
 }
 .duel-bet-btn:not(:disabled):active { background: rgba(255,107,53,.4); border-color: #ff6b35; transform: scale(.92); }
 .duel-bet-btn:disabled { opacity: .35; cursor: not-allowed; }
+/* The Shard stake is not a bigger coin bet, so it does not look like one. */
+.duel-bet-shard { border-color: rgba(192,132,252,.7) !important; color: #e9d5ff; }
+.duel-bet-shard:not(:disabled):active { background: rgba(192,132,252,.35) !important; border-color: #c084fc !important; }
 
 /* --- Ally Steal List --- */
 .ally-steal-list { display: flex; flex-direction: column; gap: 8px; width: 100%; margin-bottom: 4px; }

@@ -387,6 +387,47 @@ const ok = (name, cond, detail) => results.push({ name, pass: !!cond, detail });
         star.stake.took && star.stake.shardsLeft === 0 && star.stake.rivalShards === 1
         && star.stake.starsUnchanged, JSON.stringify(star.stake));
 
+    // ---- The Shard as a duel stake -------------------------------------
+    //
+    // Spec §4.2.8: Stars can never be taken, Shards can. The card has to offer
+    // it only when BOTH duellists hold one, because a duel needs two stakes and
+    // there is no honest exchange rate between a Shard and a pile of coins.
+    const duel = await page.evaluate(async () => {
+        const { state, resetPlayers } = await import('/src/core/GameState.js');
+        const MM = await import('/src/ui/ModalManager.js');
+        const prev = state.selectedMap;
+        state.selectedMap = 'star_territory';
+        resetPlayers();
+        const p = state.players[0], q = state.players[1];
+        const shardBtn = () => !!document.querySelector('#duel-bet-options [data-bet="shard"]');
+
+        p.shards = 1; q.shards = 1; p.coins = 30; q.coins = 30;
+        MM.showDuelModal(p, q, () => {});
+        const both = shardBtn();
+        MM.closeAllModals();
+
+        q.shards = 0;
+        MM.showDuelModal(p, q, () => {});
+        const onlyOne = shardBtn();
+        MM.closeAllModals();
+
+        // Broke, but both holding a Shard: the duel must still be possible.
+        p.coins = 0; q.coins = 0; p.shards = 1; q.shards = 1;
+        MM.showDuelModal(p, q, () => {});
+        const brokeButArmed = shardBtn();
+        const optionsShown = getComputedStyle(document.getElementById('duel-bet-options')).display !== 'none';
+        MM.closeAllModals();
+
+        state.selectedMap = prev;
+        resetPlayers();
+        return { both, onlyOne, brokeButArmed, optionsShown };
+    });
+    ok('a Shard can be staked when both duellists hold one', duel.both);
+    ok('the Shard stake is not offered when only one side holds one', !duel.onlyOne);
+    ok('two broke players holding Shards can still duel',
+        duel.brokeButArmed && duel.optionsShown,
+        JSON.stringify(duel));
+
     // ===========================================================
     // 7. Bounties — the per-map split.
     // ===========================================================

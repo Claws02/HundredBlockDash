@@ -2896,6 +2896,24 @@ function _rivalCard(p, q) {
 function _startDuel(p, betAmount) {
     const opp  = _duelFoe(p);
     state.pendingDuelTarget = opp.id;
+
+    // A STAR SHARD INSTEAD OF COINS (spec §4.2.8).
+    //
+    // Both duellists have to hold one — a duel needs two stakes, and there is
+    // no honest exchange rate between a Shard and a pile of coins. Stars
+    // themselves are never at risk: they are the record of what you did, and
+    // the Shard is the only part of the Star lane that can be taken off you.
+    const shardStake = betAmount === 'shard'
+        && Stars.canStakeShard(p) && Stars.canStakeShard(opp);
+    if (betAmount === 'shard' && !shardStake) {
+        // The Shard went somewhere between raising the card and answering it.
+        UIManager.toast('No Shard to stake — the duel is off.', '#94a3b8', { urgent: true });
+        state.pendingDuelTarget = null;
+        Director.hold('POST_RESULT', finishTurn);
+        return;
+    }
+    if (shardStake) { _startShardDuel(p, opp); return; }
+
     const safe = Math.min(betAmount, Math.min(p.coins, opp.coins), 10);
     if (safe <= 0) {
         // A duel needs two stakes. The lander is handed DUEL_STAKE on arrival so
@@ -2930,6 +2948,39 @@ function _startDuel(p, betAmount) {
         // the round minigame — both are "you beat somebody", which is the lane
         // a player with no coins and no route to an Office still has.
         _awardShard(winner, 'duel', () => Director.hold('POST_RESULT', finishTurn));
+    }, { title: '⚔️ DUEL DRAW' });
+}
+
+/**
+ * The same duel, staked with a Shard.
+ *
+ * Deliberately its own function rather than a flag threaded through the coin
+ * path: the coin duel moves coins and pays the winner a Shard on top, and this
+ * one moves a Shard and pays nothing else. Two different settlements sharing
+ * one body with a boolean in it is how a duel ends up paying twice.
+ */
+function _startShardDuel(p, opp) {
+    state.pendingDuelBet = 0;
+    state.mgContext = 'duel';
+    UIManager.toast(`⚔️ DUEL! ${p.name} and ${opp.name} stake a Star Shard!`, '#c084fc');
+    _contest([p.id, opp.id], (winnerId) => {
+        state.mgContext = null;
+        const winner = state.players[winnerId] === p || state.players[winnerId] === opp
+            ? state.players[winnerId] : p;
+        const loser  = winner === p ? opp : p;
+        // The loser's Shard crosses over. takeShard() redeems it on the way in
+        // if it completes the winner's set, which is exactly right — a Shard
+        // won is a Shard however it arrived.
+        Stars.takeShard(loser, winner);
+        _checkContract(winner, 'duel_win');
+        _checkContract(winner, 'hold_shards', null, winner.shards);
+        winner.duelsWon++;
+        UIManager.toast(`${winner.name} takes ${loser.name}'s Star Shard!`, '#fbbf24');
+        UIManager.updateUI();
+        state.pendingDuelTarget = null;
+        state.gameState = 'ACKNOWLEDGE';
+        Renderer.startPostMinigameFlyover(() => { state.cameraState = 'FOLLOW'; });
+        Director.hold('POST_RESULT', finishTurn);
     }, { title: '⚔️ DUEL DRAW' });
 }
 

@@ -237,45 +237,65 @@ export function showDuelModal(p, opp, callback) {
     Scenes.emit('duelBet', { seat: p.id, foe: opp.id });
     const maxBet = Math.min(p.coins, opp.coins);
     const canWager = maxBet >= Math.min(...DUEL_BET_OPTIONS);
+    // STARS ARE NEVER AT RISK; SHARDS ARE. That is the whole point of the Shard
+    // (spec §4.2.8) — Stars are the record of what you did, and the Shard is
+    // where the risk lives. Both duellists have to hold one, because a duel
+    // needs two stakes and there is no honest exchange rate between a Shard and
+    // a pile of coins. It is a third BUTTON rather than a replacement, so
+    // staking one is a choice and not something the board does to you.
+    const canShard = Stars.canStakeShard(p) && Stars.canStakeShard(opp);
+    const canAny = canWager || canShard;
 
     const infoEl = document.getElementById('duel-info');
     if (infoEl) {
-        infoEl.textContent = canWager
+        infoEl.textContent = canAny
             ? `${p.name} vs ${opp.name} — ${p.name} sets the bet!`
             : `${opp.name} has nothing left to put up. No wager this time.`;
     }
     const noteEl = document.getElementById('duel-note');
     if (noteEl) {
-        noteEl.textContent = canWager
-            ? 'Winner takes the pot — set your bet!'
-            : 'A duel needs two stakes. Play on.';
+        noteEl.textContent = !canAny
+            ? 'A duel needs two stakes. Play on.'
+            : canShard
+                ? 'Winner takes the pot — or put a Star Shard up instead.'
+                : 'Winner takes the pot — set your bet!';
     }
 
     const betsEl = document.getElementById('duel-bet-options');
     if (betsEl) {
-        betsEl.style.display = canWager ? '' : 'none';
-        betsEl.innerHTML = !canWager ? '' : DUEL_BET_OPTIONS.map(amount => {
+        betsEl.style.display = canAny ? '' : 'none';
+        const coinBtns = !canWager ? '' : DUEL_BET_OPTIONS.map(amount => {
             const valid = amount <= maxBet;
             return `<button class="duel-bet-btn bfont" data-bet="${amount}"${valid ? '' : ' disabled'}>${amount}<br><span style="font-size:11px;font-family:'Nunito'">coins</span></button>`;
         }).join('');
+        const shardBtn = !canShard ? ''
+            : `<button class="duel-bet-btn duel-bet-shard bfont" data-bet="shard">✨<br>` +
+              `<span style="font-size:11px;font-family:'Nunito'">1 shard</span></button>`;
+        betsEl.innerHTML = coinBtns + shardBtn;
     }
     // The escape hatch. Present whenever no bet is possible, so this screen can
-    // never be a dead end again whatever the coin counts do.
-    const outEl = document.getElementById('btn-duel-skip');
-    if (outEl) outEl.style.display = canWager ? 'none' : '';
+    // never be a dead end again whatever the coin counts do. Set below, once
+    // the Shard stake has had its say.
 
     _duelBetCb = callback;
     showModal('duel-modal');
 
-    if (!canWager) {
+    const outEl2 = document.getElementById('btn-duel-skip');
+    if (outEl2) outEl2.style.display = canAny ? 'none' : '';
+
+    if (!canAny) {
         // Nothing to bet: let a bot walk out on its own, and give a human a button.
         if (p.isBot) setTimeout(() => resolveDuelSkip(), 1200);
         return;
     }
 
-    // Bot auto-selects highest affordable bet
+    // Bot auto-selects highest affordable bet. It prefers the Shard when it
+    // cannot raise a coin wager at all — which is the case the Shard lane
+    // exists for — and otherwise keeps its Shards, because a Shard is a
+    // quarter of a free Star and ten coins is not.
     if (p.isBot) {
-        const botBet = [...DUEL_BET_OPTIONS].reverse().find(a => a <= maxBet) || DUEL_BET_OPTIONS[0];
+        const botBet = !canWager ? 'shard'
+            : ([...DUEL_BET_OPTIONS].reverse().find(a => a <= maxBet) || DUEL_BET_OPTIONS[0]);
         setTimeout(() => {
             closeAllModals();
             const cb = _duelBetCb; _duelBetCb = null;
@@ -496,7 +516,10 @@ function _wireStaticButtons() {
     document.getElementById('duel-modal')?.addEventListener('click', e => {
         const btn = e.target.closest('[data-bet]');
         if (!btn || btn.disabled) return;
-        const amount = parseInt(btn.dataset.bet);
+        // 'shard' is a STAKE, not an amount. parseInt would turn it into NaN
+        // and the duel would settle for nothing at all.
+        const raw = btn.dataset.bet;
+        const amount = raw === 'shard' ? 'shard' : parseInt(raw);
         closeAllModals();
         Commands.run('duelBet', amount);
     });
