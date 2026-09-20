@@ -579,13 +579,21 @@ const ok = (name, cond, detail) => results.push({ name, pass: !!cond, detail });
     // Now let it play. The turns are for invariants and page errors — what the
     // board does over time — rather than for an outcome the clock decides.
     await page.evaluate(() => window.__QA.setMinigameFastResolve(1500));
+    // STOP ON TURNS PLAYED, NOT ON "somebody has a Star".
+    //
+    // The exit condition used to be "the win screen is up OR any seat holds a
+    // Star", left over from when this loop was the only thing that could
+    // produce one. The deterministic purchase above now hands seat 0 a Star
+    // before the loop starts, so it broke on its first iteration, drove zero
+    // turns, and failed the assertion below with the board working perfectly.
+    // The loop exists to watch the board RUN, so it ends when it has run.
     const t0 = Date.now();
     while (Date.now() - t0 < 150000) {
         const done = await page.evaluate(async () => {
             await window.__QA.step();
             const { state } = await import('/src/core/GameState.js');
             return getComputedStyle(document.getElementById('win-screen')).display !== 'none'
-                || state.players.some(p => p.stars > 0);
+                || state.totalTurns >= 8;
         });
         if (done) break;
         await new Promise(r => setTimeout(r, 220));
