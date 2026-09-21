@@ -11,6 +11,7 @@
 
 import city_circuit       from './city_circuit.js';
 import hundred_block_dash from './hundred_block_dash.js';
+import star_territory     from './star_territory.js';
 
-export const MAPS = { city_circuit, hundred_block_dash };
+export const MAPS = { city_circuit, hundred_block_dash, star_territory };
 export const DEFAULT_MAP = 'city_circuit';

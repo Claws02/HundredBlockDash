@@ -29,14 +29,16 @@ export function calculateWinner(applyBonuses = true) {
     const HBD_FIN = state.hbd ? state.hbd.finish : 99;
     let subtitle;
 
-    if (ActiveMap.has('finishBonus')) {
+    if (ActiveMap.has('stars')) {
+        subtitle = 'TAKES THE BADGE!';
+    } else if (ActiveMap.has('finishBonus')) {
         subtitle = 'WINS THE HUSTLE!';
     } else {
         // City Circuit: district dominance. Was a pairwise comparison; with
         // three or four players a district is controlled by whoever visited it
         // MOST, and a tie at the top pays nobody — splitting the bonus would
         // reward two players for failing to take it off each other.
-        if (applyBonuses) {
+        if (applyBonuses && ActiveMap.has('hqBonus')) {
             ActiveMap.regionKeys().forEach(dk => {
                 const best = Math.max(...players.map(q => q.districtsVisited[dk] || 0));
                 if (best <= 0) return;
@@ -47,27 +49,53 @@ export function calculateWinner(applyBonuses = true) {
         subtitle = 'WINS THE CITY!';
     }
 
-    // Final score per seat. The finish bonus is added on the linear map only,
-    // and after dominance so City's bonuses are already in `coins`.
-    const scoreOf = p => ActiveMap.has('finishBonus')
-        ? p.coins + (p.pos >= HBD_FIN ? HBD_FINISH_BONUS : 0)
-        : p.coins;
-    const scores = new Map(players.map(p => [p.id, scoreOf(p)]));
+    // FINAL SCORE IS THE MAP'S DEFINITION, NOT A NUMBER THIS FILE PICKS.
+    //
+    // It used to be "coins, plus the finish bonus if linear", which worked while
+    // both boards were scored in coins. Star Territory is not: it is scored in
+    // STARS, with coins as the first TIEBREAK rather than as a fraction of a
+    // Star. Folding the two into one number would mean inventing an exchange
+    // rate the game never states — a player on 2 Stars and 3 coins beats one on
+    // 1 Star and 300, and no weighting expresses that.
+    //
+    // So the map returns { value, tiebreak: [...] } and this ranks on the chain.
+    // The finish bonus is still added HERE rather than in the map module,
+    // because this is the only place that knows whether the bonuses have already
+    // been paid on a networked host.
+    const scoreOf = (p) => {
+        const sc = ActiveMap.score(p);
+        const fin = ActiveMap.has('finishBonus') && p.pos >= HBD_FIN ? HBD_FINISH_BONUS : 0;
+        return { value: sc.value + fin, tiebreak: sc.tiebreak || [] };
+    };
+    const full   = new Map(players.map(p => [p.id, scoreOf(p)]));
+    const scores = new Map(players.map(p => [p.id, full.get(p.id).value]));
 
-    // Tiebreak: how far round / how far along, then seat order so the result is
-    // identical on every device in an online match.
-    const tieValue = p => ActiveMap.isLinear()
-        ? (typeof p.pos === 'number' ? p.pos : 0)
-        : p.fullCircuitsCompleted;
-    const ranked = players.slice().sort((a, b) =>
-        (scores.get(b.id) - scores.get(a.id)) || (tieValue(b) - tieValue(a)) || (a.id - b.id));
+    // Rank on value, then down the tiebreak chain, then seat order so the result
+    // is identical on every device in an online match.
+    const cmp = (a, b) => {
+        const A = full.get(a.id), B = full.get(b.id);
+        if (B.value !== A.value) return B.value - A.value;
+        const n = Math.max(A.tiebreak.length, B.tiebreak.length);
+        for (let i = 0; i < n; i++) {
+            const d = (B.tiebreak[i] || 0) - (A.tiebreak[i] || 0);
+            if (d) return d;
+        }
+        return a.id - b.id;
+    };
+    const ranked = players.slice().sort(cmp);
 
     const winner = ranked[0];
     const runnerUp = ranked[1];
-    // A tie is only a tie if the tiebreak could not separate them either.
-    const isTie = !!runnerUp
-        && scores.get(runnerUp.id) === scores.get(winner.id)
-        && tieValue(runnerUp) === tieValue(winner);
+    // A tie is only a tie if NOTHING in the chain could separate them — seat
+    // order orders the cards, but it never decides a match.
+    const sameChain = (a, b) => {
+        const A = full.get(a.id), B = full.get(b.id);
+        if (A.value !== B.value) return false;
+        const n = Math.max(A.tiebreak.length, B.tiebreak.length);
+        for (let i = 0; i < n; i++) if ((A.tiebreak[i] || 0) !== (B.tiebreak[i] || 0)) return false;
+        return true;
+    };
+    const isTie = !!runnerUp && sameChain(winner, runnerUp);
 
     ModalManager.closeAllModals();
     document.getElementById('ui-layer').style.display = 'none';
@@ -86,17 +114,22 @@ export function calculateWinner(applyBonuses = true) {
                `<span class="ws-v">${val}</span><span class="ws-l">${label}</span></div>`;
     }
     function districtStrip(pl) {
+        // On City the crown means "controlled" and pays a bonus. Star Territory
+        // pays nothing for it, so the chips are a record of WHERE YOU RODE and
+        // the crown is dropped rather than shown for a bonus that does not exist.
+        const dominance = ActiveMap.has('hqBonus');
+        const label = dominance ? 'DISTRICTS' : 'TERRITORIES';
         const chips = ActiveMap.regionKeys().map(dk => {
             const icon = HQ_META[dk]?.icon || '🏛️';
             const mine = pl.districtsVisited[dk] || 0;
             // Held outright — matching the bonus rule above, so the crown on
             // the card and the coins actually paid never disagree.
-            const held = mine > 0 && state.players.every(q =>
+            const held = dominance && mine > 0 && state.players.every(q =>
                 q.id === pl.id || (q.districtsVisited[dk] || 0) < mine);
             return `<span class="ws-chip${held ? ' ws-held' : ''}" title="${ActiveMap.regionName(dk)}${held ? ' — controlled' : ''}">` +
                    `${icon}<b>${mine}</b>${held ? '<i>👑</i>' : ''}</span>`;
         }).join('');
-        return `<div class="ws-districts"><span class="ws-dlabel">DISTRICTS</span><span class="ws-chips">${chips}</span></div>`;
+        return `<div class="ws-districts"><span class="ws-dlabel">${label}</span><span class="ws-chips">${chips}</span></div>`;
     }
     function card(p, s) {
         const isW = !isTie && p === winner;
@@ -109,6 +142,17 @@ export function calculateWinner(applyBonuses = true) {
                 stat('🏆', 'minigames', p.mgWins)}${
                 stat('📍', 'final space', p.pos >= HBD_FIN ? '🏁' : p.pos)}${
                 fin ? stat('🏁', 'finish bonus', '+' + fin) : ''}</div>`;
+        } else if (ActiveMap.has('stars')) {
+            // The two LANES are reported separately — bought and fused — because
+            // "how did you get there" is the argument people actually have about
+            // this board, and one combined total answers it for nobody.
+            details = `<div class="ws-grid">${
+                stat('⭐', 'stars', p.stars || 0)}${
+                stat('🤠', 'bought', p.starsBought || 0)}${
+                stat('✨', 'from shards', p.shardStars || 0)}${
+                stat('💵', 'coins left', p.coins)}${
+                stat('🏆', 'minigames', p.mgWins)}${
+                stat('🔄', 'hub laps', p.fullCircuitsCompleted)}</div>${districtStrip(p)}`;
         } else {
             details = `<div class="ws-grid">${
                 stat('💰', 'earned', p.coinsEarned)}${

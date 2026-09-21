@@ -23,6 +23,14 @@ Effects are the code in `resolveSpaceEffect()` (`src/core/GameController.js`),
 not the marketing copy. On Hundred Block Dash the name and blurb are re-skinned
 per realm (`HBD_BIOMES[].flavor`), but the effect is identical everywhere.
 
+> **One space type is board-specific.** ⭐ **TERRITORY OFFICE** (`plinth`) exists
+> only on Star Territory and is deliberately NOT a variant of 🏛️ DISTRICT HQ.
+> An HQ pays coins for passing it and is worth the same every lap; a plinth is
+> either holding the only thing that scores on that board or standing empty, and
+> only one of the four holds it at a time. Passing it with the bond in hand
+> raises BUY / RIDE ON; passing it without is worth nothing at all. See
+> `docs/STAR_TERRITORY_SPEC.md` §4 and `src/core/Stars.js`.
+
 ### Coins in
 
 | | Space | Effect |

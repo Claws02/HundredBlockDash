@@ -173,11 +173,16 @@ function _apply(s) {
     state.cityRounds  = s.rounds;
     state.hbdLength   = s.hbdLen;
     state.history     = s.hist || [];
+    // Where the live Star is standing. A change here repaints the Offices, so
+    // it is noted and acted on below with the board tiles rather than here —
+    // the empty three and the live one are drawn differently.
+    const starMoved = state.starNode !== (s.starNode ?? null);
+    state.starNode    = s.starNode ?? null;
 
     // Board. Rebuilt in place: the renderer reads `state.board[id].type` and a
     // wholesale replacement would leave any held reference pointing at the old
     // object.
-    let tilesChanged = false;
+    let tilesChanged = starMoved;
     for (const id in s.board) {
         const v = s.board[id];
         const type  = Array.isArray(v) ? v[0] : v;
@@ -315,6 +320,10 @@ function _syncPlayers(list) {
         p.itemsBought = np.bought;
         p.consecutiveMgWins = np.streak;
         p.cabbieUsedThisRound = np.cab;
+        p.stars = np.stars || 0;
+        p.shards = np.shards || 0;
+        p.starsBought = np.starsBought || 0;
+        p.shardStars = np.shardStars || 0;
 
         _syncAllies(p, np.allies);
 

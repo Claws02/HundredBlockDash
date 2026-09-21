@@ -301,8 +301,8 @@
     <!-- City briefing: the opening look at the board -->
     <div id="city-briefing" style="display:none;">
         <div class="cb-sheet" id="cb-sheet">
-            <div class="cb-title bfont">🏙️ CITY CIRCUIT</div>
-            <div class="cb-lead">One ring road, four districts. At every junction you pick which way to go.</div>
+            <div class="cb-title bfont" id="cb-title">🏙️ CITY CIRCUIT</div>
+            <div class="cb-lead" id="cb-lead">One ring road, four districts. At every junction you pick which way to go.</div>
             <div class="cb-paths" id="cb-paths"></div>
             <div class="cb-actions">
                 <button id="btn-cb-tour" class="bfont">🗺️ SHOW ME THE MAP</button>
@@ -322,6 +322,11 @@
         <!-- Contracts strip (below round counter) -->
         <div id="contracts-strip" style="display:none;"></div>
 
+        <!-- WHERE THE STAR IS. Rule 1 of the Star system is that its location is
+             never hidden, so it gets a permanent line under the round counter
+             rather than a toast that scrolls away. Star Territory only. -->
+        <div id="star-strip" style="display:none;"></div>
+
         <!-- Rival strip: three-and-four-player HUD. Four full-height bars leave
              no board, so above two seats (and in online play at any count) the
              other players collapse to one compact row along the top and the
@@ -340,6 +345,7 @@
             </div>
             <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">
                 <div class="hud-coins bfont">💰 <span id="p2-coins">0</span></div>
+                <div class="hud-stars bfont" id="p2-stars" style="display:none;"></div>
                 <div class="hud-ally-slots" id="p2-ally-slots"></div>
             </div>
         </div>
@@ -354,6 +360,7 @@
             </div>
             <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">
                 <div class="hud-coins bfont">💰 <span id="p1-coins">0</span></div>
+                <div class="hud-stars bfont" id="p1-stars" style="display:none;"></div>
                 <div class="hud-ally-slots" id="p1-ally-slots"></div>
             </div>
         </div>
@@ -525,6 +532,19 @@
             <div class="m-desc" style="font-family:'Nunito';">You passed a shop. Want to stop in?</div>
             <button class="btn-close primary" id="btn-shop-offer-enter" style="margin-bottom:8px;">ENTER SHOP</button>
             <button class="btn-close" id="btn-shop-offer-skip">KEEP MOVING</button>
+        </div>
+
+        <!-- Territory Office (Star Territory) — BUY / RIDE ON.
+             Buying is a CHOICE, not automatic: saving for a bigger play, or for
+             the outfitter you just walked past, is a legitimate decision and the
+             card has to let you make it. -->
+        <div class="modal-box" id="star-offer-modal" style="display:none;">
+            <div style="font-size:48px;margin-bottom:8px;">⭐</div>
+            <div class="m-title bfont" style="color:#fbbf24;" id="star-offer-title">THE SHERIFF'S STAR</div>
+            <div class="m-desc" style="font-family:'Nunito';" id="star-offer-desc"></div>
+            <div class="m-desc" style="font-family:'Nunito';font-size:13px;opacity:.75;" id="star-offer-note"></div>
+            <button class="btn-close primary" id="btn-star-buy" style="margin-bottom:8px;">POST THE BOND</button>
+            <button class="btn-close" id="btn-star-skip">RIDE ON</button>
         </div>
 
         <!-- Custom Dice Modal -->

@@ -26,7 +26,10 @@ import { sfx } from '../engine/AudioManager.js';
 import * as ActiveMap from '../config/ActiveMap.js';
 
 export function initContracts() {
-    state.contractPool = getShuffledPool();
+    // Deal only the cards this board can actually satisfy. City's ten
+    // district cards name regions Star Territory does not have, and a card
+    // that can never be claimed clogs a slot for the whole match.
+    state.contractPool = getShuffledPool(ActiveMap.id());
     state.activeContracts = [];
     for (let i = 0; i < CONTRACT_COUNT && state.contractPool.length > 0; i++) {
         state.activeContracts.push(_fresh(state.contractPool.shift()));

@@ -798,6 +798,35 @@ body { overscroll-behavior: none; -webkit-overflow-scrolling: auto; }
     scrollbar-width: none;
 }
 #contracts-strip::-webkit-scrollbar { display: none; }
+
+/* --- WHERE THE STAR IS (Star Territory) ---------------------------------
+   Rule 1 of the Star system is that the live Star's location is never hidden,
+   so it is a permanent line rather than a toast. It sits directly under the
+   round counter and pushes the bounty pills down, because "where is the Star"
+   is read more often than "what are my bounties" on this board. */
+#star-strip {
+    position: absolute; top: calc(var(--hud-h) + 34px); left: 50%; transform: translateX(-50%);
+    z-index: 18; pointer-events: none; white-space: nowrap;
+    display: flex; align-items: center; gap: 8px;
+    background: rgba(28,18,2,.86); border: 1px solid rgba(251,191,36,.55);
+    border-radius: 20px; padding: 4px 12px;
+    font-family: 'Nunito'; font-size: 12.5px; color: #fde68a;
+    box-shadow: 0 0 14px rgba(251,191,36,.18);
+    max-width: calc(100vw - 24px); overflow: hidden; text-overflow: ellipsis;
+}
+#star-strip b { color: #fbbf24; font-weight: 800; }
+#star-strip .ss-dist { color: rgba(253,230,138,.65); }
+body[data-star="1"] #contracts-strip { top: calc(var(--hud-h) + 68px); }
+body[data-hud-mode="solo"][data-star="1"] #contracts-strip { top: calc(var(--rival-h) + 72px); }
+body[data-hud-mode="solo"] #star-strip { top: calc(var(--rival-h) + 38px); }
+.tabletop-p2-turn #star-strip { transform: translateX(-50%) rotate(180deg); }
+
+/* The per-seat count on the HUD bar. Stars are the score on this board, so they
+   are drawn at coin size and in the Star's own gold; the Shards beside them are
+   deliberately smaller, because they are the secondary lane. */
+.hud-stars { font-size: 20px; color: var(--gold); display: flex; align-items: center; gap: 5px;
+             text-shadow: 0 0 10px rgba(251,191,36,.7); }
+.hud-stars .hs-shards { font-size: 12px; color: #c084fc; text-shadow: none; opacity: .9; }
 .contract-pill {
     display: flex; align-items: center; gap: 5px;
     background: rgba(0,0,0,.8); border: 1px solid rgba(255,255,255,.2);
@@ -876,6 +905,9 @@ body { overscroll-behavior: none; -webkit-overflow-scrolling: auto; }
 }
 .duel-bet-btn:not(:disabled):active { background: rgba(255,107,53,.4); border-color: #ff6b35; transform: scale(.92); }
 .duel-bet-btn:disabled { opacity: .35; cursor: not-allowed; }
+/* The Shard stake is not a bigger coin bet, so it does not look like one. */
+.duel-bet-shard { border-color: rgba(192,132,252,.7) !important; color: #e9d5ff; }
+.duel-bet-shard:not(:disabled):active { background: rgba(192,132,252,.35) !important; border-color: #c084fc !important; }
 
 /* --- Ally Steal List --- */
 .ally-steal-list { display: flex; flex-direction: column; gap: 8px; width: 100%; margin-bottom: 4px; }

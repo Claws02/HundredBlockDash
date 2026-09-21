@@ -39,6 +39,36 @@ file reads as empty for its entire run and then appears all at once. An empty
 output file means "still running", not "produced nothing" — check whether the
 process is alive before concluding anything from it.
 
+### Two of these probes are not reliable pass/fail gates
+
+Measured on 2026-09-20, four runs of `city.js` across two checkouts:
+
+| probe + its agent.js | app served | result |
+|---|---|---|
+| main | main | 36/36 · camera max **1.99** |
+| main | main | 35/36 · camera max **15.45** |
+| main | a branch | 35/36 · camera max **16.82** |
+| branch | that branch | 35/36 · camera max **10.05** |
+
+**`camera: settled follow frames never lurch` is sampling-dependent.** It fails
+whenever the run happens to catch a rare hitch, and the number of settled FOLLOW
+frames a run samples varies from 150 to 423 depending on which junction comes up
+and how long the drive loop takes. The clean 36/36 above is the run that sampled
+fewest. **A single clean run does not mean the camera is smooth, and a single
+failure does not mean somebody broke it** — the lurch is real, pre-existing and
+intermittent, and it wants a fix rather than a re-run.
+
+**The browser also dies outright on some runs**, as
+`Target page, context or browser has been closed` at a different line each time.
+Not memory (15 GB free), not disk, not CPU contention, and not the app: a
+byte-identical `city.js` crashed twice and then passed against the same server.
+Treat a crash as no result and run it again.
+
+The general rule both of these point at: **before blaming a diff for a probe
+failure, run the same probe against the pre-change code.** `git worktree add`
+plus a second `http-server` port makes that a two-minute experiment, and three
+wrong causes were asserted in one session before anybody actually ran it.
+
 ---
 
 ## What each probe is for

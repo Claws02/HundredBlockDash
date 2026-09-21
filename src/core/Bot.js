@@ -16,6 +16,7 @@ import * as Targeting from './Targeting.js';
 import { ITEMS, DISTRICT_SHOPS, MAX_INV, MAX_ALLIES, DUEL_BET_OPTIONS } from '../config/GameConfig.js';
 import * as Renderer from '../engine/Renderer.js';
 import * as ActiveMap from '../config/ActiveMap.js';
+import * as Stars from './Stars.js';
 
 // ── Difficulty profiles ───────────────────────────────────────────────────────
 const PROFILES = {
@@ -100,7 +101,10 @@ export function preRollItem(p) {
 // options: [{ nodeId, district, ... }]. Returns the chosen nodeId.
 export function branch(player, options) {
     const prof = profile();
-    const valid = options.filter(o => !(o.nodeId === 'ind_0' && !state.gateOpen));
+    // The road behind a shut gate, on whichever board this is. Naming City's
+    // `ind_0` here meant the bot walked cheerfully into Star Territory's
+    // rockslide every time it came round.
+    const valid = options.filter(o => !(o.nodeId === ActiveMap.gateNode() && !state.gateOpen));
     const pool  = valid.length ? valid : options;
     if (pool.length === 1) return pool[0].nodeId;
     if (!prof.smart || Math.random() < prof.branchNoise) return pool[_rand(pool.length)].nodeId;
@@ -116,7 +120,15 @@ export function branch(player, options) {
 function _branchScore(player, opt) {
     let s = Math.random() * 1.5;   // tie-break noise
     const dist = opt.district || ActiveMap.graph()[opt.nodeId]?.district;
-    if (dist && dist !== 'ring' && !player.districtHQsThisLoop.has(dist)) s += 6; // chase circuit/HQ bonus
+    // Chase the circuit/HQ bonus — only on a board that HAS one.
+    if (dist && !ActiveMap.isHub(dist) && ActiveMap.has('hqBonus')
+        && !player.districtHQsThisLoop.has(dist)) s += 6;
+    // THE STAR IS THE BIGGEST TERM IN THIS FUNCTION, above the +6 that chases a
+    // district bonus, because on Star Territory the district bonus does not
+    // exist and the Star is the only thing that scores. It only counts when the
+    // bot could actually pay for it — a bot riding twelve spaces to look at a
+    // Star it cannot afford is worse than a bot that stayed on the ring.
+    s += _starBranchTerm(player, dist);
     if (state.allyOnMap) {
         const ad = ActiveMap.graph()[state.allyOnMap.nodeId]?.district;
         if (ad && ad === dist) s += player.allies.length < MAX_ALLIES ? 5 : 2;
@@ -128,6 +140,54 @@ function _branchScore(player, opt) {
     return s;
 }
 
+/**
+ * How much the live Star is worth to a road, from this player's seat.
+ *
+ * +9 when the Office holding it is down this road and the bond is affordable,
+ * scaled back on `easy` so the easy bot is not suddenly the sharpest router on
+ * the board. A small positive stays when it cannot afford it yet, because the
+ * coins on that road are still worth collecting on the way past.
+ */
+function _starBranchTerm(player, dist) {
+    if (!Stars.enabled() || !dist) return 0;
+    const at = Stars.liveNode();
+    if (!at || ActiveMap.regionOf(at) !== dist) return 0;
+    const afford = player.coins >= Stars.priceFor(player);
+    if (!afford) return 2;
+    return profile().smart ? 9 : 4;
+}
+
+// ── The Star ────────────────────────────────────────────────────────────────
+
+/**
+ * The bot is standing at a live Office with the money. Does it post the bond?
+ *
+ * Buy, unless it is one minigame away from a free Star and banking the coins
+ * would leave it able to buy the NEXT one too — at which point holding is
+ * genuinely better, because the two lanes stack. `hard` also weighs how far the
+ * dispatch would throw the next Star; `easy` always buys, which is the right
+ * kind of wrong for an easy bot: eager, not stupid.
+ */
+export function starBuy(p, price) {
+    const prof = profile();
+    if (!prof.smart) return true;
+    const need = Stars.shardsPerStar();
+    const oneAway = (p.shards || 0) >= need - 1;
+    // A Star from Shards costs nothing, so if one is about to land, the coins
+    // are better kept for the Star AFTER it — which will cost 5 more.
+    if (oneAway && p.coins < price + (price + 5)) return Math.random() < 0.35;
+    if (state.botDifficulty !== 'hard') return true;
+    // Hard: if the dispatch would send the next Star somewhere the rival is far
+    // better placed for, and this bot is already ahead on Stars, bank instead.
+    const opp = _opp(p);
+    const to = Stars.dispatchTarget(p, p.pos);
+    if (!to) return true;
+    const mine = Stars.boardSteps(p.pos, to);
+    const theirs = Stars.boardSteps(opp.pos, to);
+    if ((p.stars || 0) > (opp.stars || 0) && theirs + 6 < mine) return Math.random() < 0.5;
+    return true;
+}
+
 // ── Shops ───────────────────────────────────────────────────────────────────
 export function shopPassThrough() { return Math.random() < profile().shopChance; }
 
@@ -135,7 +195,16 @@ export function shopPassThrough() { return Math.random() < profile().shopChance;
 export function shopBuy(p, distKey, disc) {
     const prof = profile();
     const available  = DISTRICT_SHOPS[distKey] || Object.keys(ITEMS);
-    const affordable = available.filter(k => ITEMS[k] && p.coins >= Math.ceil(ITEMS[k].price * disc));
+    // SAVE FOR THE STAR.
+    //
+    // The outfitter deliberately sits four spaces BEFORE the Office (spec
+    // §2.3), so "spend it on an item or save it for the bond" is a live
+    // question at the moment it has to be answered. A bot that always spends
+    // has no answer to it. Within about two turns' travel of the live Star, it
+    // will not spend below the price of the bond.
+    const floor = _starSavingFloor(p);
+    const affordable = available.filter(k =>
+        ITEMS[k] && p.coins - Math.ceil(ITEMS[k].price * disc) >= floor);
     if (affordable.length === 0 || p.inv.length >= MAX_INV) return null;
     if (!prof.smart) return affordable[_rand(affordable.length)];
 
@@ -146,6 +215,16 @@ export function shopBuy(p, distKey, disc) {
         if (v > bestV) { bestV = v; best = k; }
     }
     return best;
+}
+
+// How many coins the bot refuses to drop below, because the Star is close
+// enough to be worth keeping the bond for. Zero on every other board and
+// whenever the Star is too far away to be this turn's problem.
+function _starSavingFloor(p) {
+    if (!Stars.enabled() || !profile().smart) return 0;
+    const steps = Stars.stepsToStar(p);
+    if (!Number.isFinite(steps) || steps > 8) return 0;   // ~two turns at mean roll
+    return Stars.priceFor(p);
 }
 
 // Bag full and something new has arrived. Returns the index of the item to
@@ -244,9 +323,10 @@ function _junctionScore(p, j) {
     let s = Math.random();
     for (const o of (ActiveMap.branches()[j] || [])) {
         const d = o.district;
-        if (d && d !== 'ring') {
-            if (!p.districtHQsThisLoop.has(d)) s += 6;
+        if (d && !ActiveMap.isHub(d)) {
+            if (ActiveMap.has('hqBonus') && !p.districtHQsThisLoop.has(d)) s += 6;
             if (state.allyOnMap && ActiveMap.graph()[state.allyOnMap.nodeId]?.district === d) s += 5;
+            s += _starBranchTerm(p, d);
         }
     }
     return s;

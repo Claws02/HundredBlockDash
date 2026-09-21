@@ -273,6 +273,20 @@ export const LAYOUT = {
 
     // junction id -> [x, 0, z] in units of R
     junctions: { bp_a: [0, -1], bp_b: [1, 0], bp_c: [0, 1], bp_d: [-1, 0] },
+
+    // The faint guide tubes under the board, one smoothed run per road. These
+    // lived in Renderer._buildPathTubes() as a hardcoded City node list, which
+    // meant a second graph board drew City's roads or none at all.
+    roads: [
+        { district: 'ring', nodes: ['bp_a','r1','r2','r3','r4','r5','bp_b'] },
+        { district: 'ring', nodes: ['bp_b','r6','r7','r8','r9','r10','bp_c'] },
+        { district: 'ring', nodes: ['bp_c','r11','r12','r13','r14','r15','bp_d'] },
+        { district: 'ring', nodes: ['bp_d','r16','r17','r18','r19','r20','bp_a'] },
+        { district: 'fin',  nodes: ['bp_a','fin_0','fin_1','fin_2','fin_3','fin_4','fin_5','fin_6','fin_7','fin_8','fin_9','bp_b'] },
+        { district: 'ba',   nodes: ['bp_b','ba_0','ba_1','ba_2','ba_3','ba_4','ba_5','ba_6','ba_7','ba_8','ba_9','ba_10','ba_11','bp_c'] },
+        { district: 'shop', nodes: ['bp_c','shop_0','shop_1','shop_2','shop_3','shop_4','shop_5','shop_6','shop_7','shop_8','shop_9','bp_d'] },
+        { district: 'ind',  nodes: ['bp_d','ind_0','ind_1','ind_2','ind_3','ind_4','ind_5','ind_6','ind_7','bp_a'] },
+    ],
 };
 
 // ------------------------------------------------------------
@@ -294,6 +308,12 @@ export default {
     branches:  BRANCHES,
     regionKeys:  REGION_KEYS,
     regionNames: REGION_NAMES,
+    // The road everybody is always on, as opposed to the four you choose to
+    // turn off onto. This used to be the literal string 'ring' compared against
+    // in seven places across four modules, which is fine until a second graph
+    // board calls its hub something else.
+    hub:     'ring',
+    stars:   null,
     botBias: BOT_BIAS,
     layout:  LAYOUT,
     gateNode: 'ind_0',
@@ -311,4 +331,7 @@ export default {
         realms:        false,  // per-space biome re-skinning (HBD only)
         routeChoice:   true,
     },
+
+    // Most coins. The tiebreak is how far round you got.
+    score(p) { return { value: p.coins, tiebreak: [p.fullCircuitsCompleted || 0] }; },
 };

@@ -73,10 +73,25 @@ const ok = (n, cond, detail) => (cond ? out.pass : out.fail).push(n + (detail ? 
             win_minigames:    c => { for (let i = 1; i <= c.param; i++) C.checkContract(p, 'win_minigames', null, i); },
             buy_item:         c => { for (let i = 1; i <= c.param; i++) C.checkContract(p, 'buy_item', null, i); },
             visit_hq_any:     c => { for (let i = 1; i <= c.param; i++) C.checkContract(p, 'visit_hq_any', null, i); },
+            // ---- Star Territory ----
+            // Widened, not loosened: these are the real emitter calls the
+            // purchase handler, the Office pass-through and the shard grant
+            // make, so a Wild West card with no live code path still fails here.
+            visit_plinth:     () => C.checkContract(p, 'visit_plinth'),
+            buy_star:         c => { for (let i = 1; i <= c.param; i++) C.checkContract(p, 'buy_star', null, i); },
+            hold_shards:      c => { for (let i = 1; i <= c.param; i++) C.checkContract(p, 'hold_shards', null, i); },
         };
 
         const rows = [];
         for (const card of CONTRACT_POOL) {
+            // EVERY CARD IS TESTED ON A BOARD IT IS VALID FOR.
+            //
+            // The pool is no longer one flat list: about a third of it names
+            // regions that exist on exactly one board. Selecting that board
+            // before firing the emitter is what keeps this probe honest — the
+            // alternative was to skip the cards it could not reach, which is
+            // the loosened assertion that lets a dead card through.
+            state.selectedMap = card.maps ? card.maps[0] : 'city_circuit';
             // Isolate: this card is the only active contract, pool empty so nothing refills.
             state.activeContracts = [{ ...card, _prog: [0, 0] }];
             state.contractPool = [];
@@ -90,6 +105,7 @@ const ok = (n, cond, detail) => (cond ? out.pass : out.fail).push(n + (detail ? 
                         gained: p.coins - before, counted: COUNTED_TYPES.has(card.type) });
         }
 
+        state.selectedMap = 'city_circuit';
         // Under-count must NOT claim early (regression guard for land_coin_big).
         const big = CONTRACT_POOL.find(c => c.id === 'c06');
         state.activeContracts = [{ ...big, _prog: [0, 0] }];

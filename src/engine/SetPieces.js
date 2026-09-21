@@ -26,7 +26,7 @@
 // ============================================================
 
 import { state } from '../core/GameState.js';
-import { getScene, getCamera, getActiveAnims, getPos } from './Renderer.js';
+import { getScene, getCamera, getActiveAnims, getPos, _mkSheriffStar } from './Renderer.js';
 import { sfx } from './AudioManager.js';
 
 // Everything this module adds to the scene, so an interruption can clear it.
@@ -256,6 +256,218 @@ export function hqPayout(player, amount, onDone) {
 
     const top = at.clone().setY(15);
     _coinArc(top, at.clone().setY(1.2), Math.min(10, Math.max(5, Math.round(amount / 2))), 1.9, done);
+}
+
+
+// ---------------------------------------------------------------------------
+// ⭐ THE SHERIFF'S STAR — claimed, then dispatched                     ~4.4 s
+// ---------------------------------------------------------------------------
+//
+// The biggest event on Star Territory, in the top budget tier with the Gate and
+// the Swap abduction. Five beats (spec §4.6):
+//
+//   1. the Office lights, the Star lifts out of its case          0.8 s
+//   2. it settles over the buyer's token, the counter ticks       0.9 s
+//   3. hold — the board, the token, the new count                 0.5 s
+//   4. the Star STREAKS across the board to its new Office,
+//      the camera travelling beside it                            1.6 s
+//   5. the new Office lights as it lands                          0.6 s
+//
+// BEAT 4 IS DOING THE REAL WORK. It is how every player at the table learns
+// where the next Star is without reading a HUD, and it is why the camera rides
+// BESIDE the flight path rather than above it — the Swap cinematic's rule. An
+// overhead shot of a dot crossing a board tells you a dot crossed a board; a
+// travelling shot tells you how far away it has gone, which is the whole
+// decision the next three turns are about.
+//
+// State has already been applied by the time this runs (TURN_FLOW.md §7), so an
+// interruption costs the animation and never the Star.
+export function starClaim(player, fromNode, toNode, onDone) {
+    const done = () => { clearSetPieces(); if (onDone) onDone(); };
+    const from = getPos(fromNode).clone().setY(0);
+    const to   = toNode ? getPos(toNode).clone().setY(0) : null;
+    const at   = player?.mesh ? player.mesh.position.clone().setY(0) : from.clone();
+
+    const star = _add(_mkSheriffStar(1.3));
+    star.position.copy(from).setY(4.2);
+
+    // A ring of light on the Office it is leaving.
+    const halo = _add(new THREE.Mesh(
+        new THREE.RingGeometry(1.6, 3.4, 26),
+        new THREE.MeshBasicMaterial({ color: 0xfbbf24, transparent: true, opacity: 0,
+                                      side: THREE.DoubleSide, depthWrite: false,
+                                      blending: THREE.AdditiveBlending })));
+    halo.rotation.x = -Math.PI / 2;
+    halo.position.copy(from).setY(0.15);
+
+    const cam = getCamera();
+    sfx('coin_gain');
+
+    // ---- 1: the Office lights and the Star lifts out --------------------
+    _takeCameraPath(
+        { pos: cam ? cam.position.clone() : from.clone().add(new THREE.Vector3(0, 18, 20)),
+          look: from.clone().setY(3) },
+        { pos: from.clone().add(new THREE.Vector3(0, 11, 15)), look: from.clone().setY(5) },
+        0.8);
+    _beat(0.8, (pr) => {
+        halo.material.opacity = pr * 0.55;
+        star.position.y = 4.2 + pr * 3.4;
+        star.rotation.y = pr * 5;
+        star.scale.setScalar(1 + pr * 0.25);
+    }, () => {
+        // ---- 2: it settles over the token, and the count ticks ----------
+        const lift = star.position.clone();
+        const land = at.clone().setY(5.2);
+        _takeCameraPath(
+            { pos: from.clone().add(new THREE.Vector3(0, 11, 15)), look: lift.clone() },
+            { pos: at.clone().add(new THREE.Vector3(0, 9, 13)),    look: land.clone() },
+            0.9);
+        _beat(0.9, (pr) => {
+            const e = 1 - Math.pow(1 - pr, 3);
+            star.position.lerpVectors(lift, land, e);
+            star.rotation.y = 4 + e * 6;
+            star.scale.setScalar(1.25 - e * 0.35);
+            halo.material.opacity = 0.55 * (1 - pr);
+        }, () => {
+            _drop(halo);
+            sfx('land_good');
+            // ---- 3: hold. The board, the token, the new count -----------
+            _beat(0.5, (pr) => {
+                star.position.y = 5.2 + Math.sin(pr * Math.PI) * 0.5;
+                star.rotation.y = 10 + pr * 1.5;
+            }, () => {
+                if (!to) { done(); return; }
+                _starFlight(star, star.position.clone(), to, done);
+            });
+        });
+    });
+}
+
+// Beat 4 and 5: the comet, and the Office it lands on.
+function _starFlight(star, from, to, done) {
+    const dest = to.clone().setY(4.2);
+    // A trail of sparks left along the path, so the flight reads as a line
+    // across the board and not as a thing that vanished and reappeared.
+    const trail = _add(new THREE.Group());
+    const sparkMat = new THREE.MeshBasicMaterial({
+        color: 0xfde68a, transparent: true, opacity: 0.9, depthWrite: false,
+        blending: THREE.AdditiveBlending });
+    const sparks = [];
+    for (let i = 0; i < 16; i++) {
+        const sp = new THREE.Mesh(new THREE.SphereGeometry(0.28, 6, 5), sparkMat.clone());
+        sp.visible = false; trail.add(sp); sparks.push(sp);
+    }
+
+    // The arc: up and over, so the flight has a shape from the side. A straight
+    // line between two points on a flat board is invisible from a low camera.
+    const arcH = 9 + from.distanceTo(dest) * 0.16;
+    const path = (t) => {
+        const p = new THREE.Vector3().lerpVectors(from, dest, t);
+        p.y = from.y + (dest.y - from.y) * t + Math.sin(t * Math.PI) * arcH;
+        return p;
+    };
+
+    // THE CAMERA RIDES BESIDE THE PATH, NOT ABOVE IT — the Swap cinematic's
+    // rule. `side` is the flight direction turned a quarter turn in the plane,
+    // so the shot tracks the Star across the board with the board behind it.
+    const dir = dest.clone().sub(from).setY(0).normalize();
+    const side = new THREE.Vector3(-dir.z, 0, dir.x).multiplyScalar(26);
+    _takeCameraPath(
+        { pos: from.clone().add(side).setY(from.y + 12), look: from.clone() },
+        { pos: dest.clone().add(side).setY(dest.y + 12), look: dest.clone() },
+        1.6);
+
+    sfx('star_fly');
+    _beat(1.6, (pr) => {
+        const e = pr * pr * (3 - 2 * pr);           // ease in and out of the flight
+        star.position.copy(path(e));
+        star.rotation.y = 12 + e * 22;
+        // The trail lags behind the head by a few frames' worth of path.
+        sparks.forEach((sp, i) => {
+            const t = e - (i + 1) * 0.022;
+            if (t <= 0) { sp.visible = false; return; }
+            sp.visible = true;
+            sp.position.copy(path(t));
+            sp.material.opacity = 0.75 * (1 - i / sparks.length) * (1 - pr * 0.4);
+            sp.scale.setScalar(1 - i / sparks.length * 0.7);
+        });
+    }, () => {
+        _drop(trail);
+        // ---- 5: the new Office lights as it lands -----------------------
+        const halo = _add(new THREE.Mesh(
+            new THREE.RingGeometry(1.4, 3.6, 26),
+            new THREE.MeshBasicMaterial({ color: 0xfbbf24, transparent: true, opacity: 0,
+                                          side: THREE.DoubleSide, depthWrite: false,
+                                          blending: THREE.AdditiveBlending })));
+        halo.rotation.x = -Math.PI / 2;
+        halo.position.copy(dest).setY(0.15);
+        sfx('land_good');
+        _beat(0.6, (pr) => {
+            star.position.y = dest.y - Math.sin(pr * Math.PI) * 0.9;
+            star.rotation.y = 34 + pr * 2;
+            halo.material.opacity = Math.sin(pr * Math.PI) * 0.7;
+            halo.scale.setScalar(0.6 + pr * 0.9);
+        }, done);
+    });
+}
+
+// ---------------------------------------------------------------------------
+// ✨ FOUR SHARDS FUSE                                                  ~1.8 s
+// ---------------------------------------------------------------------------
+//
+// The middle tier, not the top one: the Shard lane is the SECONDARY way to a
+// Star and fires two or three times a match, so it gets a short piece rather
+// than the comet. It spirals the four shards in over the player's token and
+// fuses them, and it stays on the follow camera — taking the camera for this
+// would put it on a par with the claim, which it is not.
+export function shardFuse(player, onDone) {
+    const done = () => { clearSetPieces(); if (onDone) onDone(); };
+    if (!player?.mesh) { done(); return; }
+    const at = player.mesh.position.clone().setY(4.6);
+
+    const shardMat = new THREE.MeshPhysicalMaterial({
+        color: 0xe9d5ff, emissive: 0xa855f7, emissiveIntensity: 1.6,
+        metalness: 0.5, roughness: 0.2, transparent: true, opacity: 0.95 });
+    const shards = [];
+    const grp = _add(new THREE.Group());
+    for (let i = 0; i < 4; i++) {
+        const sh = new THREE.Mesh(new THREE.TetrahedronGeometry(0.62), shardMat.clone());
+        grp.add(sh); shards.push(sh);
+    }
+    const star = _add(_mkSheriffStar(1.1));
+    star.position.copy(at);
+    star.scale.setScalar(0.01);
+    star.visible = false;
+
+    sfx('coin_gain');
+    _beat(1.2, (pr) => {
+        const e = pr * pr;
+        shards.forEach((sh, i) => {
+            const a = i * Math.PI / 2 + pr * 7;
+            const r = 6.5 * (1 - e);
+            sh.position.set(at.x + Math.cos(a) * r, at.y + (1 - e) * 4 + i * 0.25, at.z + Math.sin(a) * r);
+            sh.rotation.set(pr * 6, pr * 8, 0);
+            sh.material.opacity = 0.95 - e * 0.35;
+            sh.scale.setScalar(1 - e * 0.4);
+        });
+    }, () => {
+        _drop(grp);
+        star.visible = true;
+        sfx('land_good');
+        const flash = _add(new THREE.Mesh(
+            new THREE.SphereGeometry(1.2, 14, 10),
+            new THREE.MeshBasicMaterial({ color: 0xfff3c4, transparent: true, opacity: 0.9,
+                                          depthWrite: false, blending: THREE.AdditiveBlending })));
+        flash.position.copy(at);
+        _beat(0.6, (pr) => {
+            const e = 1 - Math.pow(1 - pr, 3);
+            star.scale.setScalar(0.2 + e * 1.0);
+            star.rotation.y = e * 7;
+            star.position.y = at.y + e * 1.2;
+            flash.scale.setScalar(1 + e * 4.5);
+            flash.material.opacity = 0.9 * (1 - e);
+        }, done);
+    });
 }
 
 // ---------------------------------------------------------------------------

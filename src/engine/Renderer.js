@@ -8,6 +8,7 @@ import { SCENE } from '../config/SceneTiming.js';
 import * as Physics from './Physics.js';
 import { sfx } from './AudioManager.js';   // set pieces cue their own sound
 import * as ActiveMap from '../config/ActiveMap.js';
+import * as Stars from '../core/Stars.js';
 
 let scene, camera, renderer, clock;
 let boardGrp, diceGrp;
@@ -164,9 +165,66 @@ export function districtRuns() {
     return (L && L.kind === 'city_arcs' && Array.isArray(L.arcs)) ? L.arcs : [];
 }
 
+// ---- The Clover (Star Territory) ----------------------------------------
+//
+// A hub ring with four circular lobes hanging off it, each tangent-ish to the
+// ring at its junction's angle. City's lobes are ARCS bowing off a band; these
+// are whole CIRCLES the road runs all the way around, which is what makes a
+// territory a detour you come back out of rather than a parallel route.
+//
+// The spec (§2) explains why they are circles: the first draft drew teardrops,
+// and the two sides of a teardrop run 2–6 units apart at every parameter tried
+// — against a 16×13 tile, the roads overlap. A circle has no such neck and its
+// node spacing is uniform by construction.
+function _deg(d) { return d * Math.PI / 180; }
+
+function _onCircle(cx, cz, r, deg) {
+    const a = _deg(deg);
+    return new THREE.Vector3(cx + r * Math.cos(a), 0, cz - r * Math.sin(a));
+}
+
+/** Where a lobe's centre sits: straight out along its junction's angle. */
+function _lobeCentre(L, jnDeg) {
+    const a = _deg(jnDeg);
+    return { x: L.LOBE_C * Math.cos(a), z: -L.LOBE_C * Math.sin(a) };
+}
+
+/**
+ * One point on a lobe, by node index — including fractional indices, which is
+ * how the ground ribbon samples the road between the tiles.
+ */
+export function cloverLobePoint(L, jnDeg, i) {
+    const c = _lobeCentre(L, jnDeg);
+    return _onCircle(c.x, c.z, L.LOBE_R, jnDeg + L.lobeStartDeg + i * L.lobeStepDeg);
+}
+
+/** The lobe runs of a clover board, or [] on any other. */
+export function cloverLobes() {
+    const L = ActiveMap.layout();
+    return (L && L.kind === 'clover' && Array.isArray(L.lobes)) ? L.lobes : [];
+}
+
+function _buildCloverPositions(L) {
+    // The hub ring: twelve nodes at a constant radius, h1 at the top.
+    (L.hub.ids || []).forEach((id, i) => {
+        nodePositions.set(id, _onCircle(0, 0, L.HUB_R, L.hub.startDeg + i * L.hub.stepDeg));
+    });
+    // The junctions sit ON the hub ring, halfway between the two hub nodes they
+    // separate. Nobody ever stands on one, but the token WALKS THROUGH it on a
+    // route choice, so its position has to be a real point on the road.
+    for (const [id, deg] of Object.entries(L.junctions || {})) {
+        nodePositions.set(id, _onCircle(0, 0, L.HUB_R, deg));
+    }
+    for (const lobe of (L.lobes || [])) {
+        const jnDeg = L.junctions[lobe.jn];
+        lobe.ids.forEach((id, i) => nodePositions.set(id, cloverLobePoint(L, jnDeg, i)));
+    }
+}
+
 function buildNodePositions() {
     nodePositions.clear();
     const L = ActiveMap.layout();
+    if (L && L.kind === 'clover') { _buildCloverPositions(L); return; }
     if (!L || L.kind !== 'city_arcs') return;
     const radius = { R: L.R, DR: L.DR };
     const pow = L.lobePow || 1.3;
@@ -805,24 +863,15 @@ function _buildPathTubes() {
     _pathTubes.forEach(m => boardGrp.remove(m));
     _pathTubes.length = 0;
 
-    // One tube per graph edge, colored by district
-    const edges = [
-        // Ring road segments
-        { nodes: ['bp_a','r1','r2','r3','r4','r5','bp_b'],            district: 'ring' },
-        { nodes: ['bp_b','r6','r7','r8','r9','r10','bp_c'],           district: 'ring' },
-        { nodes: ['bp_c','r11','r12','r13','r14','r15','bp_d'],       district: 'ring' },
-        { nodes: ['bp_d','r16','r17','r18','r19','r20','bp_a'],       district: 'ring' },
-        // Districts
-        { nodes: ['bp_a','fin_0','fin_1','fin_2','fin_3','fin_4','fin_5','fin_6','fin_7','fin_8','fin_9','bp_b'],        district: 'fin'  },
-        { nodes: ['bp_b','ba_0','ba_1','ba_2','ba_3','ba_4','ba_5','ba_6','ba_7','ba_8','ba_9','ba_10','ba_11','bp_c'], district: 'ba'   },
-        { nodes: ['bp_c','shop_0','shop_1','shop_2','shop_3','shop_4','shop_5','shop_6','shop_7','shop_8','shop_9','bp_d'], district: 'shop' },
-        { nodes: ['bp_d','ind_0','ind_1','ind_2','ind_3','ind_4','ind_5','ind_6','ind_7','bp_a'],                       district: 'ind'  },
-    ];
-
-    edges.forEach(({ nodes, district }) => {
+    // One smoothed tube per ROAD, coloured by the region it belongs to. The runs
+    // used to be this function's own hardcoded list of City node ids, so a
+    // second graph board would have drawn City's roads on top of its own tiles.
+    // They are declared on the map module now (`LAYOUT.roads`).
+    ActiveMap.roads().forEach(({ nodes, district }) => {
         const pts = nodes.map(id => getPos(id).clone().setY(-0.3));
+        if (pts.length < 2) return;
         const curve = new THREE.CatmullRomCurve3(pts);
-        const tint  = DISTRICT_BIOMES[district].pathTint;
+        const tint  = (DISTRICT_BIOMES[district] || DISTRICT_BIOMES.ring).pathTint;
         const geo   = new THREE.TubeGeometry(curve, pts.length * 3, 1.2, 6, false);
         const mat   = new THREE.MeshStandardMaterial({
             color: tint, emissive: tint, transparent: true, opacity: 0.14, roughness: 0.9,
@@ -832,8 +881,8 @@ function _buildPathTubes() {
         _pathTubes.push(mesh);
     });
 
-    // Junction sphere markers
-    ['bp_a','bp_b','bp_c','bp_d'].forEach(id => {
+    // Junction sphere markers — every fork this board has, not City's four.
+    [...ActiveMap.junctions()].forEach(id => {
         const pos = getPos(id);
         const mat = new THREE.MeshPhysicalMaterial({ color: 0xfbbf24, emissive: 0xf59e0b, emissiveIntensity: 1.5, metalness: 0.9 });
         const mesh = new THREE.Mesh(new THREE.SphereGeometry(1.8, 12, 12), mat);
@@ -950,6 +999,12 @@ export function drawTiles() {
         if (isGate) emColor = state.gateOpen ? 0x22c55e : 0xb45309;
         if (b.type === 'player_trap') emColor = state.players[b.owner]?.color ?? 0xf97316;
         if (b.type === 'hq') emColor = 0xa37810;
+        // A LIT OFFICE MEANS THE STAR IS HERE. The Offices are identical
+        // furniture and only one of them matters at a time, so the empty three
+        // are deliberately dull and the live one burns — it is the cheapest
+        // version of "its location is never hidden" and it works from the
+        // flyover, where no HUD is on screen.
+        if (b.type === 'plinth') emColor = Stars.isLiveOffice(nodeId) ? 0xb45309 : 0x33302a;
 
         const baseMat  = new THREE.MeshPhysicalMaterial({ map: tex, roughness: 0.22, metalness: 0.18, clearcoat: 0.45, clearcoatRoughness: 0.2, emissive: emColor, emissiveIntensity: 0.55 });
         const baseMesh = new THREE.Mesh(_hexGeo, baseMat);
@@ -964,6 +1019,7 @@ export function drawTiles() {
         boardGrp.add(baseMesh);
 
         if (isGate) _buildGateMesh(nodeId, pos);
+        else if (b.type === 'plinth') _buildPlinthMesh(nodeId, pos, graphNode?.district);
         else if (b.type === 'shop') _buildShopMesh(nodeId, pos, graphNode?.district);
         else if (b.type === 'hq') _buildHQMesh(nodeId, pos, graphNode?.district);
         else if (spc.geo && GEOS[spc.geo]) _buildFloatingIcon(pos, spc, b);
@@ -1055,6 +1111,98 @@ function _buildGateMesh(nodeId, pos) {
     boardGrp.add(gateGrp); tileMeshes.push(gateGrp);
 }
 
+/**
+ * A TERRITORY OFFICE — the plinth, its case, and the Star if it is here.
+ *
+ * Deliberately NOT a variant of the HQ mesh. An HQ is a building that pays you
+ * for walking past it and looks the same every lap; a plinth is a pedestal that
+ * is either holding the only thing worth points on this board or standing
+ * empty, and those two states have to be tellable apart across a whole board.
+ * So: stone base and a glass case always, and the Star only when it is here.
+ */
+function _buildPlinthMesh(nodeId, pos, district) {
+    const grp = new THREE.Group();
+    grp.position.copy(pos); grp.position.y = 0;
+    const live = Stars.isLiveOffice(nodeId);
+
+    const stone = new THREE.MeshStandardMaterial({ color: 0xbdae92, roughness: 0.82 });
+    const step  = new THREE.Mesh(new THREE.CylinderGeometry(2.3, 2.6, 0.45, 12), stone);
+    step.position.y = 0.22; step.receiveShadow = true; grp.add(step);
+    const column = new THREE.Mesh(new THREE.CylinderGeometry(1.0, 1.25, 2.4, 12), stone);
+    column.position.y = 1.6; column.castShadow = true; grp.add(column);
+    const cap = new THREE.Mesh(new THREE.CylinderGeometry(1.35, 1.1, 0.35, 12), stone);
+    cap.position.y = 2.95; grp.add(cap);
+
+    // The case. Glass either way — an empty case is what tells you the Star has
+    // been and gone rather than that there was never one here.
+    const glass = new THREE.Mesh(
+        new THREE.CylinderGeometry(1.05, 1.05, 2.2, 12, 1, true),
+        new THREE.MeshPhysicalMaterial({
+            color: live ? 0xfff0c2 : 0xaab2bd, transparent: true,
+            opacity: live ? 0.24 : 0.13, roughness: 0.05, metalness: 0.2,
+            side: THREE.DoubleSide, depthWrite: false }));
+    glass.position.y = 4.2; grp.add(glass);
+    const brass = new THREE.MeshStandardMaterial({
+        color: live ? 0xd6a441 : 0x6b6558, roughness: 0.35, metalness: 0.8 });
+    [3.1, 5.3].forEach(y => {
+        const hoop = new THREE.Mesh(new THREE.TorusGeometry(1.06, 0.07, 6, 16), brass);
+        hoop.rotation.x = Math.PI / 2; hoop.position.y = y; grp.add(hoop);
+    });
+
+    if (live) {
+        const star = _mkSheriffStar(1.0);
+        star.position.y = 4.2;
+        grp.add(star);
+        _pushTileIcon({ mesh: star, baseY: 4.2, speed: 1.0, phase: 0, group: grp });
+        // A shaft up out of the case, so the live Office is findable from the
+        // far side of the board without opening the map.
+        const shaft = new THREE.Mesh(
+            new THREE.CylinderGeometry(1.0, 0.5, 11, 14, 1, true),
+            new THREE.MeshBasicMaterial({ color: 0xfbbf24, transparent: true, opacity: 0.1,
+                side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }));
+        shaft.position.y = 9.5; grp.add(shaft);
+    }
+
+    grp.userData = { nodeId, type: '_plinth' };
+    boardGrp.add(grp); tileMeshes.push(grp);
+}
+
+/**
+ * A five-pointed sheriff's star, built as a proper star rather than as two
+ * crossed boxes — this is the object the board is named after and the one thing
+ * every set piece on it moves, so it is worth ten vertices of its own.
+ */
+export function _mkSheriffStar(scale = 1) {
+    const shape = new THREE.Shape();
+    const R = 1.15 * scale, r = 0.48 * scale;
+    for (let i = 0; i < 10; i++) {
+        const rad = (i % 2 ? r : R);
+        const a = -Math.PI / 2 + i * Math.PI / 5;
+        const x = Math.cos(a) * rad, y = Math.sin(a) * rad;
+        if (i === 0) shape.moveTo(x, y); else shape.lineTo(x, y);
+    }
+    shape.closePath();
+    const geo = new THREE.ExtrudeGeometry(shape, {
+        depth: 0.16 * scale, bevelEnabled: true,
+        bevelThickness: 0.05 * scale, bevelSize: 0.06 * scale, bevelSegments: 2 });
+    geo.center();
+    const mesh = new THREE.Mesh(geo, new THREE.MeshPhysicalMaterial({
+        color: 0xfde68a, emissive: 0xf59e0b, emissiveIntensity: 1.5,
+        metalness: 0.85, roughness: 0.18, clearcoat: 0.6 }));
+    mesh.castShadow = true;
+    // The balls on the points — the detail that makes it a SHERIFF'S star and
+    // not a gold star sticker.
+    const ballMat = new THREE.MeshPhysicalMaterial({
+        color: 0xfff3c4, emissive: 0xfbbf24, emissiveIntensity: 1.2, metalness: 0.9, roughness: 0.1 });
+    for (let i = 0; i < 5; i++) {
+        const a = -Math.PI / 2 + i * 2 * Math.PI / 5;
+        const b = new THREE.Mesh(new THREE.SphereGeometry(0.13 * scale, 8, 6), ballMat);
+        b.position.set(Math.cos(a) * R, Math.sin(a) * R, 0);
+        mesh.add(b);
+    }
+    return mesh;
+}
+
 function _buildShopMesh(nodeId, pos, district) {
     const shopGrp = new THREE.Group();
     const nextId  = ActiveMap.graph()[nodeId]?.next?.[0];
@@ -1064,7 +1212,8 @@ function _buildShopMesh(nodeId, pos, district) {
     shopGrp.position.copy(pos).addScaledVector(right, 3.2); shopGrp.position.y = 0;
     shopGrp.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), tangent);
 
-    const colors = { fin: 0x3b82f6, ba: 0xef4444, shop: 0xec4899, ind: 0xeab308, ring: 0xa855f7 };
+    const colors = { fin: 0x3b82f6, ba: 0xef4444, shop: 0xec4899, ind: 0xeab308, ring: 0xa855f7,
+                     hub: 0xb45309, rail: 0x60a5fa, mine: 0xf97316, ranch: 0x84cc16, bad: 0xfbbf24 };
     const awningColor = colors[district] || 0xa855f7;
 
     const counterMat = new THREE.MeshPhysicalMaterial({ color: 0x78350f, emissive: 0x3b1a06, emissiveIntensity: 0.3, roughness: 0.7 });
@@ -2848,20 +2997,25 @@ function _buildCityCenter() {
 // ---- Street lamps ----
 
 function _buildStreetLamps() {
-    const ringNodeIds = ['r1','r2','r3','r4','r5','r6','r7','r8','r9','r10',
-                         'r11','r12','r13','r14','r15','r16','r17','r18','r19','r20'];
-    ringNodeIds.forEach((id, idx) => {
-        if (idx % 2 !== 0) return; // every other node
+    // The hub's own nodes, whatever this board calls them. This used to be
+    // City's twenty ring-road ids written out, which is a list that cannot be
+    // right on two boards at once.
+    const hubNodes = _districtNodes(ActiveMap.hubKey());
+    if (!hubNodes.length) return;
+    // A city has electric lamps; Perdition has lantern posts, and a shorter
+    // hub ring means every node gets one rather than every other.
+    const post = _isClover() ? _mkLanternPost : _mkLampPost;
+    const every = hubNodes.length > 14 ? 2 : 1;
+    const reach = _isClover() ? 5 : 6;
+    hubNodes.forEach((id, idx) => {
+        if (idx % every !== 0) return;
         const pos = getPos(id).clone();
         const out = _outwardDir(pos);
-        // Lamp on outer side of ring road
-        const lPos = pos.clone().addScaledVector(out, 6);
-        lPos.y = 0;
-        _cityEnvGroup.add(_mkLampPost(lPos));
-        // Lamp on inner side
-        const lPos2 = pos.clone().addScaledVector(out, -6);
-        lPos2.y = 0;
-        _cityEnvGroup.add(_mkLampPost(lPos2));
+        [reach, -reach].forEach(d => {
+            const at = pos.clone().addScaledVector(out, d);
+            at.y = 0;
+            _cityEnvGroup.add(post(at));
+        });
     });
 }
 
@@ -3366,17 +3520,38 @@ function _buildBackgroundSkyline() {
  * position is chosen, and a generous constant costs a metre of pavement while
  * measuring costs a build-then-move-then-rebuild.
  */
+const _FOOTPRINT = {
+    ind: 6.5, fin: 5.0, ba: 5.5, shop: 5.0,
+    // Star Territory. A false-front store is narrow, a barn is not, and nothing
+    // in the Badlands is a building at all — it is a rock, and rocks are wide.
+    hub: 4.8, rail: 6.0, mine: 5.5, ranch: 6.5, bad: 5.5,
+};
+
 function _footprintHalf(district, isHQ) {
-    const base = district === 'ind'  ? 6.5
-               : district === 'fin'  ? 5.0
-               : district === 'ba'   ? 5.5
-               : district === 'shop' ? 5.0
-               : 4.5;                                   // ring / civic
+    const base = _FOOTPRINT[district] ?? 4.5;           // ring / civic
     return isHQ ? base * 1.35 : base;
 }
 
+// What each region builds on its plots. A missing entry means the region puts
+// nothing beside the road, which is a legitimate answer and used to be an
+// unreachable `default: return`.
+const _PLOT_BUILDER = {
+    fin:  (pos, isHQ) => _mkSkyscraper(pos, isHQ),
+    ba:   (pos, isHQ) => _mkBrickBuilding(pos, isHQ),
+    shop: (pos, isHQ) => _mkShopBuilding(pos, undefined, isHQ),
+    ind:  (pos, isHQ) => _mkFactory(pos, isHQ),
+    ring: (pos)       => _mkCivicBuilding(pos),
+    // ---- Star Territory ----
+    hub:   (pos, _h, seed) => _mkFalseFront(pos, seed),
+    rail:  (pos, _h, seed) => _mkRailShed(pos, seed),
+    mine:  (pos, _h, seed) => _mkMineWorks(pos, seed),
+    ranch: (pos, _h, seed) => _mkRanchBuilding(pos, seed),
+    bad:   (pos, _h, seed) => _mkBadlandsRock(pos, seed),
+};
+
 function _buildAllDistrictBuildings() {
     const boardData = state.board;
+    let plotSeed = 0;
     Object.keys(ActiveMap.graph()).forEach(nodeId => {
         if (ActiveMap.isJunction(nodeId)) return;
         const graphNode = ActiveMap.graph()[nodeId];
@@ -3401,15 +3576,9 @@ function _buildAllDistrictBuildings() {
         const bPos = pos.clone().addScaledVector(outDir, offset);
         bPos.y = 0;
 
-        let building;
-        switch (district) {
-            case 'fin':  building = _mkSkyscraper(bPos, isHQ); break;
-            case 'ba':   building = _mkBrickBuilding(bPos, isHQ); break;
-            case 'shop': building = _mkShopBuilding(bPos, undefined, isHQ); break;
-            case 'ind':  building = _mkFactory(bPos, isHQ); break;
-            case 'ring': building = _mkCivicBuilding(bPos); break;
-            default:     return;
-        }
+        const make = _PLOT_BUILDER[district];
+        if (!make) return;
+        const building = make(bPos, isHQ, plotSeed++);
 
         if (building) {
             building.rotation.y = _facingAngle(pos);
@@ -3419,7 +3588,10 @@ function _buildAllDistrictBuildings() {
         }
     });
 
-    _buildBackgroundSkyline();
+    // What stands on the horizon behind the board: the rest of the city, or the
+    // mesas the Territory is cut out of.
+    if (_isClover()) _buildMesaHorizon();
+    else             _buildBackgroundSkyline();
 }
 
 // ---- Main entry ----
@@ -3439,8 +3611,16 @@ function _buildCityScene() {
     _cityEnvGroup.name = 'cityEnv';
     scene.add(_cityEnvGroup);
 
-    _buildCityGround();
-    _buildCityCenter();
+    // WHAT THE BOARD IS MADE OF IS THE MAP'S BUSINESS; HOW IT IS DRESSED IS NOT.
+    //
+    // Six of these eight passes are already data-driven: they iterate
+    // DISTRICT_BIOMES and ask _districtNodes(key) which nodes on the CURRENT
+    // board belong to each key, so a region that is not on this map contributes
+    // nothing and costs nothing. Only the ground and the centrepiece are
+    // genuinely per-board geometry — a city has a ring road and a fountain, a
+    // territory has a hub ring and a town square — so only those two branch.
+    if (_isClover()) { _buildTerritoryGround(); _buildTerritoryCentre(); }
+    else             { _buildCityGround();      _buildCityCenter(); }
     _buildAllDistrictBuildings();
     _buildStreetLamps();
     _buildDistrictSurfaces();
@@ -3450,6 +3630,9 @@ function _buildCityScene() {
     _buildOverheads();
     _buildDistrictMotes();
 }
+
+/** Is the active board the Clover (Star Territory)? */
+function _isClover() { return ActiveMap.layout()?.kind === 'clover'; }
 
 // ---- 4. Light ----
 //
@@ -3498,12 +3681,16 @@ function _buildDistrictLights() {
 // pipe bridge.
 function _buildOverheads() {
     const SPAN = { fin: _spanTickerArch, ba: _spanLaundry, shop: _spanBunting,
-                   ind: _spanPipeBridge, ring: _spanGantrySign };
+                   ind: _spanPipeBridge, ring: _spanGantrySign,
+                   hub: _spanGallowsSign, rail: _spanSignalGantry, mine: _spanShoring,
+                   ranch: _spanLogGate, bad: _spanDeadCottonwood };
     Object.keys(SPAN).forEach(key => {
         const nodes = _districtNodes(key);
         if (nodes.length < 3) return;
-        const at = key === 'ring'
-            ? [nodes[3], nodes[11]]
+        // The hub carries its spans further apart, because everybody crosses it
+        // every lap and two arches four nodes apart would read as a tunnel.
+        const at = ActiveMap.isHub(key)
+            ? [nodes[Math.min(3, nodes.length - 1)], nodes[Math.min(nodes.length - 1, Math.floor(nodes.length * 0.75))]]
             : [nodes[1], nodes[Math.max(2, nodes.length - 2)]];
         at.forEach((id, i) => {
             if (!id) return;
@@ -3797,8 +3984,18 @@ function _buildDistrictSurfaces() {
         wet:      { col: 0x22252b, rough: 0.28, metal: 0.15, seam: 0x4d5460 },
         paving:   { col: 0x6f5f88, rough: 0.8,  metal: 0,    seam: 0xd8c4ea },
         concrete: { col: 0x6f6a5e, rough: 0.92, metal: 0,    seam: 0xd9b23a },
+        // ---- Star Territory. Nothing out here is paved, so the "seam" is a
+        // wagon rut, a rail, an ore-cart track or a crack in the hardpan.
+        dirt:      { col: 0x6b4f33, rough: 0.98, metal: 0, seam: 0x8a6a45 },  // rutted township dirt
+        ballast:   { col: 0x4a4a4e, rough: 0.95, metal: 0, seam: 0x8a7a5c },  // stone chip and sleepers
+        wetrock:   { col: 0x2b2420, rough: 0.55, metal: 0.1, seam: 0x6a5a48 },// wet rock, cart rails
+        grassdirt: { col: 0x4d5a2c, rough: 0.96, metal: 0, seam: 0x7a6b3a },  // packed earth through grass
+        hardpan:   { col: 0xa08f6c, rough: 0.99, metal: 0, seam: 0xc9b68c },  // cracked salt flat
     };
-    ['fin', 'ba', 'shop', 'ind'].forEach(key => {
+    // Every region on THIS board that names a surface — it used to be City's
+    // four district keys written out, which is the one line in the dressing
+    // passes that a second graph board could not reach.
+    [...ActiveMap.regionKeys(), ActiveMap.hubKey()].filter(Boolean).forEach(key => {
         const cfg = SURF[DISTRICT_BIOMES[key]?.surface];
         if (!cfg) return;
         const mat = _dressMat(cfg.col, { rough: cfg.rough, metal: cfg.metal });
@@ -3814,10 +4011,10 @@ function _buildDistrictSurfaces() {
             _cityEnvGroup.add(slab);
             // One seam line per slab, so the surface reads as laid rather than
             // painted. Hazard chevrons in Industrial, joints everywhere else.
-            const seams = key === 'ind' ? 3 : 1;
+            const seams = (key === 'ind' || key === 'mine') ? 3 : 1;
             for (let s = 0; s < seams; s++) {
                 const line = new THREE.Mesh(
-                    new THREE.PlaneGeometry(key === 'ind' ? 1.1 : 0.35, 12),
+                    new THREE.PlaneGeometry((key === 'ind' || key === 'mine') ? 1.1 : 0.35, 12),
                     seamMat);
                 line.rotation.x = -Math.PI / 2;
                 line.rotation.z = -ang;
@@ -3845,7 +4042,9 @@ function _buildDistrictSurfaces() {
 
 function _buildDistrictDressing() {
     const MAKER = { finance: _propFinance, alley: _propAlley, market: _propMarket,
-                    works: _propWorks, civic: _propCivic };
+                    works: _propWorks, civic: _propCivic,
+                    township: _propTownship, railyard: _propRailyard, mine: _propMine,
+                    ranch: _propRanch, badlands: _propBadlands };
     Object.keys(DISTRICT_BIOMES).forEach(key => {
         const make = MAKER[DISTRICT_BIOMES[key].props];
         if (!make) return;
@@ -3855,11 +4054,11 @@ function _buildDistrictDressing() {
             const ang = _facingAngle(pos);
             // Two props per node, one each side of the road. The ring already
             // carries lamps on both sides, so it gets one and further out.
-            const sides = key === 'ring' ? [1] : [1, -1];
+            const sides = ActiveMap.isHub(key) ? [1] : [1, -1];
             sides.forEach((s, k) => {
                 const r = _seeded(i * 31 + k * 7 + key.length * 13);
                 if (r > 0.86) return;                       // gaps, so it is not a fence
-                const dist = (key === 'ring' ? 9 : 6.2) + _seeded(i * 17 + k) * 1.6;
+                const dist = (ActiveMap.isHub(key) ? 9 : 6.2) + _seeded(i * 17 + k) * 1.6;
                 const p = pos.clone().addScaledVector(out, s * dist);
                 const g = make(r, i * 3 + k);
                 if (!g) return;
@@ -4078,7 +4277,8 @@ function _propCivic(r, seed) {
 // Placed at the district's midpoint and set well back, so it reads as the thing
 // the district is named after from the flyover and from the map view.
 function _buildDistrictLandmarks() {
-    const BUILD = { fin: _lmExchange, ba: _lmNeonArch, shop: _lmArcade, ind: _lmCoolingTowers };
+    const BUILD = { fin: _lmExchange, ba: _lmNeonArch, shop: _lmArcade, ind: _lmCoolingTowers,
+                    rail: _lmWaterTower, mine: _lmHeadframe, ranch: _lmGreatBarn, bad: _lmMesa };
     Object.keys(BUILD).forEach(key => {
         const nodes = _districtNodes(key);
         if (!nodes.length) return;
@@ -4253,8 +4453,1227 @@ function _animateCityLife(time, dt) {
         } else if (e.kind === 'beacon') {
             const b = (Math.sin(time * 2.4) + 1) * 0.5;
             e.mat.color.setRGB(1, 0.15 + b * 0.1, 0.1 + b * 0.08);
+        } else if (e.kind === 'windmill') {
+            // The one thing on the Ranch that moves, and the reason golden hour
+            // out there does not read as a photograph. Seeded speed so a row of
+            // pumps does not turn in lockstep.
+            e.fan.rotation.z = time * (0.7 + _seeded(e.seed) * 0.6);
+        } else if (e.kind === 'devil') {
+            // A dust devil: spheres spiralling up a cone, widening and fading.
+            // It walks a little, because a stationary one reads as a smoke
+            // machine rather than as weather.
+            const drift = Math.sin(time * 0.22 + e.seed) * 3.2;
+            e.parts.forEach((p, k) => {
+                const t = ((time * 0.35 + k / e.parts.length) % 1);
+                const spin = t * 9 + e.seed;
+                const r = 0.4 + t * 1.9;
+                p.position.set(drift + Math.cos(spin) * r, 0.4 + t * 6.5,
+                               Math.sin(spin) * r);
+                p.material.opacity = Math.sin(t * Math.PI) * 0.22;
+                p.scale.setScalar(0.6 + t * 1.1);
+            });
         }
     }
+}
+
+
+// ============================================================
+// STAR TERRITORY — the Clover, dressed
+// ============================================================
+//
+// Five places, five times of day, and the rule docs/DISTRICTS.md established:
+// a region is told apart by its SHAPE first, its LIGHT second and its props
+// third. A follow camera nineteen units back and twenty-six up cannot see the
+// sky gradient at all, so everything below is aimed at what is actually in
+// frame — the ground under the tiles and the six metres either side of the
+// road.
+//
+// Nothing here is new architecture. The six data-driven dressing passes above
+// (surfaces, props, landmarks, lights, spans, motes) reach these builders by
+// name off DISTRICT_BIOMES, exactly as they already did for City's four. Only
+// the ground and the centrepiece are per-board geometry, because a city has a
+// ring road and a fountain and a territory has a hub ring and a town square.
+
+// ---- The ground the Territory stands on --------------------------------
+//
+// City's base disc carries a block texture — roads and rooftops seen from
+// above, which is what the gaps between its districts should look like. Out
+// here the gaps are scrub and dry grass, and the single strongest cue that this
+// is not the city is that the ground between the roads has nothing on it.
+let _prairieTex = null;
+function _prairieTexture() {
+    if (_prairieTex || typeof document === 'undefined') return _prairieTex;
+    const S = 256;
+    const c = document.createElement('canvas');
+    c.width = c.height = S;
+    const g = c.getContext('2d');
+    g.fillStyle = '#8a7048'; g.fillRect(0, 0, S, S);
+    // Big soft blotches rather than per-pixel noise: noise at this scale reads
+    // as static from the map view and as nothing at all from the follow camera.
+    const tints = ['#7d6a44', '#95805a', '#6f5e3c', '#a08b62'];
+    for (let i = 0; i < 90; i++) {
+        const x = _sr(i * 3 + 1) * S, y = _sr(i * 5 + 2) * S;
+        const r = 10 + _sr(i * 7 + 3) * 26;
+        g.globalAlpha = 0.35 + _sr(i * 11) * 0.3;
+        g.fillStyle = tints[Math.floor(_sr(i * 13) * tints.length)];
+        g.beginPath();
+        g.ellipse(x, y, r, r * (0.5 + _sr(i * 17) * 0.7), _sr(i * 19) * 3.14, 0, 6.29);
+        g.fill();
+    }
+    // Sage clumps: sparse dark-green specks, enough to read as plants.
+    g.globalAlpha = 0.5;
+    for (let i = 0; i < 220; i++) {
+        g.fillStyle = _sr(i * 23) > 0.5 ? '#5f6b36' : '#4d5a2c';
+        const x = _sr(i * 29 + 4) * S, y = _sr(i * 31 + 5) * S;
+        g.beginPath(); g.arc(x, y, 1.2 + _sr(i * 37) * 2.2, 0, 6.29); g.fill();
+    }
+    g.globalAlpha = 1;
+    _prairieTex = new THREE.CanvasTexture(c);
+    _prairieTex.wrapS = _prairieTex.wrapT = THREE.RepeatWrapping;
+    _prairieTex.repeat.set(6, 6);
+    return _prairieTex;
+}
+
+// Per-territory ground tints — the second signal after shape. Deliberately
+// close in value for the same reason City's are: the light out here is strong
+// and these are large flat areas facing straight up at it, so a colour that
+// reads as mid-tone written down renders as glare.
+const _TERR_GROUND = {
+    rail:  0x4f4a44,   // oiled ballast
+    mine:  0x2e2723,   // wet rock and spoil
+    ranch: 0x55602f,   // grazed grass over packed earth
+    bad:   0x9e8d6a,   // salt hardpan
+};
+
+function _buildTerritoryGround() {
+    const L = ActiveMap.layout();
+    if (!L) return;
+
+    // The plain everything stands on.
+    const tex = _prairieTexture();
+    // WIDE ENOUGH TO PUT THE HORIZON ON. The first pass made this 150 and then
+    // moved the mesas out to 155–210 to stop them crowding the lobes, which
+    // left every one of them standing on nothing — photographed at
+    // qa/shot-map-star_territory-top.png as a visible disc edge with rock
+    // floating past it.
+    const base = new THREE.Mesh(
+        new THREE.CircleGeometry(260, 72),
+        new THREE.MeshStandardMaterial({
+            color: tex ? 0xffffff : 0x8a7048, roughness: 0.98, map: tex || null }));
+    base.rotation.x = -Math.PI / 2;
+    base.position.y = -0.62;
+    base.receiveShadow = true;
+    _cityEnvGroup.add(base);
+
+    // ---- Perdition: the hub ring road ----------------------------------
+    // A plain band, and deliberately the only plain circle on the board — the
+    // lobes hang off it and the town square sits inside it.
+    const road = new THREE.Mesh(
+        new THREE.RingGeometry(L.HUB_R - 7, L.HUB_R + 7, 64),
+        new THREE.MeshStandardMaterial({ color: 0x6b4f33, roughness: 0.98 }));
+    road.rotation.x = -Math.PI / 2; road.position.y = -0.61;
+    road.receiveShadow = true;
+    _cityEnvGroup.add(road);
+
+    // Wagon ruts, not a painted centre line: out here the road is not marked,
+    // it is worn. Two continuous tracks either side of the crown of the road.
+    const rutMat = new THREE.MeshStandardMaterial({ color: 0x53402a, roughness: 1 });
+    [L.HUB_R - 2.4, L.HUB_R + 2.4].forEach(r => {
+        const rut = new THREE.Mesh(new THREE.RingGeometry(r - 0.28, r + 0.28, 64), rutMat);
+        rut.rotation.x = -Math.PI / 2; rut.position.y = -0.595;
+        _cityEnvGroup.add(rut);
+    });
+
+    // ---- The four lobes ------------------------------------------------
+    //
+    // A lobe's road is a FULL CIRCLE: its twelve nodes run from +165 degrees
+    // round to -165 about the lobe centre, which is 330 degrees of it, and the
+    // missing 30 is where the junction and the rejoin node sit on the hub ring.
+    // So the band is a plain ring rather than a sampled ribbon — the one place
+    // the Clover's geometry is simpler than City's rather than harder.
+    cloverLobes().forEach(lobe => {
+        const a  = (L.junctions[lobe.jn] || 0) * Math.PI / 180;
+        const cx = L.LOBE_C * Math.cos(a), cz = -L.LOBE_C * Math.sin(a);
+        const col = _TERR_GROUND[lobe.key] ?? 0x6b4f33;
+
+        const band = new THREE.Mesh(
+            new THREE.RingGeometry(L.LOBE_R - 8, L.LOBE_R + 8, 56),
+            new THREE.MeshStandardMaterial({ color: col, roughness: 0.97 }));
+        band.rotation.x = -Math.PI / 2;
+        band.position.set(cx, -0.605, cz);
+        band.receiveShadow = true;
+        _cityEnvGroup.add(band);
+
+        // The corral in the middle — the hole a ring leaves. A shade darker, so
+        // the lobe reads as an enclosure you ride around rather than as a road
+        // that happens to curve.
+        const inner = new THREE.Mesh(
+            new THREE.CircleGeometry(L.LOBE_R - 8, 40),
+            new THREE.MeshStandardMaterial({ color: _tint(col, 0.74), roughness: 0.99 }));
+        inner.rotation.x = -Math.PI / 2;
+        inner.position.set(cx, -0.615, cz);
+        _cityEnvGroup.add(inner);
+    });
+}
+
+// ---- Perdition's town square -------------------------------------------
+//
+// City's centrepiece is a fountain in a park, and you see it over the top of
+// the ring road on every lap. Perdition's is the courthouse and the gallows
+// frame — the two things the Territory has instead of law, standing in the one
+// part of the board nobody can walk on.
+function _buildTerritoryCentre() {
+    const wood  = _dressMat(0x6b4a2c, { rough: 0.9 });
+    const dark  = _dressMat(0x4a3320, { rough: 0.92 });
+    const stone = _dressMat(0xbdae92, { rough: 0.85 });
+
+    // Packed square inside the ring.
+    const sq = new THREE.Mesh(new THREE.CircleGeometry(13, 40),
+        new THREE.MeshStandardMaterial({ color: 0x7d6444, roughness: 0.98 }));
+    sq.rotation.x = -Math.PI / 2; sq.position.y = -0.585;
+    _cityEnvGroup.add(sq);
+
+    // Courthouse: a squat stone block with a clock tower. The clock is what
+    // makes it read as a courthouse from the flyover rather than as a shed.
+    const court = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.BoxGeometry(11, 6, 8), stone);
+    body.position.y = 3; court.add(body);
+    const roof = new THREE.Mesh(new THREE.BoxGeometry(12, 0.5, 9), dark);
+    roof.position.y = 6.3; court.add(roof);
+    const tower = new THREE.Mesh(new THREE.BoxGeometry(3.6, 7, 3.6), stone);
+    tower.position.y = 9.5; court.add(tower);
+    const cap = new THREE.Mesh(new THREE.ConeGeometry(3.0, 3.0, 4), dark);
+    cap.position.y = 14.4; cap.rotation.y = Math.PI / 4; court.add(cap);
+    // Stuck at ten to four, which is the hour the whole board is lit for.
+    [0, Math.PI / 2, Math.PI, -Math.PI / 2].forEach(rot => {
+        const face = new THREE.Mesh(new THREE.CircleGeometry(1.35, 20),
+            new THREE.MeshStandardMaterial({ color: 0xf6ecd2, emissive: 0xf0d9a0, emissiveIntensity: 0.35 }));
+        face.position.set(Math.sin(rot) * 1.85, 10.2, Math.cos(rot) * 1.85);
+        face.rotation.y = rot;
+        court.add(face);
+        const hands = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.16, 0.06), dark);
+        hands.position.set(Math.sin(rot) * 1.92, 10.2, Math.cos(rot) * 1.92);
+        hands.rotation.y = rot; hands.rotation.z = 0.5;
+        court.add(hands);
+    });
+    court.position.set(0, 0, -3.5);
+    court.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+    _cityEnvGroup.add(court);
+
+    // The gallows frame, empty. Two posts and a beam — the silhouette does the
+    // work and nothing hangs from it.
+    const gal = new THREE.Group();
+    [-2.2, 2.2].forEach(x => {
+        const post = new THREE.Mesh(new THREE.BoxGeometry(0.5, 6.4, 0.5), wood);
+        post.position.set(x, 3.2, 0); gal.add(post);
+    });
+    const beam = new THREE.Mesh(new THREE.BoxGeometry(5.6, 0.5, 0.5), wood);
+    beam.position.y = 6.5; gal.add(beam);
+    const rope = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 1.8, 6),
+        _dressMat(0xbba475, { rough: 1 }));
+    rope.position.set(1.2, 5.4, 0); gal.add(rope);
+    const deck = new THREE.Mesh(new THREE.BoxGeometry(6.4, 0.4, 3.2), dark);
+    deck.position.y = 0.2; gal.add(deck);
+    gal.position.set(7.5, 0, 6.0); gal.rotation.y = -0.5;
+    gal.traverse(o => { if (o.isMesh) o.castShadow = true; });
+    _cityEnvGroup.add(gal);
+
+    // A well, so the square is a place people use rather than a stage set.
+    const well = new THREE.Group();
+    const ring = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.6, 1.2, 14), stone);
+    ring.position.y = 0.6; well.add(ring);
+    [-1.4, 1.4].forEach(x => {
+        const p = new THREE.Mesh(new THREE.BoxGeometry(0.26, 2.6, 0.26), wood);
+        p.position.set(x, 1.3, 0); well.add(p);
+    });
+    const wroof = new THREE.Mesh(new THREE.ConeGeometry(2.1, 1.1, 4), dark);
+    wroof.position.y = 3.0; wroof.rotation.y = Math.PI / 4; well.add(wroof);
+    well.position.set(-7.5, 0, 5.5);
+    well.traverse(o => { if (o.isMesh) o.castShadow = true; });
+    _cityEnvGroup.add(well);
+}
+
+// A lantern on a post — Perdition's street lighting. Shorter and warmer than
+// City's electric lamp, and the glass is the only thing on it that glows.
+function _mkLanternPost(pos) {
+    const g = new THREE.Group();
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.2, 4.2, 7),
+        _dressMat(0x5a4029, { rough: 0.92 }));
+    post.position.y = 2.1; g.add(post);
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.9),
+        _dressMat(0x3a3a3a, { rough: 0.6, metal: 0.5 }));
+    arm.position.set(0, 4.1, 0.45); g.add(arm);
+    const glass = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.9, 0.7),
+        new THREE.MeshStandardMaterial({ color: 0xffe4a8, emissive: 0xffb03a, emissiveIntensity: 1.1 }));
+    glass.position.set(0, 3.75, 0.9); g.add(glass);
+    const hood = new THREE.Mesh(new THREE.ConeGeometry(0.62, 0.42, 4),
+        _dressMat(0x2f2f2f, { rough: 0.6, metal: 0.4 }));
+    hood.position.set(0, 4.35, 0.9); hood.rotation.y = Math.PI / 4; g.add(hood);
+    g.position.copy(pos);
+    g.traverse(o => { if (o.isMesh) o.castShadow = true; });
+    return g;
+}
+
+// ---- What stands on each territory's plots -----------------------------
+
+const _WOOD = [0x8a6239, 0x6f4c2b, 0x9a7548, 0x5d4126];
+
+/** Perdition: a false-front store with a boardwalk. */
+function _mkFalseFront(pos, seed) {
+    const g = new THREE.Group();
+    const wood = _dressMat(_WOOD[Math.floor(_seeded(seed * 5 + 1) * _WOOD.length)], { rough: 0.9 });
+    const h = 4.6 + _seeded(seed * 7) * 2.2;
+    const w = 6.5 + _seeded(seed * 11) * 2.0;
+    const body = new THREE.Mesh(new THREE.BoxGeometry(w, h, 6), wood);
+    body.position.y = h / 2; g.add(body);
+    // THE FALSE FRONT IS THE WHOLE POINT. A western storefront is a one-storey
+    // shed with a flat parapet nailed to the front so it looks like two — it is
+    // the single silhouette that says "frontier town", and nothing else does.
+    const front = new THREE.Mesh(new THREE.BoxGeometry(w + 0.4, h * 0.55, 0.4),
+        _dressMat(0xa5804f, { rough: 0.88 }));
+    front.position.set(0, h + h * 0.26, 3.1); g.add(front);
+    // Boardwalk, awning and its posts.
+    const walk = new THREE.Mesh(new THREE.BoxGeometry(w + 1.2, 0.3, 2.2),
+        _dressMat(0x7a5a36, { rough: 0.95 }));
+    walk.position.set(0, 0.15, 4.2); g.add(walk);
+    const awn = new THREE.Mesh(new THREE.BoxGeometry(w + 1.2, 0.22, 2.6),
+        _dressMat(0x513824, { rough: 0.9 }));
+    awn.position.set(0, 3.1, 4.3); g.add(awn);
+    [-(w / 2) + 0.3, (w / 2) - 0.3].forEach(x => {
+        const p = new THREE.Mesh(new THREE.BoxGeometry(0.24, 3.0, 0.24), _dressMat(0x513824, { rough: 0.9 }));
+        p.position.set(x, 1.5, 5.3); g.add(p);
+    });
+    // Door and two windows, warm inside.
+    const lit = new THREE.MeshStandardMaterial({ color: 0xffe0a0, emissive: 0xffb545, emissiveIntensity: 0.6 });
+    [-1.9, 1.9].forEach(x => {
+        const win = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.3), lit);
+        win.position.set(x, 2.1, 3.02); g.add(win);
+    });
+    const door = new THREE.Mesh(new THREE.BoxGeometry(1.2, 2.3, 0.14), _dressMat(0x3e2c1b, { rough: 0.9 }));
+    door.position.set(0, 1.15, 3.05); g.add(door);
+    g.position.copy(pos);
+    return g;
+}
+
+/** Ironwood Railyard: long timber sheds with corrugated roofs. */
+function _mkRailShed(pos, seed) {
+    const g = new THREE.Group();
+    const plank = _dressMat(0x5d4c3a, { rough: 0.93 });
+    const iron  = _dressMat(0x6a6f74, { rough: 0.55, metal: 0.6 });
+    const h = 4.0 + _seeded(seed * 3) * 1.6;
+    const body = new THREE.Mesh(new THREE.BoxGeometry(9, h, 6.5), plank);
+    body.position.y = h / 2; g.add(body);
+    // A BARREL VAULT, sunk into the body so only the crown shows.
+    //
+    // The first pass used a half-cylinder standing on the wall plate at full
+    // radius, and after the quarter turn that puts its axis along the building
+    // its open face pointed sideways — so every shed in the yard rendered as an
+    // oil drum lying on its side. Photographed at qa/shot-map-star_territory-*
+    // before the fix. A full cylinder pushed down into the walls gives the
+    // corrugated crown a goods shed actually has, and the buried half costs
+    // nothing because nothing can see it.
+    const roof = new THREE.Mesh(new THREE.CylinderGeometry(2.6, 2.6, 9.3, 14), iron);
+    roof.rotation.z = Math.PI / 2;
+    // Sunk most of the way into the walls. At radius 3.3 sitting 1.5 down it
+    // was still wider than the 6.5-deep body and read as a drum lying on the
+    // shed from directly above; this leaves a crown rather than a barrel.
+    roof.position.y = h - 1.7; g.add(roof);
+    // An eave lip either side, so the roof meets a wall instead of floating.
+    [-3.1, 3.1].forEach(z => {
+        const eave = new THREE.Mesh(new THREE.BoxGeometry(9.6, 0.22, 0.5), iron);
+        eave.position.set(0, h - 0.1, z); g.add(eave);
+    });
+    // Sliding door on a rail.
+    const door = new THREE.Mesh(new THREE.BoxGeometry(3.2, h * 0.75, 0.2), _dressMat(0x46382b, { rough: 0.9 }));
+    door.position.set(-1.4, h * 0.375, 3.3); g.add(door);
+    const railBar = new THREE.Mesh(new THREE.BoxGeometry(8.6, 0.16, 0.16), iron);
+    railBar.position.set(0, h * 0.78, 3.35); g.add(railBar);
+    // Stacked sleepers against the wall.
+    for (let i = 0; i < 4; i++) {
+        const s = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.4, 0.6), _dressMat(0x3f3128, { rough: 0.97 }));
+        s.position.set(3.2, 0.2 + i * 0.42, 3.9 - (i % 2) * 0.3);
+        s.rotation.y = (i % 2) * 0.08;
+        g.add(s);
+    }
+    g.position.copy(pos);
+    return g;
+}
+
+/** Cinder Mine: a rock face with timber shoring and an adit mouth. */
+function _mkMineWorks(pos, seed) {
+    const g = new THREE.Group();
+    const rock   = _dressMat(0x3a322c, { rough: 0.98 });
+    const timber = _dressMat(0x5b452e, { rough: 0.94 });
+    // THE ROCK FACE IS A BACKDROP, NOT A WALL.
+    //
+    // The first pass built three boxes up to 7 wide and 9.5 tall at every node,
+    // set 14 units back — from the street camera they closed the road off
+    // completely and read as grey crates rather than as rock
+    // (qa/shot-map-star_territory-street.png). They are also registered with
+    // the occluder fader at the region's footprint half of 5.5, which an
+    // 11-unit spread badly underestimates, so the fade could not rescue them.
+    //
+    // Now: tapered, few-sided prisms — the same shape language as the buttes in
+    // Boot Hill and the mesas on the horizon — kept inside the footprint they
+    // declare, and low enough to see the board over.
+    // Varied hard, and near-plumb. The first fix made them the right SIZE and
+    // left them identical: the same 62%-taper hexagon twenty-four times over,
+    // in one grey, reads as a row of chess pawns. Three tones, a wide height
+    // spread, and walls that stand almost vertical — rock is cut back at the
+    // top by weather, not moulded.
+    const tones = [0x3a322c, 0x2f2823, 0x453b33];
+    for (let i = 0; i < 3; i++) {
+        const r = 1.4 + _seeded(seed * 5 + i) * 2.4;
+        const h = 2.2 + _seeded(seed * 7 + i) * 5.2;
+        const slab = new THREE.Mesh(
+            new THREE.CylinderGeometry(r * 0.84, r, h, 5 + Math.floor(_seeded(seed * 9 + i) * 3)),
+            _dressMat(tones[Math.floor(_seeded(seed * 11 + i) * tones.length)], { rough: 0.99 }));
+        slab.position.set((i - 1) * 3.0, h / 2, -0.6 - _seeded(seed + i) * 1.4);
+        slab.rotation.y = _seeded(seed * 3 + i) * 1.4;
+        slab.scale.z = 0.7 + _seeded(seed * 13 + i) * 0.7;
+        g.add(slab);
+    }
+    // The adit: a timber frame round a black hole, which is the one shape that
+    // says "you are underground" to a camera that cannot see a ceiling.
+    const mouth = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 3.0),
+        new THREE.MeshBasicMaterial({ color: 0x08060a }));
+    mouth.position.set(0, 1.5, 2.35); g.add(mouth);
+    [-1.5, 1.5].forEach(x => {
+        const p = new THREE.Mesh(new THREE.BoxGeometry(0.42, 3.4, 0.42), timber);
+        p.position.set(x, 1.7, 2.4); g.add(p);
+    });
+    const lintel = new THREE.Mesh(new THREE.BoxGeometry(3.8, 0.45, 0.45), timber);
+    lintel.position.set(0, 3.55, 2.4); g.add(lintel);
+    // One lantern on the frame. The Mine's only light is the one somebody hung.
+    const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.6, 0.5),
+        new THREE.MeshStandardMaterial({ color: 0xffd08a, emissive: 0xff8a2a, emissiveIntensity: 1.4 }));
+    lamp.position.set(1.5, 3.1, 2.7); g.add(lamp);
+    g.position.copy(pos);
+    return g;
+}
+
+/** Longhorn Ranch: barns and sheds under a gambrel roof. */
+function _mkRanchBuilding(pos, seed) {
+    const g = new THREE.Group();
+    const red  = _dressMat(_seeded(seed * 3) > 0.45 ? 0x8e3a26 : 0x7d5232, { rough: 0.92 });
+    const dark = _dressMat(0x46362a, { rough: 0.9 });
+    const h = 4.4 + _seeded(seed * 5) * 2.2;
+    const body = new THREE.Mesh(new THREE.BoxGeometry(9.5, h, 7), red);
+    body.position.y = h / 2; g.add(body);
+    // A GAMBREL ROOF, not a gable — two pitches a side. It is the barn
+    // silhouette; a plain triangle reads as a house instead.
+    [[-1, 0.9, 3.0, 0.85], [1, 0.9, 3.0, 0.85], [-1, 2.5, 1.0, 0.42], [1, 2.5, 1.0, 0.42]]
+        .forEach(([sx, dy, dz, rot]) => {
+            const p = new THREE.Mesh(new THREE.BoxGeometry(9.8, 0.35, dz === 3.0 ? 3.0 : 2.6), dark);
+            p.position.set(0, h + dy, sx * dz);
+            p.rotation.x = sx * rot;
+            g.add(p);
+        });
+    // Big double doors with an X brace, white-painted.
+    const white = _dressMat(0xe4d9c2, { rough: 0.85 });
+    [-1.3, 1.3].forEach(x => {
+        const d = new THREE.Mesh(new THREE.BoxGeometry(2.4, 3.4, 0.18), white);
+        d.position.set(x, 1.7, 3.55); g.add(d);
+        const br = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.2, 0.06), dark);
+        br.position.set(x, 1.7, 3.66); br.rotation.z = x > 0 ? 0.9 : -0.9; g.add(br);
+    });
+    // The loft door, up in the gable.
+    const loft = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.6, 0.16), dark);
+    loft.position.set(0, h + 0.4, 3.55); g.add(loft);
+    g.position.copy(pos);
+    return g;
+}
+
+/** Boot Hill: nothing is built out here. What stands beside the road is rock. */
+function _mkBadlandsRock(pos, seed) {
+    const g = new THREE.Group();
+    const strata = [0xb09774, 0x967c58, 0xc2ad89, 0x7f6848];
+    // ONE butte per plot, occasionally two. The first pass built two or three
+    // small ones at every node and the whole territory read as gravel — twelve
+    // nodes times two sides times three columns is seventy-odd rocks, which is
+    // scree, not landscape.
+    const n = _seeded(seed * 19) > 0.72 ? 2 : 1;
+    for (let i = 0; i < n; i++) {
+        // A butte is flat-topped and layered, which is what tells it apart from
+        // a boulder — so these are stacked slabs of decreasing width, not a
+        // sphere with noise on it.
+        const h = 5.0 + _seeded(seed * 5 + i) * 8.0;
+        const layers = 3 + Math.floor(_seeded(seed * 7 + i) * 3);
+        const col = new THREE.Group();
+        let y = 0;
+        for (let k = 0; k < layers; k++) {
+            const r = (5.2 - k * 0.6) * (0.75 + _seeded(seed + i * 3 + k) * 0.45);
+            const lh = h / layers;
+            const slab = new THREE.Mesh(
+                new THREE.CylinderGeometry(r * 0.94, r, lh, 5 + (k % 3)),
+                _dressMat(strata[(k + i) % strata.length], { rough: 0.99 }));
+            slab.position.y = y + lh / 2;
+            slab.rotation.y = _seeded(seed * 11 + k) * 1.2;
+            col.add(slab);
+            y += lh;
+        }
+        col.position.set((i - (n - 1) / 2) * 6.5, 0, (_seeded(seed * 13 + i) - 0.5) * 3);
+        g.add(col);
+    }
+    // A leaning grave marker, because the road is called Boot Hill.
+    if (_seeded(seed * 17) > 0.55) {
+        const cross = new THREE.Group();
+        const wood = _dressMat(0x6f5b3f, { rough: 0.97 });
+        const up = new THREE.Mesh(new THREE.BoxGeometry(0.22, 2.0, 0.18), wood);
+        up.position.y = 1.0; cross.add(up);
+        const arm = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.2, 0.16), wood);
+        arm.position.y = 1.45; cross.add(arm);
+        cross.position.set(4.6, 0, 3.4);
+        cross.rotation.z = 0.18;
+        g.add(cross);
+    }
+    g.position.copy(pos);
+    return g;
+}
+
+// ---- The horizon --------------------------------------------------------
+//
+// City's is thirty-four towers facing the centre. The Territory's is the rock
+// the whole board was cut out of: mesas and buttes, low and wide, in a much
+// tighter colour range — a saturated silhouette two hundred units out is the
+// strongest cue that a scene has no depth in it, and no amount of fog rescues
+// it.
+function _buildMesaHorizon() {
+    const tints = [0x8d7554, 0x7a6349, 0x9c8462, 0x6d5a45, 0xa08a66];
+    const mats = tints.map(c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.98 }));
+    const count = 24;
+    for (let i = 0; i < count; i++) {
+        const angle = (i / count) * Math.PI * 2 + (_sr(i * 3 + 1) - 0.5) * 0.2;
+        // FAR ENOUGH TO BE HORIZON. The first pass put these at 118–158 against
+        // a board of radius 72, and they crowded the lobes — from above they
+        // read as beige boxes stacked round the tiles rather than as distance.
+        // The board is bigger than City's, so its horizon has to be further out
+        // than City's, not the same.
+        const r = 155 + _sr(i * 5 + 2) * 55;
+        // Mesas are WIDE and FLAT-TOPPED. The height range is deliberately
+        // narrow and the width range is not: a horizon of tall thin shapes is a
+        // skyline, and this one must not read as one.
+        // WIDE AND LOW. At 30–50 units tall against a 22–56 width these still
+        // read as slabs on end from the street camera — which is the one thing
+        // a mesa horizon must not do, because a slab on end is a tower. The
+        // height band is cut hard and the width band is not: the silhouette has
+        // to be wider than it is tall, always.
+        const tall = _sr(i * 7 + 4) > 0.8;
+        const h = tall ? 17 + _sr(i * 11 + 5) * 10 : 8 + _sr(i * 13 + 6) * 7;
+        const w = 40 + _sr(i * 17 + 7) * 50;
+        // A TAPERED, FEW-SIDED PRISM, not a box. Cutting the top back and giving
+        // it six faces is what makes a shape read as weathered rock; a box at
+        // this distance reads as a building no matter what colour it is.
+        // NEAR-VERTICAL WALLS. The taper was 0.34 top against 0.5 bottom — a 68%
+        // ratio, which is a cooling tower, and photographing the street camera
+        // showed a horizon of them. Real strata are cut back by weather at the
+        // top and stand almost plumb below it, so the top is barely narrower
+        // than the base and the flat cap does the talking.
+        const mesa = new THREE.Mesh(
+            new THREE.CylinderGeometry(w * 0.45, w * 0.5, h, 6, 1),
+            mats[i % mats.length]);
+        mesa.position.set(Math.cos(angle) * r, h / 2 - 1, Math.sin(angle) * r);
+        mesa.rotation.y = _sr(i * 23 + 9) * 1.2;
+        mesa.scale.z = 0.7 + _sr(i * 31) * 0.8;          // not one of them circular
+        _cityEnvGroup.add(mesa);
+        // A talus skirt at the foot, so the mesa grows out of the plain rather
+        // than being set down on it.
+        const skirt = new THREE.Mesh(
+            new THREE.CylinderGeometry(w * 0.52, w * 0.78, h * 0.2, 6),
+            mats[(i + 2) % mats.length]);
+        skirt.position.set(mesa.position.x, h * 0.1 - 1, mesa.position.z);
+        skirt.rotation.y = _sr(i * 29) * 1.0;
+        skirt.scale.z = mesa.scale.z;
+        _cityEnvGroup.add(skirt);
+    }
+}
+
+// ---- Roadside props, one set per territory -----------------------------
+//
+// Two per node, one each side of the road, with gaps so it is not a fence.
+// `r` is the seeded roll that chose this prop; `seed` varies everything else.
+
+/** Perdition: hitching rails, troughs, barrels, a buckboard, boardwalk posts. */
+function _propTownship(r, seed) {
+    const g = new THREE.Group();
+    const wood = _dressMat(0x6f5335, { rough: 0.94 });
+    if (r < 0.26) {                                     // hitching rail
+        [-1.5, 1.5].forEach(x => {
+            const p = new THREE.Mesh(new THREE.BoxGeometry(0.22, 1.5, 0.22), wood);
+            p.position.set(x, 0.75, 0); g.add(p);
+        });
+        const bar = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.18, 0.18), wood);
+        bar.position.y = 1.35; g.add(bar);
+    } else if (r < 0.46) {                              // water trough
+        const t = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.8, 1.0), wood);
+        t.position.y = 0.4; g.add(t);
+        const water = new THREE.Mesh(new THREE.PlaneGeometry(2.3, 0.78),
+            new THREE.MeshPhysicalMaterial({ color: 0x4b6a63, roughness: 0.12, metalness: 0.2 }));
+        water.rotation.x = -Math.PI / 2; water.position.y = 0.76; g.add(water);
+    } else if (r < 0.62) {                              // stacked barrels
+        const nb = 2 + Math.floor(_seeded(seed * 3) * 2);
+        for (let i = 0; i < nb; i++) {
+            const b = new THREE.Mesh(new THREE.CylinderGeometry(0.46, 0.46, 1.15, 10),
+                _dressMat(0x7d4e2a, { rough: 0.9 }));
+            b.position.set((i - (nb - 1) / 2) * 1.0, 0.58, _seeded(seed + i) * 0.4);
+            g.add(b);
+            const hoop = new THREE.Mesh(new THREE.TorusGeometry(0.47, 0.05, 5, 12),
+                _dressMat(0x4a4a4a, { rough: 0.5, metal: 0.6 }));
+            hoop.rotation.x = Math.PI / 2; hoop.position.copy(b.position); g.add(hoop);
+        }
+    } else if (r < 0.76) {                              // buckboard wagon
+        const bed = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.5, 1.6), wood);
+        bed.position.y = 1.0; g.add(bed);
+        const seat = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.7, 1.5), _dressMat(0x54402a, { rough: 0.9 }));
+        seat.position.set(-1.1, 1.6, 0); g.add(seat);
+        [[-1.1, 0.85], [-1.1, -0.85], [1.2, 0.85], [1.2, -0.85]].forEach(([x, z], i) => {
+            const rw = i < 2 ? 0.55 : 0.8;
+            const wheel = new THREE.Mesh(new THREE.TorusGeometry(rw, 0.09, 6, 14),
+                _dressMat(0x4a3520, { rough: 0.92 }));
+            wheel.position.set(x, rw, z); g.add(wheel);
+        });
+    } else {                                            // boardwalk post + sign
+        const p = new THREE.Mesh(new THREE.BoxGeometry(0.24, 2.6, 0.24), wood);
+        p.position.y = 1.3; g.add(p);
+        const sign = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.55, 0.1),
+            _dressMat(0xd8c49a, { rough: 0.85 }));
+        sign.position.set(0.5, 2.2, 0); sign.rotation.z = -0.06; g.add(sign);
+    }
+    return g;
+}
+
+/** Ironwood Railyard: rail stacks, signal posts, a steaming stack, coal, handcars. */
+function _propRailyard(r, seed) {
+    const g = new THREE.Group();
+    const iron = _dressMat(0x6a6f74, { rough: 0.5, metal: 0.65 });
+    const tie  = _dressMat(0x3f3128, { rough: 0.97 });
+    if (r < 0.24) {                                     // stacked rails
+        for (let i = 0; i < 5; i++) {
+            const bar = new THREE.Mesh(new THREE.BoxGeometry(4.0, 0.22, 0.22), iron);
+            bar.position.set(0, 0.12 + Math.floor(i / 2) * 0.26, (i % 2) * 0.32);
+            g.add(bar);
+        }
+    } else if (r < 0.42) {                              // signal post with a lamp
+        const p = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.18, 4.0, 8), iron);
+        p.position.y = 2.0; g.add(p);
+        const arm = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.22, 0.12),
+            _dressMat(0xc2452c, { rough: 0.7 }));
+        arm.position.set(0.7, 3.4, 0.14); g.add(arm);
+        const lensMat = new THREE.MeshStandardMaterial({
+            color: 0x3ddc6a, emissive: 0x22c55e, emissiveIntensity: 1.5 });
+        const lens = new THREE.Mesh(new THREE.SphereGeometry(0.3, 10, 8), lensMat);
+        lens.position.set(0, 3.85, 0.22); g.add(lens);
+        _cityLive.push({ kind: 'beacon', mat: lensMat, seed: seed * 2 + 5 });
+    } else if (r < 0.60) {                              // a stack, steaming
+        const base = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 1.0, 1.2, 10), tie);
+        base.position.y = 0.6; g.add(base);
+        const stack = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.62, 3.2, 10), iron);
+        stack.position.y = 2.6; g.add(stack);
+        const puffs = [];
+        for (let i = 0; i < 5; i++) {
+            const puff = new THREE.Mesh(new THREE.SphereGeometry(0.62, 8, 6),
+                new THREE.MeshBasicMaterial({ color: 0xe6e9ee, transparent: true, opacity: 0, depthWrite: false }));
+            g.add(puff); puffs.push(puff);
+        }
+        _cityLive.push({ kind: 'steam', puffs, seed, rise: 7.5, base: 4.2, spread: 0.9 });
+    } else if (r < 0.78) {                              // coal heap
+        const heap = new THREE.Mesh(new THREE.ConeGeometry(1.5, 1.4, 9),
+            _dressMat(0x1d1b1a, { rough: 0.98 }));
+        heap.position.y = 0.7; g.add(heap);
+        for (let i = 0; i < 5; i++) {
+            const lump = new THREE.Mesh(new THREE.DodecahedronGeometry(0.22 + _seeded(seed + i) * 0.2),
+                _dressMat(0x262322, { rough: 0.95 }));
+            lump.position.set((_seeded(seed * 3 + i) - 0.5) * 3.2, 0.2, (_seeded(seed * 5 + i) - 0.5) * 2.2);
+            g.add(lump);
+        }
+    } else {                                            // handcar on a short rail
+        [-0.6, 0.6].forEach(z => {
+            const rail = new THREE.Mesh(new THREE.BoxGeometry(3.6, 0.12, 0.14), iron);
+            rail.position.set(0, 0.06, z); g.add(rail);
+        });
+        for (let i = 0; i < 4; i++) {
+            const t = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.14, 1.9), tie);
+            t.position.set(-1.4 + i * 0.95, 0.02, 0); g.add(t);
+        }
+        const bed = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.24, 1.4), _dressMat(0x6b5136, { rough: 0.9 }));
+        bed.position.y = 0.5; g.add(bed);
+        const lever = new THREE.Mesh(new THREE.BoxGeometry(0.14, 1.3, 0.14), iron);
+        lever.position.set(0, 1.1, 0); lever.rotation.z = 0.35; g.add(lever);
+    }
+    return g;
+}
+
+/** Cinder Mine: ore carts, timber props, lantern hooks, spoil heaps, a winch. */
+function _propMine(r, seed) {
+    const g = new THREE.Group();
+    const timber = _dressMat(0x5b452e, { rough: 0.94 });
+    const iron   = _dressMat(0x4d4a46, { rough: 0.55, metal: 0.6 });
+    if (r < 0.26) {                                     // ore cart
+        const body = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.0, 1.2), iron);
+        body.position.y = 0.85; g.add(body);
+        const ore = new THREE.Mesh(new THREE.ConeGeometry(0.6, 0.5, 7),
+            _dressMat(0x6b4a30, { rough: 0.95 }));
+        ore.position.y = 1.5; g.add(ore);
+        [[-0.55, 0.5], [-0.55, -0.5], [0.55, 0.5], [0.55, -0.5]].forEach(([x, z]) => {
+            const w = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.12, 10), iron);
+            w.rotation.z = Math.PI / 2; w.position.set(x, 0.3, z); g.add(w);
+        });
+    } else if (r < 0.46) {                              // timber prop set
+        [-0.8, 0.8].forEach(x => {
+            const p = new THREE.Mesh(new THREE.BoxGeometry(0.34, 2.8, 0.34), timber);
+            p.position.set(x, 1.4, 0); p.rotation.z = -x * 0.07; g.add(p);
+        });
+        const cap = new THREE.Mesh(new THREE.BoxGeometry(2.3, 0.34, 0.34), timber);
+        cap.position.y = 2.9; g.add(cap);
+    } else if (r < 0.66) {                              // lantern on a hook
+        const p = new THREE.Mesh(new THREE.BoxGeometry(0.22, 2.4, 0.22), timber);
+        p.position.y = 1.2; g.add(p);
+        const hook = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.7), iron);
+        hook.position.set(0, 2.3, 0.35); g.add(hook);
+        const lampMat = new THREE.MeshStandardMaterial({
+            color: 0xffd8a0, emissive: 0xff8f2a, emissiveIntensity: 1.6 });
+        const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.6, 0.42), lampMat);
+        lamp.position.set(0, 1.95, 0.6); g.add(lamp);
+        // The Mine's light is a flicker, not a glow — the 'neon' rig repurposed,
+        // which is exactly what the spec asked for (lantern, not signage).
+        _cityLive.push({ kind: 'neon', parts: [lampMat], seed: seed + 3 });
+    } else if (r < 0.84) {                              // spoil heap
+        const heap = new THREE.Mesh(new THREE.ConeGeometry(1.7, 1.3, 8),
+            _dressMat(0x453a31, { rough: 0.99 }));
+        heap.position.y = 0.65; g.add(heap);
+        for (let i = 0; i < 4; i++) {
+            const r2 = new THREE.Mesh(new THREE.DodecahedronGeometry(0.3 + _seeded(seed + i) * 0.25),
+                _dressMat(0x3b332c, { rough: 0.98 }));
+            r2.position.set((_seeded(seed * 3 + i) - 0.5) * 3, 0.25, (_seeded(seed * 7 + i) - 0.5) * 2);
+            g.add(r2);
+        }
+    } else {                                            // hand winch over a shaft
+        const hole = new THREE.Mesh(new THREE.CircleGeometry(0.9, 14),
+            new THREE.MeshBasicMaterial({ color: 0x07060a }));
+        hole.rotation.x = -Math.PI / 2; hole.position.y = 0.02; g.add(hole);
+        [-1.1, 1.1].forEach(x => {
+            const p = new THREE.Mesh(new THREE.BoxGeometry(0.26, 2.2, 0.26), timber);
+            p.position.set(x, 1.1, 0); g.add(p);
+        });
+        const drum = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 1.9, 10), timber);
+        drum.rotation.z = Math.PI / 2; drum.position.y = 2.1; g.add(drum);
+        const rope = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.9, 6),
+            _dressMat(0xbba475, { rough: 1 }));
+        rope.position.y = 1.15; g.add(rope);
+    }
+    return g;
+}
+
+/** Longhorn Ranch: fence runs, hay bales, windmill pumps, troughs, feed sacks. */
+function _propRanch(r, seed) {
+    const g = new THREE.Group();
+    const rail = _dressMat(0x8a6f4a, { rough: 0.94 });
+    if (r < 0.30) {                                     // split-rail fence run
+        for (let i = 0; i < 3; i++) {
+            const p = new THREE.Mesh(new THREE.BoxGeometry(0.22, 1.5, 0.22), rail);
+            p.position.set((i - 1) * 2.2, 0.75, 0); g.add(p);
+        }
+        [0.7, 1.25].forEach(y => {
+            const bar = new THREE.Mesh(new THREE.BoxGeometry(4.6, 0.14, 0.14), rail);
+            bar.position.y = y; g.add(bar);
+        });
+    } else if (r < 0.52) {                              // hay bales
+        const nb = 2 + Math.floor(_seeded(seed * 3) * 2);
+        for (let i = 0; i < nb; i++) {
+            const b = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.75, 1.2, 12),
+                _dressMat(0xc9a44e, { rough: 0.98 }));
+            b.rotation.z = Math.PI / 2;
+            b.position.set((i - (nb - 1) / 2) * 1.5, 0.75, _seeded(seed + i) * 0.5);
+            g.add(b);
+        }
+    } else if (r < 0.70) {                              // windmill pump
+        [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([x, z]) => {
+            const leg = new THREE.Mesh(new THREE.BoxGeometry(0.12, 5.0, 0.12),
+                _dressMat(0x8a8f95, { rough: 0.55, metal: 0.5 }));
+            leg.position.set(x * 0.55, 2.5, z * 0.55);
+            leg.rotation.x = z * 0.07; leg.rotation.z = -x * 0.07;
+            g.add(leg);
+        });
+        const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.3, 10),
+            _dressMat(0x6f7378, { rough: 0.5, metal: 0.6 }));
+        hub.rotation.x = Math.PI / 2; hub.position.set(0, 5.3, 0.3); g.add(hub);
+        const fan = new THREE.Group();
+        for (let i = 0; i < 10; i++) {
+            const blade = new THREE.Mesh(new THREE.PlaneGeometry(0.34, 1.5),
+                new THREE.MeshStandardMaterial({ color: 0xcfd4da, roughness: 0.6, side: THREE.DoubleSide }));
+            blade.position.set(Math.cos(i / 10 * 6.283) * 0.85, Math.sin(i / 10 * 6.283) * 0.85, 0);
+            blade.rotation.z = i / 10 * 6.283;
+            fan.add(blade);
+        }
+        fan.position.set(0, 5.3, 0.45); g.add(fan);
+        const vane = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 0.7),
+            new THREE.MeshStandardMaterial({ color: 0xb0453a, roughness: 0.8, side: THREE.DoubleSide }));
+        vane.position.set(0, 5.3, -1.4); g.add(vane);
+        _cityLive.push({ kind: 'windmill', fan, seed });
+    } else if (r < 0.86) {                              // cattle trough
+        const t = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.7, 1.1),
+            _dressMat(0x77603f, { rough: 0.94 }));
+        t.position.y = 0.35; g.add(t);
+        const water = new THREE.Mesh(new THREE.PlaneGeometry(2.9, 0.9),
+            new THREE.MeshPhysicalMaterial({ color: 0x53756b, roughness: 0.1, metalness: 0.2 }));
+        water.rotation.x = -Math.PI / 2; water.position.y = 0.67; g.add(water);
+    } else {                                            // feed sacks
+        for (let i = 0; i < 3; i++) {
+            const sack = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.55, 0.7),
+                _dressMat(0xd8c9a6, { rough: 0.97 }));
+            sack.position.set((_seeded(seed + i) - 0.5) * 1.2, 0.28 + i * 0.5, (_seeded(seed * 3 + i) - 0.5) * 0.6);
+            sack.rotation.y = _seeded(seed * 5 + i) * 0.6;
+            g.add(sack);
+        }
+    }
+    return g;
+}
+
+/** Boot Hill: cactus, steer skulls, boulders, dust devils, grave markers. */
+function _propBadlands(r, seed) {
+    const g = new THREE.Group();
+    if (r < 0.26) {                                     // saguaro
+        const green = _dressMat(0x4f7042, { rough: 0.95 });
+        const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.5, 3.4, 9), green);
+        trunk.position.y = 1.7; g.add(trunk);
+        const cap = new THREE.Mesh(new THREE.SphereGeometry(0.42, 9, 7), green);
+        cap.position.y = 3.4; g.add(cap);
+        [[-1, 0.35], [1, -0.15]].forEach(([sx, dy], i) => {
+            if (_seeded(seed * 7 + i) < 0.35) return;
+            const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.28, 1.3, 8), green);
+            arm.position.set(sx * 0.72, 1.9 + dy, 0); arm.rotation.z = -sx * 1.15; g.add(arm);
+            const up = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.26, 1.1, 8), green);
+            up.position.set(sx * 1.28, 2.5 + dy, 0); g.add(up);
+            const tip = new THREE.Mesh(new THREE.SphereGeometry(0.25, 8, 6), green);
+            tip.position.set(sx * 1.28, 3.05 + dy, 0); g.add(tip);
+        });
+    } else if (r < 0.44) {                              // steer skull on the ground
+        const bone = _dressMat(0xe4dcc4, { rough: 0.9 });
+        const skull = new THREE.Mesh(new THREE.SphereGeometry(0.5, 10, 8), bone);
+        skull.scale.set(1, 0.7, 1.25); skull.position.y = 0.35; g.add(skull);
+        const snout = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.32, 0.6), bone);
+        snout.position.set(0, 0.3, 0.75); g.add(snout);
+        [-1, 1].forEach(sx => {
+            const horn = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.09, 5, 10, Math.PI * 0.8), bone);
+            horn.position.set(sx * 0.45, 0.55, -0.1);
+            horn.rotation.set(Math.PI / 2, 0, sx * 0.6);
+            g.add(horn);
+        });
+    } else if (r < 0.62) {                              // boulder cluster
+        for (let i = 0; i < 3; i++) {
+            const s = 0.5 + _seeded(seed * 3 + i) * 1.1;
+            const b = new THREE.Mesh(new THREE.DodecahedronGeometry(s),
+                _dressMat([0x9c8462, 0x7f6848, 0xb09774][i % 3], { rough: 0.99 }));
+            b.position.set((_seeded(seed * 5 + i) - 0.5) * 3.2, s * 0.7, (_seeded(seed * 7 + i) - 0.5) * 2.4);
+            b.rotation.set(_seeded(seed + i) * 3, _seeded(seed * 2 + i) * 3, _seeded(seed * 4 + i) * 3);
+            g.add(b);
+        }
+    } else if (r < 0.78) {                              // dust devil
+        const parts = [];
+        for (let i = 0; i < 6; i++) {
+            const d = new THREE.Mesh(new THREE.SphereGeometry(0.45 + i * 0.12, 8, 6),
+                new THREE.MeshBasicMaterial({ color: 0xd9c9a4, transparent: true, opacity: 0.16, depthWrite: false }));
+            g.add(d); parts.push(d);
+        }
+        _cityLive.push({ kind: 'devil', parts, seed });
+    } else {                                            // leaning grave marker
+        const wood = _dressMat(0x6f5b3f, { rough: 0.97 });
+        const up = new THREE.Mesh(new THREE.BoxGeometry(0.24, 2.1, 0.2), wood);
+        up.position.y = 1.05; g.add(up);
+        const arm = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.22, 0.18), wood);
+        arm.position.y = 1.55; g.add(arm);
+        const mound = new THREE.Mesh(new THREE.SphereGeometry(1.0, 10, 6),
+            _dressMat(0x8d7a58, { rough: 0.99 }));
+        mound.scale.set(1.3, 0.28, 0.9); mound.position.set(0, 0.1, 0.8); g.add(mound);
+        g.rotation.z = (_seeded(seed * 11) - 0.5) * 0.36;
+    }
+    return g;
+}
+
+// ---- One landmark per territory ----------------------------------------
+//
+// Set well back from the road at the region's midpoint, so it reads as the
+// thing the territory is named after from the flyover and from the map view.
+
+/** Ironwood: the water tower, with a locomotive standing under the spout. */
+function _lmWaterTower() {
+    const g = new THREE.Group();
+    const timber = _dressMat(0x6b4f33, { rough: 0.93 });
+    const iron   = _dressMat(0x54595e, { rough: 0.5, metal: 0.65 });
+    // Tank on four braced legs.
+    [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([x, z]) => {
+        const leg = new THREE.Mesh(new THREE.BoxGeometry(0.7, 15, 0.7), timber);
+        leg.position.set(x * 3.4, 7.5, z * 3.4);
+        leg.rotation.x = z * 0.05; leg.rotation.z = -x * 0.05;
+        g.add(leg);
+    });
+    [5, 10].forEach(y => {
+        [[1, 0], [0, 1]].forEach(([ax, az]) => {
+            const br = new THREE.Mesh(new THREE.BoxGeometry(ax ? 7.4 : 0.3, 0.3, az ? 7.4 : 0.3), timber);
+            br.position.set(0, y, 0); g.add(br);
+        });
+    });
+    const tank = new THREE.Mesh(new THREE.CylinderGeometry(5.0, 5.0, 8.0, 16), timber);
+    tank.position.y = 19; g.add(tank);
+    const lid = new THREE.Mesh(new THREE.ConeGeometry(5.4, 2.4, 16), iron);
+    lid.position.y = 24.2; g.add(lid);
+    [16.2, 21.8].forEach(y => {
+        const hoop = new THREE.Mesh(new THREE.TorusGeometry(5.05, 0.16, 6, 20), iron);
+        hoop.rotation.x = Math.PI / 2; hoop.position.y = y; g.add(hoop);
+    });
+    // The spout, swung out over where the tender would stand.
+    const spout = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 6.0, 8), iron);
+    spout.position.set(6.5, 15.5, 0); spout.rotation.z = -0.9; g.add(spout);
+
+    // A locomotive: boiler, cab, stack, wheels. Small beside the tower, which
+    // is the right relationship — the tower is the landmark.
+    const loco = new THREE.Group();
+    const boiler = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 8, 14),
+        _dressMat(0x23262a, { rough: 0.6, metal: 0.4 }));
+    boiler.rotation.z = Math.PI / 2; boiler.position.set(1.5, 2.2, 0); loco.add(boiler);
+    const cab = new THREE.Mesh(new THREE.BoxGeometry(3.4, 3.6, 3.4), _dressMat(0x5a2a22, { rough: 0.8 }));
+    cab.position.set(-3.4, 3.0, 0); loco.add(cab);
+    const stack = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 0.55, 2.6, 10),
+        _dressMat(0x1d2024, { rough: 0.7 }));
+    stack.position.set(4.4, 4.4, 0); loco.add(stack);
+    const headlamp = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.0, 0.9),
+        new THREE.MeshStandardMaterial({ color: 0xffe2a8, emissive: 0xffbe55, emissiveIntensity: 1.3 }));
+    headlamp.position.set(5.6, 3.6, 0); loco.add(headlamp);
+    for (let i = 0; i < 4; i++) {
+        [-1.7, 1.7].forEach(z => {
+            const r = i < 2 ? 1.1 : 0.8;
+            const w = new THREE.Mesh(new THREE.CylinderGeometry(r, r, 0.3, 12),
+                _dressMat(0x2e3237, { rough: 0.6, metal: 0.5 }));
+            w.rotation.x = Math.PI / 2; w.position.set(-3.8 + i * 2.6, r, z); loco.add(w);
+        });
+    }
+    const puffs = [];
+    for (let i = 0; i < 6; i++) {
+        const puff = new THREE.Mesh(new THREE.SphereGeometry(1.0, 8, 6),
+            new THREE.MeshBasicMaterial({ color: 0xe8ecf1, transparent: true, opacity: 0, depthWrite: false }));
+        loco.add(puff); puffs.push(puff);
+    }
+    _cityLive.push({ kind: 'steam', puffs, seed: 61, rise: 12, base: 5.8, spread: 1.4, x: 4.4 });
+    loco.position.set(-2, 0, 11);
+    loco.rotation.y = 0.2;
+    g.add(loco);
+    return g;
+}
+
+/** Cinder Mine: the headframe over the shaft, and the tailings below it. */
+function _lmHeadframe() {
+    const g = new THREE.Group();
+    const timber = _dressMat(0x5b452e, { rough: 0.95 });
+    const iron   = _dressMat(0x4a4e52, { rough: 0.5, metal: 0.6 });
+    // The A-frame: four legs raking in to a head. That is the silhouette.
+    [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([x, z]) => {
+        const leg = new THREE.Mesh(new THREE.BoxGeometry(0.75, 20, 0.75), timber);
+        leg.position.set(x * 3.0, 10, z * 3.0);
+        leg.rotation.x = z * 0.13; leg.rotation.z = -x * 0.13;
+        g.add(leg);
+    });
+    [6, 12, 17].forEach(y => {
+        [[1, 0], [0, 1]].forEach(([ax, az]) => {
+            const br = new THREE.Mesh(new THREE.BoxGeometry(ax ? 6.6 : 0.35, 0.35, az ? 6.6 : 0.35), timber);
+            br.position.y = y; g.add(br);
+        });
+    });
+    const head = new THREE.Mesh(new THREE.BoxGeometry(5.0, 1.0, 5.0), timber);
+    head.position.y = 20.2; g.add(head);
+    // The sheave wheel — the one part everybody recognises.
+    const wheel = new THREE.Mesh(new THREE.TorusGeometry(3.0, 0.45, 8, 22), iron);
+    wheel.position.set(0, 22.6, 0); g.add(wheel);
+    for (let i = 0; i < 6; i++) {
+        const spoke = new THREE.Mesh(new THREE.BoxGeometry(5.8, 0.22, 0.22), iron);
+        spoke.position.set(0, 22.6, 0); spoke.rotation.z = i * Math.PI / 6; g.add(spoke);
+    }
+    // The hoist cable running down the frame into the dark.
+    const cable = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 21, 6), iron);
+    cable.position.set(0, 11, 0); g.add(cable);
+    // Headhouse, with the furnace visible through the doorway.
+    const shed = new THREE.Mesh(new THREE.BoxGeometry(7, 5, 6), _dressMat(0x4b3d2d, { rough: 0.94 }));
+    shed.position.set(-7.5, 2.5, 0); g.add(shed);
+    const roof = new THREE.Mesh(new THREE.BoxGeometry(7.6, 0.4, 6.6), iron);
+    roof.position.set(-7.5, 5.2, 0); g.add(roof);
+    const glowMat = new THREE.MeshStandardMaterial({
+        color: 0xff9a3c, emissive: 0xff6a12, emissiveIntensity: 1.8 });
+    const furnace = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 2.0), glowMat);
+    furnace.position.set(-4.0, 1.6, 0); furnace.rotation.y = Math.PI / 2; g.add(furnace);
+    _cityLive.push({ kind: 'beacon', mat: glowMat, seed: 12 });
+    const tailings = new THREE.Mesh(new THREE.ConeGeometry(9, 5.5, 12),
+        _dressMat(0x453a31, { rough: 0.99 }));
+    tailings.position.set(9, 2.4, 4); g.add(tailings);
+    return g;
+}
+
+/** Longhorn Ranch: the great barn, with the corral fence running off it. */
+function _lmGreatBarn() {
+    const g = new THREE.Group();
+    const red   = _dressMat(0x93402a, { rough: 0.92 });
+    const dark  = _dressMat(0x3f3228, { rough: 0.9 });
+    const white = _dressMat(0xe8ddc6, { rough: 0.85 });
+    const body = new THREE.Mesh(new THREE.BoxGeometry(22, 12, 15), red);
+    body.position.y = 6; g.add(body);
+    // Gambrel roof — four slabs, two pitches a side.
+    [[-1, 2.0, 5.2, 0.85], [1, 2.0, 5.2, 0.85], [-1, 5.0, 2.2, 0.40], [1, 5.0, 2.2, 0.40]]
+        .forEach(([sx, dy, dz, rot]) => {
+            const p = new THREE.Mesh(new THREE.BoxGeometry(22.6, 0.5, dz === 5.2 ? 6.4 : 5.2), dark);
+            p.position.set(0, 12 + dy, sx * dz);
+            p.rotation.x = sx * rot;
+            g.add(p);
+        });
+    // Big doors with the X brace, and a hay hood over the loft.
+    [-2.9, 2.9].forEach(x => {
+        const d = new THREE.Mesh(new THREE.BoxGeometry(5.4, 8, 0.3), white);
+        d.position.set(x, 4, 7.6); g.add(d);
+        const br = new THREE.Mesh(new THREE.BoxGeometry(6.2, 0.35, 0.1), dark);
+        br.position.set(x, 4, 7.8); br.rotation.z = x > 0 ? 0.97 : -0.97; g.add(br);
+    });
+    const hood = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.4, 2.4), dark);
+    hood.position.set(0, 15.6, 8.4); hood.rotation.x = 0.35; g.add(hood);
+    const loft = new THREE.Mesh(new THREE.BoxGeometry(3.0, 3.0, 0.3), dark);
+    loft.position.set(0, 13.4, 7.6); g.add(loft);
+    // Cupola and weather vane on the ridge.
+    const cup = new THREE.Mesh(new THREE.BoxGeometry(2.2, 2.2, 2.2), white);
+    cup.position.y = 18.3; g.add(cup);
+    const cupRoof = new THREE.Mesh(new THREE.ConeGeometry(1.9, 1.6, 4), dark);
+    cupRoof.position.y = 20.2; cupRoof.rotation.y = Math.PI / 4; g.add(cupRoof);
+    const vane = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.14, 0.1), dark);
+    vane.position.y = 21.4; g.add(vane);
+    // The corral: a fence run off the side of the barn.
+    const post = _dressMat(0x8a6f4a, { rough: 0.94 });
+    for (let i = 0; i < 7; i++) {
+        const p = new THREE.Mesh(new THREE.BoxGeometry(0.3, 1.8, 0.3), post);
+        p.position.set(-13 - i * 0.2, 0.9, -7 + i * 2.6); g.add(p);
+        if (i > 0) {
+            [0.85, 1.5].forEach(y => {
+                const bar = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.16, 2.6), post);
+                bar.position.set(-13 - i * 0.2, y, -8.3 + i * 2.6); g.add(bar);
+            });
+        }
+    }
+    return g;
+}
+
+/** Boot Hill: the mesa, with the graves at its foot. */
+function _lmMesa() {
+    const g = new THREE.Group();
+    const strata = [0xb09774, 0x967c58, 0xc2ad89, 0x7f6848, 0xa58c68];
+    // Layered, flat-topped and WIDE. The layers make it a mesa rather than a
+    // hill, and the flat top is what makes it Western.
+    // THREE UNEQUAL BANDS, NOT SIX EVEN ONES.
+    //
+    // The first pass stepped six equal layers in by a constant each time, and it
+    // rendered as a wedding cake — the regularity is the tell. Real strata are a
+    // thick soft base, a thin hard ledge and a broad cap, and the cap being the
+    // WIDEST thing above the ledge is what makes the silhouette a mesa.
+    const bands = [
+        { r0: 17.5, r1: 14.5, h: 7.0 },   // talus-buried base, tapering hard
+        { r0: 14.5, r1: 13.6, h: 1.6 },   // the hard ledge that holds the rest up
+        { r0: 13.4, r1: 12.4, h: 5.2 },   // the wall
+    ];
+    let y = 0;
+    bands.forEach((b, k) => {
+        const slab = new THREE.Mesh(new THREE.CylinderGeometry(b.r1, b.r0, b.h, 7),
+            _dressMat(strata[k % strata.length], { rough: 0.99 }));
+        slab.position.y = y + b.h / 2;
+        slab.rotation.y = k * 0.3;
+        slab.scale.z = 0.82;
+        g.add(slab);
+        y += b.h;
+    });
+    const cap = new THREE.Mesh(new THREE.CylinderGeometry(12.8, 13.0, 1.8, 7),
+        _dressMat(0x8a7252, { rough: 0.99 }));
+    cap.position.y = y + 0.9; cap.scale.z = 0.82; g.add(cap);
+    // Boot Hill itself: a row of leaning crosses on the near slope.
+    const wood = _dressMat(0x6f5b3f, { rough: 0.97 });
+    for (let i = 0; i < 6; i++) {
+        const cross = new THREE.Group();
+        const up = new THREE.Mesh(new THREE.BoxGeometry(0.3, 2.4, 0.24), wood);
+        up.position.y = 1.2; cross.add(up);
+        const arm = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.26, 0.2), wood);
+        arm.position.y = 1.75; cross.add(arm);
+        cross.position.set(-9 + i * 3.6, 0, 17 + _sr(i * 7) * 3.5);
+        cross.rotation.z = (_sr(i * 11) - 0.5) * 0.5;
+        cross.rotation.y = (_sr(i * 13) - 0.5) * 0.8;
+        g.add(cross);
+    }
+    // A dead cottonwood on the flat, because the mesa on its own is geology.
+    const bone = _dressMat(0x8c7a5e, { rough: 0.98 });
+    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.9, 7, 8), bone);
+    trunk.position.set(13, 3.5, 14); g.add(trunk);
+    [[-1, 0.9], [1, 1.2], [-0.6, -0.8]].forEach(([sx, sz], i) => {
+        const br = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.3, 3.6, 6), bone);
+        br.position.set(13 + sx * 1.2, 6.4 + i * 0.5, 14 + sz * 1.0);
+        br.rotation.set(sz * 0.7, 0, -sx * 0.8);
+        g.add(br);
+    });
+    return g;
+}
+
+// ---- One span across each territory's road ------------------------------
+//
+// The element that makes a road feel like a PLACE rather than a surface:
+// something you pass underneath. Each is the region's story in one object.
+
+/** Perdition: the gallows-frame street sign over the road. */
+function _spanGallowsSign(i) {
+    const g = new THREE.Group();
+    const wood = _dressMat(0x6b4a2c, { rough: 0.92 });
+    _spanLegs(g, wood, 6.8, 0.5);
+    const beam = new THREE.Mesh(new THREE.BoxGeometry(SPAN_HALF * 2 + 1.2, 0.5, 0.5), wood);
+    beam.position.y = 6.8; g.add(beam);
+    // The board hangs from the beam on two chains, which is what makes it read
+    // as a gallows frame rather than as a gateway.
+    const board = new THREE.Mesh(new THREE.BoxGeometry(6.0, 1.8, 0.2),
+        _dressMat(0xd6c19a, { rough: 0.88 }));
+    board.position.set(0, 4.9, 0); g.add(board);
+    [-2.2, 2.2].forEach(x => {
+        const ch = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 1.0, 6),
+            _dressMat(0x3f3f3f, { rough: 0.5, metal: 0.7 }));
+        ch.position.set(x, 5.3, 0); g.add(ch);
+    });
+    const word = new THREE.Mesh(new THREE.PlaneGeometry(4.2, 0.42),
+        new THREE.MeshBasicMaterial({ color: 0x3a2a18 }));
+    word.position.set(0, 5.0, 0.12); g.add(word);
+    const under = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 0.3),
+        new THREE.MeshBasicMaterial({ color: 0x3a2a18 }));
+    under.position.set(0, 4.4, 0.12); g.add(under);
+    // A lantern on one leg, lit as the afternoon goes.
+    const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.8, 0.6),
+        new THREE.MeshStandardMaterial({ color: 0xffe0a8, emissive: 0xffa93a, emissiveIntensity: 1.2 }));
+    lamp.position.set(i ? SPAN_HALF : -SPAN_HALF, 5.6, 0.6); g.add(lamp);
+    return g;
+}
+
+/** Ironwood: the signal gantry, arms out over the road. */
+function _spanSignalGantry(i) {
+    const g = new THREE.Group();
+    const iron = _dressMat(0x6a6f74, { rough: 0.45, metal: 0.7 });
+    _spanLegs(g, iron, 7.4, 0.42);
+    const deck = new THREE.Mesh(new THREE.BoxGeometry(SPAN_HALF * 2 + 1.0, 0.3, 0.9), iron);
+    deck.position.y = 7.4; g.add(deck);
+    // A lattice under the deck — a plain bar reads as scaffolding, a zigzag
+    // reads as a railway structure.
+    for (let k = -4; k <= 4; k++) {
+        const br = new THREE.Mesh(new THREE.BoxGeometry(0.18, 1.5, 0.18), iron);
+        br.position.set(k * 1.6, 6.7, 0); br.rotation.z = (k % 2 ? 1 : -1) * 0.6; g.add(br);
+    }
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(SPAN_HALF * 2 + 1.0, 0.14, 0.14), iron);
+    rail.position.set(0, 8.3, 0.4); g.add(rail);
+    // Two semaphore arms and their lamps, one stop, one clear.
+    [[-3.2, 0xd63b22, 0xef4444], [3.2, 0x3ddc6a, 0x22c55e]].forEach(([x, col, em], k) => {
+        const arm = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.28, 0.12),
+            _dressMat(col, { rough: 0.7 }));
+        arm.position.set(x + 0.9, 6.2, 0.5); arm.rotation.z = k ? 0 : -0.55; g.add(arm);
+        const lensMat = new THREE.MeshStandardMaterial({
+            color: col, emissive: em, emissiveIntensity: 1.6 });
+        const lens = new THREE.Mesh(new THREE.SphereGeometry(0.28, 10, 8), lensMat);
+        lens.position.set(x, 5.6, 0.55); g.add(lens);
+        if (k === (i % 2)) _cityLive.push({ kind: 'beacon', mat: lensMat, seed: 40 + k });
+    });
+    return g;
+}
+
+/** Cinder Mine: timber shoring over the road, and it is holding something up. */
+function _spanShoring(i) {
+    const g = new THREE.Group();
+    const timber = _dressMat(0x5b452e, { rough: 0.95 });
+    _spanLegs(g, timber, 5.6, 0.75);
+    // A capping beam and a run of close-set planks — the shoring reads as
+    // LOAD-BEARING, which is the whole feeling of being underground.
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(SPAN_HALF * 2 + 1.6, 0.7, 0.9), timber);
+    cap.position.y = 5.9; g.add(cap);
+    for (let k = -5; k <= 5; k++) {
+        const plank = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.35, 2.6),
+            _dressMat(0x4a3826, { rough: 0.96 }));
+        plank.position.set(k * 1.32, 6.4, 0);
+        plank.rotation.x = (_seeded(k * 3 + i) - 0.5) * 0.1;
+        g.add(plank);
+    }
+    // Angle braces into the walls.
+    [-1, 1].forEach(sx => {
+        const br = new THREE.Mesh(new THREE.BoxGeometry(0.5, 3.2, 0.5), timber);
+        br.position.set(sx * (SPAN_HALF - 1.1), 4.2, 0);
+        br.rotation.z = sx * 0.55;
+        g.add(br);
+    });
+    // Two lanterns hung off the cap. The road below them is the only lit part.
+    [-3.4, 3.4].forEach((x, k) => {
+        const lampMat = new THREE.MeshStandardMaterial({
+            color: 0xffd08a, emissive: 0xff8f2a, emissiveIntensity: 1.5 });
+        const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.7, 0.5), lampMat);
+        lamp.position.set(x, 5.0, 0.5); g.add(lamp);
+        _cityLive.push({ kind: 'neon', parts: [lampMat], seed: 70 + k + i * 2 });
+    });
+    return g;
+}
+
+/** Longhorn Ranch: the log gateway arch, with the brand hung under it. */
+function _spanLogGate(i) {
+    const g = new THREE.Group();
+    const log = _dressMat(0x7d6142, { rough: 0.95 });
+    // Round posts, not square — these are logs, and a box reads as milled.
+    [-SPAN_HALF, SPAN_HALF].forEach(x => {
+        const p = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.5, 6.4, 9), log);
+        p.position.set(x, 3.2, 0); g.add(p);
+        const stone = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 1.1, 1.0, 8),
+            _dressMat(0x8a8474, { rough: 0.97 }));
+        stone.position.set(x, 0.5, 0); g.add(stone);
+    });
+    const top = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.38, SPAN_HALF * 2 + 1.0, 9), log);
+    top.rotation.z = Math.PI / 2; top.position.y = 6.4; g.add(top);
+    // The brand: a ring with a horn through it, hung on two chains.
+    const brandMat = _dressMat(0x2f2a24, { rough: 0.6, metal: 0.4 });
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(1.15, 0.16, 7, 18), brandMat);
+    ring.position.set(0, 4.6, 0); g.add(ring);
+    const horn = new THREE.Mesh(new THREE.TorusGeometry(0.95, 0.13, 6, 14, Math.PI), brandMat);
+    horn.position.set(0, 4.8, 0.02); g.add(horn);
+    [-1.0, 1.0].forEach(x => {
+        const ch = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.9, 6),
+            _dressMat(0x3f3f3f, { rough: 0.5, metal: 0.7 }));
+        ch.position.set(x, 5.7, 0); g.add(ch);
+    });
+    // A rail fence running away from the gate on one side.
+    if (i === 0) {
+        for (let k = 1; k <= 3; k++) {
+            const p = new THREE.Mesh(new THREE.BoxGeometry(0.26, 1.6, 0.26),
+                _dressMat(0x8a6f4a, { rough: 0.94 }));
+            p.position.set(SPAN_HALF + k * 2.2, 0.8, 0); g.add(p);
+        }
+    }
+    return g;
+}
+
+/** Boot Hill: a dead cottonwood arched over the road, and one vulture on it. */
+function _spanDeadCottonwood(i) {
+    const g = new THREE.Group();
+    const bone = _dressMat(0x9c8a6c, { rough: 0.98 });
+    // Two trunks leaning in until their branches meet over the road. A dead
+    // tree that has grown into an arch reads as a place nobody tends.
+    [-1, 1].forEach(sx => {
+        const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.85, 7.2, 8), bone);
+        trunk.position.set(sx * (SPAN_HALF - 0.4), 3.4, 0);
+        trunk.rotation.z = -sx * 0.22;
+        g.add(trunk);
+        for (let k = 0; k < 3; k++) {
+            const br = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.3, 3.6 + k * 0.9, 6), bone);
+            br.position.set(sx * (SPAN_HALF - 1.6 - k * 0.8), 5.6 + k * 1.0, (_seeded(k * 3 + i) - 0.5) * 1.6);
+            br.rotation.set((_seeded(k * 5 + i) - 0.5) * 0.5, 0, -sx * (0.85 + k * 0.16));
+            g.add(br);
+        }
+    });
+    // The two longest branches actually touch, which is what makes it a span.
+    const cross = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, SPAN_HALF * 1.5, 6), bone);
+    cross.rotation.z = Math.PI / 2; cross.position.set(0, 8.2, 0.3); g.add(cross);
+    // One vulture, hunched.
+    const dark = _dressMat(0x2c2822, { rough: 0.9 });
+    const body = new THREE.Mesh(new THREE.SphereGeometry(0.5, 9, 7), dark);
+    body.scale.set(1, 1.2, 0.8); body.position.set(1.4, 8.8, 0.3); g.add(body);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.22, 8, 6),
+        _dressMat(0x8a5a4a, { rough: 0.9 }));
+    head.position.set(1.4, 9.5, 0.45); g.add(head);
+    return g;
 }
 
 export function cleanup() {

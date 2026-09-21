@@ -291,6 +291,12 @@ export const SPACE_META = {
     shop:        { ic: '🏪', n: 'ITEM SHOP',      e: 0x1a0a2e, c: 0xa855f7, geo: 'knot'       },
     hq:          { ic: '🏛️', n: 'DISTRICT HQ',   e: 0x1a1500, c: 0xfbbf24, geo: 'double_torus'},
     duel:        { ic: '⚔️', n: 'DUEL',           e: 0x2a0a2a, c: 0xff6b35, geo: 'crystal'    },
+    // Star Territory's Territory Office. Deliberately NOT a variant of 'hq':
+    // an HQ pays coins on pass-through and is worth the same every lap, while
+    // a plinth holds the one live Star and is worth nothing at all on the three
+    // laps it is empty. Sharing a type would have meant a boolean inside every
+    // HQ code path deciding which of two unrelated things it was looking at.
+    plinth:      { ic: '⭐', n: 'TERRITORY OFFICE', e: 0x2a2000, c: 0xfbbf24, geo: null      },
 };
 
 export const SPACE_DESCS = {
@@ -314,6 +320,7 @@ export const SPACE_DESCS = {
     shop:        'Browse and buy items with your coins!',
     hq:          'District HQ! First visit: +15 coins. Revisit: +5 coins.',
     duel:        'DUEL! Take 3 coins to ante up, set a bet, then compete in a minigame. Winner takes the pot!',
+    plinth:      'A Territory Office. If the Sheriff\u2019s Star is here and you can post the bond, it is yours \u2014 passing is enough, you do not have to land on it.',
     start:       'Back at the start of the City Ring Road.',
     finish:      'The Crown. Reach it for the finish bonus — but the most coins still wins.',
 };
@@ -386,6 +393,79 @@ export const DISTRICT_BIOMES = {
         motes: { color: 0xff7a1a, count: 30, rise: 2.2, size: 0.13, spread: 20 },
     },
 };
+
+
+// ============================================================
+// STAR TERRITORY — five places, five times of day.
+//
+// The rule docs/DISTRICTS.md established, and the reason the four City
+// districts stopped reading as one road under four skies: a region is told
+// apart by its SHAPE first, its TIME OF DAY second and its props third. Colour
+// alone was never enough, because a follow camera aimed at the ground cannot
+// see the sky gradient at all.
+//
+// These live in the same table as City's because the renderer's dressing
+// passes iterate DISTRICT_BIOMES and ask _districtNodes(key) which nodes on the
+// CURRENT board belong to each — which is empty for every key that is not on
+// this map. One table, and no board builds another board's scenery.
+// ============================================================
+Object.assign(DISTRICT_BIOMES, {
+    hub:   {
+        name: 'Perdition', icon: '\uD83E\uDD20',
+        tagline: 'Twelve blocks of law, and none of it enforced.',
+        lore: 'Rutted dirt and wagon tracks, saloon lights coming on, the courthouse clock stuck at ten to four. Everybody passes through Perdition, which is exactly why nobody is safe in it.',
+        story: 'THE TOWN \u00b7 Every road in the Territory comes back to this one. It is the short lap and the dangerous one \u2014 the only stretch outside Boot Hill carrying two red squares, and the only place you are guaranteed to meet the other rider.',
+        // Late afternoon. The baseline the four territories are read against.
+        bgTop: '#c98a4b', bgBot: '#f0cfa0', fog: '#e5c39a', floorEdge: 0xd97706, pathTint: 0xfcd9a0,
+        surface: 'dirt', props: 'township',
+        light: { color: 0xffd9a0, intensity: 0.5, height: 20, radius: 58, bounce: 0xff9a4d, bounceI: 0.4 },
+        motes: { color: 0xe8cfa0, count: 24, rise: 0.25, size: 0.18, spread: 22 },   // road dust
+    },
+    rail:  {
+        name: 'Ironwood Railyard', icon: '\uD83D\uDE82',
+        tagline: 'Dawn, steam, and a train that does not wait.',
+        lore: 'Ballast and sleepers underfoot, the water tower against a low sun, a locomotive breathing on the siding. Everything here is going somewhere else.',
+        story: 'THE YARD \u00b7 Twelve spaces of dawn light and hissing steam. The Railyard pays in things rather than coins \u2014 three mysteries and two boosts \u2014 and the outfitter at the second sleeper is the last shop before the Office.',
+        // Dawn: cold blue at the top burning to orange at the horizon.
+        bgTop: '#4a6b95', bgBot: '#f0a868', fog: '#cfa478', floorEdge: 0x38bdf8, pathTint: 0xbfdbfe,
+        surface: 'ballast', props: 'railyard',
+        light: { color: 0xffc98a, intensity: 1.0, height: 18, radius: 60, bounce: 0x9fd0ff, bounceI: 0.6 },
+        motes: { color: 0xffe6c0, count: 30, rise: 1.8, size: 0.20, spread: 22 },    // steam off the stack
+    },
+    mine:  {
+        name: 'Cinder Mine', icon: '\u26CF\uFE0F',
+        tagline: 'Underground, and the only light is the one you brought.',
+        lore: 'Wet rock, ore-cart rails, timber shoring overhead and a furnace glow somewhere below. The headframe stands over the tailings like a gallows.',
+        story: 'THE WORKINGS \u00b7 Behind the rockslide, and worth the roll. Three big coin seams \u2014 the richest stretch on the board \u2014 and one of the four Offices at the bottom of it, which is why breaking the Gate is worth score and not only money.',
+        // Underground. Lit by lantern and furnace, not by any sky.
+        bgTop: '#120c0a', bgBot: '#3d2318', fog: '#40281c', floorEdge: 0xf59e0b, pathTint: 0xfbbf24,
+        surface: 'wetrock', props: 'mine',
+        light: { color: 0xffa23c, intensity: 1.7, height: 12, radius: 48, bounce: 0xff5a1a, bounceI: 1.0 },
+        motes: { color: 0xff8a2a, count: 32, rise: 2.0, size: 0.13, spread: 20 },    // furnace sparks
+    },
+    ranch: {
+        name: 'Longhorn Ranch', icon: '\uD83D\uDC0E',
+        tagline: 'Golden hour, and nothing out here wants anything from you.',
+        lore: 'Grass and packed earth, fence runs to the horizon, the great barn catching the last of the light and a windmill turning over the trough.',
+        story: 'THE RANGE \u00b7 The safe road, and the long way round to it. Not one red square in twelve \u2014 the only stretch on the board that cannot cost you a coin \u2014 and the truce space is here because this is where the Territory stops fighting.',
+        // Golden hour. The warmest, highest-key road on the board.
+        bgTop: '#8a6bb8', bgBot: '#ffc978', fog: '#e8b878', floorEdge: 0x84cc16, pathTint: 0xd9f99d,
+        surface: 'grassdirt', props: 'ranch',
+        light: { color: 0xffd08a, intensity: 0.8, height: 19, radius: 62, bounce: 0xa3e635, bounceI: 0.5 },
+        motes: { color: 0xfff0c0, count: 36, rise: 0.4, size: 0.16, spread: 26 },    // pollen in the low sun
+    },
+    bad:   {
+        name: 'Boot Hill Badlands', icon: '\uD83C\uDFDC\uFE0F',
+        tagline: 'High noon, no shade, and somebody is already buried here.',
+        lore: 'Cracked hardpan and salt flat, a mesa standing over leaning grave markers, dust devils walking the road on their own.',
+        story: 'BOOT HILL \u00b7 Bleached and blinding, and the road where things stop being yours. Three magnets and two swaps in twelve spaces \u2014 Boot Hill does not fine you, it takes from you, and it will move you while it is at it.',
+        // High noon. Blown out, almost colourless, the harshest light on the board.
+        bgTop: '#7fb0d8', bgBot: '#efe2c2', fog: '#e8dcc0', floorEdge: 0xfbbf24, pathTint: 0xfde68a,
+        surface: 'hardpan', props: 'badlands',
+        light: { color: 0xfff6e0, intensity: 0.45, height: 26, radius: 64 },          // noon needs no lamp
+        motes: { color: 0xe8d9b0, count: 30, rise: 0.9, size: 0.19, spread: 26 },     // blown dust
+    },
+});
 
 export function getBiomeForDistrict(district) {
     return DISTRICT_BIOMES[district] || DISTRICT_BIOMES.ring;
@@ -506,4 +586,10 @@ export const HQ_META = {
     ba:   { name: 'Underground Market',   icon: '🏚️' },
     shop: { name: 'Grand Mall',           icon: '🛍️' },
     ind:  { name: 'Power Plant',          icon: '⚙️'  },
+    // Star Territory has no HQs, but the four Offices are named the same way
+    // and are read by the same map-view and win-screen chips.
+    rail: { name: 'Ironwood Office',      icon: '🚂' },
+    mine: { name: 'Cinder Office',        icon: '⛏️' },
+    ranch:{ name: 'Longhorn Office',      icon: '🐎' },
+    bad:  { name: 'Boot Hill Office',     icon: '🏜️' },
 };

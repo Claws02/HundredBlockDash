@@ -15,6 +15,8 @@ import * as DualRead from './DualRead.js';
 import { getPos, getTileMeshes, setMapCameraTarget, mapCamera, onResize, getCamera,
          clampMapTarget, worldToScreen, focusJunction, clearJunctionFocus } from '../engine/Renderer.js';
 import * as ActiveMap from '../config/ActiveMap.js';
+import * as Stars from '../core/Stars.js';
+import { MAP_REGISTRY } from '../config/MapRegistry.js';
 
 // World units panned per pixel of drag on the map view.
 const MAP_DRAG_GAIN = 0.055;
@@ -160,6 +162,7 @@ function _paintBar(dom, seat) {
     }
 
     document.getElementById(`p${dom}-pos-badge`).textContent = _posLabel(p);
+    _paintStars(dom, p);
     _updateAllySlots(dom - 1, p);
 
     // The map view works on both boards, so the button is always available
@@ -254,6 +257,54 @@ function _posLabel(p) {
     return DISTRICT_BIOMES[key]?.name || ActiveMap.regionName(key) || key;
 }
 
+// STARS ARE THE SCORE, so they are drawn where the score goes — beside the
+// coins, at coin size. The Shard count rides along in smaller type, because it
+// is the secondary lane and reading it as a second currency at equal weight is
+// what would make the board confusing.
+//
+// Both elements are stood down entirely on a board with no Offices rather than
+// left empty: an element that is present but blank is how a stale readout ends
+// up on screen after a rematch on a different map.
+function _paintStars(dom, p) {
+    const el = document.getElementById(`p${dom}-stars`);
+    if (!el) return;
+    if (!Stars.enabled()) { el.style.display = 'none'; el.innerHTML = ''; return; }
+    el.style.display = 'flex';
+    const need = Stars.shardsPerStar();
+    const shards = p.shards || 0;
+    el.innerHTML = `⭐ ${p.stars || 0}` +
+        (shards ? `<span class="hs-shards">✨${shards}/${need}</span>` : '');
+}
+
+/**
+ * WHERE THE STAR IS — the permanent line under the round counter.
+ *
+ * Rule 1 of the Star system is that the live Star's location is never hidden.
+ * A toast is hidden the moment it scrolls, so this is a fixed strip: which
+ * Office holds it, how far the player whose turn it is has to ride, and what
+ * the bond will cost them when they get there.
+ */
+export function updateStarStrip() {
+    const el = document.getElementById('star-strip');
+    if (!el) return;
+    if (!Stars.enabled()) {
+        el.style.display = 'none';
+        document.body.removeAttribute('data-star');
+        return;
+    }
+    document.body.dataset.star = '1';
+    el.style.display = 'flex';
+    const at = Stars.liveNode();
+    if (!at) { el.innerHTML = '⭐ <b>No Star in the Territory</b>'; return; }
+    const region = ActiveMap.regionName(ActiveMap.regionOf(at));
+    const p = state.players[focusSeat()] || state.players[state.activePlayer];
+    const steps = p ? Stars.stepsToStar(p) : Infinity;
+    const price = p ? Stars.priceFor(p) : 0;
+    const dist = Number.isFinite(steps) ? `<span class="ss-dist">${steps} spaces</span>` : '';
+    const bond = p ? `<span class="ss-dist">bond ${price}</span>` : '';
+    el.innerHTML = `⭐ <b>${region} Office</b> ${dist} ${bond}`;
+}
+
 // The compact strip: one chip per rival, in seat order so nothing jumps around
 // between turns. Carries the four things you actually check on someone else —
 // who, how rich, how many items, and whether it is their go.
@@ -312,6 +363,7 @@ export function updateUI() {
     _updateSwipeZone();
     _updateWaitingLine();
     updateShieldMarker();
+    updateStarStrip();
 
     if (state.gameState === 'PRE_ROLL' || state.gameState === 'ACKNOWLEDGE') {
         updateContracts();
@@ -981,9 +1033,29 @@ export function showCityBriefing(onDone) {
     // each road gets its own STORY line rather than a mechanical blurb. The
     // taglines live with the district in DISTRICT_BIOMES, next to the colours
     // and the props, so the copy and the place can never drift apart.
+    // THE BRIEFING IS THE MAP'S, NOT CITY'S.
+    //
+    // Title, lead and the hub's own row were written into index.html and read
+    // DISTRICT_BIOMES.ring directly, so a second graph board would have opened
+    // its first match by telling the player they were in the city. Rule 8 of
+    // docs/THIRD_MAP_DESIGN.md §5: say what the board is before the first
+    // decision — which only works if the board gets to say what it is.
+    const reg = MAP_REGISTRY.find(m => m.id === ActiveMap.id());
+    const hubKey = ActiveMap.hubKey();
+    const hub = DISTRICT_BIOMES[hubKey] || DISTRICT_BIOMES.ring;
+    const titleEl = document.getElementById('cb-title');
+    const leadEl  = document.getElementById('cb-lead');
+    if (titleEl) titleEl.textContent = `${reg?.icon || '🗺️'} ${(reg?.name || 'THE BOARD').toUpperCase()}`;
+    if (leadEl) {
+        leadEl.textContent = Stars.enabled()
+            ? 'One hub ring, four territories, and one Sheriff\u2019s Star at a time. ' +
+              'Coins are what you spend; Stars are what you score.'
+            : 'One ring road, four districts. At every junction you pick which way to go.';
+    }
+
     const rows = [
-        { icon: DISTRICT_BIOMES.ring.icon, name: DISTRICT_BIOMES.ring.name, spaces: 20,
-          desc: DISTRICT_BIOMES.ring.tagline, lore: DISTRICT_BIOMES.ring.lore },
+        { icon: hub.icon, name: hub.name, spaces: ActiveMap.nodesInRegion(hubKey).length,
+          desc: hub.tagline, lore: hub.lore },
         ...ActiveMap.regionKeys().map(k => {
             const opt = Object.values(ActiveMap.branches()).flat().find(o => o.district === k);
             const b = DISTRICT_BIOMES[k] || {};
@@ -993,7 +1065,12 @@ export function showCityBriefing(onDone) {
                 spaces: opt?.spaces || 0,
                 desc: b.tagline || opt?.desc || '',
                 lore: b.lore || '',
-                hq: HQ_META[k]?.name,
+                hq: ActiveMap.has('hqBonus') ? HQ_META[k]?.name : null,
+                // Which territory is holding the Star right now, so the very
+                // first routing decision of the match is made with the one fact
+                // that decides it already on screen.
+                star: Stars.enabled() && ActiveMap.regionOf(Stars.liveNode()) === k,
+                office: Stars.enabled() && ActiveMap.regionKeys().includes(k),
             };
         }),
     ];
@@ -1005,6 +1082,8 @@ export function showCityBriefing(onDone) {
                 <span class="cb-desc">${r.desc}</span>
                 ${r.lore ? `<span class="cb-lore">${r.lore}</span>` : ''}
                 ${r.hq ? `<span class="cb-hq">🏛️ ${r.hq} at the far end — coins for passing it</span>` : ''}
+                ${r.star ? `<span class="cb-hq">⭐ The Sheriff's Star is on its plinth here — passing the Office is enough</span>`
+                         : (r.office ? `<span class="cb-hq">⭐ Territory Office at the far end — empty for now</span>` : '')}
             </span>
             <span class="cb-len bfont">${r.spaces}</span>
         </div>`).join('');
@@ -1517,8 +1596,13 @@ export function updateMapSlider() {
                                    : `${-ahead} behind`;
         label = `${realm.icon} ${realm.name} · Block ${val}/${finish} · ${rel}`;
     } else {
-        const node = ActiveMap.graph()[ActiveMap.ordered()[val]];
+        const nodeId = ActiveMap.ordered()[val];
+        const node = ActiveMap.graph()[nodeId];
         label = node ? (DISTRICT_BIOMES[node.district]?.name || ActiveMap.regionName(node.district) || node.district) : '—';
+        // The map is the screen a player opens to decide where to go, so the
+        // one fact that decides it goes on the label rather than only on the
+        // HUD they just navigated away from.
+        if (Stars.isLiveOffice(nodeId)) label = `⭐ THE STAR IS HERE · ${label}`;
     }
     document.getElementById('map-counter').textContent = label;
 }
@@ -1533,6 +1617,14 @@ function _spaceEffectText(addr, type) {
         if (lbl && lbl.desc) return lbl.desc;
     }
     let txt = SPACE_DESCS[type] || '';
+    // A Territory Office says whether it is holding anything. Three of the four
+    // are empty at any moment and a card that reads the same on all four is a
+    // card that answers the wrong question.
+    if (type === 'plinth' && typeof addr === 'string') {
+        txt = Stars.isLiveOffice(addr)
+            ? 'The Sheriff\u2019s Star is on its plinth here. Reach it or pass it with the bond in hand and it is yours.'
+            : 'A Territory Office, standing empty. ' + Stars.statusLine().replace('\u2b50 ', '');
+    }
     if ((type === 'player_trap' || type === 'anchor_trap') && tile && tile.owner !== undefined) {
         const owner = state.players[tile.owner];
         if (owner) txt = `${owner.name}'s. ${txt}`;
