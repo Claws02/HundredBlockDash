@@ -86,7 +86,9 @@ wrong causes were asserted in one session before anybody actually ran it.
 | `netduel.js` | A duel, landed by either the host or a client (`QA_DUEL_SEAT`). |
 | `lobby.js` | The front door and the room: hosting, joining, naming, characters. |
 | `soloframe.js` | That every parallel game actually fills the screen and is running. |
-| `arcade.js` | All 22 minigames, offline, resolving without errors or mesh leaks. |
+| `arcade.js` | Every registered minigame, offline, resolving without errors or mesh leaks. |
+| `newgames.js` | Puck, Four in a Row, Light Cycles, Penalty and Grand Prix against a scripted opponent — including that a Grand Prix bot can drive at all. |
+| `highnoon.js` | The 3D stage: the players' own figures in a turned landscape scene, the board paused underneath, the holster on the right half, a flinch, a win on the bell, the hold card, and nothing leaked on finish or force-end. Writes `shot-highnoon-*.png`. |
 | `mapmodules.js` | Map registry parity and the board's geometry as *properties*. |
 | `mapshot.js` | Photographs a board from three angles. Not an assertion — a way to look. |
 | `layout.js` | The layout laws as arithmetic — no browser, one second. That a phone holds at most two private playfields, and that `MG_SHAPE` and `MG_NET` agree. |

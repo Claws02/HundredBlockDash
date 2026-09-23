@@ -185,8 +185,6 @@ export function start(isBot, onWin, botSkill = 0.55) {
     _botPlan = new Array(_n).fill(null);
     _cars = Array.from({ length: _n },
         () => ({ d: 0, v: 0, spinUntil: 0, spin: 0, spins: 0, slide: 0, lap: 0, finished: 0 }));
-    _held = [false, false];
-    _botPlan = null;
     _last = 0; _elapsed = 0;
     registerMinigameCleanup(_destroy);           // R3
     _build();
