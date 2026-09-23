@@ -201,6 +201,10 @@ every 3D game depends on them. Build them once.
 8. Update the four stale docs (§2.4).
 9. Score all 23 games in the rubric ledger (A8). Any game under 12 goes onto
    the rework list below.
+10. `qa/treeclimb.js` fails 8 of its checks with "0 branches read", on the
+    pre-audit code (`ffd77e2`) as well as after it. The probe cannot read the
+    stem any more, so it has drifted from the game. It passes nothing on the
+    climb or fall behaviour, so Tree Climb currently has no working guard.
 
 ### C. Converting the roster to character-driven 3D
 
@@ -337,7 +341,7 @@ lines per setting at build time and ship them as data.
 | A3 procedural animator | **Built.** idle · walk · ready · aim · hit · fall · victory · defeat, plus fire and flinch accents, blinking and turning |
 | A4 scene kits | **Started.** `src/engine/StageSets.js` has Perdition (`hub`), built from `DISTRICT_BIOMES` and the board's `PROP_KIT`. The other districts are still to do |
 | A5 cold open · A6 character verdict | **Inside High Noon only.** It opens on a camera sweep with the premise line and ends on the winner's pose. Moving these into the manager, so every game gets them, is still to do |
-| New game 1: **High Noon** | **Built**, in the new SIDE-ON (landscape) hold. `qa/highnoon.js` passes 18/18 |
+| New game 1: **High Noon** | **Built**, in the new SIDE-ON (landscape) hold. `qa/highnoon.js` passes 17/17 |
 
 ---
 
