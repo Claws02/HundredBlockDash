@@ -98,6 +98,9 @@ export function sfx(name) {
                                 haptic([40]); break;
             case 'gunshot':     _noise(0.7, t, 0.22, ctx); _beep(90, 'sine', 0.6, t, 0.25, ctx); haptic([70]); break;
             case 'caw':         _beep(620, 'sawtooth', 0.14, t, 0.12, ctx); _beep(540, 'sawtooth', 0.14, t + 0.16, 0.14, ctx); break;
+            // Boot Hill Barrage: a shell landing. Longer and lower than the
+            // gunshot, so a hit is heard as a hit and not as another shot.
+            case 'boom':        _noise(0.8, t, 0.45, ctx); _beep(55, 'sine', 0.7, t, 0.5, ctx); haptic([90]); break;
             case 'slam':        _noise(0.45, t, 0.09, ctx); _beep(70, 'sine', 0.5, t, 0.12, ctx); break;
         }
     } catch (e) {}

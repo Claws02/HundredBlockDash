@@ -5721,4 +5721,8 @@ export const PROP_KIT = {
     falseFront:  (pos, seed) => _mkFalseFront(pos, seed),
     lanternPost: pos => _mkLanternPost(pos),
     township:    (r, seed) => _propTownship(r, seed),
+    badlandsRock: (pos, seed) => _mkBadlandsRock(pos, seed),
+    // r in [0.62, 0.78) is the dust devil, which registers itself in the
+    // board's own animation list — a stage must never ask for that one.
+    badlands:    (r, seed) => _propBadlands(r >= 0.62 && r < 0.78 ? 0.9 : r, seed),
 };

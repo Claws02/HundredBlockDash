@@ -349,7 +349,89 @@ export function buildPerditionStreet(stage) {
     return H;
 }
 
+// ---- Boot Hill Badlands: two forts across a dry wash ------------------
+//
+// High noon on the hardpan — "blown out, almost colourless, the harshest
+// light on the board". The graves the district is named for stand on a low
+// hill behind the wash, between the two forts, so every shot in a siege is
+// fired over Boot Hill. The forts themselves are the game's (they are physics
+// bodies); the set is the ground they stand on and everything around it.
+export function buildBootHill(stage) {
+    const B = DISTRICT_BIOMES.bad;
+    const scene = stage.scene;
+    scene.background = new THREE.Color(_hex(B.bgBot));
+    scene.fog = new THREE.Fog(_hex(B.fog), 40, 170);
+    scene.add(_skyDome(_hex(B.bgTop), _hex(B.bgBot)));
+
+    // Noon: the sun nearly overhead, short hard shadows.
+    stage.light({
+        sun: 0xfff6e0, sunI: 1.2, sky: 0xcfe3f5, ground: 0x8a6a42, hemiI: 0.55,
+        rim: 0xffe2b0, rimI: 0.3, dir: [5, 22, 9], span: 17,
+    });
+
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), _mat(0xb59c70, 1));
+    ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true;
+    scene.add(ground);
+    // The wash: a pale, dried streambed running away from the camera between
+    // the forts, with a few cracks across it.
+    const wash = new THREE.Mesh(new THREE.PlaneGeometry(7, 140), _mat(0xcbb78e, 1));
+    wash.rotation.x = -Math.PI / 2; wash.position.set(0, 0.01, -40); wash.receiveShadow = true;
+    scene.add(wash);
+    for (let i = 0; i < 26; i++) {
+        const c = new THREE.Mesh(new THREE.PlaneGeometry(0.06 + _rand(i) * 0.05, 1.2 + _rand(i + 9) * 2.6), _mat(0x9c8660, 1));
+        c.rotation.x = -Math.PI / 2;
+        c.rotation.z = _rand(i + 3) * Math.PI;
+        c.position.set((_rand(i + 5) - 0.5) * 34, 0.02, (_rand(i + 7) - 0.5) * 14 - 2);
+        c.receiveShadow = true;
+        scene.add(c);
+    }
+
+    // Boot Hill: a low mound behind the wash with its leaning markers.
+    const hill = new THREE.Mesh(new THREE.SphereGeometry(14, 24, 12), _mat(0xbfa77c, 1));
+    hill.scale.set(1.3, 0.28, 0.7); hill.position.set(0, -0.6, -24);
+    scene.add(hill);
+    [[-6, -21], [-2.5, -19.8], [1.5, -20.4], [5.5, -21.6], [-9, -23.5], [9.5, -23], [3.5, -24.5], [-4, -24.8]]
+        .forEach(([x, z], i) => {
+            const g = PROP_KIT.badlands(0.9, 40 + i);
+            g.position.set(x, 2.3 - Math.abs(x) * 0.12, z);
+            g.rotation.y = (_rand(i + 21) - 0.5) * 0.8;
+            scene.add(g);
+        });
+
+    // Buttes on the horizon, saguaros and a skull nearer in.
+    [[-58, -80, 1], [-18, -95, 2], [30, -85, 3], [72, -100, 4], [-95, -110, 5]].forEach(([x, z, sd]) => {
+        const r = PROP_KIT.badlandsRock(new THREE.Vector3(x, 0, z), 300 + sd);
+        r.scale.setScalar(1.6);
+        scene.add(r);
+    });
+    [[-21, -6, 0.1], [22, -8, 0.15], [-27, 2, 0.2], [17, -14, 0.05], [-15, -12, 0.12]].forEach(([x, z, r], i) => {
+        const c = PROP_KIT.badlands(r, 60 + i); c.position.set(x, 0, z); scene.add(c);
+    });
+    [[-5.5, 4.5, 0.35], [6.5, -3, 0.5], [-16, 5, 0.55]].forEach(([x, z, r], i) => {
+        const c = PROP_KIT.badlands(r, 80 + i); c.position.set(x, 0, z); scene.add(c);
+    });
+
+    const dust = B.motes ? _motes(B.motes) : null;
+    if (dust) scene.add(dust);
+    scene.traverse(o => { if (o.isMesh && o !== ground && o !== wash) o.receiveShadow = false; });
+
+    return {
+        update(dt) {
+            if (!dust) return;
+            const p = dust.geometry.attributes.position, a = p.array;
+            for (let i = 0; i < a.length; i += 3) {
+                a[i] += dt * 1.6;
+                a[i + 1] += dt * dust.userData.rise * 0.3;
+                if (a[i] > dust.userData.spread) a[i] -= dust.userData.spread * 2;
+                if (a[i + 1] > 5) a[i + 1] = 0;
+            }
+            p.needsUpdate = true;
+        },
+    };
+}
+
 /** Sets by district key. A game asks for the one its story is set in. */
 export const STAGE_SETS = {
     hub: buildPerditionStreet,
+    bad: buildBootHill,
 };

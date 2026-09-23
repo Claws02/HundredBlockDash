@@ -35,6 +35,7 @@ export const MG_TYPES = [
     // The first game on the shared 3D stage (src/engine/Stage.js): the players'
     // own figures, in Perdition, in the landscape hold.
     'highnoon',
+    'barrage',
 ];
 
 export const MG_INFO = {
@@ -62,6 +63,7 @@ export const MG_INFO = {
     grandprix:   { icon: '🏎️', title: 'GRAND PRIX',    desc: 'One circuit, every car, one view — the whole track is on screen and you can see the race. HOLD your half for gas and let go to slow: there is no brake and no steering. Every corner has a speed painted on it, and over that speed the car starts to let go — it wobbles and scrubs off pace, and if you do not lift it spins. Catch the slide and you keep the lap. Whoever is behind gets a slipstream. 2 laps!' },
     treeclimb:   { icon: '🌳', title: 'TREE CLIMB',    desc: '🪙 COIN GAME — 30 SECONDS, and whoever is HIGHEST when it runs out wins. A leaf sprouts LEFT or RIGHT — tap that side and you jump onto it, and only then does the next one grow. Sides don\'t just alternate, so watch it: two in a row happens. Grab the wrong side and you fall to the last branch on THAT side. Coins bank as you climb and a fall never takes them back.' },
     highnoon:    { icon: '🤠', title: 'HIGH NOON',     desc: 'Perdition, ten to four. Turn the phone sideways and sit side by side. HOLD your thumb down on your half and your character paces away from theirs. When the BELL rings they spin round — LET GO first to fire first. Let go before the bell and you flinched: the round is theirs. The crow, the slamming shutter and the tumbleweed are not the bell. First to 3 rounds wins!' },
+    barrage:     { icon: '💣', title: 'BOOT HILL BARRAGE', desc: 'Turn the phone sideways and sit side by side. Your character stands on top of your fort with a cannon. DRAG BACK anywhere on your half — pull further for more power, and the angle you pull is the angle it flies — then LET GO to fire. Shells burst on whatever they hit. Knock their fort down before they knock down yours! Both cannons fire at once, with a short reload. Hit the legs, not the roof.' },
 };
 
 // ============================================================
@@ -183,6 +185,7 @@ export const MG_NET = {
     grandprix:   'local',
     treeclimb:   'parallel',
     highnoon:    'local',      // first to let go after the bell — a timestamp race
+    barrage:     'local',      // one physics world, both forts in it
 };
 
 // The parallel games whose SCORE is also a coin haul.
@@ -270,6 +273,7 @@ export const MG_SHAPE = {
     grandprix:   'arena',   // one track, both cars, one camera
     treeclimb:   'split',
     highnoon:    'arena',   // one street, one bell, both figures in it
+    barrage:     'arena',   // one wash, shells crossing it both ways
 };
 
 // Modifiers laid over a shape: the seats do not have the same job (ASYM), or
@@ -309,6 +313,7 @@ export const MG_ORIENTATION_MAP = {
     grandprix:   'faceoff',
     treeclimb:   'faceoff',
     highnoon:    'sideon',
+    barrage:     'sideon',
 };
 
 export const FALLBACK_TRIVIA = [
@@ -468,6 +473,10 @@ export const MG_PROFILE = {
     // different set and a different camera, and is the natural next step.
     // 'stamp': the round goes to whoever let go first after the bell.
     highnoon:    { genre: 'nerve',    control: 'tap',   wire: 'stamp',    seats: [2, 2], live: false },
+    // A physics siege: the collapse is the game, and a collapse cannot be
+    // replayed from inputs alone — it needs the host's bodies. Two forts facing
+    // across the wash is the story; four forts is a different map.
+    barrage:     { genre: 'aim',      control: 'thumb', wire: 'snapshot', seats: [2, 2], live: false },
     // roomy: the grid climbs to 5x5 as you score, and a fifth of a phone quarter
     // is a 34 px tile — under the 44 px the control law asks for. On a tablet
     // quarter the same grid is 68 px a side, so 3-4 seats is a tablet game.
