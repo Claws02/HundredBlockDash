@@ -8,6 +8,7 @@
 //   FOUR IN A ROW — P1 plays a random legal column; the bot must win most games.
 //   LIGHT CYCLES — P1 does nothing; the round must still end, quickly.
 //   PENALTY     — P1 shoots and keeps at random; the match must resolve.
+//   GRAND PRIX  — P1 does nothing; the bot must drive, finish, and throw nothing.
 //
 // usage: node newgames.js
 // ============================================================
@@ -247,6 +248,20 @@ async function waitResult(page, budgetMs, tickFn) {
            r ? `winner=${r.winner} in ${(r.ms / 1000).toFixed(1)}s` : 'timed out');
         ok('penalty: lands inside the arcade time budget',
            !!r && r.ms / 1000 <= 65, r ? `${(r.ms / 1000).toFixed(1)}s` : '—');
+    }
+
+    // ══════════ GRAND PRIX — a bot can drive at all ══════════
+    // The N-seat conversion left `_botPlan = null` after the per-seat arrays
+    // were built, so every frame a bot was stepped threw and nothing was ever
+    // drawn. The arcade never runs a bot, so only a bot match finds it.
+    {
+        const before = errors.length;
+        await launch(page, 'grandprix', 0.55);
+        const r = await waitResult(page, 75000, null);
+        ok('grandprix: a bot match throws nothing', errors.length === before,
+           [...new Set(errors.slice(before))].slice(0, 2).join(' | '));
+        ok('grandprix: the bot finishes the race against an idle P1',
+           !!r && r.winner === 1, r ? `winner=${r.winner} in ${(r.ms / 1000).toFixed(1)}s` : 'timed out');
     }
 
     ok('no console/page errors', errors.length === 0, [...new Set(errors)].slice(0, 4).join(' | '));
