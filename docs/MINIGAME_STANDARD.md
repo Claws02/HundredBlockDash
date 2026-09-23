@@ -164,7 +164,7 @@ minigame to settle a board match on its own.
 `AudioManager.js`. Available today:
 `coin_gain`, `coin_loss`, `shield`, `swap`, `buy`, `mg_start`, `mg_win`,
 `mg_lose`, `react_go`, `seq_lit`, `countdown`, `go`, `boost`, `land_good`,
-`land_bad`, `dice_throw`, `dice_land`. Haptics via `haptic([ms,...])` or
+`land_bad`, `dice_throw`, `dice_land`, `bell`, `gunshot`, `caw`, `slam`. Haptics via `haptic([ms,...])` or
 `haptic('heavy')`.
 
 ---
@@ -304,6 +304,7 @@ games that passed the verb test and failed the fun test are in `archived/`.
 | Return / rally-back  | keep it off your own wall     | ✅ Bomb Pass         |
 | Throttle / racing    | one pedal, one track          | ✅ Grand Prix        |
 | Read & react climb   | tap the side it grew          | ✅ Tree Climb        |
+| Nerve / showdown (3D)| hold, then let go on the bell | ✅ High Noon         |
 
 **Curation rule:** the 40 files in `src/minigames/archived/` are a **design
 backlog, not a code backlog** — their imports and shared-DOM dependencies are
@@ -348,3 +349,30 @@ A game is done when every box is checked:
 
 That's it. The arcade selector and the in-game rotation both read `MG_TYPES`, so
 the game is immediately playable in both.
+
+
+---
+
+## 10. Building on the 3D stage
+
+`src/engine/Stage.js` is the shared stage for a game played *as your own
+character*. High Noon (`src/minigames/HighNoon.js`) is the reference. A stage
+game still follows every rule above; the stage makes R1, R3 and R4 hard to get
+wrong.
+
+| Piece | What it gives you |
+|---|---|
+| `createStage(host, { hold, fov })` | Renderer, scene and camera sized to the layer, with DPR capped at 2. The board's render loop is paused until `dispose()`. **Adaptive resolution:** if frames run past 33 ms for 1.5 s, it steps the pixel ratio down (2 → 1.5 → 1 → 0.75). Below 10 fps the capped `dt` would otherwise slow the game clock itself. |
+| `hold: 'side'` | The landscape hold (`MG_ORIENTATIONS.sideon`). Two players sit side by side, and **P1 is on the right** (the home edge, where P1's ready button is). If the viewport is portrait, the stage turns itself 90° clockwise, and `#minigame-layer.is-sideon` turns the manager's ready buttons and countdown to match. The two edge status pills are hidden, so a side-on game draws its prompts in `stage.hud`. |
+| `stage.toLocal(x, y)` | A pointer position in the stage's own frame, whichever way it is turned. Partition input with this, never with screen coordinates. |
+| `stage.character(slot)` | The figure that seat picked, rigged and animated (`CharacterRig.js`). `anim.play('idle' / 'walk' / 'ready' / 'aim' / 'hit' / 'fall' / 'victory' / 'defeat')`, `anim.face(angle)`, and the accents `anim.fire()` and `anim.flinch()`. `rig.hold(side, prop)` puts a prop in a hand. |
+| `STAGE_SETS[district](stage)` | A set built from `DISTRICT_BIOMES` and the board's own `PROP_KIT`. It returns handles the game can animate (Perdition: `ringBell`, `startleCrow`, `rollTumbleweed`) and an `update(dt, t)`. Only `hub` (Perdition) exists so far. |
+| `stage.start(frame)` | The loop. `dt` is capped and every rig is animated before your `frame(dt)` runs. |
+| `stage.dispose()` | Every geometry, material, texture, listener and the WebGL context, and the board is resumed. Call it from your `_destroy`, which you register with `registerMinigameCleanup` as always. |
+
+If WebGL is unavailable, `stage.gl` is false and there is no scene, but the
+HUD still works. Keep the game logic independent of the scene so the round can
+still be played.
+
+Measure a stage game with `qa/highnoon.js` as the template. It drives real
+input into the turned frame and photographs each beat.

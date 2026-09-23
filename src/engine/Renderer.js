@@ -1359,9 +1359,14 @@ export function createCharacterMesh(type, colorCode) {
         group.add(msh);
         return msh;
     };
+    // Tagged so a minigame rig can find them and make them blink and look.
+    // The board never reads the tag.
     const eyes = (y, z, r, spread) => {
-        group.add(_eyeball(spread, y, z, r, -1));
-        group.add(_eyeball(-spread, y, z, r, 1));
+        [[spread, -1], [-spread, 1]].forEach(([x, look]) => {
+            const e = _eyeball(x, y, z, r, look);
+            e.userData.eye = true;
+            group.add(e);
+        });
     };
     // A small dark mouth line reads as a face far more cheaply than geometry.
     const smile = (y, z, w) => {
@@ -1550,10 +1555,15 @@ export function createCharacterMesh(type, colorCode) {
     contact.renderOrder = -1;
     group.add(contact);
 
+    contact.userData.contact = true;
+
     group.traverse(o => {
         if (!o.isMesh || o === contact) return;
         o.castShadow = true; o.receiveShadow = true;
     });
+    // What CharacterRig needs to re-parent the parts into something it can
+    // animate. The board ignores this.
+    group.userData.charType = type;
     return group;
 }
 
@@ -2494,9 +2504,19 @@ export function onResize() {
 
 function startLoop() { requestAnimationFrame(_loop); }
 
+// A 3D minigame covers the whole screen with its own WebGL scene. Drawing the
+// board underneath it as well is two full scenes a frame on a phone, for a
+// picture nobody can see. Stage.js pauses the board while it is up.
+let _boardPaused = false;
+export function setBoardPaused(on) {
+    _boardPaused = !!on;
+    if (!_boardPaused && clock) clock.getDelta();   // no dt jump on the way back
+}
+export function isBoardPaused() { return _boardPaused; }
+
 function _loop() {
     requestAnimationFrame(_loop);
-    if (!clock) return;
+    if (!clock || _boardPaused) return;
     const dt   = Math.min(clock.getDelta(), 0.1);
     const time = clock.getElapsedTime();
 
@@ -5690,3 +5710,15 @@ export function cleanup() {
     activeAnims.length = 0;
     if (renderer) { renderer.dispose(); renderer = null; }
 }
+
+// ---- Set dressing, lent to minigame stages ------------------------------
+//
+// StageSets builds a minigame's scenery from the same pieces the board's
+// territories are dressed with, so High Noon's street is Perdition's street and
+// not a lookalike. Every builder makes fresh geometry and materials, so a stage
+// can dispose what it was given without touching the board.
+export const PROP_KIT = {
+    falseFront:  (pos, seed) => _mkFalseFront(pos, seed),
+    lanternPost: pos => _mkLanternPost(pos),
+    township:    (r, seed) => _propTownship(r, seed),
+};

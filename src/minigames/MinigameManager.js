@@ -38,6 +38,7 @@ const MG_MODULES = {
     bombpass:    () => import('./BombPass.js'),
     grandprix:   () => import('./GrandPrix.js'),
     treeclimb:   () => import('./TreeClimb.js'),
+    highnoon:    () => import('./HighNoon.js'),
 };
 
 // The single place that knows which file a game lives in. Exported so the QA
@@ -624,6 +625,15 @@ function _renderOrientationDiagram(mgTypeKey) {
     const diag = document.getElementById('phone-diagram');
     diag.innerHTML = '';
     diag.className = 'phone-diagram' + (orient.huddle ? ' huddle' : '');
+    // A landscape phone, home edge on the right, P2's half on the left and
+    // P1's on the right — drawn the way round the two players will see it.
+    if (orient.sideon) {
+        diag.style.width = '210px'; diag.style.height = '110px';
+        const half = (who, col) => `<div style="flex:1;display:flex;align-items:center;justify-content:center;background:rgba(${col},.14);font-family:'Bebas Neue';font-size:14px;letter-spacing:1px;color:rgba(${col},.9);">${who}</div>`;
+        diag.innerHTML = `<div class="ph-body"></div><div class="ph-screen" style="inset:8px 14px;display:flex;">${half('P2 · LEFT', '59,142,255')}<div style="width:2px;background:rgba(255,255,255,.25)"></div>${half('P1 · RIGHT', '255,59,59')}</div><div style="position:absolute;right:4px;top:50%;transform:translateY(-50%);width:4px;height:28px;background:rgba(255,255,255,.3);border-radius:3px;"></div>`;
+        return;
+    }
+    diag.style.width = ''; diag.style.height = '';
     if (orient.huddle) {
         diag.innerHTML = `<div class="ph-body"></div><div class="ph-screen" style="inset:8px 12px;"><div style="width:100%;height:100%;background:linear-gradient(90deg,rgba(255,59,59,.08),rgba(59,142,255,.08));display:flex;align-items:center;justify-content:center;font-size:22px;letter-spacing:2px;font-family:'Bebas Neue';color:rgba(255,255,255,.3);">CARDS</div></div><div class="ph-grip holder" style="left:-3px;top:-3px;bottom:-3px;right:auto;width:36px;height:auto;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;border-radius:18px 4px 4px 18px;background:rgba(255,59,59,.85);border:2px solid #ff3b3b;"><span style="font-size:11px;font-family:'Bebas Neue';color:#fff;writing-mode:vertical-rl;text-orientation:mixed;">P1</span></div>`;
     } else {
@@ -665,6 +675,10 @@ function _startMinigameLayer() {
     if (cd) cd.style.display = 'none';
 
     layer.style.display = 'flex';
+    // The landscape hold turns the manager's own chrome — ready buttons,
+    // countdown — to face players sitting side by side, and hides the two
+    // status pills, which sit on the short edges (css: #minigame-layer.is-sideon).
+    layer.classList.toggle('is-sideon', MG_ORIENTATION_MAP[state.mgType] === 'sideon');
     const n = slotCount();
     state.mgReady  = new Array(n).fill(false);
     state.mgActive = false;

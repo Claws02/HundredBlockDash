@@ -99,7 +99,33 @@ over 8 s of a bot match there were 1,300+ page errors and a blank green canvas.
 P1 never touches the screen in this probe, so the times are "bot against an
 idle opponent". That makes it a floor and ceiling check, not a fun check.
 
-_Sweep in progress; results land in the next commit._
+| Game | Easy | Hard | Notes |
+|---|---|---|---|
+| Sumo Spheres | 12 s | 8 s | Under the 15 s floor against an idle opponent. That is expected: nobody is pushing back |
+| Tank Clash | 47 s, draw | 6 s | **Easy landed no hit in 42 s.** See B6 |
+| Rhythm Forge | 60 s | 60 s | Over the 40 s target at both tiers (a relay). See B7 |
+| Orb Deflect | 33 s, draw | 16 s | |
+| Snap Strike | 28 s | 28 s | Fixed clock. The score gap widens with skill (10 vs 15) |
+| Quick Draw | 12 s | 9 s | |
+| Grid Recall | 27 s | 23 s | |
+| Odd One Out | 32 s | 32 s | Fixed clock. Score 23 vs 39 |
+| Steady Hand | 24 s | 24 s | Fixed clock. Held 13.8 s vs 22.0 s |
+| Sort Rush | 12 s | 11 s | |
+| Frame Match | 41 s | 28 s | Easy is just over 40 s |
+| Speed Boat | 29 s | 36 s | |
+| Loot Catch | 36 s | 36 s | Fixed clock |
+| Freeze | 24 s | 12 s | |
+| Clear Out | 22 s | 21 s | |
+| Puck | 43 s, 0–0 | 44 s, 0–0 | P1's idle mallet sits in its own goal mouth. `newgames.js` covers the real case |
+| Penalty · Four in a Row · Memory Match | waits | waits | Wait for a human by design. Covered by `newgames.js` and `memorymatch.js` |
+| Light Cycles | 15 s | 13 s | |
+| Bomb Pass | 19 s | 17 s | |
+| Grand Prix | 21 s | 20 s | This run reached Grand Prix after the §2.1 fix had landed. Before the fix, the same match threw on every frame |
+| Tree Climb | 32 s | 32 s | Fixed clock |
+| **High Noon** (new) | 31 s | 31 s | Idle P1 forfeits each round, which is the designed ceiling |
+
+No page errors in any game, and every game that has a clock resolved without
+a human.
 
 ### 2.3 P1 — Uneven standard
 
@@ -117,6 +143,15 @@ The split games are there on purpose: they are the only ones that work on four
 separate phones today. That trade-off is fine. It should still be written down
 in one place, because the backlog calls them a defect and the library plan
 calls them a feature.
+
+### 2.3a P1 — The countdown drew in the corner, in every game *(fixed)*
+
+`setReady()` moves `#mg-countdown` into `#minigame-layer`, which is a flex
+column with no centring. So for every game, "3 · 2 · 1 · GO" rendered at
+(0, 0): top-left, half inside P2's zone. Measured at `x:0 y:0` in Quick Draw.
+A CSS rule now pins it to the centre using the individual `translate`
+property, which leaves `countPop`'s `transform` animation alone. Found while
+building High Noon's turned countdown.
 
 ### 2.4 P2 — Documentation drift
 
@@ -288,6 +323,21 @@ possible through the API. It is **not recommended for the core loop**: it
 needs a network connection, costs money per call, and adds latency to a
 beat that has a 1.1 s floor. If it is wanted, pre-generate a bank of premise
 lines per setting at build time and ship them as data.
+
+---
+
+## 5a. Progress
+
+| Item | Status |
+|---|---|
+| §2.1 Grand Prix bot crash | **Fixed.** Guarded in `qa/newgames.js` |
+| §2.3a countdown in the corner | **Fixed** (CSS) |
+| A1 `MinigameStage` | **Built.** `src/engine/Stage.js`: side and face-off holds, the turned frame, `toLocal`, a HUD, the board paused, adaptive resolution, full dispose |
+| A2 character rig | **Built.** `src/engine/CharacterRig.js` re-parents the board's figure into hips, neck and head, adds floating mitts, and can hold a prop. The board's own use of `createCharacterMesh` is unchanged apart from two tags |
+| A3 procedural animator | **Built.** idle · walk · ready · aim · hit · fall · victory · defeat, plus fire and flinch accents, blinking and turning |
+| A4 scene kits | **Started.** `src/engine/StageSets.js` has Perdition (`hub`), built from `DISTRICT_BIOMES` and the board's `PROP_KIT`. The other districts are still to do |
+| A5 cold open · A6 character verdict | **Inside High Noon only.** It opens on a camera sweep with the premise line and ends on the winner's pose. Moving these into the manager, so every game gets them, is still to do |
+| New game 1: **High Noon** | **Built**, in the new SIDE-ON (landscape) hold. `qa/highnoon.js` passes 18/18 |
 
 ---
 

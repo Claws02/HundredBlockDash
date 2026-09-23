@@ -2939,3 +2939,22 @@ body:not(.tabletop-mode) #turn-banner.tb-show .tb-bottom.tb-mine {
     100% { transform: scale(1);    box-shadow: 0 0 0 0 rgba(239,68,68,0); }
 }
 .duel-pick.is-chosen { animation: duelPickChosen .62s ease both; }
+
+/* ── The SIDE-ON hold (MG_ORIENTATIONS.sideon) ─────────────────────────────
+   Two players side by side along one long edge, the phone's home edge on their
+   right. The game turns its own stage (Stage.js); this turns the manager's
+   chrome to match. `rotate` is the individual transform property, so it
+   composes with countPop's `transform` and the P2 zone's 180° instead of
+   replacing them. The status pills sit on the short edges, sideways to both
+   players, so a side-on game draws its prompts in its own HUD instead. */
+#minigame-layer.is-sideon #mg-countdown { rotate: 90deg; }
+#minigame-layer.is-sideon #mg-ready-1   { rotate: 90deg; }
+#minigame-layer.is-sideon #mg-ready-2   { rotate: -90deg; }
+#minigame-layer.is-sideon #mg-neutral,
+#minigame-layer.is-sideon #mg-neutral-mirror { visibility: hidden; }
+
+/* The countdown is moved into #minigame-layer when it starts, and the layer is
+   a flex column with no centring — so for every game "3 · 2 · 1 · GO" drew in
+   the top-left corner, half of it in P2's zone. Pin it to the middle with the
+   individual `translate` property, which leaves countPop's `transform` alone. */
+#minigame-layer > #mg-countdown { top: 50%; left: 50%; translate: -50% -50%; }

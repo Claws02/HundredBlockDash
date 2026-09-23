@@ -32,6 +32,9 @@ export const MG_TYPES = [
     'bombpass',
     'grandprix',
     'treeclimb',
+    // The first game on the shared 3D stage (src/engine/Stage.js): the players'
+    // own figures, in Perdition, in the landscape hold.
+    'highnoon',
 ];
 
 export const MG_INFO = {
@@ -58,6 +61,7 @@ export const MG_INFO = {
     bombpass:    { icon: '💣', title: 'BOMB PASS',     desc: 'One lit bomb, and neither of you wants it. While it\'s on YOUR side, tap to smack it back — every return sends it faster. Let it reach the wall behind you and it goes off in your hands. Swing while it\'s on their side and you whiff, and you\'re locked out just long enough to regret it. Watch the fuse: when it burns out the bomb blows wherever it is. Best of 3!' },
     grandprix:   { icon: '🏎️', title: 'GRAND PRIX',    desc: 'One circuit, every car, one view — the whole track is on screen and you can see the race. HOLD your half for gas and let go to slow: there is no brake and no steering. Every corner has a speed painted on it, and over that speed the car starts to let go — it wobbles and scrubs off pace, and if you do not lift it spins. Catch the slide and you keep the lap. Whoever is behind gets a slipstream. 2 laps!' },
     treeclimb:   { icon: '🌳', title: 'TREE CLIMB',    desc: '🪙 COIN GAME — 30 SECONDS, and whoever is HIGHEST when it runs out wins. A leaf sprouts LEFT or RIGHT — tap that side and you jump onto it, and only then does the next one grow. Sides don\'t just alternate, so watch it: two in a row happens. Grab the wrong side and you fall to the last branch on THAT side. Coins bank as you climb and a fall never takes them back.' },
+    highnoon:    { icon: '🤠', title: 'HIGH NOON',     desc: 'Perdition, ten to four. Turn the phone sideways and sit side by side. HOLD your thumb down on your half and your character paces away from theirs. When the BELL rings they spin round — LET GO first to fire first. Let go before the bell and you flinched: the round is theirs. The crow, the slamming shutter and the tumbleweed are not the bell. First to 3 rounds wins!' },
 };
 
 // ============================================================
@@ -83,6 +87,19 @@ export const MG_ORIENTATIONS = {
         subtitle: 'Each player gets their own star map',
         huddle: false,
         instructions: '<b style="color:#ff3b3b">P1 (Red)</b> holds the <b>bottom</b> — your constellation is on your half.<br><br><b style="color:#3b8eff">P2 (Blue)</b> holds the <b>top</b> upside-down — your constellation is on your half.<br><br>Tap the glowing stars in order as fast as you can!',
+        thumbAnim: 'pulse',
+    },
+    // Landscape: two players side by side along one long edge, both reading
+    // the same picture the same way up. The phone's home edge goes on the
+    // RIGHT, which is where P1's ready button already is, so P1 is on the
+    // right. A 3D scene has one "up"; this is the hold that gives both players
+    // it. Stage.js turns the game 90° if the viewport stays portrait.
+    sideon: {
+        name: 'SIDE-ON',
+        subtitle: 'Turn it sideways — sit side by side',
+        huddle: false,
+        sideon: true,
+        instructions: 'Turn the phone <b>sideways</b> with the <b>home edge on the right</b>, and sit <b>side by side</b> facing it.<br><br><b style="color:#ff3b3b">P1 (Red)</b> takes the <b>right</b> half. <b style="color:#3b8eff">P2 (Blue)</b> takes the <b>left</b> half. You are both looking at the same street, the same way up.',
         thumbAnim: 'pulse',
     },
     huddle: {
@@ -165,6 +182,7 @@ export const MG_NET = {
     bombpass:    'local',
     grandprix:   'local',
     treeclimb:   'parallel',
+    highnoon:    'local',      // first to let go after the bell — a timestamp race
 };
 
 // The parallel games whose SCORE is also a coin haul.
@@ -251,6 +269,7 @@ export const MG_SHAPE = {
     bombpass:    'arena',
     grandprix:   'arena',   // one track, both cars, one camera
     treeclimb:   'split',
+    highnoon:    'arena',   // one street, one bell, both figures in it
 };
 
 // Modifiers laid over a shape: the seats do not have the same job (ASYM), or
@@ -289,6 +308,7 @@ export const MG_ORIENTATION_MAP = {
     bombpass:    'faceoff',
     grandprix:   'faceoff',
     treeclimb:   'faceoff',
+    highnoon:    'sideon',
 };
 
 export const FALLBACK_TRIVIA = [
@@ -444,6 +464,10 @@ export const MG_PROFILE = {
     // roomy: a 4x4 grid, and a quarter of a phone puts each tile at 38 px —
     // under the 44 px the control law asks for. Tablet quarters give 76 px.
     gridrecall:  { genre: 'brain',    control: 'tap',   wire: 'stamp',    seats: [2, 4], live: true, roomy: true },
+    // Two figures back to back is the story; a four-way standoff is a
+    // different set and a different camera, and is the natural next step.
+    // 'stamp': the round goes to whoever let go first after the bell.
+    highnoon:    { genre: 'nerve',    control: 'tap',   wire: 'stamp',    seats: [2, 2], live: false },
     // roomy: the grid climbs to 5x5 as you score, and a fifth of a phone quarter
     // is a 34 px tile — under the 44 px the control law asks for. On a tablet
     // quarter the same grid is 68 px a side, so 3-4 seats is a tablet game.

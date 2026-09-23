@@ -91,6 +91,14 @@ export function sfx(name) {
             // heard by whoever is not looking at the screen at that moment.
             case 'star_fly':    [523, 698, 880, 1175].forEach((f, i) => _beep(f, 'sine', 0.3, t + i * .09, 0.16, ctx));
                                 _noise(0.12, t, 0.5, ctx); haptic([20, 40, 20]); break;
+            // High Noon. The bell is the signal, so it has to be unmistakable
+            // against the three decoys: two inharmonic partials with a long
+            // tail, where the decoys are all short.
+            case 'bell':        [[523, 0.45], [1319, 0.18], [784, 0.14]].forEach(([f, v]) => _beep(f, 'sine', v, t, 1.6, ctx));
+                                haptic([40]); break;
+            case 'gunshot':     _noise(0.7, t, 0.22, ctx); _beep(90, 'sine', 0.6, t, 0.25, ctx); haptic([70]); break;
+            case 'caw':         _beep(620, 'sawtooth', 0.14, t, 0.12, ctx); _beep(540, 'sawtooth', 0.14, t + 0.16, 0.14, ctx); break;
+            case 'slam':        _noise(0.45, t, 0.09, ctx); _beep(70, 'sine', 0.5, t, 0.12, ctx); break;
         }
     } catch (e) {}
 }

@@ -55,13 +55,14 @@ const EXPECT = {
     fourinarow:  [false, null,     false],
     gridrecall:   [true,  'tablet', true ],
     oddoneout:    [true,  'tablet', true ],
+    highnoon:    [false, null,     true ],   // a two-figure standoff; online is a timestamp
 };
 
 // The headline counts from the plan. If a property changes and one of these
 // moves, the plan is out of date and should be updated deliberately.
 const EXPECT_PHONE_MANY = 8;    // LIVE games — converted to N slots
 const EXPECT_TABLET_MANY = 13;   // ...plus the `roomy` games, which need the extra room
-const EXPECT_ONLINE = 15;       // possible across devices
+const EXPECT_ONLINE = 16;       // possible across devices
 const EXPECT_ONLINE_NOW = 5;    // running across devices today
 
 function asModule(file) {
