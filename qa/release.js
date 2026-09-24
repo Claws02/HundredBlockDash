@@ -24,8 +24,8 @@ const BASE = process.env.QA_BASE || 'http://127.0.0.1:8129/index.html';
 const pass = [], fail = [];
 const ok = (n, c, d) => (c ? pass : fail).push(n + (d ? ` — ${d}` : ''));
 
-async function boot(browser, { w = 390, h = 844, reduce = false, seen = false } = {}) {
-    const ctx = await browser.newContext({ viewport: { width: w, height: h }, hasTouch: true, reducedMotion: reduce ? 'reduce' : 'no-preference' });
+async function boot(browser, { w = 390, h = 844, reduce = false, seen = false, dpr = 1 } = {}) {
+    const ctx = await browser.newContext({ viewport: { width: w, height: h }, deviceScaleFactor: dpr, hasTouch: true, reducedMotion: reduce ? 'reduce' : 'no-preference' });
     const page = await ctx.newPage();
     const errors = [];
     page.on('pageerror', e => errors.push(e.message));
@@ -46,6 +46,8 @@ const center = (page, sel) => page.evaluate(sel => { const e = document.querySel
         args: ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--mute-audio'],
     });
 
+    const ONLY = process.env.ONLY || '';
+    if (!ONLY) {
     // ---------------- fonts, before anything else draws ----------------
     {
         const { ctx, page } = await boot(browser);
@@ -129,7 +131,6 @@ const center = (page, sel) => page.evaluate(sel => { const e = document.querySel
     });
     ok('C-02 no glowing junction spheres on the road', scene.spheres === 0, `${scene.spheres}`);
     ok('RA-03 shadow casters pruned (was 1,007)', scene.casters < 600, `${scene.casters}`);
-    ok('RA-03 the board steps its resolution down when frames run long', scene.q.drops >= 1 && scene.q.ratio <= 1.5, JSON.stringify(scene.q));
 
     // Pause: roll, then hold the match still for a few seconds.
     const pz = await center(page, '#btn-pause');
@@ -210,9 +211,12 @@ const center = (page, sel) => page.evaluate(sel => { const e = document.querySel
     else ok('UX-04 the win screen opens upright on a phone held upright', win.portrait);
     ok('no page errors in the main run', errors.length === 0, errors.slice(0, 3).join(' | '));
 
+    }   // end of !ONLY
     // ---------------- second match: the briefing is compact; Reduce Motion ----------------
     {
-        const { ctx, page } = await boot(browser, { reduce: true, seen: true });
+        // DPR 2, like a phone: the board starts at 2 and, with this software
+        // GPU's frames far past 33 ms, has to step itself down.
+        const { ctx, page } = await boot(browser, { reduce: true, seen: true, dpr: 2 });
         await page.evaluate(() => window.__QA.startRun({ mode: '1p', difficulty: 'medium', map: 'city_circuit', keepBriefing: true, rounds: 6 }));
         await page.waitForFunction(() => window.__QA.snapshot().gameState === 'INIT' && !!document.querySelector('#game-container canvas'), null, { timeout: 60000 });
         const t = Date.now();
@@ -221,6 +225,9 @@ const center = (page, sel) => page.evaluate(sel => { const e = document.querySel
         const compact = await page.evaluate(() => document.getElementById('city-briefing').classList.contains('cb-compact'));
         ok('A-01 Reduce Motion: the flyover is a moment, not 9 s', ms < 6000, `${ms} ms to the briefing, no tap`);
         ok('UX-02 a returning player gets the compact briefing', compact);
+        await page.waitForTimeout(2500);
+        const q = await page.evaluate(async () => (await import('/src/engine/Renderer.js')).getQuality());
+        ok('RA-03 the board steps its resolution down when frames run long (DPR 2 phone)', q.drops >= 1 && q.ratio <= 1.5, JSON.stringify(q));
         await ctx.close();
     }
 
