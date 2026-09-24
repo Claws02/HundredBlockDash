@@ -3091,3 +3091,28 @@ html.is-tablet { --hud-h: 96px; }
 html.is-tablet .btn-action { width: 108px; height: 108px; border-radius: 26px; }
 html.is-tablet #btn-rules, html.is-tablet #btn-pause { width: 52px; height: 52px; }
 html.is-tablet .inv-slot { width: 30px; height: 30px; }
+
+/* ---- Coached first turn (RELEASE_AUDIT UX-03) ----
+   Never blocks: both layers let every touch through to the game. */
+#coach {
+    display: none; position: fixed; z-index: 210; pointer-events: none;
+    background: #fff8e1; color: #1a0b2e; border-radius: 14px; padding: 12px 14px;
+    font-family: 'Nunito', system-ui, sans-serif; font-weight: 700; line-height: 1.35;
+    font-size: calc(15px * var(--ts, 1));
+    box-shadow: 0 8px 24px rgba(0,0,0,.45), 0 0 0 3px var(--gold, #f5c842);
+    animation: coachIn .25s ease-out;
+}
+#coach b { color: #9a3412; }
+#coach::after {
+    content: ''; position: absolute; left: calc(var(--tip, 50%) - 9px); bottom: -9px;
+    border: 9px solid transparent; border-bottom: 0; border-top-color: #fff8e1;
+}
+#coach.below::after { bottom: auto; top: -9px; border-top: 0; border-bottom: 9px solid #fff8e1; }
+#coach-ring {
+    display: none; position: fixed; z-index: 209; pointer-events: none; border-radius: 16px;
+    box-shadow: 0 0 0 3px var(--gold, #f5c842), 0 0 18px 4px rgba(245,200,66,.7);
+    animation: coachPulse 1.4s ease-in-out infinite;
+}
+@keyframes coachIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes coachPulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+body.reduce-motion #coach, body.reduce-motion #coach-ring { animation: none; }

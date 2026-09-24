@@ -47,6 +47,21 @@ const boardSig = page => page.evaluate(async () => {
     });
     const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true });
     const page = await ctx.newPage();
+    // On a stall, say where: partial results, the game state and what is on screen.
+    process.on('unhandledRejection', async (e) => {
+        console.log('STALL:', e && e.message && e.message.split('\n')[0]);
+        try {
+            console.log(await page.evaluate(() => {
+                const s = window.__QA.snapshot();
+                const vis = [...document.querySelectorAll('button')].filter(x => x.offsetParent && x.getBoundingClientRect().width).map(x => x.id || x.innerText.slice(0, 18));
+                const ov = [...document.querySelectorAll('[id$=overlay],[id$=modal],#pause-overlay')].filter(x => getComputedStyle(x).display !== 'none').map(x => x.id);
+                return JSON.stringify({ gs: s.gameState, ap: s.activePlayer, turns: s.totalTurns, mg: s.mgActive, cam: s.cameraState, vis, ov });
+            }));
+        } catch (x) { console.log('(no state)', x.message); }
+        console.log('PASS so far:'); pass.forEach(p => console.log('  ✓', p));
+        fail.forEach(p => console.log('  ✗', p));
+        process.exit(2);
+    });
     const errors = [];
     page.on('pageerror', e => errors.push(e.message));
     page.on('console', m => { if (m.type() === 'error' && !/Failed to load resource|intentional probe error/.test(m.text())) errors.push(m.text()); });

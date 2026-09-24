@@ -95,9 +95,11 @@ export function closeHowToPlay() {
     Storage.save('seen_howto', true);
 }
 
-// Auto-show once, on the very first launch.
+// First launch no longer opens the slides: the first match coaches itself on
+// the real controls (Coach.js, RELEASE_AUDIT UX-03). How to Play stays one tap
+// away on the splash and in the pause menu, as the reference.
 export function maybeShowFirstRun() {
-    if (!Storage.load('seen_howto', false)) openHowToPlay();
+    if (!Storage.load('seen_howto', false)) Storage.save('seen_howto', true);
 }
 
 // ── Rules reference (data-driven) ───────────────────────────────────────────────

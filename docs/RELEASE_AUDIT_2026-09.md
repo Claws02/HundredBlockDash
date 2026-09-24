@@ -597,3 +597,83 @@ Token movement is in good shape. Hops keep a constant ground speed (0.28–0.9 s
   - `elementFromPoint(❓) = #swipe-zone`;
   - raycast blob = `SphereGeometry r=1.8` at (0, 0.5, −32);
   - largest camera cut: 60.5 u / 160.7°.
+
+---
+
+## 15. Implementation pass — every finding, its status and its proof
+
+After the audit, every finding with a code fix was implemented on this branch.
+Each row names the probe that proves it. All probes are in `qa/` and run
+against the real game in headless Chromium with real pointer input where a
+player would tap. What cannot be settled in this environment (real devices,
+store accounts) is listed at the end, with the steps in `docs/STORE_RELEASE.md`.
+
+**Status key:** ✅ done and verified here · 🟡 done in code, needs a device or account to confirm · ⏭ not applicable
+
+### Release blockers
+
+| ID | Status | What changed | Proof |
+|---|---|---|---|
+| RA-01 App package | 🟡 | `package.json` (Capacitor 8 + App, Haptics, SplashScreen, StatusBar), `capacitor.config.json`, `scripts/build-web.js` → `www/`, store icon and splash source art in `resources/` (`npm run art`, `npm run cap:assets`). `npx cap add ios/android` and signing need a Mac, an Android SDK and store accounts | `node scripts/build-web.js`: 105 files, 3.2 MB, no import leaves the build |
+| RA-02 Privacy and online | 🟡 | `privacy.html` (ships in the app, linked from Settings); store data-safety answers in `STORE_RELEASE.md`; `RELEASE.turnServers` feeds WebRTC ICE; the lobby times out after 15 s and tells a joiner what to try when no host answers | Contact address and hosting URL still to fill |
+| RA-03 Draw calls | ✅ (🟡 on device) | Static scenery merged by material and 48-unit cell; animated props, transparent meshes and occluders left alone. Battery saver (Settings) drops the shadow pass and holds 1× | `qa/optimise.js`: meshes 2,193 → 1,250; calls at fixed viewpoints 188 → 135 (street), 762 → 509 (raised), 2,194 → 1,254 (overview); 234 animated meshes still move; 70 occluders keep 498 fade materials; saver toggles shadows off and back |
+| RA-04 Lifecycle | ✅ (🟡 on device) | Local matches autosave at the top of every turn (7-day expiry, never online) and the splash offers RESUME MATCH; Capacitor Back opens/closes pause and exits from menus; the app going inactive pauses; quitting clears the save | `qa/resume.js` (see result below) |
+| RA-05 Bot name | ✅ | Bolt the Bot | earlier pass |
+| RA-06 Fonts | ✅ | Nunito (variable) and Bebas Neue bundled as woff2 in `assets/fonts` with their OFL licences; Google Fonts removed | `qa/ci-smoke.js`: both faces load, zero requests to Google |
+
+### Gameplay, city, movement, camera
+
+| ID | Status | What changed | Proof |
+|---|---|---|---|
+| G-01, G-02 | ✅ | earlier pass | `qa/release.js` |
+| G-03 Swipe hint | ✅ | Retires after three human rolls | Wave 1 layout sweep |
+| G-04 Board untouchable on your turn | ✅ | A short tap in the swipe zone inspects the space under it | Wave 1 |
+| G-05 Reload flash | ✅ | Rematch and Main Menu fade out before reloading (no white flash) | Wave 1 |
+| C-01 Static city | ✅ | 12 cars on four avenues through the gaps between districts (closed out-and-back loops, so none pop in) and 28 pedestrians on the districts' inner pavements, as three instanced draws; frozen when paused or on Battery saver | `qa/traffic.js`: 12/12 cars and 28/28 people move; nearest approach to any player tile 17.7 units; no car inside any building's bounds; paused and saver freeze them |
+| C-02 Junction blob | ✅ | earlier pass | |
+| C-03 Back Alley occlusion | ✅ | Overhead spans (bunting, wires, gantries) now fade like buildings when they come between camera and token | Wave 3 |
+| C-04 Lore every time | ✅ | A district's lore line shows on the first visit only | Wave 1 |
+| C-05 Map not an overview | ✅ | The map opens on a fitted top-down view of the whole circuit, clear of the map sheet | `qa/wave3.js` (see below) |
+| C-06 Token out of frame | ✅ | The follow camera re-frames with a short transit when the token sits outside the central 80 % for 0.35 s | `qa/wave3.js` (see below) |
+| M-01 No reactions | ✅ | Tokens hop on a coin gain, squash and shake on a fine, and breathe while waiting to roll; played through the mirrored effects, so online clients see them too | `qa/wave5.js`: jump peak 1.53 units, squash to 0.79, exact settle |
+| M-02 | ✅ | see G-05 | |
+| CAM-01, CAM-03 | ✅ | earlier pass | `qa/release.js` |
+| CAM-02 FOV | ✅ | Vertical FOV derived from aspect so at least 30° horizontal, clamped 50–62° | Wave 1 |
+
+### UI, audio, technical, accessibility
+
+| ID | Status | What changed | Proof |
+|---|---|---|---|
+| UX-01, UX-02, UX-04 | ✅ | earlier pass | `qa/release.js`, `qa/winscreen.js` |
+| UX-03 Text-wall onboarding | ✅ | First launch no longer opens the seven slides. The first match coaches itself on the real controls: ROLL, the first fork, the first result card, one line each, never blocking a touch, once per install. How to Play stays in the menus | `qa/coach.js` (see below) |
+| UX-05 HUD wraps, wrong pill | ✅ | Single-line bars with ellipsis; the badge reads YOUR TURN / THEIR TURN / THINKING… | Wave 1 layout sweep |
+| UX-06 Bounty pills clipped | ✅ | The strip wraps | Wave 1 layout sweep |
+| UX-07 Copy | ✅ | Plurals (earlier); identical toasts within 2 s are dropped. **Correction:** the "merged toast" in the audit was a capture artefact (the probe read the whole toast stack as one string), not a game defect | Wave 1 |
+| UX-08 Splash cut off | ✅ | Title clamps to the viewport; compact splash rules below 700 px and 430 px tall | Wave 1 sweep: 0 cut buttons at 375×667 |
+| UX-09 Landscape board | ✅ | Board screens on a landscape phone show a "turn upright" card; the splash and side-on minigames still allow landscape | `qa/wave3.js` |
+| UX-10 iPad | ✅ | Tablets (shortest side ≥ 700 px) get `html.is-tablet` and 1.25× text on top of the player's text size | `qa/wave3.js` |
+| UX-11 Pause | ✅ | earlier pass, plus Capacitor Back | `qa/resume.js` |
+| VA-01 No music | ✅ (🟡 on device) | A procedural score in the game's own synth voice (menu theme, board loop: pad, bass, arpeggio, hats) on its own bus with a Music slider; ducks under every effect, silent during minigames and when the app is hidden | `qa/wave5.js`: 21 notes in 3 s on the menu, board loop after a match starts, 0 notes with the slider at 0, with mute, and during a minigame |
+| VA-02 iPhone haptics | ✅ (🟡 on device) | Routed to Capacitor Haptics (LIGHT / MEDIUM / HEAVY by pattern length) | `qa/resume.js` with a mocked plugin |
+| VA-05 Dark scrims | ✅ | Lighter scrim for prompts | Wave 1 |
+| T-01 | ✅ | see RA-03 | |
+| T-02 Crash reporting | ✅ (🟡 DSN) | Local log of the last 20 errors (`hbdDiagnostics()`); Sentry loads only when `RELEASE.sentryDsn` is set, with player names scrubbed | `qa/resume.js` |
+| T-04 Safe areas | ✅ | earlier pass | |
+| T-05 Online | 🟡 | see RA-02; a TURN server needs provisioning | |
+| T-06 CI | ✅ | `.github/workflows/ci.yml`: static sweep, web build, `qa/ci-smoke.js` on every push and PR | First run on GitHub: green |
+| A-01 Reduce Motion | ✅ | The swap is now a 0.6 s fade with the camera still. **Correction:** the audit's "camera push on dice" does not exist: the follow camera does not react to a roll, so there was nothing to remove | `qa/wave5.js`: tokens swap, camera moves 0 units |
+| A-02 Small text | ✅ | Every font size scales with `--ts`, with a 12 px floor (11 px in three dense layouts) | Wave 1 sweep: 0 text elements under 12 px at 375, 390 and 844 wide |
+| A-03 Text size | ✅ | Settings → Text size 100 / 115 / 130 % | Wave 1 |
+| A-04 Targets | ✅ | 44 px minimum on board controls | Wave 1 |
+| A-06 Labels | ✅ | `aria-label`s on every icon button | Wave 1 |
+
+### Left for devices and accounts
+
+These need hardware or accounts and are listed with their steps in `docs/STORE_RELEASE.md`:
+- frame rate, heat and battery on a mid-range Android phone and an older iPhone;
+- Back, resume and haptics on real phones;
+- the iOS silent switch and music;
+- insets on a Dynamic Island iPhone and a gesture-navigation Android phone;
+- online play across two carriers;
+- bundle ID, signing, store listings, the privacy-policy URL and a support contact;
+- optionally a Sentry DSN and a TURN server.
