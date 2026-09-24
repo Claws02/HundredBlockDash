@@ -18,7 +18,7 @@
 // that needs a set adds its key here, from the same table.
 // ============================================================
 
-import { DISTRICT_BIOMES } from '../config/GameConfig.js';
+import { DISTRICT_BIOMES, HBD_BIOMES } from '../config/GameConfig.js';
 import { PROP_KIT } from './Renderer.js';
 import { textPlane } from './Stage.js';
 
@@ -1032,6 +1032,65 @@ export function buildWorksYard(stage, { w, d }) {
     return { update() {} };
 }
 
+// ---- Fae Glade: the pond ----------------------------------------------
+//
+// "Glittering and treacherous." Night in the glade: a still, glowing pond,
+// glowing mushrooms and crystal spires round its banks, fireflies. The pads
+// are the game's; the set is the water and everything around it.
+export function buildFaePond(stage, { w, d }) {
+    const B = HBD_BIOMES.find(b => b.key === 'fae');
+    const scene = stage.scene;
+    scene.background = new THREE.Color(_hex(B.bgTop));
+    scene.fog = null;
+    scene.add(new THREE.HemisphereLight(0xc9a2ff, 0x1a0a24, 0.9));
+    const moon = new THREE.DirectionalLight(0xe6d6ff, 0.8);
+    moon.position.set(6, 20, 4); moon.castShadow = true;
+    const sc = moon.shadow.camera; sc.left = -14; sc.right = 14; sc.top = 14; sc.bottom = -14;
+    moon.shadow.mapSize.set(1024, 1024);
+    scene.add(moon);
+    const bank = new THREE.Mesh(new THREE.PlaneGeometry(80, 80), _mat(0x2a1838, 0.95));
+    bank.rotation.x = -Math.PI / 2; bank.position.y = -0.05; scene.add(bank);
+    // The water: a rounded pool of glowing teal, with slow ripples.
+    const water = new THREE.Mesh(new THREE.PlaneGeometry(w + 2, d + 2, 24, 36),
+        new THREE.MeshStandardMaterial({ color: 0x1b6f84, emissive: 0x0d3a52, emissiveIntensity: 0.9, roughness: 0.15, metalness: 0.2 }));
+    water.rotation.x = -Math.PI / 2; water.position.y = -0.02; water.receiveShadow = true;
+    scene.add(water);
+    // Banks: mushrooms and crystals round the pond, clear of it, the camera's
+    // side kept low.
+    for (let i = 0; i < 18; i++) {
+        const side = i % 2 ? 1 : -1;
+        const z = (i / 18 - 0.5) * (d + 4);
+        const g = PROP_KIT.faeDecor(4000 + i * 7);
+        g.position.set(side * (w / 2 + 1.8 + _rand(i) * 1.5), 0, z);
+        if (side > 0) g.scale.set(1, 0.45, 1);
+        scene.add(g);
+    }
+    // Fireflies.
+    const flies = [];
+    for (let i = 0; i < 26; i++) {
+        const f = new THREE.Mesh(new THREE.SphereGeometry(0.06, 6, 4), new THREE.MeshBasicMaterial({ color: 0xfff3a0 }));
+        f.userData = { x: (_rand(i) - 0.5) * (w + 4), z: (_rand(i + 5) - 0.5) * (d + 4), y: 0.6 + _rand(i + 9) * 2, ph: _rand(i + 2) * 6 };
+        scene.add(f); flies.push(f);
+    }
+    const pos = water.geometry.attributes.position;
+    const base = Float32Array.from(pos.array);
+    return {
+        water,
+        update(dt, t) {
+            for (let i = 0; i < pos.count; i++) {
+                const x = base[i * 3], y = base[i * 3 + 1];
+                pos.array[i * 3 + 2] = Math.sin(x * 1.3 + t * 1.4) * 0.03 + Math.cos(y * 1.1 + t) * 0.03;
+            }
+            pos.needsUpdate = true;
+            flies.forEach(f => {
+                const u = f.userData;
+                f.position.set(u.x + Math.sin(t * 0.7 + u.ph) * 0.8, u.y + Math.sin(t * 2 + u.ph) * 0.2, u.z + Math.cos(t * 0.5 + u.ph) * 0.8);
+                f.material.opacity = 0.5 + Math.sin(t * 5 + u.ph) * 0.5;
+            });
+        },
+    };
+}
+
 /** Sets by district key. A game asks for the one its story is set in. */
 export const STAGE_SETS = {
     hub: buildPerditionStreet,
@@ -1040,4 +1099,5 @@ export const STAGE_SETS = {
     rail: buildRailRun,
     mine: buildMineFloor,
     ind: buildWorksYard,
+    fae: buildFaePond,
 };
