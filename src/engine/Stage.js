@@ -177,6 +177,17 @@ export function createStage(host, opts = {}) {
         return c;
     };
 
+    /** A figure that is nobody's seat — a DJ, a referee — animated like the rest. */
+    stage.figure = (type, color) => {
+        if (!stage.gl) return null;
+        const rig = buildRiggedCharacter(type, color);
+        const anim = new CharacterAnimator(rig);
+        stage.scene.add(rig.root);
+        const c = { slot: -1, rig, anim };
+        stage._rigs.push(c);
+        return c;
+    };
+
     /**
      * Lights. `sun` is the key and casts shadows over `span` units around the
      * origin; `sky`/`ground` make the hemisphere fill. Colours are the set's to

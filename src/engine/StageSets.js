@@ -1314,6 +1314,185 @@ export function buildRooftops(stage) {
     };
 }
 
+// ---- Shopping Promenade: the block party ---------------------------------
+//
+// "A street festival that never packs up." Golden hour on the promenade: a
+// light-up dance floor in the middle of the street, the DJ's booth behind it
+// between two speaker stacks, bunting and string lights overhead, stalls and
+// shop fronts behind, and a crowd bobbing along. update(dt, t, beat) takes the
+// music's position in beats, so the floor, the speakers and the crowd are all
+// on the same one.
+export function buildBlockParty(stage) {
+    const B = DISTRICT_BIOMES.shop;
+    const scene = stage.scene;
+    scene.background = new THREE.Color(_hex(B.bgBot));
+    scene.fog = new THREE.Fog(_hex(B.fog), 40, 120);
+    scene.add(_skyDome(0x6a3fa0, 0xf5b08a));
+    stage.light({ sun: 0xffc890, sunI: 0.95, sky: 0xc9a8e6, ground: 0x5a3448, hemiI: 0.55,
+                  rim: 0xff9ad0, rimI: 0.55, dir: [-10, 12, 12], span: 14 });
+
+    const street = new THREE.Mesh(new THREE.PlaneGeometry(120, 80), _mat(0x9a7a6a, 0.9));
+    street.rotation.x = -Math.PI / 2; street.receiveShadow = true; scene.add(street);
+    for (let i = -6; i <= 6; i++) {                     // paving joints
+        const j = new THREE.Mesh(new THREE.PlaneGeometry(0.06, 40), _mat(0xa98a70, 1));
+        j.rotation.x = -Math.PI / 2; j.position.set(i * 2.5, 0.005, -5); scene.add(j);
+    }
+
+    // The dance floor: 5 × 3 tiles that light to the beat.
+    const tiles = [];
+    const TW = 1.45, cols = [0xff4fa3, 0x35e0ff, 0xffd12d, 0x8b5cf6, 0x34f5a0];
+    const base = new THREE.Mesh(new THREE.BoxGeometry(5 * TW + 0.3, 0.12, 3 * TW + 0.3), _mat(0x1c1426, 0.5, 0.3));
+    base.position.y = 0.06; base.receiveShadow = true; scene.add(base);
+    for (let r = 0; r < 3; r++) for (let c = 0; c < 5; c++) {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(TW - 0.08, 0.06, TW - 0.08),
+            new THREE.MeshStandardMaterial({ color: 0x2a2036, emissive: cols[(r + c) % 5], emissiveIntensity: 0.2, roughness: 0.35 }));
+        m.position.set((c - 2) * TW, 0.14, (r - 1) * TW + 0.2);
+        m.receiveShadow = true; scene.add(m);
+        tiles.push({ m, r, c, col: cols[(r * 2 + c) % 5] });
+    }
+
+    // The booth and the speakers.
+    const booth = new THREE.Group();
+    const stageBox = new THREE.Mesh(new THREE.BoxGeometry(7, 0.7, 2.6), _mat(0x2a1f38, 0.6));
+    stageBox.position.y = 0.35; booth.add(stageBox);
+    const table = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.7, 0.9), _mat(0x121018, 0.4, 0.4));
+    table.position.set(0, 1.05, 0.6); booth.add(table);
+    const riser = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.3, 1.2), _mat(0x3a2a4a, 0.6));
+    riser.position.set(0, 0.85, -0.45); booth.add(riser);
+    const front = textPlane('BLOCK PARTY', { w: 2.3, h: 0.5, bg: '#140a18', fg: '#ffd12d', border: '#ff4fa3' });
+    front.material.emissive = new THREE.Color(0xffffff); front.material.emissiveMap = front.material.map; front.material.emissiveIntensity = 0.8;
+    front.position.set(0, 1.05, 1.06); booth.add(front);
+    const decks = [];
+    [-0.6, 0.6].forEach(x => {
+        const d = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.32, 0.05, 20), _mat(0x0c0c0c, 0.3));
+        d.position.set(x, 1.43, 0.6); booth.add(d); decks.push(d);
+        const lbl = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.02, 0.06), new THREE.MeshBasicMaterial({ color: 0xff4fa3 }));
+        lbl.position.y = 0.035; d.add(lbl);
+    });
+    const speakers = [];
+    [-2.9, 2.9].forEach(x => {
+        const g = new THREE.Group();
+        const cab = new THREE.Mesh(new THREE.BoxGeometry(1.1, 2.2, 0.9), _mat(0x18141e, 0.6));
+        cab.position.y = 1.1; g.add(cab);
+        [[1.55, 0.36], [0.6, 0.26]].forEach(([y, rad]) => {
+            const cone = new THREE.Mesh(new THREE.CylinderGeometry(rad, rad * 0.6, 0.12, 18), _mat(0x3a3440, 0.5, 0.3));
+            cone.rotation.x = Math.PI / 2; cone.position.set(0, y, 0.48); g.add(cone);
+            speakers.push(cone);
+        });
+        g.position.set(x, 0.7, 0.3); booth.add(g);
+    });
+    booth.position.set(0, 0, -3.9);
+    booth.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+    scene.add(booth);
+
+    // Shop fronts along the back, stalls at the sides.
+    // (PROP_KIT.shopFront dresses itself from the board's city materials, which
+    // do not exist when a game runs without the board; these are the set's own.)
+    const SHOPS = ['RECORDS', 'BAKERY', 'BOUTIQUE', 'TOYS', 'CAFÉ'];
+    const walls = [0xc07ad0, 0xd9a93a, 0x5aa6cf, 0xd97a8a, 0x5fbf86];
+    for (let i = 0; i < 5; i++) {
+        const g = new THREE.Group();
+        const w = 7.4 + _rand(i) * 1.2, h = 6 + _rand(i + 9) * 3;
+        const body = new THREE.Mesh(new THREE.BoxGeometry(w, h, 4), _mat(walls[i], 0.85));
+        body.position.y = h / 2; body.receiveShadow = true; g.add(body);
+        const win = new THREE.Mesh(new THREE.PlaneGeometry(w * 0.66, h * 0.36), _mat(0xfff4d6, 0.3, 0, { emissive: 0xffd9a0, emissiveIntensity: 0.55 }));
+        win.position.set(0, h * 0.26, 2.01); g.add(win);
+        // A striped awning over the window.
+        const cv = document.createElement('canvas'); cv.width = 64; cv.height = 8;
+        const c2 = cv.getContext('2d');
+        for (let k = 0; k < 8; k++) { c2.fillStyle = k % 2 ? '#ffffff' : '#' + cols[i].toString(16).padStart(6, '0'); c2.fillRect(k * 8, 0, 8, 8); }
+        const aw = new THREE.Mesh(new THREE.BoxGeometry(w * 0.8, 0.12, 1.6), new THREE.MeshStandardMaterial({ map: new THREE.CanvasTexture(cv), roughness: 0.7 }));
+        aw.rotation.x = 0.3; aw.position.set(0, h * 0.5, 2.7); aw.castShadow = true; g.add(aw);
+        const sign = textPlane(SHOPS[i], { w: w * 0.55, h: 0.8, bg: '#2a1838', fg: '#fff1b8', border: '#ff4fa3' });
+        sign.position.set(0, h * 0.72, 2.02); g.add(sign);
+        g.position.set((i - 2) * 9, 0, -12);
+        scene.add(g);
+    }
+    [[-7.5, -2.5], [-8, -6], [7.5, -2.5], [8, -6], [-11, -4], [11, -4]].forEach(([x, z], i) => {
+        const st = PROP_KIT.market(i % 2 ? 0.3 : 0.6, 1300 + i);
+        st.position.set(x, 0, z); st.rotation.y = x < 0 ? 0.5 : -0.5;
+        scene.add(st);
+    });
+
+    // Bunting and string lights on poles across the street.
+    const bulbs = [];
+    const poleMat = _mat(0x3a3440, 0.5, 0.5);
+    [-6.5, 6.5].forEach(x => [-1.5, -6].forEach(z => {
+        const p = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 5.4, 8), poleMat);
+        p.position.set(x, 2.7, z); scene.add(p);
+    }));
+    [-1.5, -6].forEach((z, li) => {
+        for (let i = 0; i <= 26; i++) {
+            const u = i / 26, x = -6.5 + u * 13, y = 5.2 - Math.sin(u * Math.PI) * 1.1;
+            if (i % 2 === 0) {
+                const flag = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.42, 3), new THREE.MeshStandardMaterial({ color: cols[(i / 2 + li) % 5], roughness: 0.8 }));
+                flag.rotation.x = Math.PI; flag.position.set(x, y - 0.25, z); scene.add(flag);
+            } else {
+                const b = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 6), new THREE.MeshBasicMaterial({ color: 0xfff1b8 }));
+                b.position.set(x, y - 0.05, z); scene.add(b); bulbs.push(b);
+            }
+        }
+    });
+
+    // The crowd: simple folk round the edges of the floor, bobbing along.
+    const crowd = [];
+    const skin = [0xf2c6a0, 0xc68b5e, 0x8d5a3b, 0xffd9b8];
+    const spots = [[-5.4, 1.2], [-5.8, -0.4], [-5, -1.9], [5.4, 1.2], [5.8, -0.4], [5.1, -1.9], [-4, -2.9], [4, -2.9], [-6.8, 0.6], [6.8, 0.6]];
+    spots.forEach(([x, z], i) => {
+        const g = new THREE.Group();
+        const body = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.34, 1.0, 10), _mat(cols[(i * 3) % 5], 0.8));
+        body.position.y = 0.55; g.add(body);
+        const head = new THREE.Mesh(new THREE.SphereGeometry(0.27, 12, 10), _mat(skin[i % 4], 0.8));
+        head.position.y = 1.3; g.add(head);
+        const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.6, 6), _mat(skin[i % 4], 0.8));
+        arm.position.set(0.3, 1.25, 0); arm.rotation.z = -0.4; g.add(arm);
+        g.position.set(x, 0, z);
+        g.lookAt(0, 0, 0.5);
+        g.traverse(o => { if (o.isMesh) o.castShadow = true; });
+        scene.add(g);
+        crowd.push({ g, arm, ph: _rand(i) * 0.5, jump: _rand(i + 4) > 0.5 });
+    });
+
+    // Two disco spots sweeping the floor.
+    const spots2 = [0xff4fa3, 0x35e0ff].map((c, i) => {
+        const l = new THREE.SpotLight(c, 1.6, 22, 0.35, 0.5, 1.2);
+        l.position.set(i ? 4 : -4, 7, 3);
+        scene.add(l); scene.add(l.target);
+        return l;
+    });
+
+    let lastBeat = -1;
+    return {
+        booth, tiles,
+        update(dt, t, beat = t * 2) {
+            const b = Math.floor(beat), frac = beat - b;
+            const pulse = Math.exp(-frac * 5);
+            if (b !== lastBeat) {
+                lastBeat = b;
+                tiles.forEach(tl => {
+                    const on = ((tl.r + tl.c + b) % 3 === 0) || ((b % 4 === 0) && tl.r === 1);
+                    tl.on = on;
+                    tl.m.material.emissive.setHex(cols[(tl.r + tl.c * 2 + b) % 5]);
+                });
+            }
+            tiles.forEach(tl => { tl.m.material.emissiveIntensity = tl.on ? 0.35 + pulse * 0.9 : 0.12; });
+            speakers.forEach(s => { s.scale.set(1 + pulse * 0.12, 1, 1 + pulse * 0.12); });
+            decks.forEach(d => { d.rotation.y += dt * 3.5; });
+            bulbs.forEach((bl, i) => { bl.material.color.setHex((i + b) % 4 === 0 ? 0xffffff : 0xffe08a); });
+            crowd.forEach(c => {
+                const k = Math.abs(Math.sin((beat + c.ph) * Math.PI));
+                c.g.position.y = (c.jump ? 0.22 : 0.08) * k;
+                c.arm.rotation.z = -0.4 - k * (c.jump ? 1.6 : 0.6);
+            });
+            spots2.forEach((l, i) => {
+                const a = t * 0.9 + i * Math.PI;
+                l.target.position.set(Math.sin(a) * 3, 0, Math.cos(a * 1.3) * 1.5);
+                l.intensity = 0.9 + pulse * 0.7;
+            });
+        },
+    };
+}
+
 /** Sets by district key. A game asks for the one its story is set in. */
 export const STAGE_SETS = {
     hub: buildPerditionStreet,
@@ -1324,4 +1503,5 @@ export const STAGE_SETS = {
     ind: buildWorksYard,
     fae: buildFaePond,
     ba: buildRooftops,
+    shop: buildBlockParty,
 };
