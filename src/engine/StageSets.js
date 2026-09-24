@@ -672,9 +672,205 @@ export function buildBankFloor(stage, L) {
     };
 }
 
+// ---- Ironwood Railyard: on the roof of the 4:15 -------------------------
+//
+// The train stands still and the Territory goes past it. Everything outside
+// the train is a SCROLLER: it moves +x at its own speed and wraps round, so
+// the near things (sleepers, telegraph poles, the yard's clutter) stream by
+// and the far ones (buttes, the water tower) crawl — parallax is what sells
+// the speed. The train points -x: the locomotive is on the left.
+//
+// A bridge is a low timber trestle across the track, spawned ahead of the
+// train and carried past with the near scenery. The set moves it; the game
+// asks where it is.
+export function buildRailRun(stage, { speed = 16, roofY = 3.4, roofHalf = 5.6 } = {}) {
+    const B = DISTRICT_BIOMES.rail;
+    const scene = stage.scene;
+    scene.background = new THREE.Color(_hex(B.bgBot));
+    scene.fog = new THREE.Fog(_hex(B.fog), 45, 170);
+    scene.add(_skyDome(_hex(B.bgTop), _hex(B.bgBot)));
+    // Dawn: a low sun from ahead of the train.
+    stage.light({ sun: 0xffc98a, sunI: 1.35, sky: 0xbfd0ea, ground: 0x6a4a30, hemiI: 0.6,
+                  rim: 0x9fd0ff, rimI: 0.45, dir: [-18, 10, 10], span: 12 });
+    const sunDisc = new THREE.Mesh(new THREE.CircleGeometry(8, 32), new THREE.MeshBasicMaterial({ color: 0xffd9a0, fog: false }));
+    sunDisc.position.set(-90, 12, -150); sunDisc.lookAt(0, 12, 0); scene.add(sunDisc);
+
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(500, 400), _mat(0x8a6a4c, 1));
+    ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
+    const bed = new THREE.Mesh(new THREE.PlaneGeometry(500, 4.4), _mat(0x6f6358, 1));
+    bed.rotation.x = -Math.PI / 2; bed.position.y = 0.02; bed.receiveShadow = true; scene.add(bed);
+    const steel = _mat(0x9aa0a8, 0.35, 0.85);
+    [-0.75, 0.75].forEach(z => {
+        const r = new THREE.Mesh(new THREE.BoxGeometry(500, 0.12, 0.1), steel);
+        r.position.set(0, 0.22, z); scene.add(r);
+    });
+
+    const scrollers = [];
+    const scroll = (obj, rate, span) => { obj.userData.scroll = { rate, span }; scene.add(obj); scrollers.push(obj); return obj; };
+
+    // Sleepers: the one thing close enough to read the speed off.
+    const sleeperMat = _mat(0x4a3526, 0.95);
+    for (let i = 0; i < 50; i++) {
+        const sl = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.14, 2.6), sleeperMat);
+        sl.position.set(-60 + i * 2.4, 0.1, 0); sl.receiveShadow = true;
+        scroll(sl, 1, 120);
+    }
+    // Telegraph poles along the line, and the yard going by behind them.
+    const wood = _mat(0x5a4230, 0.9);
+    for (let i = 0; i < 8; i++) {
+        const g = new THREE.Group();
+        const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.16, 7, 7), wood);
+        pole.position.y = 3.5; g.add(pole);
+        const arm = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.14, 1.8), wood);
+        arm.position.y = 6.6; g.add(arm);
+        g.position.set(-60 + i * 15, 0, -5.5);
+        scroll(g, 1, 120);
+    }
+    for (let i = 0; i < 9; i++) {
+        const r = [0.1, 0.65, 0.85, 0.2, 0.7, 0.9, 0.15, 0.68, 0.8][i];
+        const p = PROP_KIT.railyard(r, 500 + i);
+        p.position.set(-60 + i * 13.5 + _rand(i) * 4, 0, -9 - _rand(i + 3) * 6);
+        p.rotation.y = _rand(i + 7) * 3;
+        scroll(p, 1, 120);
+    }
+    for (let i = 0; i < 3; i++) {
+        const shed = PROP_KIT.railShed(new THREE.Vector3(0, 0, 0), 600 + i);
+        shed.position.set(-70 + i * 50, 0, -22);
+        scroll(shed, 0.55, 150);
+    }
+    // Far away: buttes and the water tower, barely moving.
+    [[-80, -90, 1], [-20, -110, 2], [40, -95, 3], [100, -120, 4]].forEach(([x, z, sd]) => {
+        const r = PROP_KIT.badlandsRock(new THREE.Vector3(0, 0, 0), 700 + sd);
+        r.position.set(x, 0, z); r.scale.setScalar(1.5);
+        scroll(r, 0.06, 260);
+    });
+    const tower = new THREE.Group();
+    const tank = new THREE.Mesh(new THREE.CylinderGeometry(3, 3, 4, 16), _mat(0x6b4a2c, 0.85));
+    tank.position.y = 10; tower.add(tank);
+    const cap = new THREE.Mesh(new THREE.ConeGeometry(3.3, 1.8, 16), _mat(0x3f2a1a, 0.8));
+    cap.position.y = 12.9; tower.add(cap);
+    [[-2, -2], [2, -2], [-2, 2], [2, 2]].forEach(([x, z]) => {
+        const leg = new THREE.Mesh(new THREE.BoxGeometry(0.4, 8, 0.4), wood);
+        leg.position.set(x, 4, z); tower.add(leg);
+    });
+    tower.position.set(10, 0, -45);
+    scroll(tower, 0.25, 200);
+
+    // ---- The train: a carriage under the players, the locomotive ahead ----
+    const train = new THREE.Group();
+    const red = _mat(0x8a2f22, 0.6), dark = _mat(0x24201c, 0.5, 0.4), brass = _mat(0xc9a24a, 0.3, 0.85);
+    const L = roofHalf * 2;
+    const body = new THREE.Mesh(new THREE.BoxGeometry(L, roofY - 1.1, 2.6), red);
+    body.position.y = 0.95 + (roofY - 1.1) / 2; train.add(body);
+    const roof = new THREE.Mesh(new THREE.BoxGeometry(L + 0.3, 0.2, 2.9), _mat(0x3a2c22, 0.75));
+    roof.position.y = roofY - 0.1; train.add(roof);
+    for (let i = 0; i < 7; i++) {        // windows, warm inside
+        const w = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.8), new THREE.MeshBasicMaterial({ color: 0xffd99a }));
+        w.position.set(-L / 2 + 1 + i * (L - 2) / 6, 2.4, 1.31); train.add(w);
+    }
+    const trim = new THREE.Mesh(new THREE.BoxGeometry(L, 0.12, 2.64), brass);
+    trim.position.y = 1.4; train.add(trim);
+    const wheels = [], spokes = [];
+    [-L / 2 + 1.2, -L / 2 + 2.4, L / 2 - 2.4, L / 2 - 1.2].forEach(x => [-1.1, 1.1].forEach(z => {
+        const wh = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.18, 16), dark);
+        wh.rotation.x = Math.PI / 2; wh.position.set(x, 0.72, z); train.add(wh); wheels.push(wh);
+        const spoke = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.08, 0.2), brass);
+        spoke.position.copy(wh.position); spoke.position.z += Math.sign(z) * 0.1; train.add(spoke); spokes.push(spoke);
+    }));
+    // The locomotive, nose to the left.
+    const loco = new THREE.Group();
+    const boiler = new THREE.Mesh(new THREE.CylinderGeometry(1.15, 1.15, 5.5, 18), _mat(0x1f2328, 0.4, 0.6));
+    boiler.rotation.z = Math.PI / 2; boiler.position.set(-3.2, 2.4, 0); loco.add(boiler);
+    const band = new THREE.Mesh(new THREE.CylinderGeometry(1.18, 1.18, 0.2, 18), brass);
+    band.rotation.z = Math.PI / 2; band.position.set(-2.2, 2.4, 0); loco.add(band);
+    const cab = new THREE.Mesh(new THREE.BoxGeometry(2.4, 3.2, 2.6), _mat(0x2d3a2e, 0.6));
+    cab.position.set(0.6, 2.5, 0); loco.add(cab);
+    const stack = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.3, 1.4, 12), dark);
+    stack.position.set(-5, 4.2, 0); loco.add(stack);
+    const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.3, 10, 8), new THREE.MeshBasicMaterial({ color: 0xfff2c0 }));
+    lamp.position.set(-6, 3.1, 0); loco.add(lamp);
+    const catcher = new THREE.Mesh(new THREE.ConeGeometry(1.2, 1.2, 4), _mat(0x6b2a1e, 0.6));
+    catcher.rotation.z = Math.PI / 2; catcher.position.set(-6.3, 0.9, 0); loco.add(catcher);
+    [-4.6, -3.2, -1.8, 0.2].forEach(x => [-1.1, 1.1].forEach(z => {
+        const wh = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.7, 0.2, 16), dark);
+        wh.rotation.x = Math.PI / 2; wh.position.set(x, 0.9, z); loco.add(wh); wheels.push(wh);
+    }));
+    loco.position.x = -roofHalf - 2.8;
+    train.add(loco);
+    train.traverse(o => { if (o.isMesh) { o.castShadow = true; } });
+    scene.add(train);
+
+    // Smoke off the stack, streaming back over the roof.
+    const smoke = [];
+    const smokeMat = new THREE.MeshStandardMaterial({ color: 0xd8d0c8, transparent: true, opacity: 0.6, roughness: 1 });
+    for (let i = 0; i < 9; i++) {
+        const m = new THREE.Mesh(new THREE.SphereGeometry(0.5, 8, 6), smokeMat.clone());
+        m.userData.t = i / 9 * 2.2;
+        scene.add(m); smoke.push(m);
+    }
+    const stackTop = new THREE.Vector3(-roofHalf - 2.8 - 5, 5, 0);
+
+    // ---- Bridges ----
+    const bridges = [];
+    function makeBridge() {
+        const g = new THREE.Group();
+        const beamY = roofY + 1.05;
+        const beam = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.7, 8), _mat(0x5a4230, 0.9));
+        beam.position.y = beamY + 0.35; g.add(beam);
+        const warn = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.18, 8.02), _mat(0xfacc15, 0.5, 0, { emissive: 0x7a5a00, emissiveIntensity: 0.6 }));
+        warn.position.y = beamY + 0.05; g.add(warn);
+        [-3.8, 3.8].forEach(z => {
+            const post = new THREE.Mesh(new THREE.BoxGeometry(0.7, beamY + 0.7, 0.7), _mat(0x4a3526, 0.9));
+            post.position.set(0, (beamY + 0.7) / 2, z); g.add(post);
+            const brace = new THREE.Mesh(new THREE.BoxGeometry(0.25, 3.5, 0.25), _mat(0x4a3526, 0.9));
+            brace.position.set(0, beamY - 1.2, z * 0.8); brace.rotation.x = z > 0 ? 0.6 : -0.6; g.add(brace);
+        });
+        g.traverse(o => { if (o.isMesh) o.castShadow = true; });
+        g.visible = false;
+        scene.add(g);
+        return g;
+    }
+    for (let i = 0; i < 2; i++) bridges.push(makeBridge());
+
+    let wheelAng = 0;
+    return {
+        speed, roofY, roofHalf, train, bridges,
+        /** Send a bridge from `x` ahead of the train (negative x). */
+        spawnBridge(x) {
+            const b = bridges.find(k => !k.visible) || bridges[0];
+            b.visible = true; b.position.set(x, 0, 0);
+            return b;
+        },
+        update(dt, t) {
+            const d = speed * dt;
+            scrollers.forEach(o => {
+                const s = o.userData.scroll;
+                o.position.x += d * s.rate;
+                if (o.position.x > s.span / 2) o.position.x -= s.span;
+            });
+            bridges.forEach(b => { if (b.visible) { b.position.x += d; if (b.position.x > 40) b.visible = false; } });
+            wheelAng += d / 0.6;
+            wheels.forEach(w => { w.rotation.y = wheelAng; });
+            spokes.forEach(sp => { sp.rotation.z = -wheelAng; });
+            // A gentle rock on the springs.
+            train.position.y = Math.sin(t * 9) * 0.025;
+            train.rotation.z = Math.sin(t * 2.3) * 0.004;
+            smoke.forEach(m => {
+                m.userData.t += dt;
+                if (m.userData.t > 2.2) m.userData.t -= 2.2;
+                const k = m.userData.t;
+                m.position.set(stackTop.x + k * (speed * 0.55), stackTop.y + k * 1.6, Math.sin(k * 3 + m.id) * 0.4);
+                m.scale.setScalar(0.4 + k * 0.55);
+                m.material.opacity = Math.max(0, 0.5 - k * 0.23);
+            });
+        },
+    };
+}
+
 /** Sets by district key. A game asks for the one its story is set in. */
 export const STAGE_SETS = {
     hub: buildPerditionStreet,
     bad: buildBootHill,
     fin: buildBankFloor,
+    rail: buildRailRun,
 };

@@ -293,6 +293,28 @@ export class CharacterAnimator {
             break;
         }
 
+        case 'duck':
+            // Flat to the roof, hands over the head: low enough for a bridge
+            // to go over, braced against a shove.
+            T.squash = 0.55;
+            T.leanX = 0.22;
+            T.nod = 0.25;
+            T.eyeOpen = 0.35;
+            T.hand[0].y = H * 0.62; T.hand[1].y = H * 0.62;
+            T.hand[0].x = -r.halfW * 0.45; T.hand[1].x = r.halfW * 0.45;
+            T.hand[0].z = 0.18; T.hand[1].z = 0.18;
+            break;
+
+        case 'shove':
+            // Both hands out in front, weight thrown behind them.
+            T.leanX = 0.38;
+            T.squash = 0.94;
+            T.eyeOpen = 1.15;
+            T.hand[0].x = -r.halfW * 0.5; T.hand[1].x = r.halfW * 0.5;
+            T.hand[0].y = H * 0.5; T.hand[1].y = H * 0.5;
+            T.hand[0].z = r.front + H * 0.45; T.hand[1].z = r.front + H * 0.45;
+            break;
+
         case 'defeat':
             // Shoulders down, head down.
             T.leanX = 0.28;

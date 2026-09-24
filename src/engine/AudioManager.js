@@ -101,6 +101,10 @@ export function sfx(name) {
             // Boot Hill Barrage: a shell landing. Longer and lower than the
             // gunshot, so a hit is heard as a hit and not as another shot.
             case 'boom':        _noise(0.8, t, 0.45, ctx); _beep(55, 'sine', 0.7, t, 0.5, ctx); haptic([90]); break;
+            // The 4:15: the steam whistle that says a bridge is coming. Two
+            // detuned tones held long, so it cannot be mistaken for a hit.
+            case 'whistle':     [[587, 0.22], [698, 0.18]].forEach(([f, v]) => _beep(f, 'sawtooth', v * 0.5, t, 0.9, ctx));
+                                _noise(0.08, t, 0.9, ctx); break;
             case 'slam':        _noise(0.45, t, 0.09, ctx); _beep(70, 'sine', 0.5, t, 0.12, ctx); break;
         }
     } catch (e) {}
