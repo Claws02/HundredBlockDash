@@ -265,20 +265,20 @@
         <div class="tb-card tb-bottom" data-tb="0"></div>
     </div>
 
-    <!-- Junction arrows: buttons hung over the 3D board at the two roads
-         leaving the junction. The board stays visible behind them. -->
+    <!-- The fork. A dock in the thumb zone: one header line (whose turn, how far
+         the roll still carries) and a card per road, ordered left to right as
+         the roads leave the junction on screen, each with an arrow pointing
+         down its road. The same roads are marked on the board with glowing
+         arrows in the district's colour, and tapping one of those picks it too. -->
     <div id="junction-layer" style="display:none;">
-        <div id="junction-banner" class="bfont">CHOOSE YOUR ROAD</div>
-        <!-- How far the roll still carries you. The whole point of a fork is
-             picking which run of tiles to spend the rest of the roll on, and
-             the number was nowhere on screen — you had to remember what you
-             rolled and subtract the steps already walked. -->
-        <div id="junction-steps">
-            <span class="js-num bfont" id="junction-steps-num">4</span>
-            <span class="js-cap bfont" id="junction-steps-cap">SPACES LEFT</span>
+        <div id="junction-dock" role="dialog" aria-labelledby="junction-banner">
+            <div class="jd-head">
+                <span id="junction-banner" class="bfont">CHOOSE YOUR ROAD</span>
+                <span id="junction-steps" class="bfont"><span class="js-num" id="junction-steps-num">4</span> <span class="js-cap" id="junction-steps-cap">SPACES LEFT</span></span>
+            </div>
+            <div id="junction-arrows"></div>
+            <button id="btn-junction-map" class="bfont">🗺️ SCOUT THE MAP</button>
         </div>
-        <div id="junction-arrows"></div>
-        <button id="btn-junction-map" class="bfont">🗺️ SCOUT THE MAP FIRST</button>
     </div>
 
     <!-- Buddy report. Runs once per round, before the minigame takes the screen:

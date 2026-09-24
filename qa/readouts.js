@@ -101,9 +101,13 @@ const RECT = `(id) => {
             cap: (document.getElementById('junction-steps-cap') || {}).textContent,
             arrows: [...document.querySelectorAll('#junction-arrows .j-arrow')].map(a => {
                 const r = a.getBoundingClientRect();
-                return { top: Math.round(r.top), bottom: Math.round(r.bottom) };
+                return { top: Math.round(r.top), bottom: Math.round(r.bottom), left: Math.round(r.left), right: Math.round(r.right) };
             }),
             mapBtn: rect('btn-junction-map'),
+            dock: rect('junction-dock'),
+            numPx: parseFloat(getComputedStyle(document.getElementById('junction-steps-num')).fontSize),
+            actionsHidden: getComputedStyle(document.getElementById('p1-actions')).visibility === 'hidden',
+            topHud: (document.querySelector('.top-bar, #p2-bar, #rival-bar') || {}).getBoundingClientRect?.() || null,
             banner: rect('junction-banner'),
             strip: rect('contracts-strip'),
             round: rect('round-counter'),
@@ -115,19 +119,19 @@ const RECT = `(id) => {
     ok('fork: it says how many tiles the roll still owes',
         fork.num === '5' && /SPACES LEFT/.test(fork.cap),
         `rolled 5 one step from the fork → "${fork.num} ${fork.cap}"`);
-    ok('fork: big enough to read at a glance',
-        !!fork.steps && fork.steps.h >= 60, fork.steps ? `${fork.steps.h}px tall` : 'n/a');
-    // The top of a City screen carries three rows of chrome: the round counter,
-    // the bounty strip and the fork banner. A first placement cleared the banner
-    // and came out half-hidden behind the bounty chips anyway.
-    ok('fork: it clears every row of chrome above it',
-        !!fork.steps && [fork.banner, fork.strip, fork.round]
-            .filter(Boolean).every(r => fork.steps.top >= r.bottom - 1),
-        `steps top ${fork.steps && fork.steps.top} vs banner ${fork.banner && fork.banner.bottom}, `
-        + `strip ${fork.strip && fork.strip.bottom}, round ${fork.round && fork.round.bottom}`);
-    ok('fork: and clear of every road arrow',
-        fork.arrows.length > 0 && fork.arrows.every(a => a.top > fork.steps.bottom || a.bottom < fork.steps.top),
-        `steps ${fork.steps.top}–${fork.steps.bottom} vs ${JSON.stringify(fork.arrows)}`);
+    // The fork is a dock in the thumb zone now: the header carries the count,
+    // the cards sit side by side under it, and the rest of the HUD steps back.
+    ok('fork: the count is readable (a 20 px+ digit)', fork.numPx >= 20, `${fork.numPx}px`);
+    ok('fork: the count sits in the choice dock',
+        !!fork.dock && fork.steps.top >= fork.dock.top && fork.steps.bottom <= fork.dock.bottom,
+        `steps ${JSON.stringify(fork.steps)} dock ${JSON.stringify(fork.dock)}`);
+    ok('fork: the dock is in the bottom half, clear of the player bar',
+        !!fork.dock && fork.dock.top > fork.H / 2 && fork.dock.bottom < fork.H - 40, JSON.stringify(fork.dock));
+    ok('fork: one card per road, each a comfortable target, none overlapping',
+        fork.arrows.length >= 2 && fork.arrows.every(a => a.bottom - a.top >= 44)
+        && fork.arrows.every((a, i) => fork.arrows.every((b, k) => k === i || a.right <= b.left || b.right <= a.left)),
+        JSON.stringify(fork.arrows));
+    ok('fork: the action column steps back while choosing', fork.actionsHidden);
     await page.screenshot({ path: path.join(__dirname, 'shot-fork-steps.png') });
 
     // Player 2's turn flips the whole board. The readout must flip with it.
@@ -138,15 +142,15 @@ const RECT = `(id) => {
         state.activePlayer = 1;
         U.applyOrientation();
         await new Promise(r => setTimeout(r, 250));
-        const el = document.getElementById('junction-steps');
-        return { rect: rect('junction-steps'), transform: getComputedStyle(el).transform,
+        const el = document.getElementById('junction-dock');
+        return { rect: rect('junction-dock'), transform: getComputedStyle(el).transform,
                  flipped: document.body.classList.contains('tabletop-p2-turn'), H: window.innerHeight };
     }, RECT);
-    ok('fork: on Player 2\'s turn the readout turns to face them',
+    ok('fork: on Player 2\'s turn the dock turns to face them',
         forkP2.flipped && /matrix\(-1/.test(forkP2.transform), forkP2.transform);
-    ok('fork: and moves to their half of the screen',
-        forkP2.rect && forkP2.rect.top > forkP2.H / 2,
-        `top ${forkP2.rect && forkP2.rect.top} of ${forkP2.H}`);
+    ok('fork: and moves to their end of the phone (the top)',
+        forkP2.rect && forkP2.rect.bottom < forkP2.H / 2,
+        `bottom ${forkP2.rect && forkP2.rect.bottom} of ${forkP2.H}`);
     await page.screenshot({ path: path.join(__dirname, 'shot-fork-steps-p2.png') });
 
     // Choosing a road takes it away again.
@@ -222,7 +226,9 @@ const RECT = `(id) => {
         const lost = EC.loseCoins(p, 8);
         return { lost, coins: p.coins, flag: p._shielded, marker: rect('shield-marker') };
     }, RECT);
-    ok('shield: it really blocks the hit', spent.lost === 0 && spent.coins === 30, JSON.stringify(spent));
+    // Nothing lost. (Coins can go UP here: blocking a fine completes the
+    // 'Block a negative space' bounty when that bounty happens to be live.)
+    ok('shield: it really blocks the hit', spent.lost === 0 && spent.coins >= 30, JSON.stringify(spent));
     ok('shield: and the marker comes down the moment it is spent',
         spent.marker === null && spent.flag === false, JSON.stringify(spent));
 

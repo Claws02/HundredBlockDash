@@ -13,7 +13,8 @@ import { COUNTED_TYPES } from '../config/ContractPool.js';
 import { SCENE } from '../config/SceneTiming.js';
 import * as DualRead from './DualRead.js';
 import { getPos, getTileMeshes, setMapCameraTarget, setMapOverview, mapCamera, onResize, getCamera,
-         clampMapTarget, worldToScreen, focusJunction, clearJunctionFocus } from '../engine/Renderer.js';
+         clampMapTarget, worldToScreen, focusJunction, clearJunctionFocus,
+         showJunctionMarkers, junctionMarkerScreens } from '../engine/Renderer.js';
 import * as ActiveMap from '../config/ActiveMap.js';
 import * as Stars from '../core/Stars.js';
 import { MAP_REGISTRY } from '../config/MapRegistry.js';
@@ -608,18 +609,43 @@ function _wireBranchChoiceEvents() {
 
 let _junction = null;   // { junctionId, fromNodeId, options, frame }
 
+// District colours for the fork: the card's border and arrow, and the marker
+// painted on the road, are the same colour so they read as one thing. Regions
+// without a fixed colour (Territory) get one from a small palette by name.
+const _J_COLORS = { ring: 0xd5dde8, fin: 0x4ade80, ba: 0xa855f7, shop: 0xf472b6, ind: 0xfb923c };
+const _J_FALLBACK = [0x38bdf8, 0xfacc15, 0xf87171, 0x34d399, 0xc084fc, 0xfb7185];
+function _jColor(district) {
+    if (_J_COLORS[district] != null) return _J_COLORS[district];
+    let h = 0; for (const ch of String(district || '')) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    return _J_FALLBACK[h % _J_FALLBACK.length];
+}
+const _hexCss = n => '#' + n.toString(16).padStart(6, '0');
+
 export function showJunctionArrows(junctionId, fromNodeId, options, stepsLeft) {
     Scenes.emit('junction', { junctionId, fromNodeId, options, stepsLeft, seat: state.activePlayer });
     const layer = document.getElementById('junction-layer');
     const box   = document.getElementById('junction-arrows');
     if (!layer || !box) return;
 
-    _junction = { junctionId, fromNodeId, options, frame: null };
+    // Cards left to right as the roads leave the junction on screen: seen from
+    // behind the player, a road to the left of travel is on the left.
+    const j = getPos(junctionId), from = getPos(fromNodeId);
+    const fx = j && from ? j.x - from.x : 0, fz = j && from ? j.z - from.z : -1;
+    const ordered = options.map(opt => {
+        const a = getPos(_anchorNode(opt.nodeId));
+        const right = a && j ? -(a.x - j.x) * fz + (a.z - j.z) * fx : 0;
+        return { opt, right };
+    }).sort((p, q) => p.right - q.right).map(o => o.opt);
 
-    box.innerHTML = options.map(opt => {
+    _junction = { junctionId, fromNodeId, options: ordered, frame: null };
+
+    box.style.setProperty('--jn', String(Math.min(3, ordered.length)));
+    box.innerHTML = ordered.map(opt => {
         const locked = /Locked/i.test(opt.desc || '');
-        return `<button class="j-arrow j-${opt.district || 'ring'}${locked ? ' j-locked' : ''}" data-node="${opt.nodeId}">
-            <span class="j-head">➤</span>
+        const col = _hexCss(_jColor(opt.district || 'ring'));
+        return `<button class="j-arrow j-${opt.district || 'ring'}${locked ? ' j-locked' : ''}" data-node="${opt.nodeId}" style="--jc:${col}"
+                    aria-label="${(opt.short || opt.label || '').replace(/"/g, '')}, ${opt.spaces || ''} spaces. ${(opt.desc || '').replace(/"/g, '')}">
+            <span class="j-head"><i>➤</i></span>
             <span class="j-label">
                 <span class="j-name bfont">${opt.short || opt.label}</span>
                 <span class="j-meta">${opt.spaces ? `${opt.spaces} spaces` : ''}</span>
@@ -629,19 +655,15 @@ export function showJunctionArrows(junctionId, fromNodeId, options, stepsLeft) {
     }).join('');
 
     document.getElementById('junction-banner').textContent =
-        `${state.players[state.activePlayer].name.toUpperCase()} — CHOOSE YOUR ROAD`;
+        `${state.players[state.activePlayer].name.toUpperCase()} · CHOOSE YOUR ROAD`;
 
-    // How far the roll still carries you. A fork is a choice about which run of
-    // tiles to spend the REST of the roll on, and that number was nowhere on
-    // screen: the player had to remember the die and subtract the steps already
-    // walked, at the one moment the game asks them to plan.
+    // How far the roll still carries you: the number the choice is made against.
     const stepsEl = document.getElementById('junction-steps');
     if (stepsEl) {
         const n = Number(stepsLeft);
         if (Number.isFinite(n) && n > 0) {
             document.getElementById('junction-steps-num').textContent = String(n);
-            document.getElementById('junction-steps-cap').textContent =
-                n === 1 ? 'SPACE LEFT' : 'SPACES LEFT';
+            document.getElementById('junction-steps-cap').textContent = n === 1 ? 'SPACE LEFT' : 'SPACES LEFT';
             stepsEl.style.display = '';
         } else {
             stepsEl.style.display = 'none';
@@ -649,8 +671,10 @@ export function showJunctionArrows(junctionId, fromNodeId, options, stepsLeft) {
     }
 
     state.cameraState = 'JUNCTION';
-    focusJunction(junctionId, fromNodeId);
+    focusJunction(junctionId, fromNodeId, ordered.map(o => _anchorNode(o.nodeId)));
+    showJunctionMarkers(junctionId, ordered.map(o => ({ nodeId: o.nodeId, anchorId: _anchorNode(o.nodeId), color: _jColor(o.district || 'ring') })));
     layer.style.display = 'block';
+    document.body.classList.add('junction-open');
     applyOrientation();
     _positionJunctionArrows();
 }
@@ -658,6 +682,7 @@ export function showJunctionArrows(junctionId, fromNodeId, options, stepsLeft) {
 export function hideJunctionArrows() {
     const layer = document.getElementById('junction-layer');
     if (layer) layer.style.display = 'none';
+    document.body.classList.remove('junction-open');
     if (_junction && _junction.frame) cancelAnimationFrame(_junction.frame);
     _junction = null;
     clearJunctionFocus();
@@ -667,70 +692,26 @@ export function hideJunctionArrows() {
 // has to come back here instead of returning to the roll screen.
 export function junctionPending() { return !!_junction; }
 
+// Each card's arrow points down its road as the camera sees it. The dock turns
+// with the board in tabletop, so the angle is taken in the canvas's own frame.
 function _positionJunctionArrows() {
     if (!_junction) return;
     _junction.frame = requestAnimationFrame(_positionJunctionArrows);
     const layer = document.getElementById('junction-layer');
     if (!layer || layer.style.display === 'none') return;
-
-    const W = window.innerWidth || 300, H = window.innerHeight || 500;
-    const flipped = _boardFlipped();
     const jScreen = worldToScreen(getPos(_junction.junctionId));
-
-    const placed = [];
     _junction.options.forEach(opt => {
         const btn = layer.querySelector(`[data-node="${opt.nodeId}"]`);
-        if (!btn) return;
         const pt = worldToScreen(getPos(_anchorNode(opt.nodeId)));
-        if (!pt || !jScreen) { btn.style.opacity = '0'; return; }
-        btn.style.opacity = '1';
-
-        // The board canvas is turned a half turn for Player 2 in tabletop mode,
-        // so a world point projected at (x, y) is actually drawn at (W−x, H−y).
-        // These buttons live outside that rotation and have to undo it, or the
-        // arrow labelling the Back Alley ends up sitting over the Ring Road.
-        const sx = flipped ? W - pt.x : pt.x;
-        const sy = flipped ? H - pt.y : pt.y;
-        const jx = flipped ? W - jScreen.x : jScreen.x;
-        const jy = flipped ? H - jScreen.y : jScreen.y;
-
-        // Point the arrowhead along the road, in screen space.
-        const ang = Math.atan2(sy - jy, sx - jx) * 180 / Math.PI;
-        btn.querySelector('.j-head').style.transform = `rotate(${ang}deg)`;
-
-        placed.push({
-            btn,
-            x: Math.max(100, Math.min(sx, W - 100)),
-            y: Math.max(100, Math.min(sy, H - 136)),
-        });
-    });
-
-    // The two roads leave the junction close together and only fan out further
-    // along, so anchoring three nodes in is usually enough — but on the two
-    // tightest forks the labels still touched. Push overlapping pairs apart
-    // along the line between them; the arrowheads still point the right way,
-    // which is what actually identifies each road.
-    if (placed.length === 2) {
-        const [a, b] = placed;
-        const MIN = 118;
-        const dx = b.x - a.x, dy = b.y - a.y;
-        const d = Math.hypot(dx, dy);
-        if (d < MIN) {
-            const ux = d > 0.5 ? dx / d : 1, uy = d > 0.5 ? dy / d : 0;
-            const push = (MIN - d) / 2;
-            a.x -= ux * push; a.y -= uy * push;
-            b.x += ux * push; b.y += uy * push;
-        }
-    }
-    placed.forEach(p => {
-        p.btn.style.left = `${Math.max(100, Math.min(p.x, W - 100))}px`;
-        p.btn.style.top  = `${Math.max(100, Math.min(p.y, H - 136))}px`;
+        if (!btn || !pt || !jScreen) return;
+        const ang = Math.atan2(pt.y - jScreen.y, pt.x - jScreen.x) * 180 / Math.PI;
+        btn.querySelector('.j-head i').style.transform = `rotate(${ang.toFixed(1)}deg)`;
     });
 }
 
-// Where to hang the arrow for a road: a few nodes in, not the very first one.
-// Adjacent to the fork the two roads are almost on top of each other; three
-// nodes down they have visibly diverged, which is the whole point of the arrow.
+// Where to aim at a road: a few nodes in, not the very first one. Next to the
+// fork the two roads are almost on top of each other; three nodes down they
+// have visibly diverged.
 function _anchorNode(nodeId) {
     let cur = nodeId;
     for (let i = 0; i < 3; i++) {
@@ -741,18 +722,36 @@ function _anchorNode(nodeId) {
     return cur;
 }
 
+function _chooseRoad(nodeId) {
+    hideJunctionArrows();
+    state.cameraState = 'FOLLOW';
+    Commands.run('pathChoice', nodeId);
+}
+
 function _wireJunctionEvents() {
     const layer = document.getElementById('junction-layer');
     if (!layer) return;
+    // Tapping a road's arrow on the board picks that road, like its card.
+    // Only taps near a marker, and never one meant for a button or a panel:
+    // anywhere else on the board does nothing.
+    document.addEventListener('pointerup', e => {
+        if (!_junction || layer.style.display === 'none') return;
+        // Anything but a control: the board shows through transparent HUD
+        // layers, so the target is often one of those rather than the canvas.
+        if (e.target && e.target.closest && e.target.closest('button, a, input, #junction-dock, #map-ui, #modal-overlay.act, [role="dialog"]')) return;
+        let best = null, bd = 80;
+        junctionMarkerScreens().forEach(m => {
+            // The board canvas is turned a half turn for P2 in tabletop.
+            const x = _boardFlipped() ? (window.innerWidth - m.x) : m.x;
+            const y = _boardFlipped() ? (window.innerHeight - m.y) : m.y;
+            const d = Math.hypot(e.clientX - x, e.clientY - y);
+            if (d < bd) { bd = d; best = m.nodeId; }
+        });
+        if (best) _chooseRoad(best);
+    });
     layer.addEventListener('click', e => {
         const btn = e.target.closest('[data-node]');
-        if (btn) {
-            const nodeId = btn.dataset.node;
-            hideJunctionArrows();
-            state.cameraState = 'FOLLOW';
-            Commands.run('pathChoice', nodeId);
-            return;
-        }
+        if (btn) { _chooseRoad(btn.dataset.node); return; }
         if (e.target.closest('#btn-junction-map')) {
             // Keep the choice alive: the map is a look, not an answer.
             layer.style.display = 'none';

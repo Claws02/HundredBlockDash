@@ -1832,23 +1832,6 @@ body.buddy-report.tabletop-p2-turn #toast-box { top: auto; bottom: calc(var(--hu
 /* "BOUNTIES" is the longest label in the stack and has to fit an 86px square. */
 .btn-action.bounty-btn .ba-tx { font-size: calc(12px * var(--ts, 1)); letter-spacing: 0; }
 
-/* --- Junction arrows ---------------------------------------------------
-   Hung over the 3D board rather than covering it. Each button is centred on
-   its own road by JS every frame, so the transform here is the centring only
-   — the position comes from left/top. */
-#junction-layer { position: fixed; inset: 0; z-index: 60; pointer-events: none; }
-#junction-banner {
-    position: absolute; top: calc(var(--hud-h) + 18px); left: 50%; transform: translateX(-50%);
-    background: rgba(8,6,18,.86); border: 1px solid rgba(255,255,255,.22);
-    border-radius: 20px; padding: 7px 18px;
-    font-size: calc(16px * var(--ts, 1)); letter-spacing: 1.2px; color: #fff;
-    box-shadow: 0 8px 26px rgba(0,0,0,.6); white-space: nowrap;
-    pointer-events: none;
-}
-.tabletop-p2-turn #junction-banner {
-    top: auto; bottom: calc(var(--hud-h) + 18px);
-    transform: translateX(-50%) rotate(180deg);
-}
 /* ============================================================
    SHIELD MARKER — you are still carrying an active shield
    ============================================================
@@ -1878,92 +1861,69 @@ body.buddy-report.tabletop-p2-turn #toast-box { top: auto; bottom: calc(var(--hu
     50%      { box-shadow: 0 6px 20px rgba(0,0,0,.6), 0 0 26px -4px rgba(74,222,128,1); }
 }
 
-/* How far the roll still carries you. Sits directly under the banner, big
-   enough to read without looking for it — this is the number the whole fork
-   decision is made against. Kept off the middle of the board so the two roads
-   the arrows point down stay visible. */
-#junction-steps {
-    /* Below the round counter, the bounty strip AND the banner. The first
-       placement was 58px down and the gold digit came out half-hidden behind
-       the bounty chips, with the caption entirely under the turn banner — the
-       top of a City screen already carries three rows of chrome. This sits in
-       the clear band between that stack and the road arrows. */
-    position: absolute; top: calc(var(--hud-h) + 104px); left: 50%;
-    transform: translateX(-50%);
-    display: flex; flex-direction: column; align-items: center; gap: 0;
-    pointer-events: none;
-    /* Its own backing, because it is read against moving road rather than a
-       flat panel. */
-    padding: 4px 20px 7px; border-radius: 20px;
-    background: radial-gradient(ellipse at center, rgba(8,6,18,.88) 40%, rgba(8,6,18,0) 78%);
-}
-.tabletop-p2-turn #junction-steps {
-    top: auto; bottom: calc(var(--hud-h) + 104px);
-    transform: translateX(-50%) rotate(180deg);
-}
-.js-num {
-    font-size: calc(58px * var(--ts, 1)); line-height: .92; color: var(--gold);
-    letter-spacing: 1px;
-    text-shadow: 0 3px 16px rgba(0,0,0,.95);
-    filter: drop-shadow(0 0 20px rgba(251,191,36,.6));
-}
-.js-cap {
-    font-size: calc(12.5px * var(--ts, 1)); letter-spacing: 3px; color: rgba(255,255,255,.88);
-    margin-top: 1px; text-shadow: 0 2px 10px rgba(0,0,0,.95);
-}
-.j-arrow {
-    position: absolute; transform: translate(-50%, -50%);
-    display: flex; align-items: center; gap: 9px;
-    min-width: 150px; max-width: 190px;
-    padding: 9px 14px 9px 10px; border-radius: 18px;
-    background: rgba(8,6,18,.9);
-    border: 2px solid rgba(255,255,255,.34);
-    color: #fff; text-align: left; cursor: pointer;
+/* --- The fork: a choice dock ----------------------------------------------
+   The road buttons used to float at projected points over the board, which
+   put them on top of the bounty strip and the steps readout, under the action
+   column, and half off the screen at two of the four City junctions. They now
+   live in one dock in the thumb zone; the board carries matching arrows on
+   the roads themselves (Renderer.showJunctionMarkers), and tapping one of
+   those picks it too. While the dock is up the rest of the HUD steps back. */
+#junction-layer { position: fixed; inset: 0; z-index: 60; pointer-events: none; }
+#junction-dock {
+    position: absolute; left: 10px; right: 10px;
+    bottom: calc(var(--hud-h) + 10px);
+    max-width: 560px; margin: 0 auto;
+    display: flex; flex-direction: column; gap: 8px;
+    padding: 10px 10px 8px; border-radius: 20px;
+    background: rgba(8,6,18,.9); border: 1px solid rgba(255,255,255,.16);
+    box-shadow: 0 14px 40px rgba(0,0,0,.65);
     pointer-events: auto;
-    box-shadow: 0 10px 30px rgba(0,0,0,.62);
-    transition: transform .12s ease, box-shadow .12s ease;
-    animation: jPulse 1.9s ease-in-out infinite;
+    animation: jdIn .22s ease-out;
 }
-.j-arrow:active { transform: translate(-50%, -50%) scale(.95); }
-.tabletop-p2-turn .j-arrow { transform: translate(-50%, -50%) rotate(180deg); }
-.tabletop-p2-turn .j-arrow:active { transform: translate(-50%, -50%) rotate(180deg) scale(.95); }
-@keyframes jPulse {
-    0%, 100% { box-shadow: 0 10px 30px rgba(0,0,0,.62); }
-    50%      { box-shadow: 0 10px 30px rgba(0,0,0,.62), 0 0 0 6px rgba(255,255,255,.07); }
+.tabletop-p2-turn #junction-dock { bottom: auto; top: calc(var(--hud-h) + 10px); transform: rotate(180deg); }
+@keyframes jdIn { from { opacity: 0; translate: 0 14px; } to { opacity: 1; translate: 0 0; } }
+body.reduce-motion #junction-dock { animation: none; }
+.jd-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 0 4px; }
+#junction-banner { font-size: calc(15px * var(--ts, 1)); letter-spacing: 1px; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+#junction-steps { white-space: nowrap; color: rgba(255,255,255,.85); font-size: calc(13px * var(--ts, 1)); letter-spacing: 1px; }
+#junction-steps .js-num { color: var(--gold); font-size: calc(22px * var(--ts, 1)); }
+#junction-arrows { display: grid; grid-template-columns: repeat(var(--jn, 2), minmax(0, 1fr)); gap: 8px; }
+.j-arrow {
+    display: flex; align-items: center; gap: 10px; min-height: 78px;
+    padding: 10px 10px 10px 8px; border-radius: 16px;
+    background: rgba(255,255,255,.06); border: 2px solid rgba(255,255,255,.3);
+    color: #fff; text-align: left; cursor: pointer; font: inherit;
+    transition: transform .1s ease, background .1s ease;
 }
+.j-arrow:active { transform: scale(.96); background: rgba(255,255,255,.14); }
 .j-head {
-    flex: 0 0 auto; font-size: calc(26px * var(--ts, 1)); line-height: 1;
-    display: inline-block; transform-origin: 50% 50%;
-    filter: drop-shadow(0 0 6px rgba(255,255,255,.45));
+    flex: 0 0 auto; width: 44px; height: 44px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--jc, #94a3b8); color: #0b0913;
+    font-size: calc(22px * var(--ts, 1)); line-height: 1;
+    box-shadow: 0 0 16px -2px var(--jc, #94a3b8);
 }
-.j-label { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.j-name  { font-size: calc(14px * var(--ts, 1)); letter-spacing: .6px; line-height: 1.15; }
+.j-head i { font-style: normal; display: inline-block; transform-origin: 50% 50%; transition: transform .15s linear; }
+.j-label { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.j-name  { font-size: calc(15px * var(--ts, 1)); letter-spacing: .6px; line-height: 1.1; color: var(--jc, #fff); }
 .j-meta  { font-family: 'Nunito', system-ui, sans-serif; font-size: calc(12px * var(--ts, 1)); font-weight: 800; color: var(--gold); }
-.j-desc  { font-family: 'Nunito', system-ui, sans-serif; font-size: calc(12px * var(--ts, 1)); color: rgba(255,255,255,.7); line-height: 1.25; }
-/* District colours, so the arrow matches the ground it points at. */
-.j-arrow.j-ring { border-color: rgba(148,163,184,.85); }
-.j-arrow.j-fin  { border-color: rgba(74,222,128,.9);  }
-.j-arrow.j-ba   { border-color: rgba(168,85,247,.9);  }
-.j-arrow.j-shop { border-color: rgba(244,114,182,.9); }
-.j-arrow.j-ind  { border-color: rgba(251,146,60,.9);  }
-.j-arrow.j-locked { opacity: .72; }
-.j-arrow.j-locked .j-head { filter: none; opacity: .55; }
-
+.j-desc  { font-family: 'Nunito', system-ui, sans-serif; font-size: calc(12px * var(--ts, 1)); color: rgba(255,255,255,.75); line-height: 1.25; }
+/* District colours: the card, its arrow and the marker on the road all match. */
+.j-arrow { border-color: color-mix(in srgb, var(--jc, #94a3b8) 80%, transparent); }
+.j-ring { --jc: #d5dde8; } .j-fin { --jc: #4ade80; } .j-ba { --jc: #a855f7; }
+.j-shop { --jc: #f472b6; } .j-ind { --jc: #fb923c; }
+.j-arrow.j-locked .j-desc { color: #fbbf24; }
 #btn-junction-map {
-    position: absolute; left: 50%; bottom: calc(var(--hud-h) + 22px);
-    transform: translateX(-50%);
-    pointer-events: auto; cursor: pointer;
-    background: rgba(8,6,18,.86); color: rgba(255,255,255,.9);
-    border: 1px solid rgba(255,255,255,.28); border-radius: 22px;
-    padding: 10px 20px; font-size: calc(13px * var(--ts, 1)); letter-spacing: .8px;
-    box-shadow: 0 8px 24px rgba(0,0,0,.6);
+    align-self: center; cursor: pointer;
+    background: none; color: rgba(255,255,255,.82);
+    border: 1px solid rgba(255,255,255,.24); border-radius: 18px;
+    padding: 6px 16px; font-size: calc(12px * var(--ts, 1)); letter-spacing: .8px;
 }
-#btn-junction-map:active { transform: translateX(-50%) scale(.96); }
-.tabletop-p2-turn #btn-junction-map {
-    bottom: auto; top: calc(var(--hud-h) + 22px);
-    transform: translateX(-50%) rotate(180deg);
-}
-.tabletop-p2-turn #btn-junction-map:active { transform: translateX(-50%) rotate(180deg) scale(.96); }
+#btn-junction-map:active { transform: scale(.96); }
+/* While a fork is open the choice is the whole screen: the action column, the
+   bounty strip and the round counter step back. */
+body.junction-open #p1-actions, body.junction-open #p2-actions,
+body.junction-open #contracts-strip, body.junction-open #round-counter { visibility: hidden; }
 
 /* --- Bounty panel ------------------------------------------------------ */
 #bounty-panel {

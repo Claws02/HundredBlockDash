@@ -2415,20 +2415,77 @@ const junctionCam = {
     active: false,
 };
 
-export function focusJunction(junctionId, fromNodeId) {
+export function focusJunction(junctionId, fromNodeId, anchorIds = []) {
     const j    = getPos(junctionId).clone().setY(0);
     const from = getPos(fromNodeId).clone().setY(0);
     const fwd  = j.clone().sub(from);
     if (fwd.lengthSq() < 1e-6) fwd.set(0, 0, -1); else fwd.normalize();
-    // High and well back: both roads and a few nodes of each have to be in shot
-    // or the arrows are pointing at things the player cannot see.
-    junctionCam.look.copy(j).addScaledVector(fwd, 12);
-    junctionCam.pos.copy(j).addScaledVector(fwd, -34);
-    junctionCam.pos.y = 58;
+    // Frame the junction and a few nodes of every road, from behind the
+    // player, high enough that both roads read, and aimed so the picture sits
+    // in the top of the screen: the choice dock covers the bottom third.
+    const pts = [j, ...anchorIds.map(id => getPos(id)).filter(Boolean).map(p => p.clone().setY(0))];
+    const c = pts.reduce((a, p) => a.add(p), new THREE.Vector3()).multiplyScalar(1 / pts.length);
+    const r = Math.max(8, ...pts.map(p => p.distanceTo(c)));
+    junctionCam.look.copy(c).addScaledVector(fwd, -r * 0.35);
+    junctionCam.pos.copy(c).addScaledVector(fwd, -(r * 1.05 + 12));
+    junctionCam.pos.y = r * 2.1 + 18;
     junctionCam.active = true;
 }
 
-export function clearJunctionFocus() { junctionCam.active = false; }
+// ---- Fork markers -------------------------------------------------------------
+// A glowing arrow painted on each road leaving a junction, in the colour of
+// the card that names it, so "which card is which road" never has to be
+// worked out. They can be tapped (junctionMarkerScreens gives their screen
+// points).
+let _jMarkers = [];
+export function showJunctionMarkers(junctionId, roads) {
+    clearJunctionMarkers();
+    if (!scene) return;
+    const j = getPos(junctionId);
+    if (!j) return;
+    const shape = new THREE.Shape();
+    shape.moveTo(0, 1.6); shape.lineTo(1.3, -0.2); shape.lineTo(0.5, -0.2); shape.lineTo(0.5, -1.4);
+    shape.lineTo(-0.5, -1.4); shape.lineTo(-0.5, -0.2); shape.lineTo(-1.3, -0.2); shape.closePath();
+    const geo = new THREE.ShapeGeometry(shape);
+    roads.forEach(({ nodeId, anchorId, color }) => {
+        // Part-way to the road's anchor (a few nodes in), where the two roads
+        // have separated: at the fork itself the arrows sat on the token.
+        const target = getPos(anchorId || nodeId) || getPos(nodeId);
+        if (!target) return;
+        const dir = target.clone().sub(j).setY(0);
+        const len = dir.length();
+        if (len < 1e-3) return;
+        dir.normalize();
+        const at = j.clone().addScaledVector(dir, Math.max(6, len * 0.42)).setY(0.6);
+        const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9, depthWrite: false, side: THREE.DoubleSide });
+        const m = new THREE.Mesh(geo, mat);
+        m.rotation.set(-Math.PI / 2, 0, Math.atan2(-dir.x, -dir.z));   // the tip (+y in the shape) down the road
+        m.scale.setScalar(2.8);
+        m.position.copy(at);
+        m.renderOrder = 5;
+        m.userData = { nodeId, base: 2.8 };
+        scene.add(m);
+        _jMarkers.push(m);
+    });
+}
+export function clearJunctionMarkers() {
+    _jMarkers.forEach(m => { scene && scene.remove(m); m.material.dispose(); });
+    if (_jMarkers[0]) _jMarkers[0].geometry.dispose();
+    _jMarkers = [];
+}
+/** [{ nodeId, x, y }] — each marker's centre on screen, for tap-to-pick. */
+export function junctionMarkerScreens() {
+    return _jMarkers.map(m => { const p = worldToScreen(m.position); return p ? { nodeId: m.userData.nodeId, x: p.x, y: p.y } : null; }).filter(Boolean);
+}
+function _tickJunctionMarkers(time) {
+    for (const m of _jMarkers) {
+        const k = 0.5 + 0.5 * Math.sin(time * 4);
+        m.material.opacity = 0.65 + 0.35 * k;
+        m.scale.setScalar(m.userData.base * (1 + 0.08 * k));
+    }
+}
+
+export function clearJunctionFocus() { junctionCam.active = false; clearJunctionMarkers(); }
 
 // Point the follow camera down a specific road before the token starts walking
 // it. Without this the camera keeps whatever heading the previous node had and
@@ -2736,6 +2793,7 @@ function _loop() {
     }
 
     _tickReactions(dt, time);
+    if (_jMarkers.length) _tickJunctionMarkers(time);
     _cameraWatchdog(dt);
 
     const cs = state.cameraState;
