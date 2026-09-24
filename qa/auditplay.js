@@ -136,7 +136,7 @@ const MAX = +maxSecS, FRESH = freshS === '1';
                             const dir = wp.clone().sub(cam.position); const dist = dir.length(); dir.normalize();
                             ray.set(cam.position, dir); ray.far = dist - 0.9;
                             const hits = ray.intersectObjects(R.getScene().children, true)
-                                .filter(h => h.object.visible && h.object.material && !h.object.material.transparent && h.distance < dist - 0.9);
+                                .filter(h => h.object.visible && h.object.material && !h.object.material.transparent && h.distance < dist - 2.5);
                             // Only count real occluders: skip the figure itself and anything tiny.
                             const real = hits.filter(h => { let o = h.object; while (o) { if (o === m) return false; o = o.parent; } return true; });
                             if (real.length) { A.occl.hidden++; if (A.occl.samples === undefined) A.occl.samples = []; if (A.occl.samples.length < 30) A.occl.samples.push([S.players[S.activePlayer].pos, real[0].object.name || real[0].object.geometry?.type, +real[0].distance.toFixed(1), +dist.toFixed(1)]); }
@@ -293,6 +293,21 @@ const MAX = +maxSecS, FRESH = freshS === '1';
                 acted = true;
             }
         }
+        if (!acted) {
+            // Anything else that is asking for a choice: the first real button
+            // in whatever modal is open (duel bets, duel opponent, star offers).
+            const b = await page.evaluate(() => {
+                const roots = ['#duel-bet-options', '#duel-pick-list', '#modal-overlay', '#ally-steal-list', '#drop-inv-row', '#use-inv-row'];
+                for (const r of roots) {
+                    const root = document.querySelector(r);
+                    if (!root || !root.offsetParent) continue;
+                    const btn = [...root.querySelectorAll('button, .duel-bet, .bet-opt, [data-bet], .dp-row')].find(x => x.offsetParent && !x.disabled && x.getBoundingClientRect().width > 10);
+                    if (btn) { btn.scrollIntoView({ block: 'center' }); const q = btn.getBoundingClientRect(); return { x: q.left + q.width / 2, y: q.top + q.height / 2, t: (btn.innerText || '').trim().slice(0, 30), r }; }
+                }
+                return null;
+            });
+            if (b && s.ap === 0) { await page.mouse.click(b.x, b.y); taps.push([Date.now() - t0, b.r, b.t]); acted = true; }
+        }
         if (!acted && s.gs === 'PRE_ROLL' && s.ap === 0) {
             const roll = await page.evaluate(() => {
                 const b = [...document.querySelectorAll('#p1-actions button, #p1-actions [role=button]')].filter(x => x.offsetParent !== null);
@@ -315,9 +330,10 @@ const MAX = +maxSecS, FRESH = freshS === '1';
     const aud = await page.evaluate(() => window.__AUD);
     const fr = aud.frames.slice(60);
     const pct = (a, p) => { const b = a.slice().sort((x, y) => x - y); return b[Math.min(b.length - 1, Math.floor(b.length * p))]; };
-    const camFollow = aud.cam.filter(c => c[3] === 'FOLLOW' && c[5] < 40);
-    const snaps = aud.cam.filter(c => c[1] > 4 || c[2] > 12).map(c => ({ t: c[0], dp: c[1], dr: c[2], cs: c[3], gs: c[4] }));
-    const tele = aud.tok.filter(t => t[2] > 1.2 && t[4] < 40);
+    // Rates, not per-frame steps: this renderer runs at a few frames a second.
+    const camFollow = aud.cam.filter(c => c[3] === 'FOLLOW' && c[5] > 0).map(c => [c[0], c[1] / c[5] * 1000, c[2] / c[5] * 1000, c[3], c[4], c[5]]);
+    const snaps = aud.cam.filter(c => (c[1] > 6 || c[2] > 20) && c[3] === 'FOLLOW').map(c => ({ t: c[0], dp: c[1], dr: c[2], cs: c[3], gs: c[4] }));
+    const tele = aud.tok.filter(t => t[2] / Math.max(1, t[4]) * 1000 > 60);
     const out = {
         tag, size, fresh: FRESH, result, elapsed, bootMs, errors: [...new Set(errors)], failed: [...new Set(failed)].slice(0, 20),
         frames: { n: fr.length, p50: pct(fr, 0.5), p95: pct(fr, 0.95), p99: pct(fr, 0.99), over50: fr.filter(x => x > 50).length, over100: fr.filter(x => x > 100).length },
