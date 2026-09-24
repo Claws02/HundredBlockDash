@@ -95,9 +95,9 @@ export function closeHowToPlay() {
     Storage.save('seen_howto', true);
 }
 
-// First launch no longer opens the slides: the first match coaches itself on
-// the real controls (Coach.js, RELEASE_AUDIT UX-03). How to Play stays one tap
-// away on the splash and in the pause menu, as the reference.
+// First launch goes straight to the game: no slides and no in-match tips. The
+// controls explain themselves, and How to Play stays one tap away on the
+// splash and in the pause menu for anyone who wants the reference.
 export function maybeShowFirstRun() {
     if (!Storage.load('seen_howto', false)) Storage.save('seen_howto', true);
 }

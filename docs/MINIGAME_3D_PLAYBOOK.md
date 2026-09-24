@@ -1,8 +1,9 @@
 # Making a 3D stage minigame — the playbook
 
-This is the recipe behind the eleven 3D games: High Noon, Boot Hill Barrage,
-Vault Heist, The 4:15 to Perdition, Mine Cart Mayhem, Turf War, Lily Pad Leap,
-Rooftop Run, Block Party, Rift Dive and the template. Follow it and a new game
+This is the recipe behind the 3D games: High Noon, Boot Hill Barrage, Vault
+Heist, The 4:15 to Perdition, Mine Cart Mayhem, Turf War, Lily Pad Leap, Rooftop
+Run, Block Party, Rift Dive, and the four built with the generator: Balloon
+Pump, Musical Chairs, Bumper Cars and Go-Kart Grand Prix. Follow it and a new game
 arrives looking, feeling and behaving like the rest.
 
 - The **rules** every minigame obeys (time in seconds, clean-up, one result,
@@ -70,7 +71,7 @@ with a perspective from one end.
 ```bash
 node scripts/new-3d-minigame.js crateclash "Crate Clash" \
     --set=ind --icon=📦 --place="Industrial Zone · The Loading Dock" \
-    --genre=push --control=thumb --desc="Lay the phone flat between you. …"
+    --genre=push --control=thumb --hold=faceoff --desc="Lay the phone flat between you. …"
 ```
 
 This writes `src/minigames/CrateClash.js` (from `_template3d.js`) and
@@ -150,6 +151,10 @@ rest. The scaffolded probe fails if a canvas or a paused board is left behind.
 `.click()` on `btn-mg-intro-next` will stall forever. Dispatch a `pointerdown`
 or use a real `page.mouse`.
 
+**A chase camera will drive into the scenery.** Clamp it inside a boundary
+short of the outer props, and fade anything between the camera and its target
+(Go-Kart Grand Prix's `_fadeTrees`, the board's occluder fade).
+
 **Registered sound names only** (`sfx('go')`, `coin_gain`, `boom`, `slam`,
 `whistle`, `kick`, `hat`, …; the full list is in `AudioManager.js`). An unknown
 name is silent, not an error, so nothing tells you.
@@ -177,7 +182,7 @@ allows one.
 `STAGE_SETS[key](stage, layout)` builds the scenery, and many sets take the
 game's own layout (walls, a track, a course), so the scenery and the collision
 use the same numbers. The existing keys are listed in `MINIGAME_STANDARD.md` §10:
-- `hub`, `bad`, `fin`, `rail`, `mine`, `ind`, `fae`, `ba`, `shop`, `void`.
+- `hub`, `bad`, `fin`, `rail`, `mine`, `ind`, `fae`, `ba`, `shop`, `void`, `ring`.
 
 **Reuse one before building one.**
 

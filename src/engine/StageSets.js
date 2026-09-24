@@ -1091,6 +1091,100 @@ export function buildFaePond(stage, { w, d }) {
     };
 }
 
+// ---- City Ring Road: the fountain park ----------------------------------------
+//
+// "Four lanes of ordinary, and that is the point." Midday in the park in the
+// middle of the ring: a round lawn, a paved path round it, the fountain off to
+// one side, trees and benches, and a string of party lanterns on four poles
+// over the lawn. The lanterns are the set's one handle: lights(level) sets
+// their glow from 0 (off) to 1, which is how Musical Chairs shows the music
+// stopping to a player who has the sound off.
+export function buildRingPark(stage, { w = 12, d = 18 } = {}) {
+    const B = DISTRICT_BIOMES.ring;
+    const scene = stage.scene;
+    scene.background = new THREE.Color(_hex(B.bgBot));
+    scene.fog = null;
+    stage.light({ sun: 0xfff3dd, sunI: 1.2, sky: 0xbfe0f5, ground: 0x3f6a38, hemiI: 0.8,
+                  rim: 0xffffff, rimI: 0.2, dir: [5, 18, 6], span: 14 });
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(90, 90), _mat(0x8a929c, 0.95));
+    ground.rotation.x = -Math.PI / 2; ground.position.y = -0.03; ground.receiveShadow = true; scene.add(ground);
+    const R = Math.min(w, d) / 2 + 1.2;
+    const path = new THREE.Mesh(new THREE.CircleGeometry(R + 1.3, 48), _mat(0xd6cbb5, 0.9));
+    path.rotation.x = -Math.PI / 2; path.position.y = -0.02; path.scale.set(1, (d / 2 + 2) / (R + 1.3), 1);
+    path.receiveShadow = true; scene.add(path);
+    const lawn = new THREE.Mesh(new THREE.CircleGeometry(R, 48), _mat(0x5fae4a, 0.95));
+    lawn.rotation.x = -Math.PI / 2; lawn.position.y = -0.01; lawn.scale.set(1, (d / 2 + 0.6) / R, 1);
+    lawn.receiveShadow = true; scene.add(lawn);
+
+    // Trees and benches round the path, clear of the lawn.
+    const trunkM = _mat(0x6b4a2e, 0.9), leafM = _mat(0x3f8f3a, 0.9), leafM2 = _mat(0x57a84a, 0.9);
+    const benchM = _mat(0x8b5a2b, 0.8), metalM = _mat(0x2f3338, 0.5, 0.5);
+    const tree = (x, z, k) => {
+        const g = new THREE.Group();
+        const t = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.28, 2, 6), trunkM); t.position.y = 1; t.castShadow = true; g.add(t);
+        const l = new THREE.Mesh(new THREE.SphereGeometry(1.4 + _rand(k) * 0.4, 9, 8), k % 2 ? leafM : leafM2);
+        l.position.y = 3; l.scale.y = 1.1; l.castShadow = true; g.add(l);
+        g.position.set(x, 0, z); scene.add(g);
+    };
+    const bench = (x, z, rot) => {
+        const g = new THREE.Group();
+        const seat = new THREE.Mesh(new THREE.BoxGeometry(2, 0.12, 0.6), benchM); seat.position.y = 0.62; g.add(seat);
+        const back = new THREE.Mesh(new THREE.BoxGeometry(2, 0.7, 0.1), benchM); back.position.set(0, 1, -0.25); g.add(back);
+        [-0.75, 0.75].forEach(lx => { const leg = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.62, 0.6), metalM); leg.position.set(lx, 0.31, 0); g.add(leg); });
+        g.traverse(o => { if (o.isMesh) o.castShadow = true; });
+        g.position.set(x, 0, z); g.rotation.y = rot; scene.add(g);
+    };
+    const sx = w / 2 + 3.2;
+    [[-sx, -d / 2 + 1], [-sx, 2], [-sx - 1, d / 2 + 1], [sx + 1.5, -d / 2 - 1], [sx + 1, d / 2 + 2]].forEach(([x, z], k) => tree(x, z, k));
+    bench(-sx + 1, -3.5, Math.PI / 2); bench(-sx + 1, 6.5, Math.PI / 2);
+
+    // The fountain, off to the +x side: a basin, a column, spray.
+    const basin = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 2.6, 0.6, 28), _mat(0xcfd6dd, 0.6));
+    basin.position.set(sx + 0.6, 0.3, 1); basin.castShadow = true; scene.add(basin);
+    const water = new THREE.Mesh(new THREE.CircleGeometry(2.15, 28),
+        new THREE.MeshStandardMaterial({ color: 0x5fb7e8, emissive: 0x1b5f86, emissiveIntensity: 0.4, roughness: 0.1 }));
+    water.rotation.x = -Math.PI / 2; water.position.set(sx + 0.6, 0.55, 1); scene.add(water);
+    const col = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.35, 1.6, 12), _mat(0xcfd6dd, 0.6));
+    col.position.set(sx + 0.6, 1.1, 1); scene.add(col);
+    const drops = [];
+    for (let i = 0; i < 16; i++) {
+        const m = new THREE.Mesh(new THREE.SphereGeometry(0.09, 6, 4), new THREE.MeshBasicMaterial({ color: 0xd8f1ff, transparent: true, opacity: 0.85 }));
+        m.userData.ph = i / 16; scene.add(m); drops.push(m);
+    }
+
+    // Party lanterns: four poles at the lawn's corners, strings between them.
+    const poleM = _mat(0x3a3f45, 0.5, 0.4);
+    const corners = [[-w / 2 - 0.9, -d / 2 - 0.9], [w / 2 + 0.9, -d / 2 - 0.9], [w / 2 + 0.9, d / 2 + 0.9], [-w / 2 - 0.9, d / 2 + 0.9]];
+    corners.forEach(([x, z]) => {
+        const p = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 4.2, 8), poleM);
+        p.position.set(x, 2.1, z); p.castShadow = true; scene.add(p);
+    });
+    const bulbCols = [0xff5a5a, 0xffd23f, 0x4fd1ff, 0x7cff6b, 0xff7ad9];
+    const bulbs = [];
+    corners.forEach(([x0, z0], i) => {
+        const [x1, z1] = corners[(i + 1) % 4];
+        const n = Math.round(Math.hypot(x1 - x0, z1 - z0) / 1.1);
+        for (let k = 1; k < n; k++) {
+            const u = k / n;
+            const m = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 6),
+                new THREE.MeshStandardMaterial({ color: bulbCols[(i * 7 + k) % 5], emissive: bulbCols[(i * 7 + k) % 5], emissiveIntensity: 1 }));
+            m.position.set(x0 + (x1 - x0) * u, 4 - Math.sin(u * Math.PI) * 0.7, z0 + (z1 - z0) * u);
+            scene.add(m); bulbs.push(m);
+        }
+    });
+    let level = 1;
+    return {
+        lights(v) { level = Math.max(0, Math.min(1, v)); },
+        update(dt, t) {
+            drops.forEach(m => {
+                const u = (t * 0.8 + m.userData.ph) % 1, a = m.userData.ph * Math.PI * 2;
+                m.position.set(sx + 0.6 + Math.cos(a) * u * 1.6, 1.9 + Math.sin(u * Math.PI) * 1.1 - u * 1.2, 1 + Math.sin(a) * u * 1.6);
+            });
+            bulbs.forEach((b, i) => { b.material.emissiveIntensity = level * (0.75 + Math.sin(t * 3 + i) * 0.25); });
+        },
+    };
+}
+
 // ---- Back Alley rooftops: the neon night run --------------------------------
 //
 // "Night. The only district lit by its own signage rather than the sky." The
@@ -1604,4 +1698,5 @@ export const STAGE_SETS = {
     ba: buildRooftops,
     shop: buildBlockParty,
     void: buildRift,
+    ring: buildRingPark,
 };
