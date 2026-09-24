@@ -1592,7 +1592,7 @@ export function openMap() {
     // it. HBD is a long ribbon and keeps its scout-the-road-ahead view.
     if (_isHBD()) setMapCameraTarget(_mapAddress(posIdx), 34, 26);
     else setMapOverview(_mapSheetFrac());
-    updateMapSlider();
+    updateMapSlider({ keepCamera: !_isHBD() });
 }
 
 export function closeMap() {
@@ -1625,9 +1625,12 @@ export function closeMap() {
     updateUI();
 }
 
-export function updateMapSlider() {
+export function updateMapSlider(opts) {
     const val = parseInt(document.getElementById('map-slider').value);
-    setMapCameraTarget(_mapAddress(val), _isHBD() ? 30 : 40, _isHBD() ? 22 : 25);
+    // Opening the City map shows the whole circuit: refresh the label without
+    // flying the camera back down to the player's space (RELEASE_AUDIT C-05).
+    // Moving the slider still flies to the space it names.
+    if (!(opts && opts.keepCamera)) setMapCameraTarget(_mapAddress(val), _isHBD() ? 30 : 40, _isHBD() ? 22 : 25);
     document.getElementById('map-tooltip').style.display = 'none';
 
     let label;

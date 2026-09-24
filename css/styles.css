@@ -3070,6 +3070,10 @@ button, input, select, textarea { font-family: inherit; }
 @media (max-height: 700px) { .stitle { font-size: min(calc(44px * var(--ts, 1)), 13vw); } }
 /* C-05: the map sheet was about 45 % of the screen; the board is the point. */
 #map-ui .map-panel { padding: 10px 14px; gap: 6px; }
+/* The slider's 28 px thumb overhangs its 8 px track; with the tighter gap it
+   sat over the second line of the hint. Room above and below it. */
+#map-drag-hint { font-size: calc(13px * var(--ts, 1)); line-height: 1.3; text-align: center; color: rgba(255,255,255,.75); }
+#map-ui #map-slider { margin: 12px 0 8px; }
 #map-ui .map-title { font-size: calc(20px * var(--ts, 1)); }
 
 /* UX-09: a phone on its side has no room for the board — the two HUD bars took

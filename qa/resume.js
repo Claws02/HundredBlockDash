@@ -81,7 +81,7 @@ const boardSig = page => page.evaluate(async () => {
     const driver = setInterval(() => page.evaluate(() => {
         const s = window.__QA?.snapshot?.(); if (!s) return;
         for (const id of ['btn-msg-continue', 'btn-shop-offer-skip', 'btn-close-shop', 'btn-duel-skip', 'btn-ally-pass', 'btn-cancel-drop', 'btn-resolve-pass', 'btn-mg-intro-next', 'btn-mg-launch', 'gate-roll-btn', 'gate-continue-btn']) {
-            const b = document.getElementById(id); if (b && b.offsetParent) { b.click(); return; }
+            const b = document.getElementById(id); if (b && b.offsetParent) { if (id === 'btn-mg-intro-next') b.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 1, isPrimary: true })); else b.click(); return; }
         }
         const j = document.querySelector('#junction-arrows button'); if (j && j.offsetParent) { j.click(); return; }
         const bet = document.querySelector('#duel-bet-options button'); if (bet && bet.offsetParent) { bet.click(); return; }
@@ -119,7 +119,7 @@ const boardSig = page => page.evaluate(async () => {
     const driver2 = setInterval(() => page.evaluate(() => {
         const s = window.__QA?.snapshot?.(); if (!s) return;
         for (const id of ['btn-msg-continue', 'btn-shop-offer-skip', 'btn-close-shop', 'btn-duel-skip', 'btn-ally-pass', 'btn-cancel-drop', 'btn-mg-intro-next', 'btn-mg-launch', 'gate-roll-btn', 'gate-continue-btn']) {
-            const b = document.getElementById(id); if (b && b.offsetParent) { b.click(); return; }
+            const b = document.getElementById(id); if (b && b.offsetParent) { if (id === 'btn-mg-intro-next') b.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 1, isPrimary: true })); else b.click(); return; }
         }
         const j = document.querySelector('#junction-arrows button'); if (j && j.offsetParent) { j.click(); return; }
         const bet = document.querySelector('#duel-bet-options button'); if (bet && bet.offsetParent) { bet.click(); return; }
