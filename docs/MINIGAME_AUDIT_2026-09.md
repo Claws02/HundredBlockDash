@@ -339,7 +339,7 @@ lines per setting at build time and ship them as data.
 | A1 `MinigameStage` | **Built.** `src/engine/Stage.js`: side and face-off holds, the turned frame, `toLocal`, a HUD, the board paused, adaptive resolution, full dispose |
 | A2 character rig | **Built.** `src/engine/CharacterRig.js` re-parents the board's figure into hips, neck and head, adds floating mitts, and can hold a prop. The board's own use of `createCharacterMesh` is unchanged apart from two tags |
 | A3 procedural animator | **Built.** idle · walk · ready · aim · hit · fall · victory · defeat, plus fire and flinch accents, blinking and turning |
-| A4 scene kits | **Three sets.** `src/engine/StageSets.js` has Perdition (`hub`), Boot Hill Badlands (`bad`) and a Financial District bank floor (`fin`), each built from `DISTRICT_BIOMES` and the board's `PROP_KIT` |
+| A4 scene kits | **Ten sets.** `src/engine/StageSets.js`: Perdition (`hub`), Boot Hill Badlands (`bad`), a bank floor (`fin`), the moving train (`rail`), Cinder Mine (`mine`), the works yard (`ind`), the Fae pond (`fae`), Back Alley rooftops (`ba`), the Promenade block party (`shop`) and the Void rift (`void`), each built from the biome tables and the board's `PROP_KIT` |
 | A5 cold open · A6 character verdict | **Built, shared.** `src/engine/StageDirector.js`: every 3D game opens with a letterboxed camera move and a title card, and ends on the winner turning to camera with confetti in their colour. It handles both the side-on and the face-off hold. All three 3D games use it |
 | New game 1: **High Noon** | **Built**, in the new SIDE-ON (landscape) hold. `qa/highnoon.js` passes 17/17 |
 | New game 2: **Boot Hill Barrage** (the user's cannon version of Tower Topple) | **Built.** A side-on physics siege. Each player's figure mans a cannon atop a timber fort: drag back to aim, let go to fire, both at once on a reload. `qa/barrage.js` passes. Against an idle fort, a bot takes 12–15 hits (15–20 s) to fell it |
@@ -347,6 +347,11 @@ lines per setting at build time and ship them as data.
 | Vault Heist, from play | **Fixed:** the thief could not bank. The exits were two corner doors, and the way everybody actually runs home ran into the other vault. Now only the guard-end vault exists in a round, and the whole strip across your own end banks, glowing green once you carry anything. Loot is 1.6x, floats over a pulsing ring and shows its value |
 | New game 4: **The 4:15 to Perdition** | **Built.** Side-on roof sumo on a moving train. Drag to walk, tap to shove, hold to duck; low bridges sweep off anyone standing. `qa/express.js` 10/10 |
 | New game 5: **Mine Cart Mayhem** | **Built.** Face-off, from above. Carts that never stop; tap to throw the shared switch ahead; gems, TNT, head-on bounces. `qa/minecart.js` passes |
+| New game 6: **Turf War** | **Built.** Face-off paint yard: run to paint tiles, the rival's wet paint slows you, paint bombs splat a patch. `qa/turfwar.js` passes |
+| New game 7: **Lily Pad Leap** | **Built.** Face-off pond: drag to aim, let go to hop; pads sink under whoever stands on them; land on the rival to stomp them off. A 1.5 s grace at the start of each round, found by the probe: a pad used to sink before a player could make their first hop. `qa/lilypad.js` 8/8 |
+| New game 8: **Rooftop Run** | **Built.** Side-on auto-runner race over the Back Alley roofs at night: top of your half jumps (hold for higher), bottom slides under signs, a slide into the runner ahead trips them, a missed gap costs a climb back up. Coyote time on jumps. `qa/rooftop.js` 10/10 |
+| New game 9: **Block Party** | **Built.** Side-on call-and-response dance-off: the DJ dances a phrase, both players swipe it back on the beat (PERFECT / GOOD / MISS, FULL COMBO), six phrases, the last two from memory. Adds a beat (`kick`, `hat`) and a dance pose set. `qa/blockparty.js` 10/10 |
+| New game 10: **Rift Dive** | **Built.** The first split-screen stage game (`stage.views`): face-off, each half its own camera down the same Void shaft; rings boost, shards stun, divers bump. `qa/riftdive.js` 10/10; a hard bot beat an idle player 5/5 |
 
 ---
 
