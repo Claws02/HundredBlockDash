@@ -5730,4 +5730,6 @@ export const PROP_KIT = {
     // handcar.
     railyard:    (r, seed) => _propRailyard(r >= 0.24 && r < 0.6 ? 0.7 : r, seed),
     railShed:    (pos, seed) => _mkRailShed(pos, seed),
+    // r in [0.46, 0.66) is the hanging lantern, which registers itself.
+    mine:        (r, seed) => _propMine(r >= 0.46 && r < 0.66 ? 0.8 : r, seed),
 };

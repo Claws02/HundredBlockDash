@@ -90,6 +90,8 @@ wrong causes were asserted in one session before anybody actually ran it.
 | `newgames.js` | Puck, Four in a Row, Light Cycles, Penalty and Grand Prix against a scripted opponent — including that a Grand Prix bot can drive at all. |
 | `barrage.js` | Boot Hill Barrage: physics forts that stand still when untouched, a real drag-back that aims and fires from the turned right half, a shot on the solved arc knocking timber loose, a hard bot felling an idle fort, and cleanup. Writes `shot-barrage-*.png`. |
 | `vaultheist.js` | Vault Heist in the face-off hold: a drag on the bottom half walking P1, loot pickup and an escape that banks it, a column blocking the torch, a full beam meter catching the thief, the role swap, two bots finishing a match, and cleanup. Writes `shot-vaultheist-*.png`. |
+| `express.js` | The 4:15 to Perdition: a real drag walks, a tap shoves the figure in reach, a hold ducks, and the bridge sweeps off the standing figure but passes the ducking one. Writes `shot-express-*.png`. |
+| `minecart.js` | Mine Cart Mayhem: a real tap throws the shared switch at P1's next junction, TNT ahead crashes the cart and spills two gems, and a hard bot out-collects an idle player. Writes `shot-minecart-*.png`. |
 | `highnoon.js` | The 3D stage: the players' own figures in a turned landscape scene, the board paused underneath, the holster on the right half, a flinch, a win on the bell, the hold card, and nothing leaked on finish or force-end. Writes `shot-highnoon-*.png`. |
 | `mapmodules.js` | Map registry parity and the board's geometry as *properties*. |
 | `mapshot.js` | Photographs a board from three angles. Not an assertion — a way to look. |

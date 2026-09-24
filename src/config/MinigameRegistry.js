@@ -38,6 +38,7 @@ export const MG_TYPES = [
     'barrage',
     'vaultheist',
     'express',
+    'minecart',
 ];
 
 export const MG_INFO = {
@@ -68,6 +69,7 @@ export const MG_INFO = {
     barrage:     { icon: '💣', title: 'BOOT HILL BARRAGE', desc: 'Turn the phone sideways and sit side by side. Your character stands on top of your fort with a cannon. DRAG BACK anywhere on your half — pull further for more power, and the angle you pull is the angle it flies — then LET GO to fire. Shells burst on whatever they hit. Knock their fort down before they knock down yours! Both cannons fire at once, with a short reload. Hit the legs, not the roof.' },
     vaultheist:  { icon: '🏦', title: 'VAULT HEIST',   desc: 'Lay the phone flat between you. Two rounds — one as the THIEF, one as the GUARD. THIEF: drag to sneak in, grab the gold at the guard\'s end (the vault stack is worth 3, deposit boxes 2, cash bags 1), and get back to the green ESCAPE strip at YOUR end — gold only counts once you are home, and carrying it slows you down. GUARD: drag to walk; your torch points the way you go. Keep the thief in your light for a full second and they leave with nothing — walking into them won\'t do it. Columns and the counter block the light. Most gold banked wins!' },
     express:     { icon: '🚂', title: 'THE 4:15 TO PERDITION', desc: 'Turn the phone sideways and sit side by side. You are both on the roof of a moving train. DRAG across your half to walk, TAP to lunge and shove, HOLD to duck. Shove them off either end of the roof! When the whistle blows, a low bridge is coming — anyone still standing when it passes is swept off. Ducking braces you against a shove too, but you cannot walk or shove while you duck. First to 2 rounds.' },
+    minecart:    { icon: '⛏️', title: 'MINE CART MAYHEM', desc: 'Lay the phone flat between you. Your character rides a mine cart that never stops rolling. TAP to throw the switch at the junction you are heading for — your colour on the floor shows which way you will go. The switches are SHARED: flip one and it is flipped for your rival too. Grab gems (blue ones are worth 3), and steer clear of TNT — hit it and you stop and spill 2 gems. Meet head-on and you both bounce back. Most gems in 40 seconds wins!' },
 };
 
 // ============================================================
@@ -192,6 +194,7 @@ export const MG_NET = {
     barrage:     'local',      // one physics world, both forts in it
     vaultheist:  'local',      // one bank floor, the beam and the thief in it
     express:     'local',      // one roof, shoves that land on contact
+    minecart:    'local',      // one set of switches, flipped for both
 };
 
 // The parallel games whose SCORE is also a coin haul.
@@ -282,6 +285,7 @@ export const MG_SHAPE = {
     barrage:     'arena',   // one wash, shells crossing it both ways
     vaultheist:  'arena',   // + ASYM: one guards, one steals, then they swap
     express:     'arena',   // one roof, one bridge coming for both of them
+    minecart:    'arena',   // one track, one set of switches
 };
 
 // Modifiers laid over a shape: the seats do not have the same job (ASYM), or
@@ -325,6 +329,7 @@ export const MG_ORIENTATION_MAP = {
     barrage:     'sideon',
     vaultheist:  'faceoff',
     express:     'sideon',
+    minecart:    'faceoff',
 };
 
 export const FALLBACK_TRIVIA = [
@@ -493,6 +498,10 @@ export const MG_PROFILE = {
     vaultheist:  { genre: 'nerve',    control: 'thumb', wire: 'snapshot', seats: [2, 2], live: false },
     // Sumo on a line: four on one roof is a queue, not a shoving match.
     express:     { genre: 'push',     control: 'thumb', wire: 'snapshot', seats: [2, 2], live: false },
+    // A tap is a discrete event and the carts run on rails at a fixed speed,
+    // so the whole race replays from the taps: 'events'. Two carts is the
+    // story for now; four on this grid would jam every junction.
+    minecart:    { genre: 'race',     control: 'tap',   wire: 'events',   seats: [2, 2], live: false },
     // roomy: the grid climbs to 5x5 as you score, and a fifth of a phone quarter
     // is a 34 px tile — under the 44 px the control law asks for. On a tablet
     // quarter the same grid is 68 px a side, so 3-4 seats is a tablet game.

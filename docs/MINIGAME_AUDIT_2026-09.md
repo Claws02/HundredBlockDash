@@ -344,7 +344,9 @@ lines per setting at build time and ship them as data.
 | New game 1: **High Noon** | **Built**, in the new SIDE-ON (landscape) hold. `qa/highnoon.js` passes 17/17 |
 | New game 2: **Boot Hill Barrage** (the user's cannon version of Tower Topple) | **Built.** A side-on physics siege. Each player's figure mans a cannon atop a timber fort: drag back to aim, let go to fire, both at once on a reload. `qa/barrage.js` passes. Against an idle fort, a bot takes 12–15 hits (15–20 s) to fell it |
 | New game 3: **Vault Heist** | **Built.** Face-off, near top-down, asymmetric: guard with a torch vs thief, then swap. `qa/vaultheist.js` passes 14/14. **Balance is unproven:** bot against bot, the guard wins most rounds. It needs human playtesting in both roles |
-| Next batch | The 4:15 to Perdition · Mine Cart Mayhem |
+| Vault Heist, from play | **Fixed:** the thief could not bank. The exits were two corner doors, and the way everybody actually runs home ran into the other vault. Now only the guard-end vault exists in a round, and the whole strip across your own end banks, glowing green once you carry anything. Loot is 1.6x, floats over a pulsing ring and shows its value |
+| New game 4: **The 4:15 to Perdition** | **Built.** Side-on roof sumo on a moving train. Drag to walk, tap to shove, hold to duck; low bridges sweep off anyone standing. `qa/express.js` 10/10 |
+| New game 5: **Mine Cart Mayhem** | **Built.** Face-off, from above. Carts that never stop; tap to throw the shared switch ahead; gems, TNT, head-on bounces. `qa/minecart.js` passes |
 
 ---
 

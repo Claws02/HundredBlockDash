@@ -867,10 +867,118 @@ export function buildRailRun(stage, { speed = 16, roofY = 3.4, roofHalf = 5.6 } 
     };
 }
 
+// ---- Cinder Mine: the cart floor ----------------------------------------
+//
+// Underground, "lit by lantern and furnace, not by any sky". The game hands
+// over its track GRAPH (nodes and edges, the numbers the carts ride on) and
+// the set lays rails and sleepers along every edge, a turntable plate and a
+// switch arrow at every junction, and dresses the dark around it: wet rock,
+// ember cracks glowing up through the floor, timber shoring, the ore carts
+// and spoil heaps of the mine's own prop set.
+export function buildMineFloor(stage, G) {
+    const B = DISTRICT_BIOMES.mine;
+    const scene = stage.scene;
+    scene.background = new THREE.Color(0x0c0806);
+    scene.fog = null;
+    scene.add(new THREE.HemisphereLight(0x8a5a3a, 0x120a06, 0.85));
+    const key = new THREE.DirectionalLight(0xffc48a, 0.55);
+    key.position.set(6, 20, 4); scene.add(key);
+    // Two furnace glows, fixed, so the floor is warm at the ends.
+    [[-7, -11], [7, 11]].forEach(([x, z]) => {
+        const l = new THREE.PointLight(0xff7a2a, 1.4, 22, 1.6);
+        l.position.set(x, 3, z); scene.add(l);
+    });
+
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), _mat(0x2a1d16, 0.95));
+    floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor);
+    // Ember cracks: thin glowing lines across the rock, pulsing.
+    const ember = new THREE.MeshBasicMaterial({ color: 0xff6a1a, transparent: true, opacity: 0.55 });
+    const cracks = [];
+    for (let i = 0; i < 22; i++) {
+        const c = new THREE.Mesh(new THREE.PlaneGeometry(0.08 + _rand(i) * 0.08, 1 + _rand(i + 4) * 3), ember.clone());
+        c.rotation.x = -Math.PI / 2; c.rotation.z = _rand(i + 9) * Math.PI;
+        c.position.set((_rand(i + 1) - 0.5) * 14, 0.012, (_rand(i + 2) - 0.5) * 24);
+        scene.add(c); cracks.push(c);
+    }
+    // The rock walls round the floor: boulders and timber shoring.
+    const rock = [0x3a2a20, 0x4a3426, 0x2e221a];
+    for (let i = 0; i < 26; i++) {
+        const side = i % 2 ? 1 : -1;
+        const b = new THREE.Mesh(new THREE.DodecahedronGeometry(1 + _rand(i) * 1.4), _mat(rock[i % 3], 0.95));
+        const along = (i / 26 - 0.5) * 26;
+        b.position.set(side * (G.w / 2 + 1.6 + _rand(i + 3) * 1.4), 0.4, along);
+        b.rotation.set(_rand(i) * 3, _rand(i + 1) * 3, 0);
+        scene.add(b);
+    }
+    const timber = _mat(0x5a3d26, 0.9);
+    for (let z = -G.d / 2; z <= G.d / 2 + 0.01; z += G.d / 3) {
+        [-1, 1].forEach(side => {
+            const post = new THREE.Mesh(new THREE.BoxGeometry(0.4, 3.2, 0.4), timber);
+            post.position.set(side * (G.w / 2 + 0.9), 1.6, z); scene.add(post);
+        });
+        // Posts only. The overhead beams crossed between the camera and the
+        // track and hid a row of junctions from above.
+    }
+    [[-G.w / 2 - 2.4, -G.d / 2 + 1, 0.1], [G.w / 2 + 2.4, G.d / 2 - 1, 0.35], [-G.w / 2 - 2.6, 3, 0.9], [G.w / 2 + 2.5, -4, 0.7]]
+        .forEach(([x, z, r], i) => { const p = PROP_KIT.mine(r, 800 + i); p.position.set(x, 0, z); scene.add(p); });
+
+    // Track: rails and sleepers along every edge.
+    const steel = _mat(0x8f949b, 0.35, 0.85), sleeper = _mat(0x4a3322, 0.95);
+    G.edges.forEach(([a, b]) => {
+        const A = G.nodes[a], Bn = G.nodes[b];
+        const dx = Bn.x - A.x, dz = Bn.z - A.z, len = Math.hypot(dx, dz), ang = Math.atan2(dx, dz);
+        const g = new THREE.Group();
+        g.position.set((A.x + Bn.x) / 2, 0, (A.z + Bn.z) / 2);
+        g.rotation.y = ang;
+        for (let t = -len / 2 + 0.35; t < len / 2 - 0.3; t += 0.5) {
+            const sl = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.08, 0.2), sleeper);
+            sl.position.set(0, 0.04, t); sl.receiveShadow = true; g.add(sl);
+        }
+        [-0.28, 0.28].forEach(x => {
+            const r = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.09, len), steel);
+            r.position.set(x, 0.12, 0); g.add(r);
+        });
+        scene.add(g);
+    });
+    // Junctions: a plate and a switch arrow the game turns.
+    const arrows = G.nodes.map(n => {
+        const plate = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.62, 0.08, 20), _mat(0x6b5a48, 0.5, 0.6));
+        plate.position.set(n.x, 0.05, n.z); scene.add(plate);
+        const arrow = new THREE.Group();
+        const shaft = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.06, 0.6), new THREE.MeshBasicMaterial({ color: 0xffe2a8 }));
+        shaft.position.z = 0.05; arrow.add(shaft);
+        const head = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.4, 3), new THREE.MeshBasicMaterial({ color: 0xffe2a8 }));
+        head.rotation.x = Math.PI / 2; head.position.z = 0.5; arrow.add(head);
+        arrow.position.set(n.x, 0.12, n.z);
+        arrow.visible = n.exits > 2;           // a corner has no choice to show
+        scene.add(arrow);
+        return arrow;
+    });
+
+    const dust = B.motes ? _motes({ ...B.motes, spread: 14 }) : null;
+    if (dust) scene.add(dust);
+
+    return {
+        arrows,
+        update(dt, t) {
+            cracks.forEach((c, i) => { c.material.opacity = 0.35 + Math.sin(t * 2 + i) * 0.2; });
+            if (dust) {
+                const p = dust.geometry.attributes.position, a = p.array;
+                for (let i = 0; i < a.length; i += 3) {
+                    a[i + 1] += dt * dust.userData.rise * 0.5;
+                    if (a[i + 1] > 5) a[i + 1] = 0;
+                }
+                p.needsUpdate = true;
+            }
+        },
+    };
+}
+
 /** Sets by district key. A game asks for the one its story is set in. */
 export const STAGE_SETS = {
     hub: buildPerditionStreet,
     bad: buildBootHill,
     fin: buildBankFloor,
     rail: buildRailRun,
+    mine: buildMineFloor,
 };
