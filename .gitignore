@@ -3,3 +3,4 @@ qa/out-*.txt
 qa/result-*.json
 qa/shot-*.png
 node_modules/
+qa/audit-*.json
