@@ -3,6 +3,7 @@
 **Date:** 2026-09-24
 **Branch:** `claude/minigames-qa-audit-dty9wd`
 **Target:** iOS App Store and Google Play, shipped as a **Capacitor-wrapped web app**
+**Status after the fix pass:** every finding with a code fix is implemented. The score is now **72 / 100** (was 52) and the recommendation is **Ready with Minor Fixes, after a device pass**. §15 lists each finding's status and proof; `STORE_RELEASE.md` has the steps that need devices and accounts. Sections 1–14 below are the audit as it was found.
 **Scope:** the board game: the City Circuit, the turn loop, camera, HUD and menus, buddies, bounties, the story framing (city briefing, district banners), and audio/visual polish. **Minigames are excluded** (audited separately in `MINIGAME_AUDIT_2026-09.md`).
 
 ---
@@ -608,7 +609,20 @@ against the real game in headless Chromium with real pointer input where a
 player would tap. What cannot be settled in this environment (real devices,
 store accounts) is listed at the end, with the steps in `docs/STORE_RELEASE.md`.
 
-**Status key:** ✅ done and verified here · 🟡 done in code, needs a device or account to confirm · ⏭ not applicable
+**Status key:** ✅ done and verified here · 🟡 done in code, needs a device, an account or a final test run to confirm · ⏭ not applicable
+
+**Where this leaves the score: 72 / 100** (was 52). Controls 8, city 7,
+camera 7, UX 8, visual and audio 7, performance 6, accessibility 7, store 6; the
+rest unchanged. **Recommendation: Ready with Minor Fixes, after a device pass.**
+Nothing left in the code blocks a submission. What blocks it is outside the
+repo: signed builds, the store listings, and one session on a real mid-range
+Android phone to confirm the rendering budget.
+
+**Not re-run at the end of this pass (owner's call, testing by hand):** the
+older regression probes (`release.js`, `city.js`, `winscreen.js`, `buddy.js`,
+`gate.js`, `surfaces.js`) and a final `resume.js`. Every change since they last
+passed is covered by its own probe below, but the combination hasn't been
+swept.
 
 ### Release blockers
 
@@ -617,7 +631,7 @@ store accounts) is listed at the end, with the steps in `docs/STORE_RELEASE.md`.
 | RA-01 App package | 🟡 | `package.json` (Capacitor 8 + App, Haptics, SplashScreen, StatusBar), `capacitor.config.json`, `scripts/build-web.js` → `www/`, store icon and splash source art in `resources/` (`npm run art`, `npm run cap:assets`). `npx cap add ios/android` and signing need a Mac, an Android SDK and store accounts | `node scripts/build-web.js`: 105 files, 3.2 MB, no import leaves the build |
 | RA-02 Privacy and online | 🟡 | `privacy.html` (ships in the app, linked from Settings); store data-safety answers in `STORE_RELEASE.md`; `RELEASE.turnServers` feeds WebRTC ICE; the lobby times out after 15 s and tells a joiner what to try when no host answers | Contact address and hosting URL still to fill |
 | RA-03 Draw calls | ✅ (🟡 on device) | Static scenery merged by material and 48-unit cell; animated props, transparent meshes and occluders left alone. Battery saver (Settings) drops the shadow pass and holds 1× | `qa/optimise.js`: meshes 2,193 → 1,250; calls at fixed viewpoints 188 → 135 (street), 762 → 509 (raised), 2,194 → 1,254 (overview); 234 animated meshes still move; 70 occluders keep 498 fade materials; saver toggles shadows off and back |
-| RA-04 Lifecycle | ✅ (🟡 on device) | Local matches autosave at the top of every turn (7-day expiry, never online) and the splash offers RESUME MATCH; Capacitor Back opens/closes pause and exits from menus; the app going inactive pauses; quitting clears the save | `qa/resume.js` (see result below) |
+| RA-04 Lifecycle | 🟡 | Local matches autosave at the top of every turn (7-day expiry, never online) and the splash offers RESUME MATCH; Capacitor Back opens/closes pause and exits from menus; the app going inactive pauses; quitting clears the save | `qa/resume.js` is written and its stalls were probe bugs (fixed: a synthetic click cannot press the minigame intro's `pointerdown` button). A final full pass was **not run**; the owner is testing resume by hand |
 | RA-05 Bot name | ✅ | Bolt the Bot | earlier pass |
 | RA-06 Fonts | ✅ | Nunito (variable) and Bebas Neue bundled as woff2 in `assets/fonts` with their OFL licences; Google Fonts removed | `qa/ci-smoke.js`: both faces load, zero requests to Google |
 
@@ -633,8 +647,8 @@ store accounts) is listed at the end, with the steps in `docs/STORE_RELEASE.md`.
 | C-02 Junction blob | ✅ | earlier pass | |
 | C-03 Back Alley occlusion | ✅ | Overhead spans (bunting, wires, gantries) now fade like buildings when they come between camera and token | Wave 3 |
 | C-04 Lore every time | ✅ | A district's lore line shows on the first visit only | Wave 1 |
-| C-05 Map not an overview | ✅ | The map opens on a fitted top-down view of the whole circuit, clear of the map sheet | `qa/wave3.js` (see below) |
-| C-06 Token out of frame | ✅ | The follow camera re-frames with a short transit when the token sits outside the central 80 % for 0.35 s | `qa/wave3.js` (see below) |
+| C-05 Map not an overview | ✅ | The map opens on a fitted top-down view of the whole circuit, clear of the map sheet. The probe caught that the first version never showed: refreshing the slider flew the camera back to the player's space. Fixed; the hint no longer sits under the slider either | `qa/wave3.js`: all 60 spaces in frame, none under the sheet, the circuit spans 86 % of the width |
+| C-06 Token out of frame | ✅ | The follow camera re-frames with a short transit when the token sits outside the central 80 % for 0.35 s | `qa/wave3.js`: a token thrown 70 units off is back in frame in about 1.1 s |
 | M-01 No reactions | ✅ | Tokens hop on a coin gain, squash and shake on a fine, and breathe while waiting to roll; played through the mirrored effects, so online clients see them too | `qa/wave5.js`: jump peak 1.53 units, squash to 0.79, exact settle |
 | M-02 | ✅ | see G-05 | |
 | CAM-01, CAM-03 | ✅ | earlier pass | `qa/release.js` |
@@ -645,19 +659,19 @@ store accounts) is listed at the end, with the steps in `docs/STORE_RELEASE.md`.
 | ID | Status | What changed | Proof |
 |---|---|---|---|
 | UX-01, UX-02, UX-04 | ✅ | earlier pass | `qa/release.js`, `qa/winscreen.js` |
-| UX-03 Text-wall onboarding | ✅ | First launch no longer opens the seven slides. The first match coaches itself on the real controls: ROLL, the first fork, the first result card, one line each, never blocking a touch, once per install. How to Play stays in the menus | `qa/coach.js` (see below) |
+| UX-03 Text-wall onboarding | ✅ | First launch no longer opens the seven slides. The first match coaches itself on the real controls: ROLL, the first fork, the first result card, one line each, never blocking a touch, once per install. A step counts only after 1.2 s on screen, and the coach bows out after 12 turns | `qa/coach.js` 8/8 |
 | UX-05 HUD wraps, wrong pill | ✅ | Single-line bars with ellipsis; the badge reads YOUR TURN / THEIR TURN / THINKING… | Wave 1 layout sweep |
 | UX-06 Bounty pills clipped | ✅ | The strip wraps | Wave 1 layout sweep |
 | UX-07 Copy | ✅ | Plurals (earlier); identical toasts within 2 s are dropped. **Correction:** the "merged toast" in the audit was a capture artefact (the probe read the whole toast stack as one string), not a game defect | Wave 1 |
 | UX-08 Splash cut off | ✅ | Title clamps to the viewport; compact splash rules below 700 px and 430 px tall | Wave 1 sweep: 0 cut buttons at 375×667 |
-| UX-09 Landscape board | ✅ | Board screens on a landscape phone show a "turn upright" card; the splash and side-on minigames still allow landscape | `qa/wave3.js` |
+| UX-09 Landscape board | ✅ | Board screens on a landscape phone show a "turn upright" card; the splash and side-on minigames still allow landscape | `qa/wave3.js` 11/11 |
 | UX-10 iPad | ✅ | Tablets (shortest side ≥ 700 px) get `html.is-tablet` and 1.25× text on top of the player's text size | `qa/wave3.js` |
-| UX-11 Pause | ✅ | earlier pass, plus Capacitor Back | `qa/resume.js` |
+| UX-11 Pause | ✅ | earlier pass, plus Capacitor Back | `qa/release.js`; Back with a mocked plugin in `qa/resume.js` (not re-run) |
 | VA-01 No music | ✅ (🟡 on device) | A procedural score in the game's own synth voice (menu theme, board loop: pad, bass, arpeggio, hats) on its own bus with a Music slider; ducks under every effect, silent during minigames and when the app is hidden | `qa/wave5.js`: 21 notes in 3 s on the menu, board loop after a match starts, 0 notes with the slider at 0, with mute, and during a minigame |
-| VA-02 iPhone haptics | ✅ (🟡 on device) | Routed to Capacitor Haptics (LIGHT / MEDIUM / HEAVY by pattern length) | `qa/resume.js` with a mocked plugin |
+| VA-02 iPhone haptics | 🟡 | Routed to Capacitor Haptics (LIGHT / MEDIUM / HEAVY by pattern length) | Needs an iPhone; the mocked-plugin check in `qa/resume.js` was not re-run |
 | VA-05 Dark scrims | ✅ | Lighter scrim for prompts | Wave 1 |
 | T-01 | ✅ | see RA-03 | |
-| T-02 Crash reporting | ✅ (🟡 DSN) | Local log of the last 20 errors (`hbdDiagnostics()`); Sentry loads only when `RELEASE.sentryDsn` is set, with player names scrubbed | `qa/resume.js` |
+| T-02 Crash reporting | 🟡 | Local log of the last 20 errors (`hbdDiagnostics()`); Sentry loads only when `RELEASE.sentryDsn` is set, with player names scrubbed | Needs a DSN to prove end to end |
 | T-04 Safe areas | ✅ | earlier pass | |
 | T-05 Online | 🟡 | see RA-02; a TURN server needs provisioning | |
 | T-06 CI | ✅ | `.github/workflows/ci.yml`: static sweep, web build, `qa/ci-smoke.js` on every push and PR | First run on GitHub: green |
