@@ -82,26 +82,56 @@ const shot = (page, name) => page.screenshot({ path: path.join(__dirname, `shot-
     await shot(page, 'play');
 
     // ══════ 3. TNT on the line ahead ══════
-    // An idle cart still picks up what is on its line; wait until P1 holds two.
-    await page.waitForFunction(() => window.__MC._debugState().gems[0] >= 2, null, { timeout: 30000 }).catch(() => {});
+    await page.evaluate(() => window.__MC._debugGive(0, 3));
     const crash = await page.evaluate(async () => {
         const M = window.__MC;
         const st = M._debugState();
         // Put the crate on the edge P1 is about to take.
         M._debugTnt(st.next[0], st.exit[0]);
-        const g0 = st.gems[0];
-        for (let i = 0; i < 40; i++) {
-            await new Promise(r => setTimeout(r, 100));
+        // "Before" is the last reading before the crash: the cart can pick
+        // up a gem on its way to the crate.
+        let g0 = st.gems[0];
+        for (let i = 0; i < 120; i++) {
+            await new Promise(r => setTimeout(r, 50));
             const d = M._debugState();
-            if (d.stun[0] > 0) return { hit: true, g0, g1: d.gems[0] };
+            if (d.stun[0] > 0 && d.why[0] === 'tnt') return { hit: true, g0, g1: d.gems[0], spilled: d.spilled[0] };
+            if (d.stun[0] > 0) continue;            // a bump with P2, not the crate
+            g0 = d.gems[0];
         }
         return { hit: false, g0, g1: M._debugState().gems[0] };
     });
     await shot(page, 'boom');
     ok('TNT on the line ahead crashes the cart', crash.hit, JSON.stringify(crash));
-    // Two gems, or everything if it holds fewer — an idle cart does not
-    // always pick up two in the time allowed.
-    ok('...and spills two of its gems (or all it has)', crash.g0 >= 1 && crash.g1 === Math.max(0, crash.g0 - 2), JSON.stringify(crash));
+    // Counted at the source: a gem picked up in the same frame as the crash
+    // makes a before/after difference unreliable.
+    ok('...and spills two of its gems onto the track', crash.spilled === 2, JSON.stringify(crash));
+    // ══════ Head-on: one bump, then apart — never locked together ══════
+    // Two bots once bounced off each other on one edge for thirty seconds:
+    // reversed, still side by side, and "head-on" again the moment the stun
+    // wore off.
+    const bump = await page.evaluate(async () => {
+        const M = window.__MC;
+        M._debugTnt(0, 1);                          // well out of the way
+        M._debugPut(0, 13, 10, 1.2);                // P1 going up the middle column
+        M._debugPut(1, 10, 13, 1.6);                // P2 coming down it
+        // Watch until just after the first bump's stun ends: the lock showed
+        // up as a second bump on the same edge the instant it did.
+        let bumps = 0, wasStunned = false, freedAt = -1, sameEdgeAfter = null;
+        for (let i = 0; i < 30; i++) {
+            await new Promise(r => setTimeout(r, 100));
+            const d = M._debugState();
+            const stunned = d.stun[0] > 0;
+            if (stunned && !wasStunned) bumps++;
+            if (!stunned && wasStunned && freedAt < 0) freedAt = i;
+            if (freedAt >= 0 && i === freedAt + 3) {
+                sameEdgeAfter = d.edge[0][0] === d.edge[1][1] && d.edge[0][1] === d.edge[1][0] && d.stun[0] > 0;
+                break;
+            }
+            wasStunned = stunned;
+        }
+        return { bumps, sameEdgeAfter };
+    });
+    ok('a head-on meeting bumps once and the carts part', bump.bumps === 1 && bump.sameEdgeAfter === false, JSON.stringify(bump));
     await page.evaluate(async () => { const M = await import('/src/minigames/MinigameManager.js'); M.forceEndMinigame(); });
 
     // ══════ 4. A hard bot against an idle player ══════

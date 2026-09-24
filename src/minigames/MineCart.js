@@ -305,11 +305,13 @@ function _boom(at) {
 
 function _crash(c, why) {
     c.stun = why === 'tnt' ? CRASH_T : BUMP_T;
+    c.lastCrash = why;
     c.anim?.play('hit', { restart: true });
     if (why === 'tnt') {
         // Spill: the gems land on the track nearby for anybody to take.
         const lose = Math.min(SPILL, c.gems);
         c.gems -= lose;
+        c.spilled = (c.spilled || 0) + lose;
         for (let i = 0; i < lose; i++) {
             const around = G.edges.filter(e => e.includes(c.from) || e.includes(c.to));
             _spawnGem(1, around[Math.floor(Math.random() * around.length)]);
@@ -409,10 +411,19 @@ function _frame(dt) {
         }
         // Head on: two carts on one edge, facing, close.
         const [a, b] = _carts;
+        // Only while they are CLOSING: after a bump both are reversed and
+        // still side by side on the same edge, and without this they met
+        // again the instant the stun wore off — two carts bouncing on one
+        // edge for the rest of the match, which two bots found.
         if (a.stun <= 0 && b.stun <= 0 && a.from === b.to && a.to === b.from) {
-            const pa = _posOf(a), pb = _posOf(b);
-            if (Math.hypot(pa.x - pb.x, pa.z - pb.z) < 0.9) {
-                [a, b].forEach(c => { const f = c.from; c.from = c.to; c.to = f; c.s = _edgeLen(c.from, c.to) - c.s; _crash(c, 'bump'); });
+            const L = _edgeLen(a.from, a.to);
+            const closing = a.s + b.s < L;
+            if (closing && L - (a.s + b.s) < 0.9) {
+                [a, b].forEach(c => {
+                    const f = c.from; c.from = c.to; c.to = f;
+                    c.s = Math.min(L, L - c.s + 0.35);      // and a little apart
+                    _crash(c, 'bump');
+                });
             }
         }
         // Pickups and TNT.
@@ -552,7 +563,7 @@ function _renderHud() {
 export function _debugState() {
     return {
         phase: _phase, clock: +_clock.toFixed(2), gems: _carts.map(c => c.gems), stun: _carts.map(c => +Math.max(0, c.stun).toFixed(2)),
-        next: _carts.map(c => c.to), edge: _carts.map(c => [c.from, c.to]),
+        next: _carts.map(c => c.to), edge: _carts.map(c => [c.from, c.to]), why: _carts.map(c => c.lastCrash || null), spilled: _carts.map(c => c.spilled || 0),
         exit: _carts.map(c => _exitFor(c.to, _approach(c)).to), sw: _sw.slice(),
         tnt: _tnt.map(t => [t.a, t.b]), gemsOn: _gems.map(g => [g.a, g.b, g.v]),
         gl: !!_stage?.gl, turned: !!_stage?.turned,
@@ -564,3 +575,7 @@ export function _debugTnt(a, b) {
     const p = _mid(a, b);
     _tnt.push({ a, b, x: p.x, z: p.z, mesh: null });
 }
+/** Probes: hand a cart some gems. */
+export function _debugGive(slot, n) { if (_carts[slot]) _carts[slot].gems += n; }
+/** Probes: put a cart on an edge. */
+export function _debugPut(slot, from, to, s) { const c = _carts[slot]; if (c) Object.assign(c, { from, to, s, stun: 0 }); }
