@@ -484,16 +484,37 @@ export function buildBankFloor(stage, L) {
         shaft.rotation.x = -Math.PI / 2; shaft.position.set(x - Math.sign(x) * 1.5, 0.02, z); scene.add(shaft);
     });
 
-    // Doors: the thieves' way in and out, the two corners at each end, marked
-    // on the floor with an arrow out.
-    [-1, 1].forEach(end => [-1, 1].forEach(side => {
-        const mat = new THREE.MeshBasicMaterial({ color: 0x3a6fd0, transparent: true, opacity: 0.45 });
-        const m = new THREE.Mesh(new THREE.PlaneGeometry(L.doorHalf * 2, L.exit), mat);
-        m.rotation.x = -Math.PI / 2; m.position.set(side * L.doorX, 0.015, end * (D - L.exit / 2)); scene.add(m);
-        const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.35, 0.7, 3),
-            new THREE.MeshBasicMaterial({ color: 0x9cc0ff, transparent: true, opacity: 0.7 }));
-        arrow.rotation.x = end * Math.PI / 2; arrow.position.set(side * L.doorX, 0.03, end * (D - L.exit / 2)); scene.add(arrow);
-    }));
+    // Escape zones: the whole strip across each end. A thief banks the moment
+    // they are back in their own. It used to be two corner doors, and the
+    // obvious way home — straight back to the middle of your own end — ran into
+    // the other vault, so a player could carry gold round the room and never
+    // bank it. Each strip is a glowing band with chevrons pointing out and
+    // ESCAPE painted on the floor the right way up for the player at that end.
+    const escapes = {};
+    [-1, 1].forEach(end => {
+        const g = new THREE.Group();
+        const band = new THREE.Mesh(new THREE.PlaneGeometry(L.w - 0.8, L.exit),
+            new THREE.MeshBasicMaterial({ color: 0x22c55e, transparent: true, opacity: 0.3, depthWrite: false }));
+        band.rotation.x = -Math.PI / 2; band.position.y = 0.015; g.add(band);
+        const edge = new THREE.Mesh(new THREE.PlaneGeometry(L.w - 0.8, 0.08),
+            new THREE.MeshBasicMaterial({ color: 0x4ade80, transparent: true, opacity: 0.9 }));
+        edge.rotation.x = -Math.PI / 2; edge.position.set(0, 0.02, -end * L.exit / 2); g.add(edge);
+        const chevrons = [];
+        [-4, -2, 2, 4].forEach(x => {
+            const c = new THREE.Mesh(new THREE.ConeGeometry(0.32, 0.6, 3),
+                new THREE.MeshBasicMaterial({ color: 0x86efac, transparent: true, opacity: 0.85 }));
+            c.rotation.x = end * Math.PI / 2; c.position.set(x, 0.04, 0); g.add(c); chevrons.push(c);
+        });
+        const word = textPlane('ESCAPE', { w: 2.4, h: 0.8, bg: '#14532d', fg: '#bbf7d0', border: '#22c55e' });
+        word.material.transparent = true;
+        word.rotation.x = -Math.PI / 2;
+        if (end < 0) word.rotation.z = Math.PI;      // the far player reads it from their side
+        word.position.y = 0.03; g.add(word);
+        g.position.set(0, 0, end * (D - L.exit / 2));
+        g.userData = { band, chevrons, word, end };
+        scene.add(g);
+        escapes[end] = g;
+    });
 
     // Columns.
     const marble = _mat(0xe7e3da, 0.4);
@@ -562,49 +583,92 @@ export function buildBankFloor(stage, L) {
     });
 
     // Loot, placed at the game's spots, handed back so the game can hide what
-    // gets taken and restore it between rounds.
-    const barMat = _mat(0xf2c14e, 0.25, 0.9, { emissive: 0x6a4a00, emissiveIntensity: 0.55 });
-    const sackMat = _mat(0x8a6a3e, 0.9);
+    // gets taken and restore it between rounds. From straight overhead in a
+    // dark room the first pass was a few gold pixels, so every prize is now
+    // oversized, floats and turns over a bright pulsing ring, and carries its
+    // value painted beside it for the thief to read.
+    const barMat = _mat(0xffd35c, 0.2, 0.85, { emissive: 0xb07a00, emissiveIntensity: 0.9 });
+    const sackMat = _mat(0xa07a45, 0.8, 0, { emissive: 0x3a2a10, emissiveIntensity: 0.5 });
+    const LOOT_SCALE = 1.6;
     const loot = L.loot.map(l => {
         const g = new THREE.Group();
+        const float = new THREE.Group();
         if (l.kind === 'bar') {
             for (let i = 0; i < 3; i++) {
                 const bar = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.22, 0.3), barMat);
                 bar.position.set((i - 1) * 0.34, 0.11 + (i === 1 ? 0.22 : 0), 0);
-                g.add(bar);
+                float.add(bar);
             }
         } else if (l.kind === 'box') {
-            // A safe-deposit drawer pulled out onto a pedestal.
-            const ped = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.6, 0.7), _mat(0x3a4150, 0.5, 0.5));
-            ped.position.y = 0.3; g.add(ped);
-            const box = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.28, 0.5), _mat(0x9aa3b2, 0.3, 0.85));
-            box.position.y = 0.74; g.add(box);
+            // A safe-deposit drawer pulled out, gold showing.
+            const box = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.28, 0.5), _mat(0xb8c2d2, 0.25, 0.9));
+            box.position.y = 0.14; float.add(box);
             const handle = new THREE.Mesh(new THREE.TorusGeometry(0.08, 0.02, 6, 12, Math.PI), barMat);
-            handle.position.set(0, 0.74, 0.26); g.add(handle);
-            const glint = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.06, 0.3), barMat);
-            glint.position.y = 0.9; g.add(glint);
+            handle.position.set(0, 0.14, 0.26); float.add(handle);
+            const glint = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.08, 0.34), barMat);
+            glint.position.y = 0.3; float.add(glint);
         } else {
             const bag = new THREE.Mesh(new THREE.SphereGeometry(0.34, 12, 10), sackMat);
-            bag.scale.set(1, 1.15, 1); bag.position.y = 0.36; g.add(bag);
+            bag.scale.set(1, 1.15, 1); bag.position.y = 0.36; float.add(bag);
             const tie = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.12, 0.2, 8), sackMat);
-            tie.position.y = 0.78; g.add(tie);
-            const sign = textPlane('$', { w: 0.38, h: 0.38, bg: '#8a6a3e', fg: '#f3dca8', border: '#8a6a3e' });
-            sign.position.set(0, 0.4, 0.33); g.add(sign);
+            tie.position.y = 0.78; float.add(tie);
+            const sign = textPlane('$', { w: 0.38, h: 0.38, bg: '#8a6a3e', fg: '#fff3c4', border: '#8a6a3e' });
+            sign.position.set(0, 0.4, 0.33); float.add(sign);
         }
-        // A warm pool on the floor under every prize, so loot reads from
-        // straight above in a dark room.
-        const pool = new THREE.Mesh(new THREE.CircleGeometry(0.75, 20),
-            new THREE.MeshBasicMaterial({ color: 0xffc94d, transparent: true, opacity: 0.28, depthWrite: false }));
+        float.scale.setScalar(LOOT_SCALE);
+        float.position.y = 0.35;
+        float.traverse(o => { if (o.isMesh) o.castShadow = true; });
+        g.add(float);
+        const ring = new THREE.Mesh(new THREE.RingGeometry(0.95, 1.25, 28),
+            new THREE.MeshBasicMaterial({ color: 0xffc94d, transparent: true, opacity: 0.5, depthWrite: false, side: THREE.DoubleSide }));
+        ring.rotation.x = -Math.PI / 2; ring.position.y = 0.025; g.add(ring);
+        const pool = new THREE.Mesh(new THREE.CircleGeometry(0.95, 24),
+            new THREE.MeshBasicMaterial({ color: 0xffd35c, transparent: true, opacity: 0.22, depthWrite: false }));
         pool.rotation.x = -Math.PI / 2; pool.position.y = 0.02; g.add(pool);
+        const tag = textPlane(`+${l.v}`, { w: 1.2, h: 0.8, bg: '#3b2a05', fg: '#ffd35c', border: '#ffd35c' });
+        tag.rotation.x = -Math.PI / 2; tag.position.set(l.x > 0.5 ? -1.55 : 1.55, 0.05, 0); g.add(tag);
         g.position.set(l.x, 0, l.z);
-        g.traverse(o => { if (o.isMesh && o !== pool) o.castShadow = true; });
+        g.userData = { float, ring, pool, tag, phase: Math.random() * 6 };
         scene.add(g);
         return g;
     });
 
     return {
-        loot, vaults, place: B.name,
-        update(dt, t) { loot.forEach((g, i) => { g.children[g.children.length - 1].material.opacity = 0.22 + Math.sin(t * 3 + i) * 0.08; }); },
+        loot, vaults, escapes, place: B.name,
+        /** Turn the value labels to face the thief (`end` = +1 for P1's end, -1 for P2's). */
+        orientFor(end) {
+            loot.forEach(g => {
+                g.userData.tag.rotation.z = end > 0 ? 0 : Math.PI;
+                // Beside the prize on the side facing the middle of the room,
+                // so a prize by a wall never paints its value into the wall.
+                g.userData.tag.position.x = g.position.x > 0.5 ? -1.55 : 1.55;
+            });
+        },
+        /** Light the thief's escape strip: dim on the way in, blazing with loot. */
+        showEscape(end, carrying) {
+            Object.values(escapes).forEach(e => {
+                const mine = e.userData.end === end;
+                e.visible = mine;
+                e.userData.hot = mine && carrying;
+            });
+        },
+        update(dt, t) {
+            loot.forEach(g => {
+                const u = g.userData, k = t * 3 + u.phase;
+                u.float.position.y = 0.35 + Math.sin(k) * 0.12;
+                u.float.rotation.y += dt * 1.2;
+                u.ring.scale.setScalar(1 + Math.sin(k) * 0.12);
+                u.ring.material.opacity = 0.45 + Math.sin(k) * 0.15;
+            });
+            Object.values(escapes).forEach(e => {
+                const u = e.userData, hot = !!u.hot;
+                u.band.material.opacity = hot ? 0.42 + Math.sin(t * 6) * 0.14 : 0.14;
+                u.word.material.opacity = hot ? 1 : 0.45;
+                u.chevrons.forEach((c, i) => {
+                    c.material.opacity = hot ? 0.5 + 0.5 * Math.max(0, Math.sin(t * 7 - i)) : 0.25;
+                });
+            });
+        },
     };
 }
 

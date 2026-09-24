@@ -98,14 +98,29 @@ const forceEnd = page => page.evaluate(async () => { const M = await import('/sr
         M._debugPlace(0, 4.7, 1.7, Math.PI);
         await new Promise(r => setTimeout(r, 200));
         out.carry = M._debugState().carry;
-        // Out through P1's corner door.
-        M._debugPlace(0, 4.1, 11.3, 0);
-        await new Promise(r => setTimeout(r, 250));
-        out.afterDoor = M._debugState();
         return out;
     });
+    // Home by WALKING, with real drags, straight to the middle of P1's own end
+    // — the way a player goes, and the way that used to run into the other
+    // vault and never bank.
+    const walkTo = async (tx, tz) => {
+        const ax = 206, ay = 700;
+        await page.mouse.move(ax, ay); await page.mouse.down();
+        for (let i = 0; i < 90; i++) {
+            const st = await dbg(page);
+            if (st.phase !== 'play') break;
+            const [x, z] = st.pos[0], dx = tx - x, dz = tz - z, d = Math.hypot(dx, dz);
+            if (d < 0.3) break;
+            await page.mouse.move(ax + dx / d * 50, ay + dz / d * 50);
+            await page.waitForTimeout(80);
+        }
+        await page.mouse.up();
+    };
+    await shot(page, 'carrying');
+    await walkTo(0, 11.3);
+    rules.afterDoor = await dbg(page);
     ok('walking onto a cash bag picks it up', rules.carry === 1, `carry=${rules.carry}`);
-    ok('carrying it out of your own door banks it and ends the round',
+    ok('walking it straight home to the middle of your own end banks it',
        rules.afterDoor.banked[0] === 1 && rules.afterDoor.result && rules.afterDoor.result.kind === 'escaped',
        JSON.stringify({ banked: rules.afterDoor.banked, result: rules.afterDoor.result }));
     await page.waitForTimeout(300);

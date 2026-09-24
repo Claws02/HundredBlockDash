@@ -5,8 +5,9 @@
 // THIEF. The thief comes in through their own door, gets to the vault at the
 // guard's end, and has to get back out with the gold. Then they swap.
 //
-//   THIEF   drag to move. Gold only counts once you are back out of your own
-//           door. The vault stack is worth 3; the cash bags on the desks are
+//   THIEF   drag to move. Gold only counts once you are back in the escape
+//           strip across your own end — it lights up green once you are
+//           carrying. The vault stack is worth 3; the cash bags on the desks are
 //           worth 1 each. Everything you carry slows you down.
 //   GUARD   drag to move; the torch points the way you walk. Hold the thief
 //           in the beam for a full second and they are caught with nothing.
@@ -53,10 +54,8 @@ const FIG_SCALE    = 1.4;
 
 // The room. Walls at ±w/2, ±d/2; P1's door is at +z (the bottom of the glass).
 const L = {
-    w: 12, d: 24, exit: 1.6,
-    // The thieves' doors are the two corners of their own end, either side of
-    // that end's vault — the vault stands between them.
-    doorX: 4.1, doorHalf: 1.7,
+    // `exit`: the depth of each end's escape strip. The whole strip banks.
+    w: 12, d: 24, exit: 2.2,
     pillars: [
         { x: -3.6, z: -4.6, r: 0.62 }, { x: 3.6, z: -4.6, r: 0.62 },
         { x: -3.6, z: 4.6, r: 0.62 }, { x: 3.6, z: 4.6, r: 0.62 },
@@ -80,13 +79,16 @@ const L = {
         { kind: 'bag', x: 4.7, z: 1.7, v: 1 },
     ],
 };
-// Vault walls collide and block the beam like any wall.
-const WALLS = [...L.boxes];
-L.vaults.forEach(v => {
-    WALLS.push({ x: v.x, z: v.z - v.face * 1.4, w: 4.4, d: 0.4 });
-    WALLS.push({ x: v.x - 2.0, z: v.z, w: 0.4, d: 2.8 });
-    WALLS.push({ x: v.x + 2.0, z: v.z, w: 0.4, d: 2.8 });
-});
+// Vault walls collide and block the beam like any wall — but only the vault
+// in play. The one at the thief's own end is taken out of the round entirely:
+// it stood in the middle of their escape and turned "run home" into "run home
+// and find the way round".
+const _vaultWalls = v => [
+    { x: v.x, z: v.z - v.face * 1.4, w: 4.4, d: 0.4 },
+    { x: v.x - 2.0, z: v.z, w: 0.4, d: 2.8 },
+    { x: v.x + 2.0, z: v.z, w: 0.4, d: 2.8 },
+];
+let WALLS = [...L.boxes];
 
 // ── Module state ─────────────────────────────────────────────────────────────
 let _done = false, _onWin = null, _botSkill = 0.55;
@@ -176,7 +178,9 @@ function _playCam() {
     const fov = (_stage?.camera?.fov ?? 38) * Math.PI / 180;
     const aspect = (_stage?.width || 412) / Math.max(1, _stage?.height || 892);
     const t = Math.tan(fov / 2);
-    const h = Math.max((L.d + 2.4) / (2 * t), (L.w + 1.6) / (2 * t * aspect));
+    // Room at both ends for each player's panel, so neither panel sits on
+    // top of an escape strip.
+    const h = Math.max((L.d + 10) / (2 * t), (L.w + 1.6) / (2 * t * aspect));
     const tilt = 0.3;
     return { pos: [h * Math.sin(tilt), h * Math.cos(tilt), 0], look: [0, 0, 0] };
 }
@@ -235,7 +239,7 @@ function _setupRound(n) {
     _bot = [0, 1].map(() => ({ plan: 0, tx: 0, tz: 0, side: Math.random() < 0.5 ? -1 : 1, stage: 'in', greedy: Math.random() < 0.3 + _botSkill * 0.4 }));
     _figs.forEach(f => {
         const thief = f.slot === _thief;
-        f.x = thief ? (Math.random() < 0.5 ? -1 : 1) * L.doorX : 0;
+        f.x = 0;
         f.z = thief ? _doorZ(f.slot) : _doorZ(guard) - Math.sign(_doorZ(guard)) * 5.2;
         f.vx = f.vz = 0;
         // Face into the room.
@@ -251,8 +255,14 @@ function _setupRound(n) {
     });
     // Loot: this round's vault and the desk bags.
     const vaultInPlay = _thief === 0 ? 0 : 1;
+    WALLS = [...L.boxes, ..._vaultWalls(L.vaults[vaultInPlay])];
     _lootActive = L.loot.map(l => l.vault === undefined || l.vault === vaultInPlay);
-    _set?.loot.forEach((g, i) => { g.visible = _lootActive[i]; });
+    if (_set) {
+        _set.loot.forEach((g, i) => { g.visible = _lootActive[i]; });
+        _set.vaults.forEach((g, i) => { g.visible = i === vaultInPlay; });
+        _set.orientFor(Math.sign(_doorZ(_thief)));
+        _set.showEscape(Math.sign(_doorZ(_thief)), false);
+    }
 }
 let _lootActive = [];
 
@@ -342,9 +352,9 @@ function _onUp(e) {
 }
 
 // ── Geometry ─────────────────────────────────────────────────────────────────
-function _atDoor(f, slot) {
-    return Math.sign(f.z) === Math.sign(_doorZ(slot)) && Math.abs(f.z) > L.d / 2 - L.exit
-        && Math.abs(Math.abs(f.x) - L.doorX) < L.doorHalf;
+// Anywhere in your own end's strip.
+function _inEscape(f, slot) {
+    return Math.sign(f.z) === Math.sign(_doorZ(slot)) && Math.abs(f.z) > L.d / 2 - L.exit;
 }
 
 function _collide(f) {
@@ -480,10 +490,9 @@ function _botMove(slot, dt) {
         const home = Math.sign(f.z) === Math.sign(door) && Math.abs(f.z) > 0.6;
         if (!home) { tx = laneX; tz = Math.sign(door) * 1.4; }
         else {
-            // The nearer door, unless the guard is standing in it.
-            let dx = (Math.sign(f.x) || b.side) * L.doorX;
-            if (Math.hypot(guard.x - dx, guard.z - door) < 2.6) dx = -dx;
-            tx = dx; tz = door + Math.sign(door);
+            // Straight home, stepping round a guard who has got in front.
+            tx = Math.abs(guard.x - f.x) < 2 && Math.abs(guard.z - door) < 4 ? (guard.x > 0 ? -4 : 4) : f.x * 0.5;
+            tz = door + Math.sign(door);
         }
     }
     const s = _steer(f, tx, tz);
@@ -566,6 +575,7 @@ function _frame(dt) {
                 if (_set) _set.loot[i].visible = false;
                 sfx('coin_gain'); haptic([25]);
                 if (thief.sack) thief.sack.scale.setScalar(0.6 + _carry * 0.14);
+                _set?.showEscape(Math.sign(_doorZ(_thief)), true);
             }
         });
 
@@ -584,7 +594,7 @@ function _frame(dt) {
             _collide(thief); _collide(guard);
         }
         if (_suspicion >= 1) { _result = { kind: 'caught', value: 0, by: 'beam' }; _enter('result'); }
-        else if (_carry > 0 && _atDoor(thief, _thief)) {
+        else if (_carry > 0 && _inEscape(thief, _thief)) {
             _result = { kind: 'escaped', value: _carry }; _enter('result');
         } else if (_clock >= ROUND_TIME) { _result = { kind: 'time', value: 0 }; _enter('result'); }
     }
@@ -639,10 +649,10 @@ function _buildHud() {
         half.style.cssText = 'position:absolute;left:0;right:0;height:50%;pointer-events:none;' +
             (slot === 0 ? 'bottom:0;' : 'top:0;transform:rotate(180deg);');
         const strip = document.createElement('div');
-        strip.style.cssText = 'position:absolute;left:50%;bottom:58px;transform:translateX(-50%);padding:6px 14px;' +
+        strip.style.cssText = 'position:absolute;left:50%;bottom:52px;transform:translateX(-50%);padding:3px 12px;' +
             `border-radius:14px;background:rgba(8,10,20,.7);border:2px solid ${_css(slot)};white-space:nowrap;text-align:center;` + txt;
-        const role = document.createElement('div'); role.style.fontSize = '18px';
-        const info = document.createElement('div'); info.style.cssText = 'font-size:14px;opacity:.9;';
+        const role = document.createElement('div'); role.style.fontSize = '15px';
+        const info = document.createElement('div'); info.style.cssText = 'font-size:12px;opacity:.9;';
         strip.appendChild(role); strip.appendChild(info);
         half.appendChild(strip);
         const bigBox = document.createElement('div');
@@ -674,7 +684,9 @@ function _renderHud() {
     _hud.halves.forEach((h, slot) => {
         const thief = slot === _thief;
         h.role.textContent = thief ? '💰 THIEF · GRAB IT, GET OUT' : '🔦 GUARD · LIGHT THEM UP';
-        h.info.textContent = `BANKED ${_banked[slot]} · ${thief ? `CARRYING ${_carry}` : 'SPOTTED ' + Math.round(_suspicion * 100) + '%'}`;
+        h.info.textContent = thief
+            ? (_carry > 0 ? `CARRYING ${_carry} · GET BACK TO YOUR END ▼` : `BANKED ${_banked[slot]} · TAKE THE GOLD`)
+            : `BANKED ${_banked[slot]} · SPOTTED ${Math.round(_suspicion * 100)}%`;
     });
     if (_phase === 'play') _neutral();
 }
