@@ -57,6 +57,15 @@ function _noise(vol, start, dur, ctx) {
 export function haptic(pattern) {
     if (!_haptics) return;
     try {
+        // In the app, the native plugin: iOS WebViews do not implement
+        // navigator.vibrate at all, so every haptic was silent on iPhone
+        // (RELEASE_AUDIT VA-02). A longer pattern is a heavier tap.
+        const H = window.Capacitor?.Plugins?.Haptics;
+        if (H && H.impact) {
+            const total = (Array.isArray(pattern) ? pattern : [pattern]).reduce((a, b) => a + (+b || 0), 0);
+            H.impact({ style: total >= 60 ? 'HEAVY' : total >= 25 ? 'MEDIUM' : 'LIGHT' }).catch?.(() => {});
+            return;
+        }
         if (navigator.vibrate && typeof navigator.vibrate === 'function') navigator.vibrate(pattern);
     } catch (e) {}
 }
@@ -64,6 +73,7 @@ export function haptic(pattern) {
 export function sfx(name) {
     try {
         const ctx = getCtx(); const t = ctx.currentTime;
+        _duck(t);
         switch (name) {
             case 'dice_throw':  _noise(0.3, t, 0.18, ctx); haptic([30]); break;
             case 'dice_land':   _beep(180, 'sine', 0.4, t, 0.08, ctx); haptic([10]); break;
@@ -113,3 +123,157 @@ export function sfx(name) {
         }
     } catch (e) {}
 }
+
+// ============================================================
+// MUSIC (RELEASE_AUDIT VA-01)
+// ============================================================
+// The game had no music and no ambience: every sound was a feedback beep. This
+// is a small procedural score in the same synth voice as the effects, so it
+// needs no licence and no download: a menu theme and a board loop, each a
+// four-chord progression with a pad, a bass, an arpeggio and soft hats.
+//
+// It runs on its own bus with its own level (Settings → Music), under the
+// master mute; it ducks under every effect so the feedback still reads; it
+// goes silent while a minigame plays (those have their own sound) and whenever
+// the app is hidden. Notes are scheduled a little ahead on the audio clock, so
+// a janky frame never makes the music stumble.
+
+let _musicBus = null, _duckGain = null;
+let _musicLevel = 0.5;
+let _mood = 'off';               // 'menu' | 'board' | 'off'
+let _moodGate = () => true;      // false = hold the music (a minigame is on)
+let _sched = null, _nextT = 0, _step = 0;
+
+const _N = n => 440 * Math.pow(2, (n - 69) / 12);          // MIDI → Hz
+// Chords as MIDI roots and qualities; the board loop is brighter and quicker.
+const THEMES = {
+    menu:  { bpm: 84, chords: [[53, 'maj'], [48, 'maj'], [50, 'min'], [46, 'maj']] },   // F C Dm B♭
+    board: { bpm: 100, chords: [[48, 'maj'], [45, 'min'], [53, 'maj'], [55, 'maj'],     // C Am F G
+                                [48, 'maj'], [52, 'min'], [53, 'maj'], [55, 'sus']] },  // C Em F Gsus
+};
+const QUAL = { maj: [0, 4, 7], min: [0, 3, 7], sus: [0, 5, 7] };
+
+function _musicOut() {
+    const ctx = getCtx();
+    if (!_musicBus) {
+        _musicBus = ctx.createGain();
+        _duckGain = ctx.createGain();
+        const lp = ctx.createBiquadFilter();
+        lp.type = 'lowpass'; lp.frequency.value = 3200;
+        _musicBus.connect(_duckGain); _duckGain.connect(lp); lp.connect(ctx.destination);
+        _applyMusicGain();
+    }
+    return _musicBus;
+}
+function _applyMusicGain() {
+    if (!_musicBus || !_ctx) return;
+    const v = _muted ? 0 : _musicLevel * 0.32;
+    _musicBus.gain.setTargetAtTime(v, _ctx.currentTime, 0.08);
+}
+function _duck(t) {
+    if (!_duckGain) return;
+    const g = _duckGain.gain;
+    g.cancelScheduledValues(t);
+    g.setValueAtTime(g.value, t);
+    g.linearRampToValueAtTime(0.4, t + 0.03);
+    g.linearRampToValueAtTime(1, t + 0.55);
+}
+
+export function setMusicLevel(v) { _musicLevel = Math.max(0, Math.min(1, +v || 0)); _applyMusicGain(); _syncScheduler(); }
+// setMuted already exists; music follows it through _applyMusicGain.
+const _setMutedFx = setMuted;
+export function setMutedAll(m) { _setMutedFx(m); _applyMusicGain(); _syncScheduler(); }
+
+/** 'menu', 'board' or 'off'. Safe to call before any user gesture: the music
+ *  starts on the first sound the browser allows. */
+export function setMusicMood(mood) {
+    if (mood === _mood) return;
+    _mood = mood;
+    _step = 0;
+    _syncScheduler();
+}
+/** A test the scheduler asks before each bar: false holds the music. */
+export function setMusicGate(fn) { _moodGate = typeof fn === 'function' ? fn : () => true; }
+export function musicState() { return { mood: _mood, level: _musicLevel, playing: !!_sched, step: _step }; }
+
+function _syncScheduler() {
+    const want = _mood !== 'off' && !_muted && _musicLevel > 0 && !document.hidden;
+    if (want && !_sched && _ctx) {
+        _nextT = _ctx.currentTime + 0.1;
+        _sched = setInterval(_schedule, 50);
+    } else if (!want && _sched) {
+        clearInterval(_sched); _sched = null;
+    }
+}
+
+function _voice(freq, type, vol, t, attack, dur, dest, detune = 0) {
+    const ctx = _ctx, o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = type; o.frequency.setValueAtTime(freq, t); o.detune.value = detune;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + attack);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(dest);
+    o.start(t); o.stop(t + dur + 0.05);
+}
+function _hat(t, vol, dest) {
+    const ctx = _ctx, len = Math.floor(ctx.sampleRate * 0.04);
+    const buf = ctx.createBuffer(1, len, ctx.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+    const src = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+    f.type = 'highpass'; f.frequency.value = 7000;
+    src.buffer = buf; g.gain.value = vol;
+    src.connect(f); f.connect(g); g.connect(dest);
+    src.start(t);
+}
+
+// One eighth note at a time, 0.25 s ahead of the audio clock.
+function _schedule() {
+    if (!_ctx || _ctx.state !== 'running') return;
+    const th = THEMES[_mood];
+    if (!th) return;
+    const dest = _musicOut();
+    const eighth = 60 / th.bpm / 2;
+    if (_nextT < _ctx.currentTime) _nextT = _ctx.currentTime + 0.05;   // after a stall, rejoin rather than burst
+    while (_nextT < _ctx.currentTime + 0.25) {
+        const t = _nextT, s = _step;
+        const bar = Math.floor(s / 8), e8 = s % 8;
+        if (_moodGate()) {
+            const [root, q] = th.chords[bar % th.chords.length];
+            const tones = QUAL[q].map(x => root + x);
+            const section = Math.floor(bar / 4) % 4;              // 16-bar form: A A' B break
+            if (e8 === 0) {
+                // Pad: the chord, two detuned voices, held for the bar.
+                const barLen = eighth * 8;
+                tones.forEach(n => {
+                    _voice(_N(n + 12), 'triangle', 0.05, t, 0.35, barLen * 0.98, dest, -6);
+                    _voice(_N(n + 12), 'triangle', 0.05, t, 0.35, barLen * 0.98, dest, 6);
+                });
+            }
+            // Bass on 1 and the "and" of 2, a fifth on 3.
+            if (e8 === 0 || e8 === 3) _voice(_N(root - 12), 'sine', 0.22, t, 0.01, eighth * 2.4, dest);
+            if (e8 === 4) _voice(_N(root - 5), 'sine', 0.16, t, 0.01, eighth * 1.8, dest);
+            // Arpeggio up through the chord; it rests in the break.
+            if (section !== 3 && (_mood === 'board' || e8 % 2 === 0)) {
+                const pat = section === 1 ? [0, 2, 1, 2, 0, 2, 1, 2] : [0, 1, 2, 1, 0, 1, 2, 1];
+                const n = tones[pat[e8]] + 24;
+                _voice(_N(n), 'triangle', section === 2 ? 0.05 : 0.07, t, 0.005, eighth * 0.9, dest);
+            }
+            if (_mood === 'board' && e8 % 2 === 1) _hat(t, section === 3 ? 0.03 : 0.05, dest);
+        }
+        _nextT += eighth;
+        _step++;
+    }
+}
+
+// Hidden app: no music in somebody's pocket.
+try {
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden && _ctx && _ctx.state === 'running') _ctx.suspend().catch(() => {});
+        else if (!document.hidden && _ctx && _ctx.state === 'suspended') _ctx.resume().catch(() => {});
+        _syncScheduler();
+    });
+    // Browsers only allow audio after a gesture: the first tap starts it.
+    const kick = () => { try { getCtx(); _musicOut(); _syncScheduler(); } catch (e) {} };
+    window.addEventListener('pointerdown', kick, { passive: true });
+    window.addEventListener('keydown', kick);
+} catch (e) {}

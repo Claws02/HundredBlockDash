@@ -12,11 +12,12 @@ import { ITEMS, ALLIES, SPACE_META, SPACE_DESCS, DISTRICT_BIOMES, HQ_META, CHAR_
 import { COUNTED_TYPES } from '../config/ContractPool.js';
 import { SCENE } from '../config/SceneTiming.js';
 import * as DualRead from './DualRead.js';
-import { getPos, getTileMeshes, setMapCameraTarget, mapCamera, onResize, getCamera,
+import { getPos, getTileMeshes, setMapCameraTarget, setMapOverview, mapCamera, onResize, getCamera,
          clampMapTarget, worldToScreen, focusJunction, clearJunctionFocus } from '../engine/Renderer.js';
 import * as ActiveMap from '../config/ActiveMap.js';
 import * as Stars from '../core/Stars.js';
 import { MAP_REGISTRY } from '../config/MapRegistry.js';
+import * as Storage from '../core/Storage.js';
 
 // World units panned per pixel of drag on the map view.
 const MAP_DRAG_GAIN = 0.055;
@@ -137,6 +138,13 @@ function _paintBar(dom, seat) {
         .join('');
     const bar = document.getElementById(`hud-p${dom}`);
     bar.classList.toggle('active-turn', isActive);
+    // The badge said YOUR TURN on every bar, including the bot's while it was
+    // playing (RELEASE_AUDIT UX-05). It speaks to whoever holds this device.
+    const badge = bar.querySelector('.hud-turn-badge');
+    if (badge) {
+        const online = typeof state.localSeat === 'number';
+        badge.textContent = p.isBot ? 'THINKING…' : (online && !isMySeat(seat)) ? 'THEIR TURN' : 'YOUR TURN';
+    }
     // A custom property, not the border colours directly: each bar accents a
     // different edge and the other three sides are the panel's own hairline.
     // Setting borderTopColor/borderBottomColor here repainted that hairline too.
@@ -462,6 +470,8 @@ function _updateAllySlots(playerIdx, p) {
 // 1 on the top; in solo mode the bottom bar names whichever seat this device is
 // playing and the top bar is not on screen at all.
 export function setPlayerNames() {
+    // For the crash reporter's scrubber: names are the one personal thing here.
+    window.__hbdPlayerNames = state.players.map(p => p.name);
     const label = seat => {
         const p = state.players[seat];
         if (!p) return '';
@@ -1088,6 +1098,11 @@ export function showCityBriefing(onDone) {
             <span class="cb-len bfont">${r.spaces}</span>
         </div>`).join('');
 
+    // Seen it before: the headline and the roads, without the paragraphs of
+    // lore. The full version every single match was a page to scroll through
+    // before you could play (RELEASE_AUDIT UX-02).
+    el.classList.toggle('cb-compact', !!Storage.load('seen_city_briefing', false));
+    Storage.save('seen_city_briefing', true);
     el.style.display = 'flex';
     // Both players are about to play this board, so in tabletop mode the card
     // is drawn twice, the top copy turned to face Player 2.
@@ -1324,13 +1339,23 @@ export function announceMinigameIncoming(pair) {
     el._hideTimer = setTimeout(() => { el.style.display = 'none'; }, SCENE.PRE_MINIGAME);
 }
 
+function _firstVisit(key) {
+    const seen = Storage.load('seen_realms', []) || [];
+    if (seen.includes(key)) return false;
+    Storage.save('seen_realms', seen.concat(key));
+    return true;
+}
+
 export function showRealmBanner(realm) {
     const el = document.getElementById('realm-banner');
     if (!el || !realm) return;
     el.innerHTML = DualRead.dualHTML(
         `<div class="rb-ic">${realm.icon}</div><div class="rb-name">${realm.name}</div>`
         + `<div class="rb-tag">${realm.tagline || ''}</div>`
-        + (realm.lore ? `<div class="rb-lore">${realm.lore}</div>` : ''));
+        // The paragraph of lore once per district per device; after that the
+        // name and its one-line rule. Every entry, mid-turn, was a page of
+        // prose to wait out (RELEASE_AUDIT C-04).
+        + (realm.lore && _firstVisit(realm.name) ? `<div class="rb-lore">${realm.lore}</div>` : ''));
     el.style.display = 'flex';
     el.style.animation = 'none'; void el.offsetWidth; el.style.animation = '';
     clearTimeout(el._hideTimer);
@@ -1364,7 +1389,13 @@ export function showTurnBanner(playerIdx, opts = {}) {
     // that is the difference between reading a name and knowing to pick the
     // device up — the name alone made everybody check the HUD to work out
     // whether it meant them.
-    const isMe = isMySeat(playerIdx);
+    // Online, "me" is the seat this phone was given. Off the network there is
+    // no such seat: the device belongs to whichever human is up, so any human's
+    // own turn is theirs. Only testing localSeat said "waiting on them" to the
+    // player whose turn it was, in every 1P and pass-and-play match
+    // (RELEASE_AUDIT G-02).
+    const online = typeof state.localSeat === 'number';
+    const isMe = online ? isMySeat(playerIdx) : !p.isBot;
     const sub  = opts.sub || (p.isBot ? 'thinking…'
                : isMe ? 'YOUR TURN — roll the dice'
                : 'waiting on them');
@@ -1457,9 +1488,14 @@ export function toast(msg, color, opts = {}) {
     _emitToast(msg, color);
 }
 
+let _lastToast = { msg: '', at: 0 };
 function _emitToast(msg, color) {
     const box = document.getElementById('toast-box');
     if (!box) return;
+    // The same line twice inside two seconds is one event said twice.
+    const now = performance.now();
+    if (msg === _lastToast.msg && now - _lastToast.at < 2000) return;
+    _lastToast = { msg, at: now };
     // Two at a time. Five stacked pills is not a notification, it is a wall.
     while (box.children.length >= 2) box.removeChild(box.firstChild);
     const el = document.createElement('div');
@@ -1520,6 +1556,12 @@ function _playerMapIndex() {
     return i >= 0 ? i : 0;
 }
 
+function _mapSheetFrac() {
+    const panel = document.querySelector('#map-ui .map-panel');
+    const h = panel ? panel.getBoundingClientRect().height : 0;
+    return Math.min(0.45, Math.max(0.12, (h + 24) / Math.max(1, window.innerHeight)));
+}
+
 export function openMap() {
     state.gameState  = 'MAP';
     state.cameraState = 'MAP';
@@ -1546,8 +1588,11 @@ export function openMap() {
         : '👆 Drag the 3D board to explore · Tap a tile for details';
 
     document.getElementById('map-tooltip').style.display = 'none';
-    setMapCameraTarget(_mapAddress(posIdx), _isHBD() ? 34 : 50, _isHBD() ? 26 : 20);
-    updateMapSlider();
+    // City opens on the whole circuit; the slider still flies to any point on
+    // it. HBD is a long ribbon and keeps its scout-the-road-ahead view.
+    if (_isHBD()) setMapCameraTarget(_mapAddress(posIdx), 34, 26);
+    else setMapOverview(_mapSheetFrac());
+    updateMapSlider({ keepCamera: !_isHBD() });
 }
 
 export function closeMap() {
@@ -1580,9 +1625,12 @@ export function closeMap() {
     updateUI();
 }
 
-export function updateMapSlider() {
+export function updateMapSlider(opts) {
     const val = parseInt(document.getElementById('map-slider').value);
-    setMapCameraTarget(_mapAddress(val), _isHBD() ? 30 : 40, _isHBD() ? 22 : 25);
+    // Opening the City map shows the whole circuit: refresh the label without
+    // flying the camera back down to the player's space (RELEASE_AUDIT C-05).
+    // Moving the slider still flies to the space it names.
+    if (!(opts && opts.keepCamera)) setMapCameraTarget(_mapAddress(val), _isHBD() ? 30 : 40, _isHBD() ? 22 : 25);
     document.getElementById('map-tooltip').style.display = 'none';
 
     let label;
@@ -1704,97 +1752,115 @@ function _wireMapEvents() {
         mapCamera.dragging = false;
         if (!wasTap) return;
 
-        const W = window.innerWidth || 300, H = window.innerHeight || 500;
-        // Undo the canvas's half turn before casting, or P2 picks the tile
-        // diagonally opposite the one they touched.
-        const flipped = _boardFlipped();
-        const px = flipped ? W - e.clientX : e.clientX;
-        const py = flipped ? H - e.clientY : e.clientY;
-        mouse.x = (px / W) * 2 - 1;
-        mouse.y = -(py / H) * 2 + 1;
-        raycaster.setFromCamera(mouse, getCamera());
-        const hits = raycaster.intersectObjects(getTileMeshes());
-        const tt   = document.getElementById('map-tooltip');
-        if (hits.length > 0) {
-            const td = hits[0].object.userData;
-            // HBD tiles carry a numeric `idx`; City tiles carry a `nodeId`.
-            const addr = td.nodeId !== undefined ? td.nodeId : td.idx;
-            if (addr === undefined) { tt.style.display = 'none'; return; }
-            const tile = state.board[addr];
-            const node = typeof addr === 'string' ? ActiveMap.graph()[addr] : null;
-            const type = tile?.type || node?.type || 'coin';
-            const meta = SPACE_META[type] || { ic: '❓', n: type, c: 0xffffff };
-            const cStr = meta.c.toString(16).padStart(6, '0');
-            let title, sub;
-            if (typeof addr === 'number') {
-                // Realm-flavoured name and the block number, so scouting ahead
-                // tells you something the board itself doesn't.
-                const lbl = hbdSpaceLabel(addr, type);
-                const realm = getRealmForSpace(addr);
-                title = `${lbl.icon} ${lbl.name}`;
-                sub   = `${realm.icon} ${realm.name} · Block ${addr}`;
-            } else {
-                title = `${meta.ic} ${meta.n}`;
-                sub   = node ? (DISTRICT_BIOMES[node.district]?.name || ActiveMap.regionName(node.district) || '') : '';
-            }
-            // What the space actually DOES, and how far away it is. Scouting the
-            // road was previously a name and a block number — you could see that
-            // block 31 was "The Ember Toll" without any way to know it costs you
-            // four coins, or that it is exactly one 6 away.
-            const effect = _spaceEffectText(addr, type);
-            const dist   = _distanceText(addr);
-            // While a buddy is standing beside a tile, that tile IS the buddy
-            // space — the one square on the board worth routing towards — so
-            // scouting has to say so, not just report whatever it normally is.
-            const buddyHere = state.allyOnMap && state.allyOnMap.nodeId === addr
-                ? ALLIES[state.allyOnMap.allyType] : null;
-            tt.innerHTML =
-                (buddyHere ? `<span class="map-buddy">🤝 BUDDY SPACE · ${buddyHere.name}</span><br>` : '') +
-                `<span style="color:#${cStr}">${title}</span>` +
-                `<br><span class="map-dist">${sub}</span>` +
-                (effect ? `<br><span class="map-effect">${effect}</span>` : '') +
-                (dist ? `<br><span class="map-range">${dist}</span>` : '');
-            // The card is taller now that it carries an effect line, so keep it
-            // clear of both edges rather than only the bottom. The control panel
-            // sits at whichever edge belongs to the player whose turn it is, so
-            // the bigger margin swaps ends with it.
-            const nearPad = flipped ? 90 : 170, farPad = flipped ? 170 : 90;
-            tt.style.left = Math.min(Math.max(e.clientX, 140), W - 140) + 'px';
-            tt.style.top  = Math.min(Math.max(e.clientY, nearPad), H - farPad) + 'px';
-            tt.style.display = 'block';
-            clearTimeout(tt._hideTimer);
-            tt._hideTimer = setTimeout(() => { tt.style.display = 'none'; }, 3000);
-        } else {
-            tt.style.display = 'none';
-        }
+        _inspectTileAt(e);
     });
+}
+
+// What is on the tile under this point? Shared by the MAP view and a tap on
+// the board during your own turn, which used to swallow every touch in the
+// swipe zone (RELEASE_AUDIT G-04).
+function _inspectTileAt(e) {
+    const W = window.innerWidth || 300, H = window.innerHeight || 500;
+    // Undo the canvas's half turn before casting, or P2 picks the tile
+    // diagonally opposite the one they touched.
+    const flipped = _boardFlipped();
+    const px = flipped ? W - e.clientX : e.clientX;
+    const py = flipped ? H - e.clientY : e.clientY;
+    mouse.x = (px / W) * 2 - 1;
+    mouse.y = -(py / H) * 2 + 1;
+    raycaster.setFromCamera(mouse, getCamera());
+    const hits = raycaster.intersectObjects(getTileMeshes());
+    const tt   = document.getElementById('map-tooltip');
+    if (hits.length > 0) {
+        const td = hits[0].object.userData;
+        // HBD tiles carry a numeric `idx`; City tiles carry a `nodeId`.
+        const addr = td.nodeId !== undefined ? td.nodeId : td.idx;
+        if (addr === undefined) { tt.style.display = 'none'; return; }
+        const tile = state.board[addr];
+        const node = typeof addr === 'string' ? ActiveMap.graph()[addr] : null;
+        const type = tile?.type || node?.type || 'coin';
+        const meta = SPACE_META[type] || { ic: '❓', n: type, c: 0xffffff };
+        const cStr = meta.c.toString(16).padStart(6, '0');
+        let title, sub;
+        if (typeof addr === 'number') {
+            // Realm-flavoured name and the block number, so scouting ahead
+            // tells you something the board itself doesn't.
+            const lbl = hbdSpaceLabel(addr, type);
+            const realm = getRealmForSpace(addr);
+            title = `${lbl.icon} ${lbl.name}`;
+            sub   = `${realm.icon} ${realm.name} · Block ${addr}`;
+        } else {
+            title = `${meta.ic} ${meta.n}`;
+            sub   = node ? (DISTRICT_BIOMES[node.district]?.name || ActiveMap.regionName(node.district) || '') : '';
+        }
+        // What the space actually DOES, and how far away it is. Scouting the
+        // road was previously a name and a block number — you could see that
+        // block 31 was "The Ember Toll" without any way to know it costs you
+        // four coins, or that it is exactly one 6 away.
+        const effect = _spaceEffectText(addr, type);
+        const dist   = _distanceText(addr);
+        // While a buddy is standing beside a tile, that tile IS the buddy
+        // space — the one square on the board worth routing towards — so
+        // scouting has to say so, not just report whatever it normally is.
+        const buddyHere = state.allyOnMap && state.allyOnMap.nodeId === addr
+            ? ALLIES[state.allyOnMap.allyType] : null;
+        tt.innerHTML =
+            (buddyHere ? `<span class="map-buddy">🤝 BUDDY SPACE · ${buddyHere.name}</span><br>` : '') +
+            `<span style="color:#${cStr}">${title}</span>` +
+            `<br><span class="map-dist">${sub}</span>` +
+            (effect ? `<br><span class="map-effect">${effect}</span>` : '') +
+            (dist ? `<br><span class="map-range">${dist}</span>` : '');
+        // The card is taller now that it carries an effect line, so keep it
+        // clear of both edges rather than only the bottom. The control panel
+        // sits at whichever edge belongs to the player whose turn it is, so
+        // the bigger margin swaps ends with it.
+        const nearPad = flipped ? 90 : 170, farPad = flipped ? 170 : 90;
+        tt.style.left = Math.min(Math.max(e.clientX, 140), W - 140) + 'px';
+        tt.style.top  = Math.min(Math.max(e.clientY, nearPad), H - farPad) + 'px';
+        tt.style.display = 'block';
+        clearTimeout(tt._hideTimer);
+        tt._hideTimer = setTimeout(() => { tt.style.display = 'none'; }, 3000);
+    } else {
+        tt.style.display = 'none';
+    }
 }
 
 // ---- Swipe zone ----
 
 function _wireSwipeEvents() {
     const zone = document.getElementById('swipe-zone');
-    let sy = 0, st = 0;
-    zone.addEventListener('touchstart', e => { sy = e.touches[0].clientY; st = Date.now(); });
-    zone.addEventListener('touchend', e => {
+    let sx = 0, sy = 0, st = 0;
+    const down = (x, y) => { sx = x; sy = y; st = Date.now(); };
+    const up = (x, y) => {
         if (state.gameState !== 'PRE_ROLL' || state.players[state.activePlayer].isBot) return;
-        const rawDy = sy - e.changedTouches[0].clientY;
+        const rawDy = sy - y;
         const dt    = Math.max(Date.now() - st, 16);
+        // A short still touch is a look, not a throw: show what is on the
+        // tile under it (RELEASE_AUDIT G-04).
+        if (Math.abs(rawDy) < 10 && Math.abs(x - sx) < 10 && dt < 350) { _inspectTileAt({ clientX: x, clientY: y }); return; }
         // In tabletop mode P2 swipes downward from their perspective (upward in screen coords
         // for P1, downward for P2). Accept either direction so both players can flick.
         const dy  = state.playStyle === 'tabletop' ? Math.abs(rawDy) : rawDy;
         const vel = dy / dt;
         if (dy > 20 && vel > 0.2) Commands.run('roll', Math.min(vel, 3.5));
-    });
-    zone.addEventListener('mousedown', e => { sy = e.clientY; st = Date.now(); });
-    zone.addEventListener('mouseup', e => {
-        if (state.gameState !== 'PRE_ROLL' || state.players[state.activePlayer].isBot) return;
-        const rawDy = sy - e.clientY;
-        const dt    = Math.max(Date.now() - st, 16);
-        const dy    = state.playStyle === 'tabletop' ? Math.abs(rawDy) : rawDy;
-        const vel   = dy / dt;
-        if (dy > 20 && vel > 0.2) Commands.run('roll', Math.min(vel, 3.5));
-    });
+    };
+    zone.addEventListener('touchstart', e => down(e.touches[0].clientX, e.touches[0].clientY));
+    zone.addEventListener('touchend', e => { up(e.changedTouches[0].clientX, e.changedTouches[0].clientY); e.preventDefault(); });
+    zone.addEventListener('mousedown', e => down(e.clientX, e.clientY));
+    zone.addEventListener('mouseup', e => up(e.clientX, e.clientY));
+}
+
+// The "swipe up or tap ROLL" hint is for learning, not for every turn of every
+// match: it sat over your own token for the whole game (RELEASE_AUDIT G-03).
+// Three human rolls on this device and it goes.
+const HINT_ROLLS = 3;
+export function noteHumanRoll() {
+    const n = +Storage.load('human_rolls', 0) || 0;
+    if (n < HINT_ROLLS + 1) Storage.save('human_rolls', n + 1);
+}
+function _syncSwipeHint() {
+    const hint = document.querySelector('#swipe-zone .swipe-hint');
+    if (hint) hint.style.display = (+Storage.load('human_rolls', 0) || 0) >= HINT_ROLLS ? 'none' : '';
 }
 
 /**
@@ -1808,6 +1874,7 @@ function _wireSwipeEvents() {
  * silently does nothing.
  */
 export function showSwipeZone() {
+    _syncSwipeHint();
     if (state.playStyle === 'online') { _updateSwipeZone(); return; }
     document.getElementById('swipe-zone').classList.add('act');
 }

@@ -17,15 +17,15 @@ import { sfx } from '../engine/AudioManager.js';
 // ── How-to-Play slides ─────────────────────────────────────────────────────────
 const SLIDES = [
     { icon: '🏁', title: 'WELCOME',
-      body: 'Hundred Block Dash is a race-and-grab board game for 1–2 players. Roll, move, scoop up coins, and win head-to-head minigames to come out on top.' },
+      body: 'Hundred Block Dash is a race-and-grab board game for 1–4 players — with bots, passing one phone, or online. Roll, move, scoop up coins, and win head-to-head minigames to come out on top.' },
     { icon: '🎲', title: 'ROLL & MOVE',
       body: 'Tap <b>🎲 ROLL</b> or swipe up to throw the die — your token hops that many spaces. At a junction you choose a path: the safe Ring Road, or a riskier district.' },
     { icon: '🟢', title: 'SPACES',
-      body: 'Each space does something: 🪙 gain coins, 💸 pay fines, 🎁 grab a mystery item, ⚡ roll again, 🌀 take a shortcut. A 🛡️ Shield blocks the next bad space.' },
+      body: 'Each space does something: 🪙 gain coins, 💸 pay fines, 🎁 grab a mystery item, ⚡ roll again, ⚔️ start a duel. A 🛡️ Shield blocks the next bad space.' },
     { icon: '🎒', title: 'ITEMS & SHOPS',
       body: 'Stop at a 🏪 shop to buy items with coins. On your turn, open your <b>🎒 bag</b> to use them — rockets, swaps, traps and more. You can carry up to 3.' },
     { icon: '🏙️', title: 'CITY CIRCUIT',
-      body: 'Earn coins at 🏛️ District HQs, complete 📋 Contracts, recruit 🤝 Buddies with passive powers, and win ⚔️ Duels. Most coins after 20 rounds wins the city!' },
+      body: 'Earn coins at 🏛️ District HQs, claim 🎯 Bounties, recruit 🤝 Buddies with passive powers, and win ⚔️ Duels. Most coins when the last round ends (6, 12 or 20 — your pick) wins the city!' },
     { icon: '🏆', title: 'MINIGAMES',
       body: 'Every few turns a quick head-to-head minigame decides who grabs bonus coins and rolls first. Hold the phone as the diagram shows, tap READY, and go!' },
 ];
@@ -95,9 +95,11 @@ export function closeHowToPlay() {
     Storage.save('seen_howto', true);
 }
 
-// Auto-show once, on the very first launch.
+// First launch no longer opens the slides: the first match coaches itself on
+// the real controls (Coach.js, RELEASE_AUDIT UX-03). How to Play stays one tap
+// away on the splash and in the pause menu, as the reference.
 export function maybeShowFirstRun() {
-    if (!Storage.load('seen_howto', false)) openHowToPlay();
+    if (!Storage.load('seen_howto', false)) Storage.save('seen_howto', true);
 }
 
 // ── Rules reference (data-driven) ───────────────────────────────────────────────
@@ -111,7 +113,7 @@ function _buildRules() {
         <div class="ob-panel ob-panel-wide">
             <div class="ob-head">
                 <div class="ob-head-title bfont">📖 RULES & REFERENCE</div>
-                <button class="ob-x" id="rules-close">✕</button>
+                <button class="ob-x" id="rules-close" aria-label="Close rules">✕</button>
             </div>
             <div class="ob-scroll">
                 <div class="ob-section bfont">🟦 SPACES</div>${spaceRows}
@@ -135,7 +137,7 @@ function _buildSettings() {
         <div class="ob-panel">
             <div class="ob-head">
                 <div class="ob-head-title bfont">⚙️ SETTINGS</div>
-                <button class="ob-x" id="settings-close">✕</button>
+                <button class="ob-x" id="settings-close" aria-label="Close settings">✕</button>
             </div>
             <div class="ob-scroll">
                 <label class="set-row">
@@ -154,7 +156,24 @@ function _buildSettings() {
                     <span>🌀 Reduce motion</span>
                     <input type="checkbox" class="set-toggle" id="set-motion">
                 </label>
+                <div class="set-row set-row-stack">
+                    <span id="set-ts-label">🔠 Text size</span>
+                    <div class="set-seg" role="radiogroup" aria-labelledby="set-ts-label">
+                        <button class="set-seg-btn" data-ts="1" role="radio">100%</button>
+                        <button class="set-seg-btn" data-ts="1.15" role="radio">115%</button>
+                        <button class="set-seg-btn" data-ts="1.3" role="radio">130%</button>
+                    </div>
+                </div>
+                <label class="set-row">
+                    <span>🔋 Battery saver <small class="set-note">no shadows, lower resolution</small></span>
+                    <input type="checkbox" class="set-toggle" id="set-battery">
+                </label>
+                <label class="set-row">
+                    <span>🎵 Music</span>
+                    <input type="range" min="0" max="100" class="set-range" id="set-music" aria-label="Music volume">
+                </label>
                 <button class="ob-btn ob-btn-ghost set-wide" id="set-howto">❓ How to play</button>
+                <a class="ob-btn ob-btn-ghost set-wide set-link" id="set-privacy" href="privacy.html" target="_blank" rel="noopener">🔒 Privacy policy</a>
                 <button class="ob-btn ob-btn-ghost set-wide" id="set-reset">🗑️ Reset stats</button>
             </div>
         </div>`;
@@ -169,6 +188,12 @@ function _buildSettings() {
     volume.addEventListener('change',   () => sfx('coin_gain'));
     haptics.addEventListener('change',  () => { Settings.set('haptics', haptics.checked); if (haptics.checked) sfx('countdown'); });
     motion.addEventListener('change',   () => Settings.set('reduceMotion', motion.checked));
+    document.querySelectorAll('.set-seg-btn[data-ts]').forEach(btn => btn.addEventListener('click', () => {
+        Settings.set('textScale', +btn.dataset.ts); _syncSettingsUI(); sfx('countdown');
+    }));
+    document.getElementById('set-battery').addEventListener('change', e => Settings.set('batterySaver', e.target.checked));
+    const music = document.getElementById('set-music');
+    music.addEventListener('input', () => Settings.set('music', music.value / 100));
     document.getElementById('set-howto').addEventListener('click', () => { closeSettings(); openHowToPlay(); });
     document.getElementById('set-reset').addEventListener('click', e => {
         Stats.reset();
@@ -184,6 +209,12 @@ function _syncSettingsUI() {
     document.getElementById('set-volume').value    = Math.round(s.volume * 100);
     document.getElementById('set-haptics').checked = s.haptics;
     document.getElementById('set-motion').checked  = s.reduceMotion;
+    document.getElementById('set-battery').checked = !!s.batterySaver;
+    document.getElementById('set-music').value     = Math.round((s.music ?? 0.5) * 100);
+    document.querySelectorAll('.set-seg-btn[data-ts]').forEach(b => {
+        const on = Math.abs(+b.dataset.ts - (+s.textScale || 1)) < 0.01;
+        b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on));
+    });
 }
 
 export function openSettings()  { _syncSettingsUI(); document.getElementById('settings-overlay').style.display = 'flex'; }

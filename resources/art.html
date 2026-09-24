@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<!-- Source art for the store icon and splash. Render with
+     `node scripts/render-store-art.js`; Capacitor's asset tool
+     (`npx @capacitor/assets generate`) cuts every platform size from the PNGs. -->
+<html><head><meta charset="utf-8">
+<style>
+@font-face { font-family: 'Bebas Neue'; src: url('../assets/fonts/BebasNeue-Regular.woff2') format('woff2'); }
+@font-face { font-family: 'Nunito'; font-weight: 200 1000; src: url('../assets/fonts/Nunito-Variable.woff2') format('woff2'); }
+html, body { margin: 0; background: transparent; }
+.art { position: relative; overflow: hidden; background: radial-gradient(circle at 50% 38%, #7a1466 0%, #3a0d45 48%, #1a0b2e 100%); }
+.icon { width: 1024px; height: 1024px; }
+.splash { width: 2732px; height: 2732px; display: flex; align-items: center; justify-content: center; }
+.grid { position: absolute; inset: 0; background:
+  repeating-linear-gradient(0deg, rgba(255,255,255,.05) 0 3px, transparent 3px 128px),
+  repeating-linear-gradient(90deg, rgba(255,255,255,.05) 0 3px, transparent 3px 128px); }
+.die { position: absolute; width: 520px; height: 520px; left: 252px; top: 150px; border-radius: 110px;
+  background: linear-gradient(150deg, #fff 0%, #f1ecff 60%, #d8cff0 100%);
+  box-shadow: 0 40px 0 #b9acd8, 0 70px 90px rgba(0,0,0,.55); transform: rotate(-8deg); }
+.pip { position: absolute; width: 96px; height: 96px; border-radius: 50%; background: radial-gradient(circle at 40% 35%, #ff5a7a, #c21040); }
+.word { position: absolute; left: 0; right: 0; bottom: 78px; text-align: center; font: 230px/0.9 'Bebas Neue', Impact, sans-serif;
+  color: #f5c842; letter-spacing: 6px; text-shadow: 0 10px 0 #7a4a00, 0 0 60px rgba(245,200,66,.7); }
+.sp-inner { position: relative; text-align: center; }
+.sp-title { font: 360px/0.9 'Bebas Neue', Impact, sans-serif; color: #fff; letter-spacing: 12px; text-shadow: 0 0 120px rgba(245,200,66,.8); }
+.sp-title span { color: #f5c842; }
+</style></head><body>
+<div id="icon" class="art icon"><div class="grid"></div>
+  <div class="die">
+    <div class="pip" style="left:72px;top:72px"></div><div class="pip" style="left:212px;top:212px"></div><div class="pip" style="left:352px;top:352px"></div>
+    <div class="pip" style="left:352px;top:72px"></div><div class="pip" style="left:72px;top:352px"></div>
+  </div>
+  <div class="word">DASH</div>
+</div>
+<div id="splash" class="art splash"><div class="grid"></div>
+  <div class="sp-inner"><div class="sp-title">HUNDRED<br>BLOCK<span> DASH</span></div></div>
+</div>
+</body></html>

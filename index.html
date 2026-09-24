@@ -2,16 +2,33 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Hundred Block Dash</title>
     <!-- Engine libraries are self-hosted so the game works offline / behind
          restrictive networks. (Previously loaded from a CDN, which left the
          game with a blank screen whenever cdnjs was unreachable.) -->
     <script src="vendor/three.min.js"></script>
     <script src="vendor/cannon.min.js"></script>
-    <!-- Fonts are a progressive enhancement; CSS declares system-font
-         fallbacks so a blocked Google Fonts request never breaks the look. -->
-    <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+    <!-- FONTS ship with the game (assets/fonts, SIL Open Font License — the
+         licences sit next to them). They used to come from Google Fonts, which
+         meant a store build with no signal, or a first launch offline, fell
+         back to the default SERIF, and every launch told Google the player's
+         IP address. The local() names are the fallback if a file ever fails. -->
+    <link rel="preload" href="assets/fonts/Nunito-Variable.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="preload" href="assets/fonts/BebasNeue-Regular.woff2" as="font" type="font/woff2" crossorigin>
+    <style>
+        @font-face { font-family: 'Nunito'; font-weight: 200 1000; font-display: swap; src:
+            url('assets/fonts/Nunito-Variable.woff2') format('woff2'),
+            local('Nunito'), local('Nunito Sans'), local('SF Pro Rounded'), local('SF Pro Text'), local('.SF UI Text'),
+            local('Helvetica Neue'), local('Roboto'), local('Noto Sans'), local('Segoe UI'), local('Arial'),
+            local('Liberation Sans'), local('DejaVu Sans'); }
+        @font-face { font-family: 'Bebas Neue'; font-display: swap; src:
+            url('assets/fonts/BebasNeue-Regular.woff2') format('woff2'),
+            local('Bebas Neue'), local('Oswald'), local('Arial Narrow Bold'), local('Arial Narrow'), local('Impact'),
+            local('Roboto Condensed Bold'), local('Roboto Condensed'), local('Helvetica Neue Condensed Bold'),
+            local('DIN Condensed Bold'), local('Liberation Sans Narrow Bold'), local('DejaVu Sans Condensed Bold'),
+            local('DejaVu Sans Bold'), local('Arial Bold'); }
+    </style>
     <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
@@ -55,6 +72,8 @@
                     <button class="diff-chip bfont" data-diff="hard">HARD</button>
                 </div>
             </div>
+            <!-- A saved local match, if there is one (RELEASE_AUDIT RA-04). -->
+            <button class="btn-primary bfont" id="btn-resume" style="display:none;">▶ RESUME MATCH<br><span class="resume-sub" id="resume-sub"></span></button>
             <button class="btn-primary bfont" id="btn-next">NEXT</button>
             <button class="mg-arcade-btn bfont" id="btn-minigames">🎮 MINIGAME ARCADE</button>
             <div class="splash-secondary">
@@ -317,7 +336,8 @@
         <div id="round-counter" class="bfont">ROUND 0/20</div>
 
         <!-- Rules reference (always available during play) -->
-        <button id="btn-rules" class="bfont" title="Rules & reference">❓</button>
+        <button id="btn-rules" class="bfont" title="Rules & reference" aria-label="Rules and reference">❓</button>
+        <button id="btn-pause" class="bfont" title="Pause" aria-label="Pause the match">⏸</button>
 
         <!-- Contracts strip (below round counter) -->
         <div id="contracts-strip" style="display:none;"></div>
@@ -481,7 +501,7 @@
         <!-- Rotated 90° by default so the phone can be turned sideways and both
              players read the result from the long edge. Toggleable. -->
         <div class="win-inner" id="win-inner">
-            <button class="win-rotate bfont" id="btn-win-rotate" title="Rotate">⟳ ROTATE</button>
+            <button class="win-rotate bfont" id="btn-win-rotate" aria-label="Rotate the results" title="Rotate">⟳ ROTATE</button>
             <div class="win-head">
                 <div class="win-crown">👑</div>
                 <div>
@@ -668,6 +688,14 @@
     <div id="howto-overlay" class="fs-overlay" style="display:none;"></div>
     <div id="rules-overlay" class="fs-overlay" style="display:none;"></div>
     <div id="settings-overlay" class="fs-overlay" style="display:none;"></div>
+    <div id="pause-overlay" class="fs-overlay" style="display:none;"></div>
+    <!-- The board is laid out for a phone held upright. Side-on minigames still
+         get landscape: this card sits under the minigame layer (RELEASE_AUDIT UX-09). -->
+    <div id="rotate-hint" aria-live="polite">
+        <div class="rh-phone" aria-hidden="true">📱</div>
+        <div class="rh-title bfont">TURN YOUR PHONE UPRIGHT</div>
+        <div class="rh-sub">The board is built for portrait. Minigames that want it sideways will ask.</div>
+    </div>
 
     <!-- Boot guard: if the engine libraries failed to load (offline / blocked),
          show a friendly message instead of a silently dead screen. -->

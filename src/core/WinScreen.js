@@ -6,11 +6,12 @@
 // ============================================================
 
 import { state } from './GameState.js';
+import * as MatchSave from './MatchSave.js';
 import { DISTRICT_DOMINANCE_BONUS, HQ_META, HBD_FINISH_BONUS, PLAYER_SLOTS } from '../config/GameConfig.js';
 import { earnCoins } from './Economy.js';
 import * as Stats from './Stats.js';
 import * as ModalManager from '../ui/ModalManager.js';
-import { sfx } from '../engine/AudioManager.js';
+import { sfx, setMusicMood } from '../engine/AudioManager.js';
 import * as ActiveMap from '../config/ActiveMap.js';
 import * as Scenes from '../ui/Scenes.js';
 
@@ -187,6 +188,13 @@ export function calculateWinner(applyBonuses = true) {
 
     _renderRaceChart();
     _wireRotate();
+    // Upright in whatever way the phone is actually held. The screen used to
+    // open rotated 90° unconditionally — right for TABLETOP, where the phone lies
+    // flat between two players and the long edge faces them, but on every phone
+    // held upright in 1P or pass-and-play the match's payoff appeared on its side
+    // (RELEASE_AUDIT UX-04). Tabletop keeps the rotated read; ROTATE flips either.
+    const upright = window.innerHeight > window.innerWidth && state.playStyle !== 'tabletop';
+    document.getElementById('win-screen').classList.toggle('portrait', upright);
 
     const confettiEl = document.getElementById('win-confetti'); confettiEl.innerHTML = '';
     const colors = ['#f59e0b','#a855f7','#3b82f6','#ef4444','#4ade80','#fbbf24','#ec4899'];
@@ -195,8 +203,9 @@ export function calculateWinner(applyBonuses = true) {
         el.style.cssText = `left:${Math.random()*100}%;top:-10px;background:${colors[Math.floor(Math.random()*colors.length)]};width:${6+Math.random()*8}px;height:${6+Math.random()*8}px;animation-duration:${2+Math.random()*2}s;animation-delay:${Math.random()*1.5}s;`;
         confettiEl.appendChild(el);
     }
+    MatchSave.clear();   // the match is over; there is nothing to come back to
     document.getElementById('win-screen').style.display = 'flex';
-    sfx('win');
+    (setMusicMood('menu'), sfx('win'));
 }
 
 // ---- The race, turn by turn ----------------------------------------------
@@ -338,7 +347,7 @@ function _renderRaceChart() {
     }
 }
 
-// Landscape by default; the toggle is there for anyone holding the phone upright.
+// The toggle, for a phone being passed round a table.
 function _wireRotate() {
     const btn = document.getElementById('btn-win-rotate');
     const scr = document.getElementById('win-screen');

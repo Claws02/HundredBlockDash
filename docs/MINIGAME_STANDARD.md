@@ -364,6 +364,10 @@ the game is immediately playable in both.
 
 ## 10. Building on the 3D stage
 
+> **Starting a new one?** Read `docs/MINIGAME_3D_PLAYBOOK.md` (the order of work
+> and the lessons learned), then scaffold it with
+> `node scripts/new-3d-minigame.js <key> "<TITLE>" --set=<set>`.
+
 `src/engine/Stage.js` is the shared stage for a game played *as your own
 character*. High Noon (`src/minigames/HighNoon.js`) is the reference. A stage
 game still follows every rule above; the stage makes R1, R3 and R4 hard to get

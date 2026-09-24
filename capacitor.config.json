@@ -1,0 +1,26 @@
+{
+  "appId": "com.hundredblockdash.game",
+  "appName": "Hundred Block Dash",
+  "webDir": "www",
+  "backgroundColor": "#1a0b2e",
+  "android": {
+    "backgroundColor": "#1a0b2e",
+    "allowMixedContent": false
+  },
+  "ios": {
+    "backgroundColor": "#1a0b2e",
+    "contentInset": "never"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 1200,
+      "launchAutoHide": true,
+      "backgroundColor": "#1a0b2e",
+      "showSpinner": false
+    },
+    "StatusBar": {
+      "overlaysWebView": true,
+      "style": "DARK"
+    }
+  }
+}

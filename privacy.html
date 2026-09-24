@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Privacy Policy — Hundred Block Dash</title>
+<style>
+    :root { --bg: #0f1020; --fg: #eef0ff; --muted: #a9adc9; --accent: #ffd23f; --card: #1a1c33; }
+    @media (prefers-color-scheme: light) { :root { --bg: #f6f6fb; --fg: #16172b; --muted: #555a78; --accent: #b7791f; --card: #fff; } }
+    html, body { margin: 0; background: var(--bg); color: var(--fg); }
+    body { font: 16px/1.6 'Nunito', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+           padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+    main { max-width: 720px; margin: 0 auto; }
+    h1 { font-size: 28px; margin: 8px 0 4px; }
+    h2 { font-size: 19px; margin: 28px 0 6px; color: var(--accent); }
+    p, li { color: var(--fg); }
+    .muted { color: var(--muted); font-size: 14px; }
+    .card { background: var(--card); border-radius: 12px; padding: 12px 16px; margin: 12px 0; }
+    a { color: var(--accent); }
+    .back { display: inline-block; min-height: 44px; line-height: 44px; font-weight: 700; }
+    table { border-collapse: collapse; width: 100%; font-size: 15px; }
+    th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid rgba(128,128,160,.25); vertical-align: top; }
+</style>
+</head>
+<body>
+<main>
+    <a class="back" href="index.html">← Back to the game</a>
+    <h1>Privacy Policy</h1>
+    <p class="muted">Hundred Block Dash · Effective 24 September 2026 · Version 1.0.0</p>
+
+    <div class="card">
+        <strong>In short:</strong> no accounts, no ads, no analytics and no tracking. Your
+        progress and settings stay on your device. Online play connects your phone
+        directly to your friends' phones.
+    </div>
+
+    <h2>What stays on your device</h2>
+    <p>The game keeps these in your device's local storage. None of it is sent anywhere:</p>
+    <ul>
+        <li>your settings (sound, music, text size, reduced motion, battery saver);</li>
+        <li>the names you type for players, and your last online name;</li>
+        <li>a match in progress, so you can resume it (deleted when the match ends, when you quit, or after 7 days);</li>
+        <li>which tips and introductions you have already seen;</li>
+        <li>a short log of the last 20 errors the game hit, for troubleshooting. It never leaves your device unless you choose to share it.</li>
+    </ul>
+    <p>Uninstalling the app, or clearing its data, deletes all of it.</p>
+
+    <h2>Online play</h2>
+    <p>When you host or join an online room, the game uses public matchmaking services
+       (Nostr relays, or BitTorrent trackers as a fallback) only to introduce the phones
+       in the room to each other. Those services see an encrypted room identifier and
+       your IP address, which is how the internet works. They do not see your name or
+       your game.</p>
+    <p>After that, gameplay travels directly between the phones over an encrypted
+       WebRTC connection. The other players in your room see the name you type and your
+       moves. Nothing is stored after the match.</p>
+    <p>If a direct connection is impossible, the connection may pass through a relay
+       server (TURN). The relay forwards encrypted traffic and cannot read it.</p>
+
+    <h2>Crash reports</h2>
+    <p>This version does not send crash reports. If a future version does, it will be
+       limited to technical details (error message, device model, OS and app version),
+       with player names removed, and this policy will be updated first.</p>
+
+    <h2>Children</h2>
+    <p>The game collects no personal information from anyone, including children
+       under 13. There is no chat, no account and no way to contact other players
+       except through the room code you share yourself.</p>
+
+    <h2>Data safety summary</h2>
+    <table>
+        <tr><th>Data collected</th><td>None</td></tr>
+        <tr><th>Data shared with third parties</th><td>None</td></tr>
+        <tr><th>Tracking</th><td>None</td></tr>
+        <tr><th>Encryption in transit</th><td>Yes (online play)</td></tr>
+        <tr><th>Deletion</th><td>Clear the app's data, or uninstall</td></tr>
+    </table>
+
+    <h2>Contact</h2>
+    <p>Questions about this policy: <span id="contact">see the support contact on the store listing</span>.</p>
+    <p class="muted">We will post any change to this policy here, with a new effective date.</p>
+</main>
+</body>
+</html>

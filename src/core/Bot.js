@@ -1,5 +1,5 @@
 // ============================================================
-// BOT — all AI decision-making for "Borat the Bot" (1-player mode).
+// BOT — all AI decision-making for "Bolt the Bot" (1-player mode).
 //
 // Design seam: this module decides *what* the bot would choose; the
 // GameController owns *when and how* to apply it (timers, hops, turn
