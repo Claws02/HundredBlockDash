@@ -46,6 +46,7 @@ export const MG_TYPES = [
     'riftdive',
     'balloonpump',
     'musicalchairs',
+    'bumpercars',
 ];
 
 export const MG_INFO = {
@@ -84,6 +85,7 @@ export const MG_INFO = {
     riftdive:    { icon: '🌌', title: 'RIFT DIVE', desc: 'Lay the phone flat between you — the screen splits in two, and each half is your own camera following your own diver straight down a rift through the Void. DRAG on your half to steer. Fly through the glowing RINGS for a burst of speed; clip a red SHARD and you tumble and slow right down. You share the shaft, so you can bump each other out of the way. First to the core at the bottom wins!' },
     balloonpump: { icon: '🎈', title: 'BALLOON PUMP', desc: 'Turn the phone sideways and sit side by side. HOLD your thumb on your half to pump your balloon, and let go to stop. When the whistle blows, the bigger balloon scores. Pump past the limit and it POPS for nothing. Both balloons share the same hidden limit, and a balloon near it starts to wobble and squeak. Five rounds, and the last one counts double!' },
     musicalchairs: { icon: '🪑', title: 'MUSICAL CHAIRS', desc: 'Lay the phone flat between you. Your characters and three park-goers walk round the chairs while the band plays, with one chair fewer than walkers. When the music STOPS, the lanterns go out and SIT! goes up: DRAG on your half to run for a free chair. Whoever is left standing is out. Watch for fake-outs: running while the music is still playing freezes you. The first player out loses!' },
+    bumpercars: { icon: '🚗', title: 'BUMPER CARS', desc: 'Lay the phone flat between you. Your characters drive bumper cars round a rink at the fair in the park. DRAG on your half to drive (they slide!) and TAP for a boost, which takes three seconds to recharge. The rail round the rink is live: hit it hard and you are ZAPPED, and your rival scores. Shove them into it without going in yourself. First to 3 zaps, or the most when the bell rings, wins!' },
 };
 
 // ============================================================
@@ -216,6 +218,7 @@ export const MG_NET = {
     riftdive:    'local',
     balloonpump: 'local',
     musicalchairs: 'local',
+    bumpercars: 'local',
 };
 
 // The parallel games whose SCORE is also a coin haul.
@@ -314,6 +317,7 @@ export const MG_SHAPE = {
     riftdive:    'arena',
     balloonpump: 'arena',
     musicalchairs: 'arena',
+    bumpercars: 'arena',
 };
 
 // Modifiers laid over a shape: the seats do not have the same job (ASYM), or
@@ -365,6 +369,7 @@ export const MG_ORIENTATION_MAP = {
     riftdive:    'faceoff',
     balloonpump: 'sideon',
     musicalchairs: 'faceoff',
+    bumpercars: 'faceoff',
 };
 
 export const FALLBACK_TRIVIA = [
@@ -548,6 +553,7 @@ export const MG_PROFILE = {
     riftdive:    { genre: 'race',     control: 'thumb', wire: 'snapshot', seats: [2, 2], live: false },
     balloonpump: { genre: 'nerve', control: 'thumb', wire: 'snapshot', seats: [2, 2], live: false },
     musicalchairs: { genre: 'reflex', control: 'thumb', wire: 'snapshot', seats: [2, 2], live: false },
+    bumpercars: { genre: 'push', control: 'thumb', wire: 'snapshot', seats: [2, 2], live: false },
 };
 
 // The order the wire tiers come in, cheapest first. Used by the READINESS sort:
