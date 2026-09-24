@@ -138,7 +138,8 @@ export function sfx(name) {
 // the app is hidden. Notes are scheduled a little ahead on the audio clock, so
 // a janky frame never makes the music stumble.
 
-let _musicBus = null, _duckGain = null;
+let _musicBus = null, _duckGain = null, _cutGain = null;
+let _mgForce = false, _mgPrevMood = 'off';   // a minigame that IS about the music (mgMusic)
 let _musicLevel = 0.5;
 let _mood = 'off';               // 'menu' | 'board' | 'off'
 let _moodGate = () => true;      // false = hold the music (a minigame is on)
@@ -148,6 +149,8 @@ const _N = n => 440 * Math.pow(2, (n - 69) / 12);          // MIDI → Hz
 // Chords as MIDI roots and qualities; the board loop is brighter and quicker.
 const THEMES = {
     menu:  { bpm: 84, chords: [[53, 'maj'], [48, 'maj'], [50, 'min'], [46, 'maj']] },   // F C Dm B♭
+    // Musical Chairs: the board loop's chords, quicker and with more swing.
+    chairs: { bpm: 128, chords: [[48, 'maj'], [53, 'maj'], [45, 'min'], [55, 'maj']] },
     board: { bpm: 100, chords: [[48, 'maj'], [45, 'min'], [53, 'maj'], [55, 'maj'],     // C Am F G
                                 [48, 'maj'], [52, 'min'], [53, 'maj'], [55, 'sus']] },  // C Em F Gsus
 };
@@ -158,9 +161,10 @@ function _musicOut() {
     if (!_musicBus) {
         _musicBus = ctx.createGain();
         _duckGain = ctx.createGain();
+        _cutGain = ctx.createGain();
         const lp = ctx.createBiquadFilter();
         lp.type = 'lowpass'; lp.frequency.value = 3200;
-        _musicBus.connect(_duckGain); _duckGain.connect(lp); lp.connect(ctx.destination);
+        _musicBus.connect(_duckGain); _duckGain.connect(_cutGain); _cutGain.connect(lp); lp.connect(ctx.destination);
         _applyMusicGain();
     }
     return _musicBus;
@@ -194,7 +198,7 @@ export function setMusicMood(mood) {
 }
 /** A test the scheduler asks before each bar: false holds the music. */
 export function setMusicGate(fn) { _moodGate = typeof fn === 'function' ? fn : () => true; }
-export function musicState() { return { mood: _mood, level: _musicLevel, playing: !!_sched, step: _step }; }
+export function musicState() { return { mood: _mood, level: _musicLevel, playing: !!_sched, step: _step, forced: _mgForce, cut: _cutGain ? +_cutGain.gain.value.toFixed(2) : 1 }; }
 
 function _syncScheduler() {
     const want = _mood !== 'off' && !_muted && _musicLevel > 0 && !document.hidden;
@@ -237,7 +241,7 @@ function _schedule() {
     while (_nextT < _ctx.currentTime + 0.25) {
         const t = _nextT, s = _step;
         const bar = Math.floor(s / 8), e8 = s % 8;
-        if (_moodGate()) {
+        if (_mgForce || _moodGate()) {
             const [root, q] = th.chords[bar % th.chords.length];
             const tones = QUAL[q].map(x => root + x);
             const section = Math.floor(bar / 4) % 4;              // 16-bar form: A A' B break
@@ -258,11 +262,41 @@ function _schedule() {
                 const n = tones[pat[e8]] + 24;
                 _voice(_N(n), 'triangle', section === 2 ? 0.05 : 0.07, t, 0.005, eighth * 0.9, dest);
             }
-            if (_mood === 'board' && e8 % 2 === 1) _hat(t, section === 3 ? 0.03 : 0.05, dest);
+            if ((_mood === 'board' || _mood === 'chairs') && e8 % 2 === 1) _hat(t, section === 3 ? 0.03 : 0.05, dest);
         }
         _nextT += eighth;
         _step++;
     }
+}
+
+/**
+ * For a minigame whose rule IS the music (Musical Chairs). Plays through the
+ * minigame gate, on the 'chairs' theme.
+ *   'play'  start, or come back in after a stop or a dip
+ *   'dip'   a fake-out: drop to a whisper for a moment, then carry on
+ *   'stop'  cut dead, now — not after the notes already scheduled
+ *   'off'   hand the music back to the board
+ */
+export function mgMusic(mode) {
+    try {
+        const ctx = getCtx(); _musicOut();
+        const g = _cutGain.gain, t = ctx.currentTime;
+        g.cancelScheduledValues(t); g.setValueAtTime(g.value, t);
+        if (mode === 'play') {
+            if (!_mgForce) { _mgForce = true; _mgPrevMood = _mood; _mood = 'chairs'; _step = 0; }
+            g.linearRampToValueAtTime(1, t + 0.04);
+        } else if (mode === 'dip') {
+            g.linearRampToValueAtTime(0.18, t + 0.05);
+            g.setValueAtTime(0.18, t + 0.45);
+            g.linearRampToValueAtTime(1, t + 0.55);
+        } else if (mode === 'stop') {
+            g.linearRampToValueAtTime(0, t + 0.03);
+        } else if (mode === 'off') {
+            g.linearRampToValueAtTime(1, t + 0.1);
+            if (_mgForce) { _mgForce = false; _mood = _mgPrevMood; _step = 0; }
+        }
+        _syncScheduler();
+    } catch (e) {}
 }
 
 // Hidden app: no music in somebody's pocket.

@@ -45,6 +45,7 @@ export const MG_TYPES = [
     'blockparty',
     'riftdive',
     'balloonpump',
+    'musicalchairs',
 ];
 
 export const MG_INFO = {
@@ -82,6 +83,7 @@ export const MG_INFO = {
     blockparty:  { icon: '🪩', title: 'BLOCK PARTY', desc: 'Turn the phone sideways and sit side by side. It is a street party on the Promenade and the DJ calls the moves: watch the DJ dance a phrase, one move per beat — then dance it straight back, both of you at once. SWIPE UP to raise the roof, DOWN to drop, LEFT or RIGHT to point, TAP to clap. On the beat is PERFECT, near it is GOOD; the wrong move or off the beat is a MISS. A phrase with no misses is a FULL COMBO. The phrases get longer and faster, and the last two are from memory. Most points wins!' },
     riftdive:    { icon: '🌌', title: 'RIFT DIVE', desc: 'Lay the phone flat between you — the screen splits in two, and each half is your own camera following your own diver straight down a rift through the Void. DRAG on your half to steer. Fly through the glowing RINGS for a burst of speed; clip a red SHARD and you tumble and slow right down. You share the shaft, so you can bump each other out of the way. First to the core at the bottom wins!' },
     balloonpump: { icon: '🎈', title: 'BALLOON PUMP', desc: 'Turn the phone sideways and sit side by side. HOLD your thumb on your half to pump your balloon, and let go to stop. When the whistle blows, the bigger balloon scores. Pump past the limit and it POPS for nothing. Both balloons share the same hidden limit, and a balloon near it starts to wobble and squeak. Five rounds, and the last one counts double!' },
+    musicalchairs: { icon: '🪑', title: 'MUSICAL CHAIRS', desc: 'Lay the phone flat between you. Your characters and three park-goers walk round the chairs while the band plays, with one chair fewer than walkers. When the music STOPS, the lanterns go out and SIT! goes up: DRAG on your half to run for a free chair. Whoever is left standing is out. Watch for fake-outs: running while the music is still playing freezes you. The first player out loses!' },
 };
 
 // ============================================================
@@ -213,6 +215,7 @@ export const MG_NET = {
     blockparty:  'local',
     riftdive:    'local',
     balloonpump: 'local',
+    musicalchairs: 'local',
 };
 
 // The parallel games whose SCORE is also a coin haul.
@@ -310,6 +313,7 @@ export const MG_SHAPE = {
     blockparty:  'arena',
     riftdive:    'arena',
     balloonpump: 'arena',
+    musicalchairs: 'arena',
 };
 
 // Modifiers laid over a shape: the seats do not have the same job (ASYM), or
@@ -360,6 +364,7 @@ export const MG_ORIENTATION_MAP = {
     blockparty:  'sideon',
     riftdive:    'faceoff',
     balloonpump: 'sideon',
+    musicalchairs: 'faceoff',
 };
 
 export const FALLBACK_TRIVIA = [
@@ -542,6 +547,7 @@ export const MG_PROFILE = {
     blockparty:  { genre: 'reflex',   control: 'thumb', wire: 'events',   seats: [2, 2], live: false },
     riftdive:    { genre: 'race',     control: 'thumb', wire: 'snapshot', seats: [2, 2], live: false },
     balloonpump: { genre: 'nerve', control: 'thumb', wire: 'snapshot', seats: [2, 2], live: false },
+    musicalchairs: { genre: 'reflex', control: 'thumb', wire: 'snapshot', seats: [2, 2], live: false },
 };
 
 // The order the wire tiers come in, cheapest first. Used by the READINESS sort:

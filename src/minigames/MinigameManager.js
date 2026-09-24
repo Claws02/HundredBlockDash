@@ -49,6 +49,7 @@ const MG_MODULES = {
     blockparty:  () => import('./BlockParty.js'),
     riftdive:    () => import('./RiftDive.js'),
     balloonpump: () => import('./BalloonPump.js'),
+    musicalchairs: () => import('./MusicalChairs.js'),
 };
 
 // The single place that knows which file a game lives in. Exported so the QA
