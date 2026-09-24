@@ -1493,6 +1493,105 @@ export function buildBlockParty(stage) {
     };
 }
 
+// ---- The Void: the rift ----------------------------------------------------
+//
+// "Reality frays at the edge of the Void." A shaft straight down through
+// nothing, its walls cracked with light, and at the bottom the core — the
+// Crown's own glow. Divers start on a glass disc over the mouth of it. The
+// game lays its own rings and shards; the set gives the shaft depth to read:
+// rim lights every twenty units, spires jutting in from the walls, and streaks
+// hanging in the dark that race upward past anyone falling through them.
+export function buildRift(stage, { depth = 420, radius = 7 } = {}) {
+    const B = HBD_BIOMES.find(b => b.key === 'void');
+    const scene = stage.scene;
+    scene.background = new THREE.Color(_hex(B.bgTop));
+    scene.fog = new THREE.Fog(0x120a2a, 14, 75);
+    scene.add(new THREE.HemisphereLight(0x9a8aff, 0x0a0a1a, 0.85));
+    const key = new THREE.DirectionalLight(0xc9d6ff, 0.7);
+    key.position.set(3, 10, 4); scene.add(key);
+
+    // The walls: cracked with light, the texture repeated all the way down.
+    const cv = document.createElement('canvas'); cv.width = 256; cv.height = 256;
+    const g = cv.getContext('2d');
+    g.fillStyle = '#0d0b22'; g.fillRect(0, 0, 256, 256);
+    for (let i = 0; i < 14; i++) {
+        g.strokeStyle = ['#3b82f6', '#a855f7', '#22d3ee', '#60a5fa'][i % 4];
+        g.globalAlpha = 0.25 + _rand(i) * 0.4; g.lineWidth = 1 + _rand(i + 3) * 2;
+        g.beginPath();
+        let x = _rand(i + 7) * 256, y = _rand(i + 11) * 256;
+        g.moveTo(x, y);
+        for (let k = 0; k < 5; k++) { x += (_rand(i * 5 + k) - 0.5) * 70; y += _rand(i * 3 + k) * 50; g.lineTo(x, y); }
+        g.stroke();
+    }
+    g.globalAlpha = 1;
+    const tex = new THREE.CanvasTexture(cv);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(5, Math.round((depth + 60) / 18));
+    const wall = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, depth + 60, 40, 1, true),
+        new THREE.MeshStandardMaterial({ map: tex, emissiveMap: tex, emissive: 0xffffff, emissiveIntensity: 0.55, side: THREE.BackSide, roughness: 0.8 }));
+    wall.position.y = -depth / 2 - 10;
+    scene.add(wall);
+
+    // Rim lights, every twenty units down.
+    const rims = [];
+    for (let y = -10; y > -depth; y -= 20) {
+        const rim = new THREE.Mesh(new THREE.TorusGeometry(radius - 0.05, 0.07, 6, 48),
+            new THREE.MeshBasicMaterial({ color: (y / 20) % 2 ? 0x22d3ee : 0xa855f7 }));
+        rim.rotation.x = Math.PI / 2; rim.position.y = y; scene.add(rim); rims.push(rim);
+    }
+    // Spires jutting in from the walls.
+    const up = new THREE.Vector3(0, 1, 0);
+    for (let i = 0; i < 40; i++) {
+        const a = _rand(i * 3) * Math.PI * 2, y = -8 - _rand(i * 7 + 1) * (depth - 10);
+        const sp = PROP_KIT.voidSpire(5000 + i * 11);
+        sp.scale.setScalar(0.55 + _rand(i + 2) * 0.35);
+        sp.position.set(Math.cos(a) * (radius - 0.1), y, Math.sin(a) * (radius - 0.1));
+        sp.quaternion.setFromUnitVectors(up, new THREE.Vector3(-Math.cos(a), (_rand(i) - 0.5) * 0.6, -Math.sin(a)).normalize());
+        scene.add(sp);
+    }
+    // Streaks: still in the world, so falling past them is the speed.
+    const N = Math.round(depth * 1.2);
+    const streaks = new THREE.InstancedMesh(new THREE.BoxGeometry(0.035, 1.8, 0.035),
+        new THREE.MeshBasicMaterial({ color: 0x9fb8ff, transparent: true, opacity: 0.45, depthWrite: false }), N);
+    const m4 = new THREE.Matrix4();
+    for (let i = 0; i < N; i++) {
+        const a = _rand(i + 0.5) * Math.PI * 2, r = Math.sqrt(_rand(i * 2 + 0.3)) * (radius - 0.6);
+        m4.makeTranslation(Math.cos(a) * r, 4 - _rand(i * 3 + 0.7) * (depth + 8), Math.sin(a) * r);
+        streaks.setMatrixAt(i, m4);
+    }
+    scene.add(streaks);
+
+    // The glass disc they stand on at the top.
+    const disc = new THREE.Mesh(new THREE.CylinderGeometry(3.2, 3.2, 0.15, 36),
+        new THREE.MeshStandardMaterial({ color: 0x9ad8ff, emissive: 0x2a5a9a, emissiveIntensity: 0.6, transparent: true, opacity: 0.55, roughness: 0.1 }));
+    disc.position.y = -0.08; scene.add(disc);
+    const lip = new THREE.Mesh(new THREE.TorusGeometry(3.2, 0.08, 6, 36), new THREE.MeshBasicMaterial({ color: 0x60a5fa }));
+    lip.rotation.x = Math.PI / 2; disc.add(lip);
+
+    // The core at the bottom, and the floor they land on.
+    const coreY = -depth - 2;
+    const floor = new THREE.Mesh(new THREE.CylinderGeometry(radius - 0.1, radius - 0.1, 0.4, 40),
+        new THREE.MeshStandardMaterial({ color: 0x1a1640, emissive: 0x3b2a8a, emissiveIntensity: 0.5, roughness: 0.4 }));
+    floor.position.y = coreY - 0.2; scene.add(floor);
+    const core = new THREE.Mesh(new THREE.CircleGeometry(2.4, 40), new THREE.MeshBasicMaterial({ color: 0xfff0a0 }));
+    core.rotation.x = -Math.PI / 2; core.position.y = coreY + 0.02; scene.add(core);
+    const halo = new THREE.Mesh(new THREE.RingGeometry(2.6, 3.4, 40), new THREE.MeshBasicMaterial({ color: 0xffd12d, transparent: true, opacity: 0.6, side: THREE.DoubleSide }));
+    halo.rotation.x = -Math.PI / 2; halo.position.y = coreY + 0.03; scene.add(halo);
+    const glow = new THREE.PointLight(0xffe08a, 2.2, 40, 1.4);
+    glow.position.set(0, coreY + 3, 0); scene.add(glow);
+
+    return {
+        depth, radius, coreY, disc,
+        update(dt, t) {
+            rims.forEach((r, i) => { r.material.opacity = 1; r.scale.setScalar(1 + Math.sin(t * 3 + i) * 0.004); });
+            halo.rotation.z += dt * 0.6;
+            halo.material.opacity = 0.45 + Math.sin(t * 4) * 0.2;
+            glow.intensity = 2 + Math.sin(t * 3) * 0.4;
+            tex.offset.x = (t * 0.004) % 1;
+        },
+    };
+}
+
 /** Sets by district key. A game asks for the one its story is set in. */
 export const STAGE_SETS = {
     hub: buildPerditionStreet,
@@ -1504,4 +1603,5 @@ export const STAGE_SETS = {
     fae: buildFaePond,
     ba: buildRooftops,
     shop: buildBlockParty,
+    void: buildRift,
 };
