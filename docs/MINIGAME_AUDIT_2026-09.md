@@ -339,9 +339,12 @@ lines per setting at build time and ship them as data.
 | A1 `MinigameStage` | **Built.** `src/engine/Stage.js`: side and face-off holds, the turned frame, `toLocal`, a HUD, the board paused, adaptive resolution, full dispose |
 | A2 character rig | **Built.** `src/engine/CharacterRig.js` re-parents the board's figure into hips, neck and head, adds floating mitts, and can hold a prop. The board's own use of `createCharacterMesh` is unchanged apart from two tags |
 | A3 procedural animator | **Built.** idle · walk · ready · aim · hit · fall · victory · defeat, plus fire and flinch accents, blinking and turning |
-| A4 scene kits | **Started.** `src/engine/StageSets.js` has Perdition (`hub`), built from `DISTRICT_BIOMES` and the board's `PROP_KIT`. The other districts are still to do |
-| A5 cold open · A6 character verdict | **Inside High Noon only.** It opens on a camera sweep with the premise line and ends on the winner's pose. Moving these into the manager, so every game gets them, is still to do |
+| A4 scene kits | **Three sets.** `src/engine/StageSets.js` has Perdition (`hub`), Boot Hill Badlands (`bad`) and a Financial District bank floor (`fin`), each built from `DISTRICT_BIOMES` and the board's `PROP_KIT` |
+| A5 cold open · A6 character verdict | **Built, shared.** `src/engine/StageDirector.js`: every 3D game opens with a letterboxed camera move and a title card, and ends on the winner turning to camera with confetti in their colour. It handles both the side-on and the face-off hold. All three 3D games use it |
 | New game 1: **High Noon** | **Built**, in the new SIDE-ON (landscape) hold. `qa/highnoon.js` passes 17/17 |
+| New game 2: **Boot Hill Barrage** (the user's cannon version of Tower Topple) | **Built.** A side-on physics siege. Each player's figure mans a cannon atop a timber fort: drag back to aim, let go to fire, both at once on a reload. `qa/barrage.js` passes. Against an idle fort, a bot takes 12–15 hits (15–20 s) to fell it |
+| New game 3: **Vault Heist** | **Built.** Face-off, near top-down, asymmetric: guard with a torch vs thief, then swap. `qa/vaultheist.js` passes 14/14. **Balance is unproven:** bot against bot, the guard wins most rounds. It needs human playtesting in both roles |
+| Next batch | The 4:15 to Perdition · Mine Cart Mayhem |
 
 ---
 

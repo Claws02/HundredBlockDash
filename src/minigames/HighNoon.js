@@ -37,6 +37,7 @@ import { sfx, haptic } from '../engine/AudioManager.js';
 import { registerMinigameCleanup, isBotSlot, seatFor } from './MinigameManager.js';
 import { createStage } from '../engine/Stage.js';
 import { STAGE_SETS } from '../engine/StageSets.js';
+import { createDirector } from '../engine/StageDirector.js';
 
 // ── Tuning ───────────────────────────────────────────────────────────────────
 const WIN_ROUNDS   = 3;
@@ -50,11 +51,10 @@ const BELL_MAX     = 8;
 const HOLSTER_WAIT = 6.0;    // s to get a thumb down before the round is forfeit
 const DRAW_WAIT    = 2.5;    // s after the bell before a round nobody fired is void
 const RESOLVE_TIME = 2.0;    // the shot, the fall, the scoreline
-const FINALE_TIME  = 2.4;    // the winner's moment before the scoreboard
 
 // ── Module state (singleton; reset in start) ─────────────────────────────────
 let _done = false, _onWin = null, _botSkill = 0.55;
-let _overlay = null, _stage = null, _set = null, _hud = null;
+let _overlay = null, _stage = null, _set = null, _hud = null, _dir = null;
 let _figs = [];              // [{ slot, rig, anim, gun, x }]  slot 0 = P1 (right)
 let _score = [0, 0];
 let _round = 0;
@@ -73,6 +73,7 @@ let _shake = 0;
 let _flash = null;           // the one muzzle-flash light, built up front
 let _flashT = 0;
 let _camPos = null, _camLook = null;
+let _dirOwns = false;        // the director is running a shot this frame
 let _t = 0;
 
 // ── Lifecycle ───────────────────────────────────────────────────────────────
@@ -91,6 +92,7 @@ export function start(isBot, onWin, botSkill = 0.55) {
 
     _stage = createStage(_overlay, { hold: 'side', fov: 34, background: 0xf0cfa0 });
     _buildHud();
+    _dir = createDirector(_stage);
     if (_stage.gl) {
         _set = STAGE_SETS.hub(_stage);
         _stage.camera.position.set(-6, 7, 22);
@@ -121,7 +123,7 @@ function _destroy() {
     _done = true;
     if (_stage) { _stage.dispose(); _stage = null; }
     if (_overlay) { _overlay.remove(); _overlay = null; }
-    _figs = []; _fx = []; _set = null; _hud = null; _flash = null;
+    _figs = []; _fx = []; _set = null; _hud = null; _flash = null; _dir = null;
     _pointers = new Map();
 }
 
@@ -341,7 +343,13 @@ function _botStep() {
 function _enter(phase) {
     _phase = phase; _phaseT = 0;
     if (phase === 'intro') {
-        _say('HIGH NOON', 'PERDITION · TEN TO FOUR');
+        // The opening shot: in over the rooftops, down to the two of them.
+        _dir.open({
+            place: 'PERDITION · TEN TO FOUR', title: 'HIGH NOON', sub: 'TEN PACES. DON\'T TURN EARLY.',
+            from: { pos: [-6, 7, 22], look: [0, 3, -6] },
+            to:   { pos: [0, 2.3, 8], look: [0, 1.1, 0] },
+            onDone: () => { if (!_done) _enter('holster'); },
+        });
         _neutral('HIGH NOON');
     } else if (phase === 'holster') {
         _round++;
@@ -388,17 +396,12 @@ function _enter(phase) {
         _resolveRound();
     } else if (phase === 'finale') {
         const w = _score[0] > _score[1] ? 0 : _score[1] > _score[0] ? 1 : -1;
-        _figs.forEach(f => {
-            if (!f.anim) return;
-            if (w < 0) f.anim.play('idle');
-            else if (f.slot === w) { f.anim.face(0); f.anim.play('victory'); }
-            else if (f.anim.state !== 'fall') f.anim.play('defeat');
+        _say('');
+        _dir.close({
+            winner: w, figs: _figs, sub: w < 0 ? '' : 'THE TOWN IS YOURS',
+            onDone: () => _finish(w),
         });
-        // Up and out of the way: the camera is pushing in on the winner's face.
-        if (_hud) { _hud.bigBox.style.top = '17%'; _hud.sub.style.top = '17%'; }
-        _say(w < 0 ? 'DEAD EVEN' : `${_name(w)} WINS`, w < 0 ? '' : 'THE TOWN IS YOURS');
         _neutral(w < 0 ? 'DRAW!' : `${_name(w)} WINS!`);
-        sfx(w < 0 ? 'land_bad' : 'mg_win');
     }
 }
 
@@ -523,9 +526,8 @@ function _decoy(kind) {
 }
 
 // ── Camera ──────────────────────────────────────────────────────────────────
-// Directs the round: a sweep in from over the rooftops, a tight two-shot of
-// the backs, a pull out as they pace, a punch in on the bell, and a push on
-// the winner at the end.
+// Directs the round between the director's two shots: a tight two-shot of the
+// backs, a pull out as they pace, and a punch in on the bell.
 function _camera(dt) {
     if (!_stage?.gl) return;
     const cam = _stage.camera;
@@ -533,19 +535,13 @@ function _camera(dt) {
     const tanH = Math.tan(cam.fov * Math.PI / 360) * aspect;
     const spread = Math.max(...(_figs.map(f => Math.abs(f.rig ? f.rig.root.position.x : 0))), 0.6);
     let pos, look, rate = 2.4;
-    if (_phase === 'intro') {
-        const k = Math.min(1, _phaseT / 1.8);
-        const e = k * k * (3 - 2 * k);
-        pos = new THREE.Vector3(-6 + e * 6, 7 - e * 4.8, 22 - e * 14);
-        look = new THREE.Vector3(0, 3 - e * 1.9, -6 + e * 6);
-        rate = 12;
-    } else if (_phase === 'finale') {
-        const w = _score[0] > _score[1] ? _figs[0] : _score[1] > _score[0] ? _figs[1] : null;
-        const x = w?.rig ? w.rig.root.position.x : 0;
-        pos = new THREE.Vector3(x * 0.8, 1.9, 6.2);
-        look = new THREE.Vector3(x, 1.0, 0);
-        rate = 2.2;
-    } else {
+    // The director has the opening and the winner's moment.
+    if (_dirOwns) {
+        _camPos.copy(cam.position);
+        if (cam.userData.look) _camLook.fromArray(cam.userData.look);
+        return;
+    }
+    {
         const need = (spread + 2.4) / tanH;
         const d = Math.max(7.5, need);
         pos = new THREE.Vector3(0, 1.6 + d * 0.09, d);
@@ -575,8 +571,7 @@ function _frame(dt) {
 
     switch (_phase) {
     case 'intro':
-        if (_phaseT > 2.0) _enter('holster');
-        break;
+        break;              // the director's opening; it enters 'holster' itself
 
     case 'holster': {
         const h0 = _isHolding(0), h1 = _isHolding(1);
@@ -624,11 +619,7 @@ function _frame(dt) {
             const w = _score[0] > _score[1] ? 0 : _score[1] > _score[0] ? 1 : -1;
             if (w >= 0) _figs[w].gun.rotation.x = -_phaseT * 14;
         }
-        if (_phaseT > FINALE_TIME) {
-            _finish(_score[0] > _score[1] ? 0 : _score[1] > _score[0] ? 1 : -1);
-            return;
-        }
-        break;
+        break;              // the director hands the result over when it is done
     }
 
     // Effects.
@@ -647,6 +638,8 @@ function _frame(dt) {
         }
     }
     _set?.update(dt, _t);
+    _dirOwns = !!_dir && _dir.update(dt);
+    if (_done) return;      // the director's onDone may have finished the game
     _camera(dt);
     _renderHud();
 }
