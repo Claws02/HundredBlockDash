@@ -88,6 +88,8 @@ wrong causes were asserted in one session before anybody actually ran it.
 | `soloframe.js` | That every parallel game actually fills the screen and is running. |
 | `arcade.js` | Every registered minigame, offline, resolving without errors or mesh leaks. |
 | `newgames.js` | Puck, Four in a Row, Light Cycles, Penalty and Grand Prix against a scripted opponent — including that a Grand Prix bot can drive at all. |
+| `barrage.js` | Boot Hill Barrage: physics forts that stand still when untouched, a real drag-back that aims and fires from the turned right half, a shot on the solved arc knocking timber loose, a hard bot felling an idle fort, and cleanup. Writes `shot-barrage-*.png`. |
+| `vaultheist.js` | Vault Heist in the face-off hold: a drag on the bottom half walking P1, loot pickup and an escape that banks it, a column blocking the torch, a full beam meter catching the thief, the role swap, two bots finishing a match, and cleanup. Writes `shot-vaultheist-*.png`. |
 | `highnoon.js` | The 3D stage: the players' own figures in a turned landscape scene, the board paused underneath, the holster on the right half, a flinch, a win on the bell, the hold card, and nothing leaked on finish or force-end. Writes `shot-highnoon-*.png`. |
 | `mapmodules.js` | Map registry parity and the board's geometry as *properties*. |
 | `mapshot.js` | Photographs a board from three angles. Not an assertion — a way to look. |

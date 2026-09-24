@@ -305,6 +305,8 @@ games that passed the verb test and failed the fun test are in `archived/`.
 | Throttle / racing    | one pedal, one track          | ✅ Grand Prix        |
 | Read & react climb   | tap the side it grew          | ✅ Tree Climb        |
 | Nerve / showdown (3D)| hold, then let go on the bell | ✅ High Noon         |
+| Siege / artillery (3D)| drag back, let fly, topple   | ✅ Boot Hill Barrage |
+| Asym sneak (3D)      | guard the light, steal the gold| ✅ Vault Heist      |
 
 **Curation rule:** the 40 files in `src/minigames/archived/` are a **design
 backlog, not a code backlog** — their imports and shared-DOM dependencies are
@@ -366,9 +368,17 @@ wrong.
 | `hold: 'side'` | The landscape hold (`MG_ORIENTATIONS.sideon`). Two players sit side by side, and **P1 is on the right** (the home edge, where P1's ready button is). If the viewport is portrait, the stage turns itself 90° clockwise, and `#minigame-layer.is-sideon` turns the manager's ready buttons and countdown to match. The two edge status pills are hidden, so a side-on game draws its prompts in `stage.hud`. |
 | `stage.toLocal(x, y)` | A pointer position in the stage's own frame, whichever way it is turned. Partition input with this, never with screen coordinates. |
 | `stage.character(slot)` | The figure that seat picked, rigged and animated (`CharacterRig.js`). `anim.play('idle' / 'walk' / 'ready' / 'aim' / 'hit' / 'fall' / 'victory' / 'defeat')`, `anim.face(angle)`, and the accents `anim.fire()` and `anim.flinch()`. `rig.hold(side, prop)` puts a prop in a hand. |
-| `STAGE_SETS[district](stage)` | A set built from `DISTRICT_BIOMES` and the board's own `PROP_KIT`. It returns handles the game can animate (Perdition: `ringBell`, `startleCrow`, `rollTumbleweed`) and an `update(dt, t)`. Only `hub` (Perdition) exists so far. |
+| `STAGE_SETS[district](stage)` | A set built from `DISTRICT_BIOMES` and the board's own `PROP_KIT`. It returns handles the game can animate (Perdition: `ringBell`, `startleCrow`, `rollTumbleweed`) and an `update(dt, t)`. Built so far: `hub` (Perdition's main street), `bad` (Boot Hill Badlands: two fort sites across a dry wash) and `fin` (a bank floor at night; it takes the game's layout so the scenery and the collision are the same numbers). |
+| `createDirector(stage)` (`StageDirector.js`) | **Beat 6's two ends.** `open({ place, title, sub, from, to, onDone })` is the opening shot: a camera move under letterbox bars with a title card. `close({ winner, figs, sub, closeUp, onDone })` is the winner's moment: the winner turns to camera and celebrates, everyone else slumps, confetti falls in the winner's colour, and the card shows their name in their colour. Call `update(dt)` every frame; while it returns true the director owns the camera. In the face-off hold the card is drawn twice, back to back, and `closeUp` lets a game shoot the winner from their own end of the table. |
 | `stage.start(frame)` | The loop. `dt` is capped and every rig is animated before your `frame(dt)` runs. |
 | `stage.dispose()` | Every geometry, material, texture, listener and the WebGL context, and the board is resumed. Call it from your `_destroy`, which you register with `registerMinigameCleanup` as always. |
+
+**The face-off hold in 3D** (Vault Heist is the reference). Look almost
+straight down and tilt only around the *long* axis, so neither end of the
+table gets the better view. Set `camera.up` to `(0, 0, -1)` (P2's end) for
+every shot. A camera pitched down then reads the right way up from
+whichever end it stands at, and screen-space drags map directly onto the floor
+for both players.
 
 If WebGL is unavailable, `stage.gl` is false and there is no scene, but the
 HUD still works. Keep the game logic independent of the scene so the round can

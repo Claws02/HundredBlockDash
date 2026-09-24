@@ -78,10 +78,13 @@ export function createDirector(stage) {
         c.style.cssText = 'position:absolute;left:0;right:0;display:flex;flex-direction:column;align-items:center;' +
             'justify-content:center;gap:4px;z-index:31;pointer-events:none;opacity:0;transition:opacity .3s;' +
             (half ? (rot ? 'top:0;height:50%;transform:rotate(180deg);' : 'bottom:0;height:50%;') : 'top:0;bottom:0;');
+        // A face-off half is a portrait 412 px across: smaller type, and lines
+        // that wrap inside a margin instead of running off both edges.
+        const wrap = 'max-width:92%;text-align:center;';
         c.innerHTML =
-            `<div data-k="place" style="font-size:15px;opacity:.85;${txt}"></div>` +
-            `<div data-k="title" style="font-size:${half ? 54 : 66}px;line-height:1;${txt}"></div>` +
-            `<div data-k="sub" style="font-size:20px;${txt}"></div>`;
+            `<div data-k="place" style="font-size:${half ? 13 : 15}px;opacity:.85;${wrap}${txt}"></div>` +
+            `<div data-k="title" style="font-size:${half ? 42 : 66}px;line-height:1;${wrap}${txt}"></div>` +
+            `<div data-k="sub" style="font-size:${half ? 15 : 20}px;${wrap}${txt}"></div>`;
         c.classList.add('bfont');
         c.dataset.dir = '1';
         hud.appendChild(c);

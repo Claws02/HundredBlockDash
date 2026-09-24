@@ -36,6 +36,7 @@ export const MG_TYPES = [
     // own figures, in Perdition, in the landscape hold.
     'highnoon',
     'barrage',
+    'vaultheist',
 ];
 
 export const MG_INFO = {
@@ -64,6 +65,7 @@ export const MG_INFO = {
     treeclimb:   { icon: '🌳', title: 'TREE CLIMB',    desc: '🪙 COIN GAME — 30 SECONDS, and whoever is HIGHEST when it runs out wins. A leaf sprouts LEFT or RIGHT — tap that side and you jump onto it, and only then does the next one grow. Sides don\'t just alternate, so watch it: two in a row happens. Grab the wrong side and you fall to the last branch on THAT side. Coins bank as you climb and a fall never takes them back.' },
     highnoon:    { icon: '🤠', title: 'HIGH NOON',     desc: 'Perdition, ten to four. Turn the phone sideways and sit side by side. HOLD your thumb down on your half and your character paces away from theirs. When the BELL rings they spin round — LET GO first to fire first. Let go before the bell and you flinched: the round is theirs. The crow, the slamming shutter and the tumbleweed are not the bell. First to 3 rounds wins!' },
     barrage:     { icon: '💣', title: 'BOOT HILL BARRAGE', desc: 'Turn the phone sideways and sit side by side. Your character stands on top of your fort with a cannon. DRAG BACK anywhere on your half — pull further for more power, and the angle you pull is the angle it flies — then LET GO to fire. Shells burst on whatever they hit. Knock their fort down before they knock down yours! Both cannons fire at once, with a short reload. Hit the legs, not the roof.' },
+    vaultheist:  { icon: '🏦', title: 'VAULT HEIST',   desc: 'Lay the phone flat between you. Two rounds — one as the THIEF, one as the GUARD. THIEF: drag to sneak in, grab the gold at the guard\'s end (the vault stack is worth 3, deposit boxes 2, cash bags 1), and get back out of YOUR door — gold only counts once you are out, and carrying it slows you down. GUARD: drag to walk; your torch points the way you go. Keep the thief in your light for a full second and they leave with nothing — walking into them won\'t do it. Columns and the counter block the light. Most gold banked wins!' },
 };
 
 // ============================================================
@@ -186,6 +188,7 @@ export const MG_NET = {
     treeclimb:   'parallel',
     highnoon:    'local',      // first to let go after the bell — a timestamp race
     barrage:     'local',      // one physics world, both forts in it
+    vaultheist:  'local',      // one bank floor, the beam and the thief in it
 };
 
 // The parallel games whose SCORE is also a coin haul.
@@ -274,12 +277,14 @@ export const MG_SHAPE = {
     treeclimb:   'split',
     highnoon:    'arena',   // one street, one bell, both figures in it
     barrage:     'arena',   // one wash, shells crossing it both ways
+    vaultheist:  'arena',   // + ASYM: one guards, one steals, then they swap
 };
 
 // Modifiers laid over a shape: the seats do not have the same job (ASYM), or
 // four seats play as two sides (TEAMS). Neither changes where anybody sits.
 export const MG_MODIFIER = {
     penalty: 'asym',        // one shoots, one keeps, then they swap
+    vaultheist: 'asym',     // one guards, one steals, then they swap
 };
 
 /** Games of one shape, in registry order. */
@@ -314,6 +319,7 @@ export const MG_ORIENTATION_MAP = {
     treeclimb:   'faceoff',
     highnoon:    'sideon',
     barrage:     'sideon',
+    vaultheist:  'faceoff',
 };
 
 export const FALLBACK_TRIVIA = [
@@ -477,6 +483,9 @@ export const MG_PROFILE = {
     // replayed from inputs alone — it needs the host's bodies. Two forts facing
     // across the wash is the story; four forts is a different map.
     barrage:     { genre: 'aim',      control: 'thumb', wire: 'snapshot', seats: [2, 2], live: false },
+    // Asymmetric by construction: one torch, one thief. Three thieves and a
+    // guard is a different game with a different floor plan.
+    vaultheist:  { genre: 'nerve',    control: 'thumb', wire: 'snapshot', seats: [2, 2], live: false },
     // roomy: the grid climbs to 5x5 as you score, and a fifth of a phone quarter
     // is a 34 px tile — under the 44 px the control law asks for. On a tablet
     // quarter the same grid is 68 px a side, so 3-4 seats is a tablet game.

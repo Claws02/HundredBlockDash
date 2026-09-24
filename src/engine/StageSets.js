@@ -430,8 +430,187 @@ export function buildBootHill(stage) {
     };
 }
 
+// ---- Financial District: the bank floor at ten past two in the morning ---
+//
+// An interior, seen from above, so the set takes the game's LAYOUT (walls,
+// pillars, counter, vault, loot spots — the same numbers the game collides
+// against) and dresses it: dark marble, white columns with gold capitals, a
+// teller counter with a brass grille, the vault door standing open, and green
+// banker's lamps. Night blue from the tall windows is the only fill; the
+// guard's torch is the only real light, and that belongs to the game.
+export function buildBankFloor(stage, L) {
+    const B = DISTRICT_BIOMES.fin;
+    const scene = stage.scene;
+    scene.background = new THREE.Color(0x05070d);
+    scene.fog = null;
+    // Moonlight through the windows: cool, dim, no shadows. The torch has them.
+    scene.add(new THREE.HemisphereLight(0x5a7ac0, 0x1a2030, 0.95));
+    const moon = new THREE.DirectionalLight(0x9fbcff, 0.6);
+    moon.position.set(8, 20, 4);
+    scene.add(moon);
+
+    const W = L.w / 2, D = L.d / 2;
+    // Marble floor, a checker of two near-blacks with a gold inlay border.
+    const tiles = new THREE.Group();
+    const dark = _mat(0x1c212c, 0.35, 0.1), darker = _mat(0x141821, 0.35, 0.1);
+    const T = 2;
+    for (let x = -W; x < W - 0.01; x += T) for (let z = -D; z < D - 0.01; z += T) {
+        const t = new THREE.Mesh(new THREE.PlaneGeometry(T, T), ((x + z) / T) % 2 === 0 ? dark : darker);
+        t.rotation.x = -Math.PI / 2; t.position.set(x + T / 2, 0, z + T / 2); t.receiveShadow = true;
+        tiles.add(t);
+    }
+    scene.add(tiles);
+    const gold = _mat(0xd4a93a, 0.3, 0.8, { emissive: 0x4a3200, emissiveIntensity: 0.3 });
+    [[0, -D + 0.6, L.w - 1.2, 0.08], [0, D - 0.6, L.w - 1.2, 0.08], [-W + 0.6, 0, 0.08, L.d - 1.2], [W - 0.6, 0, 0.08, L.d - 1.2]]
+        .forEach(([x, z, w, d]) => {
+            const b = new THREE.Mesh(new THREE.PlaneGeometry(w, d), gold);
+            b.rotation.x = -Math.PI / 2; b.position.set(x, 0.01, z); scene.add(b);
+        });
+
+    // Walls: low, so the room reads from above, with window slots glowing blue.
+    const wall = _mat(0x2a3040, 0.7);
+    const glow = new THREE.MeshBasicMaterial({ color: 0x3b5b99 });
+    [[0, -D - 0.3, L.w + 1.2, 0.6], [0, D + 0.3, L.w + 1.2, 0.6], [-W - 0.3, 0, 0.6, L.d], [W + 0.3, 0, 0.6, L.d]]
+        .forEach(([x, z, w, d]) => {
+            const m = new THREE.Mesh(new THREE.BoxGeometry(w, 2.2, d), wall);
+            m.position.set(x, 1.1, z); scene.add(m);
+        });
+    for (let z = -D + 3; z < D - 2; z += 4) [-W - 0.3, W + 0.3].forEach(x => {
+        const win = new THREE.Mesh(new THREE.BoxGeometry(0.64, 0.1, 1.6), glow);
+        win.position.set(x, 2.22, z); scene.add(win);
+        // A pale shaft of window light across the floor.
+        const shaft = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 1.4),
+            new THREE.MeshBasicMaterial({ color: 0x6f8fd6, transparent: true, opacity: 0.08, depthWrite: false }));
+        shaft.rotation.x = -Math.PI / 2; shaft.position.set(x - Math.sign(x) * 1.5, 0.02, z); scene.add(shaft);
+    });
+
+    // Doors: the thieves' way in and out, the two corners at each end, marked
+    // on the floor with an arrow out.
+    [-1, 1].forEach(end => [-1, 1].forEach(side => {
+        const mat = new THREE.MeshBasicMaterial({ color: 0x3a6fd0, transparent: true, opacity: 0.45 });
+        const m = new THREE.Mesh(new THREE.PlaneGeometry(L.doorHalf * 2, L.exit), mat);
+        m.rotation.x = -Math.PI / 2; m.position.set(side * L.doorX, 0.015, end * (D - L.exit / 2)); scene.add(m);
+        const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.35, 0.7, 3),
+            new THREE.MeshBasicMaterial({ color: 0x9cc0ff, transparent: true, opacity: 0.7 }));
+        arrow.rotation.x = end * Math.PI / 2; arrow.position.set(side * L.doorX, 0.03, end * (D - L.exit / 2)); scene.add(arrow);
+    }));
+
+    // Columns.
+    const marble = _mat(0xe7e3da, 0.4);
+    L.pillars.forEach(p => {
+        const g = new THREE.Group();
+        const shaft = new THREE.Mesh(new THREE.CylinderGeometry(p.r * 0.85, p.r * 0.9, 3.2, 18), marble);
+        shaft.position.y = 1.6; g.add(shaft);
+        const base = new THREE.Mesh(new THREE.CylinderGeometry(p.r, p.r * 1.05, 0.3, 18), marble);
+        base.position.y = 0.15; g.add(base);
+        const cap = new THREE.Mesh(new THREE.CylinderGeometry(p.r * 1.1, p.r * 0.85, 0.35, 18), gold);
+        cap.position.y = 3.3; g.add(cap);
+        g.position.set(p.x, 0, p.z);
+        g.traverse(o => { if (o.isMesh) o.castShadow = true; });
+        scene.add(g);
+    });
+
+    // The teller counter, with a brass grille and a green lamp at each end.
+    L.boxes.forEach(b => {
+        const g = new THREE.Group();
+        const body = new THREE.Mesh(new THREE.BoxGeometry(b.w, 1.1, b.d), _mat(0x4a2c18, 0.6));
+        body.position.y = 0.55; g.add(body);
+        const top = new THREE.Mesh(new THREE.BoxGeometry(b.w + 0.1, 0.08, b.d + 0.1), _mat(0x1d1a17, 0.3, 0.2));
+        top.position.y = 1.14; g.add(top);
+        const brass = _mat(0xc9a24a, 0.3, 0.85);
+        for (let i = 0; i <= Math.floor(b.w / 0.45); i++) {
+            const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.9, 6), brass);
+            bar.position.set(-b.w / 2 + i * 0.45, 1.6, 0); g.add(bar);
+        }
+        const rail = new THREE.Mesh(new THREE.BoxGeometry(b.w, 0.06, 0.06), brass);
+        rail.position.y = 2.05; g.add(rail);
+        [-1, 1].forEach(s => {
+            const shade = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.28, 0.2, 12, 1, true),
+                new THREE.MeshStandardMaterial({ color: 0x1f7a3a, emissive: 0x1f7a3a, emissiveIntensity: 0.8, side: THREE.DoubleSide }));
+            shade.position.set(s * (b.w / 2 - 0.4), 1.5, 0); g.add(shade);
+            const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 6), new THREE.MeshBasicMaterial({ color: 0xfff2c0 }));
+            bulb.position.set(s * (b.w / 2 - 0.4), 1.42, 0); g.add(bulb);
+            const pool = new THREE.Mesh(new THREE.CircleGeometry(1.3, 20),
+                new THREE.MeshBasicMaterial({ color: 0x4fbf6a, transparent: true, opacity: 0.1, depthWrite: false }));
+            pool.rotation.x = -Math.PI / 2; pool.position.set(s * (b.w / 2 - 0.4), 1.19, 0); g.add(pool);
+        });
+        g.position.set(b.x, 0, b.z);
+        g.traverse(o => { if (o.isMesh && o.geometry.type !== 'CircleGeometry') o.castShadow = true; });
+        scene.add(g);
+    });
+
+    // The vaults, one at each end: a steel frame and a round door swung open.
+    const steel = _mat(0x7c8594, 0.35, 0.85);
+    const vaults = L.vaults.map(v => {
+        const g = new THREE.Group();
+        const back = new THREE.Mesh(new THREE.BoxGeometry(4.4, 2.4, 0.4), _mat(0x3a4150, 0.5, 0.5));
+        back.position.set(0, 1.2, -v.face * 1.4); g.add(back);
+        [-1, 1].forEach(s => {
+            const side = new THREE.Mesh(new THREE.BoxGeometry(0.4, 2.4, 2.8), _mat(0x3a4150, 0.5, 0.5));
+            side.position.set(s * 2.0, 1.2, 0); g.add(side);
+        });
+        const door = new THREE.Mesh(new THREE.CylinderGeometry(1.25, 1.25, 0.35, 28), steel);
+        door.rotation.z = Math.PI / 2;
+        door.rotation.y = 0.9;
+        door.position.set(2.6, 1.3, v.face * 1.5); g.add(door);
+        const wheel = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.06, 8, 16), _mat(0xc9a24a, 0.3, 0.85));
+        wheel.position.set(2.75, 1.3, v.face * 1.5 + 0.25); wheel.rotation.y = 0.9 + Math.PI / 2; g.add(wheel);
+        g.position.set(v.x, 0, v.z);
+        g.traverse(o => { if (o.isMesh) o.castShadow = true; });
+        scene.add(g);
+        return g;
+    });
+
+    // Loot, placed at the game's spots, handed back so the game can hide what
+    // gets taken and restore it between rounds.
+    const barMat = _mat(0xf2c14e, 0.25, 0.9, { emissive: 0x6a4a00, emissiveIntensity: 0.55 });
+    const sackMat = _mat(0x8a6a3e, 0.9);
+    const loot = L.loot.map(l => {
+        const g = new THREE.Group();
+        if (l.kind === 'bar') {
+            for (let i = 0; i < 3; i++) {
+                const bar = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.22, 0.3), barMat);
+                bar.position.set((i - 1) * 0.34, 0.11 + (i === 1 ? 0.22 : 0), 0);
+                g.add(bar);
+            }
+        } else if (l.kind === 'box') {
+            // A safe-deposit drawer pulled out onto a pedestal.
+            const ped = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.6, 0.7), _mat(0x3a4150, 0.5, 0.5));
+            ped.position.y = 0.3; g.add(ped);
+            const box = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.28, 0.5), _mat(0x9aa3b2, 0.3, 0.85));
+            box.position.y = 0.74; g.add(box);
+            const handle = new THREE.Mesh(new THREE.TorusGeometry(0.08, 0.02, 6, 12, Math.PI), barMat);
+            handle.position.set(0, 0.74, 0.26); g.add(handle);
+            const glint = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.06, 0.3), barMat);
+            glint.position.y = 0.9; g.add(glint);
+        } else {
+            const bag = new THREE.Mesh(new THREE.SphereGeometry(0.34, 12, 10), sackMat);
+            bag.scale.set(1, 1.15, 1); bag.position.y = 0.36; g.add(bag);
+            const tie = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.12, 0.2, 8), sackMat);
+            tie.position.y = 0.78; g.add(tie);
+            const sign = textPlane('$', { w: 0.38, h: 0.38, bg: '#8a6a3e', fg: '#f3dca8', border: '#8a6a3e' });
+            sign.position.set(0, 0.4, 0.33); g.add(sign);
+        }
+        // A warm pool on the floor under every prize, so loot reads from
+        // straight above in a dark room.
+        const pool = new THREE.Mesh(new THREE.CircleGeometry(0.75, 20),
+            new THREE.MeshBasicMaterial({ color: 0xffc94d, transparent: true, opacity: 0.28, depthWrite: false }));
+        pool.rotation.x = -Math.PI / 2; pool.position.y = 0.02; g.add(pool);
+        g.position.set(l.x, 0, l.z);
+        g.traverse(o => { if (o.isMesh && o !== pool) o.castShadow = true; });
+        scene.add(g);
+        return g;
+    });
+
+    return {
+        loot, vaults, place: B.name,
+        update(dt, t) { loot.forEach((g, i) => { g.children[g.children.length - 1].material.opacity = 0.22 + Math.sin(t * 3 + i) * 0.08; }); },
+    };
+}
+
 /** Sets by district key. A game asks for the one its story is set in. */
 export const STAGE_SETS = {
     hub: buildPerditionStreet,
     bad: buildBootHill,
+    fin: buildBankFloor,
 };
