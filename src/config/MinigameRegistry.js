@@ -44,6 +44,7 @@ export const MG_TYPES = [
     'rooftop',
     'blockparty',
     'riftdive',
+    'balloonpump',
 ];
 
 export const MG_INFO = {
@@ -80,6 +81,7 @@ export const MG_INFO = {
     rooftop:     { icon: '🌃', title: 'ROOFTOP RUN', desc: 'Turn the phone sideways and sit side by side. You are both racing across the Back Alley rooftops at night — you run on your own. Tap the TOP of your half to JUMP the gaps and the vents (hold it for a higher jump); tap the BOTTOM to SLIDE under the low neon signs. Slide into the runner in front and you trip them up! Miss a gap and you drop to the street and lose time. First to the finish banner wins the race; first to 2 races wins!' },
     blockparty:  { icon: '🪩', title: 'BLOCK PARTY', desc: 'Turn the phone sideways and sit side by side. It is a street party on the Promenade and the DJ calls the moves: watch the DJ dance a phrase, one move per beat — then dance it straight back, both of you at once. SWIPE UP to raise the roof, DOWN to drop, LEFT or RIGHT to point, TAP to clap. On the beat is PERFECT, near it is GOOD; the wrong move or off the beat is a MISS. A phrase with no misses is a FULL COMBO. The phrases get longer and faster, and the last two are from memory. Most points wins!' },
     riftdive:    { icon: '🌌', title: 'RIFT DIVE', desc: 'Lay the phone flat between you — the screen splits in two, and each half is your own camera following your own diver straight down a rift through the Void. DRAG on your half to steer. Fly through the glowing RINGS for a burst of speed; clip a red SHARD and you tumble and slow right down. You share the shaft, so you can bump each other out of the way. First to the core at the bottom wins!' },
+    balloonpump: { icon: '🎈', title: 'BALLOON PUMP', desc: 'Turn the phone sideways and sit side by side. HOLD your thumb on your half to pump your balloon, and let go to stop. When the whistle blows, the bigger balloon scores. Pump past the limit and it POPS for nothing. Both balloons share the same hidden limit, and a balloon near it starts to wobble and squeak. Five rounds, and the last one counts double!' },
 };
 
 // ============================================================
@@ -210,6 +212,7 @@ export const MG_NET = {
     rooftop:     'local',
     blockparty:  'local',
     riftdive:    'local',
+    balloonpump: 'local',
 };
 
 // The parallel games whose SCORE is also a coin haul.
@@ -306,6 +309,7 @@ export const MG_SHAPE = {
     rooftop:     'arena',
     blockparty:  'arena',
     riftdive:    'arena',
+    balloonpump: 'arena',
 };
 
 // Modifiers laid over a shape: the seats do not have the same job (ASYM), or
@@ -355,6 +359,7 @@ export const MG_ORIENTATION_MAP = {
     rooftop:     'sideon',
     blockparty:  'sideon',
     riftdive:    'faceoff',
+    balloonpump: 'sideon',
 };
 
 export const FALLBACK_TRIVIA = [
@@ -536,6 +541,7 @@ export const MG_PROFILE = {
     rooftop:     { genre: 'race',     control: 'tap',   wire: 'events',   seats: [2, 2], live: false },
     blockparty:  { genre: 'reflex',   control: 'thumb', wire: 'events',   seats: [2, 2], live: false },
     riftdive:    { genre: 'race',     control: 'thumb', wire: 'snapshot', seats: [2, 2], live: false },
+    balloonpump: { genre: 'nerve', control: 'thumb', wire: 'snapshot', seats: [2, 2], live: false },
 };
 
 // The order the wire tiers come in, cheapest first. Used by the READINESS sort:

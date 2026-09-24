@@ -12,6 +12,9 @@
 //   --icon=🎯            the arcade icon
 //   --genre=push         MG_PROFILE genre: push | race | aim | brain | scramble | nerve | rhythm
 //   --control=thumb      thumb | tap | dual
+//   --hold=faceoff       faceoff | sideon — the registered hold. The template is written
+//                        for faceoff; a sideon game switches to hold:'side', sideHud and
+//                        touch({ split: 'x' }) (see HighNoon.js, BlockParty.js)
 //   --desc="..."         the how-to-play text on the intro card
 //   --dry-run            print what would change, write nothing
 //
@@ -51,6 +54,8 @@ const place = (opt.place || 'THE CITY').toUpperCase();
 const icon = opt.icon || '🎮';
 const genre = opt.genre || 'push';
 const control = opt.control || 'thumb';
+const hold = opt.hold || 'faceoff';
+if (!['faceoff', 'sideon'].includes(hold)) die(`--hold must be faceoff or sideon`);
 const desc = opt.desc || `Lay the phone flat between you. DRAG on your half to run and grab the coins that drop into the yard. Most coins when the whistle blows wins!`;
 const esc = s => String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 
@@ -89,7 +94,7 @@ r = appendTo(r, 'MG_TYPES', `    '${key}',`);
 r = appendTo(r, 'MG_INFO', `    ${key}: { icon: '${esc(icon)}', title: '${esc(title.toUpperCase())}', desc: '${esc(desc)}' },`);
 r = appendTo(r, 'MG_NET', `    ${key}: 'local',`);
 r = appendTo(r, 'MG_SHAPE', `    ${key}: 'arena',`);
-r = appendTo(r, 'MG_ORIENTATION_MAP', `    ${key}: 'faceoff',`);
+r = appendTo(r, 'MG_ORIENTATION_MAP', `    ${key}: '${hold}',`);
 r = appendTo(r, 'MG_PROFILE', `    ${key}: { genre: '${genre}', control: '${control}', wire: 'snapshot', seats: [2, 2], live: false },`);
 
 let g = mgr;

@@ -70,7 +70,7 @@ with a perspective from one end.
 ```bash
 node scripts/new-3d-minigame.js crateclash "Crate Clash" \
     --set=ind --icon=📦 --place="Industrial Zone · The Loading Dock" \
-    --genre=push --control=thumb --desc="Lay the phone flat between you. …"
+    --genre=push --control=thumb --hold=faceoff --desc="Lay the phone flat between you. …"
 ```
 
 This writes `src/minigames/CrateClash.js` (from `_template3d.js`) and
