@@ -483,7 +483,9 @@ function _end() {
         sub: w < 0 ? `${a.gems} GEMS EACH` : `${_carts[w].gems} GEMS OUT OF THE MINE`,
         closeUp: (f, p) => {
             const end = f.slot === 0 ? 1 : -1;
-            return { pos: [p.x + 1.4, p.y + 4.5, p.z + end * 6.5], look: [p.x, p.y + 0.6, p.z] };
+            // Steep, so nothing on the track between the lens and the winner
+            // (a crate, the other cart) gets in the shot.
+            return { pos: [p.x + 1.2, p.y + 7.5, p.z + end * 4.2], look: [p.x, p.y + 0.5, p.z] };
         },
         onDone: () => _finish(w),
     });
