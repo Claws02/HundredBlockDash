@@ -187,6 +187,13 @@ export function calculateWinner(applyBonuses = true) {
 
     _renderRaceChart();
     _wireRotate();
+    // Upright in whatever way the phone is actually held. The screen used to
+    // open rotated 90° unconditionally — right for TABLETOP, where the phone lies
+    // flat between two players and the long edge faces them, but on every phone
+    // held upright in 1P or pass-and-play the match's payoff appeared on its side
+    // (RELEASE_AUDIT UX-04). Tabletop keeps the rotated read; ROTATE flips either.
+    const upright = window.innerHeight > window.innerWidth && state.playStyle !== 'tabletop';
+    document.getElementById('win-screen').classList.toggle('portrait', upright);
 
     const confettiEl = document.getElementById('win-confetti'); confettiEl.innerHTML = '';
     const colors = ['#f59e0b','#a855f7','#3b82f6','#ef4444','#4ade80','#fbbf24','#ec4899'];
@@ -338,7 +345,7 @@ function _renderRaceChart() {
     }
 }
 
-// Landscape by default; the toggle is there for anyone holding the phone upright.
+// The toggle, for a phone being passed round a table.
 function _wireRotate() {
     const btn = document.getElementById('btn-win-rotate');
     const scr = document.getElementById('win-screen');

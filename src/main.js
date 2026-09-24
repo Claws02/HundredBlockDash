@@ -4,6 +4,7 @@ import * as ModalManager from './ui/ModalManager.js';
 import * as MinigameManager from './minigames/MinigameManager.js';
 import * as Settings from './core/Settings.js';
 import * as Onboarding from './ui/Onboarding.js';
+import * as PauseMenu from './ui/PauseMenu.js';
 import * as Storage from './core/Storage.js';
 import * as Commands from './core/Commands.js';
 import { MG_INFO, MG_TYPES, MG_GENRES, MG_WIRE_ORDER,
@@ -26,6 +27,7 @@ UIManager.init(GameController);
 ModalManager.init(GameController);
 MinigameManager.init(GameController);
 Onboarding.init();
+PauseMenu.init({ onQuit: () => GameController.mainMenu() });
 Onboarding.refreshSplashStats();
 
 // ============================================================

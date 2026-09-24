@@ -17,15 +17,15 @@ import { sfx } from '../engine/AudioManager.js';
 // ── How-to-Play slides ─────────────────────────────────────────────────────────
 const SLIDES = [
     { icon: '🏁', title: 'WELCOME',
-      body: 'Hundred Block Dash is a race-and-grab board game for 1–2 players. Roll, move, scoop up coins, and win head-to-head minigames to come out on top.' },
+      body: 'Hundred Block Dash is a race-and-grab board game for 1–4 players — with bots, passing one phone, or online. Roll, move, scoop up coins, and win head-to-head minigames to come out on top.' },
     { icon: '🎲', title: 'ROLL & MOVE',
       body: 'Tap <b>🎲 ROLL</b> or swipe up to throw the die — your token hops that many spaces. At a junction you choose a path: the safe Ring Road, or a riskier district.' },
     { icon: '🟢', title: 'SPACES',
-      body: 'Each space does something: 🪙 gain coins, 💸 pay fines, 🎁 grab a mystery item, ⚡ roll again, 🌀 take a shortcut. A 🛡️ Shield blocks the next bad space.' },
+      body: 'Each space does something: 🪙 gain coins, 💸 pay fines, 🎁 grab a mystery item, ⚡ roll again, ⚔️ start a duel. A 🛡️ Shield blocks the next bad space.' },
     { icon: '🎒', title: 'ITEMS & SHOPS',
       body: 'Stop at a 🏪 shop to buy items with coins. On your turn, open your <b>🎒 bag</b> to use them — rockets, swaps, traps and more. You can carry up to 3.' },
     { icon: '🏙️', title: 'CITY CIRCUIT',
-      body: 'Earn coins at 🏛️ District HQs, complete 📋 Contracts, recruit 🤝 Buddies with passive powers, and win ⚔️ Duels. Most coins after 20 rounds wins the city!' },
+      body: 'Earn coins at 🏛️ District HQs, claim 🎯 Bounties, recruit 🤝 Buddies with passive powers, and win ⚔️ Duels. Most coins when the last round ends (6, 12 or 20 — your pick) wins the city!' },
     { icon: '🏆', title: 'MINIGAMES',
       body: 'Every few turns a quick head-to-head minigame decides who grabs bonus coins and rolls first. Hold the phone as the diagram shows, tap READY, and go!' },
 ];

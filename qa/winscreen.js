@@ -1,5 +1,6 @@
 // ============================================================
-// Win-screen check: landscape presentation + the turn-by-turn race chart.
+// Win-screen check: opens upright on a phone held upright (1P), ROTATE lays it
+// along the long axis for the table, and the turn-by-turn race chart.
 //
 // Drives a real match briefly so `state.history` is populated by the real
 // recorder, then ends it and inspects what the player would see. Screenshots
@@ -86,14 +87,16 @@ const ok = (n, c, d) => (c ? pass : fail).push(n + (d ? ` — ${d}` : ''));
             legend: (document.getElementById('win-chart-legend') || {}).innerText || '',
             innerW: inner.clientWidth, innerH: inner.clientHeight,
             viewW: window.innerWidth, viewH: window.innerHeight,
+            cls: document.getElementById('win-screen').className,
             cardsText: (document.getElementById('win-cards') || {}).innerText.slice(0, 60),
         };
     });
     ok('win screen: shows', view.visible);
-    ok('win screen: laid out along the long axis (landscape)',
-       view.innerW > view.innerH && view.innerW >= view.viewH - 4,
-       `inner ${view.innerW}x${view.innerH} in viewport ${view.viewW}x${view.viewH}`);
-    ok('win screen: is rotated for the flat-on-the-table read', view.rotated, view.transform);
+    // A phone held upright in a 1P match opens UPRIGHT (RELEASE_AUDIT UX-04):
+    // it used to open rotated 90° in every mode, which is only right for the
+    // flat-on-the-table TABLETOP read.
+    ok('win screen: opens upright on a phone held upright (1P)',
+       !view.rotated && /portrait/.test(view.cls || ''), `${view.transform} class="${view.cls}"`);
     ok('chart: renders an SVG', view.hasSvg);
     ok('chart: one line per player', view.polylines === 2, `${view.polylines} polylines`);
     // City is scored on coins and played in rounds, so its chart counts rounds;
@@ -103,9 +106,9 @@ const ok = (n, c, d) => (c ? pass : fail).push(n + (d ? ` — ${d}` : ''));
        && /Player 1/.test(view.legend)
        && (MAP === 'city_circuit' ? /rounds:/ : /turns:/).test(view.legend),
        view.legend.replace(/\n/g, ' | '));
-    await page.screenshot({ path: path.join(__dirname, `shot-win-landscape-${MAP}.png`) });
+    await page.screenshot({ path: path.join(__dirname, `shot-win-portrait-${MAP}.png`) });
 
-    // Portrait toggle
+    // ROTATE turns it for the table
     await page.evaluate(() => document.getElementById('btn-win-rotate').click());
     await page.waitForTimeout(500);
     const portrait = await page.evaluate(() => {
@@ -113,9 +116,9 @@ const ok = (n, c, d) => (c ? pass : fail).push(n + (d ? ` — ${d}` : ''));
         return { w: inner.clientWidth, h: inner.clientHeight,
                  cls: document.getElementById('win-screen').className };
     });
-    ok('win screen: rotate toggle returns to portrait', portrait.h > portrait.w,
+    ok('win screen: ROTATE lays it along the long axis for the table', portrait.w > portrait.h && !/portrait/.test(portrait.cls),
        `${portrait.w}x${portrait.h} class="${portrait.cls}"`);
-    await page.screenshot({ path: path.join(__dirname, `shot-win-portrait-${MAP}.png`) });
+    await page.screenshot({ path: path.join(__dirname, `shot-win-landscape-${MAP}.png`) });
 
     ok('no console/page errors', errors.length === 0, [...new Set(errors)].slice(0, 3).join(' | '));
     fs.writeFileSync(path.join(__dirname, `result-winscreen-${MAP}.json`),

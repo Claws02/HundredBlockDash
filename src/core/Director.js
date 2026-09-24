@@ -29,7 +29,9 @@
 import { SCENE, ACK_SKIP } from '../config/SceneTiming.js';
 
 const _beats   = new Map();   // beat name → performance.now() when it began
-const _pending = new Set();   // live timer ids
+const _pending = new Map();   // handle → { timer, fn, due }
+let   _nextHandle = 1;
+let   _pausedAt = 0;          // performance.now() when paused, 0 when running
 let   _acked   = false;       // player tapped through the current beat
 
 function _floor(name) {
@@ -82,13 +84,21 @@ export function wait(ms, fn) {
     return _schedule(fn, Math.max(0, ms || 0));
 }
 
+// Handles are the Director's own, not setTimeout ids, so a beat can be taken
+// off the clock by pause() and put back by resume() without anybody holding a
+// stale id for cancel().
 function _schedule(fn, ms) {
-    const id = setTimeout(() => {
-        _pending.delete(id);
-        try { fn(); } catch (e) { console.error('[Director] beat continuation failed:', e); }
-    }, Math.max(0, Math.round(ms)));
-    _pending.add(id);
-    return id;
+    const handle = _nextHandle++;
+    const entry = { fn, due: performance.now() + Math.max(0, ms), timer: null };
+    _pending.set(handle, entry);
+    if (!_pausedAt) _arm(handle, entry);
+    return handle;
+}
+function _arm(handle, entry) {
+    entry.timer = setTimeout(() => {
+        _pending.delete(handle);
+        try { entry.fn(); } catch (e) { console.error('[Director] beat continuation failed:', e); }
+    }, Math.max(0, Math.round(entry.due - performance.now())));
 }
 
 // The player tapped through — compress what's left of the current floor.
@@ -96,20 +106,40 @@ export function ack() { _acked = true; }
 
 export function cancel(id) {
     if (id === undefined || id === null) return;
-    clearTimeout(id);
+    const e = _pending.get(id);
+    if (e) clearTimeout(e.timer);
     _pending.delete(id);
 }
+
+// PAUSE. Every pending beat comes off the clock and every beat's start time is
+// pushed back by however long the pause lasted, so nothing fires while the
+// match is paused and nothing is cut short when it resumes. The pause menu and
+// the app going to the background both use this (RELEASE_AUDIT RA-04).
+export function pause() {
+    if (_pausedAt) return;
+    _pausedAt = performance.now();
+    _pending.forEach(e => clearTimeout(e.timer));
+}
+export function resume() {
+    if (!_pausedAt) return;
+    const gap = performance.now() - _pausedAt;
+    _pausedAt = 0;
+    _beats.forEach((t0, k) => _beats.set(k, t0 + gap));
+    _pending.forEach((e, h) => { e.due += gap; _arm(h, e); });
+}
+export function isPaused() { return !!_pausedAt; }
 
 // Drop every pending continuation. Called on rematch / main menu / game start
 // so a stale beat from the previous match can never fire into the new one.
 export function reset() {
-    _pending.forEach(clearTimeout);
+    _pending.forEach(e => clearTimeout(e.timer));
     _pending.clear();
+    _pausedAt = 0;
     _beats.clear();
     _acked = false;
 }
 
 // Introspection for the QA scene probe.
 export function debugState() {
-    return { pending: _pending.size, beats: [..._beats.keys()], acked: _acked };
+    return { pending: _pending.size, beats: [..._beats.keys()], acked: _acked, paused: !!_pausedAt };
 }

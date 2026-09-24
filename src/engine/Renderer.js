@@ -9,6 +9,7 @@ import * as Physics from './Physics.js';
 import { sfx } from './AudioManager.js';   // set pieces cue their own sound
 import * as ActiveMap from '../config/ActiveMap.js';
 import * as Stars from '../core/Stars.js';
+import * as Settings from '../core/Settings.js';
 
 let scene, camera, renderer, clock;
 let boardGrp, diceGrp;
@@ -802,8 +803,10 @@ export function init(container) {
     renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setSize(W, H);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    _quality.ratio = Math.min(window.devicePixelRatio || 1, 2);
     renderer.shadowMap.enabled = true;
     container.appendChild(renderer.domElement);
+    _watchContext(renderer.domElement);
 
     // 3-light rig
     // City ambient was 1.2 — so high that every surface came back the same flat
@@ -850,6 +853,7 @@ export function init(container) {
     // and the Crown beacon ring animating.
     if (isHBD) _buildHBDScene();
     buildPlayerMeshes();
+    _pruneShadowCasters(scene);
 
     clock = new THREE.Clock();
     startLoop();
@@ -881,15 +885,22 @@ function _buildPathTubes() {
         _pathTubes.push(mesh);
     });
 
-    // Junction sphere markers — every fork this board has, not City's four.
+    // Junction markers — every fork this board has, not City's four. These
+    // were 1.8-unit glowing gold spheres sitting on the road; from the follow
+    // camera the nearest one filled the bottom of the screen as a featureless
+    // blown-out blob and read as a rendering fault (RELEASE_AUDIT C-02). A fork
+    // is now marked ON the road: a glowing ring with a soft disc inside it.
+    const ringMat = new THREE.MeshBasicMaterial({ color: 0xfbbf24 });
+    const discMat = new THREE.MeshBasicMaterial({ color: 0xf59e0b, transparent: true, opacity: 0.28, depthWrite: false });
     [...ActiveMap.junctions()].forEach(id => {
         const pos = getPos(id);
-        const mat = new THREE.MeshPhysicalMaterial({ color: 0xfbbf24, emissive: 0xf59e0b, emissiveIntensity: 1.5, metalness: 0.9 });
-        const mesh = new THREE.Mesh(new THREE.SphereGeometry(1.8, 12, 12), mat);
-        mesh.position.copy(pos);
-        mesh.position.y = 0.5;
-        boardGrp.add(mesh);
-        floatingIcons.push({ mesh, baseY: 0.5, speed: 0.8, phase: Math.random() * Math.PI * 2 });
+        const ring = new THREE.Mesh(new THREE.RingGeometry(1.35, 1.7, 40), ringMat);
+        ring.rotation.x = -Math.PI / 2;
+        ring.position.set(pos.x, 0.07, pos.z);
+        const disc = new THREE.Mesh(new THREE.CircleGeometry(1.35, 40), discMat);
+        disc.rotation.x = -Math.PI / 2;
+        disc.position.set(pos.x, 0.06, pos.z);
+        boardGrp.add(ring, disc);
     });
 }
 
@@ -1024,6 +1035,7 @@ export function drawTiles() {
         else if (b.type === 'hq') _buildHQMesh(nodeId, pos, graphNode?.district);
         else if (spc.geo && GEOS[spc.geo]) _buildFloatingIcon(pos, spc, b);
     });
+    if (scene) _pruneShadowCasters(boardGrp);
 }
 
 export function updateSingleTile() { drawTiles(); }
@@ -2021,9 +2033,11 @@ export function playSwapCinematic(playerA, playerB, onDone) {
     // Height of the beam cone so it always reaches the ground.
     const stretchBeam = () => { beam.scale.y = Math.max(0.1, ufo.position.y); beam.position.y = -ufo.position.y / 2; };
 
+    // Reduce Motion: the same seven legs at under a third of the length.
+    const k = _reduceMotion() ? 0.3 : 1;
     const step = (o, from, to, dur, onUpdate, then) => {
         activeAnims.push({
-            obj: o, start: from, to, dur,
+            obj: o, start: from, to, dur: dur * k,
             onUpdate: (t) => { onUpdate && onUpdate(t); },
             onComplete: then,
         });
@@ -2180,17 +2194,29 @@ export function endCinematic() {
 // Total run time, so the caller can size its beat from the animation rather
 // than guessing a number that then drifts out of sync with it.
 export function swapCinematicMs() {
-    return Math.round((SWAP.DESCEND + SWAP.BEAM * 2 + SWAP.TRAVEL * 2 + SWAP.DROP * 2 + SWAP.LIFT) * 1000);
+    return Math.round((SWAP.DESCEND + SWAP.BEAM * 2 + SWAP.TRAVEL * 2 + SWAP.DROP * 2 + SWAP.LIFT) * 1000 * (_reduceMotion() ? 0.3 : 1));
 }
 
 // ---- Flyover (game start) ----
+
+// Reduce Motion reaches the camera, not just CSS (RELEASE_AUDIT A-01): the
+// opening flyover is cut to a moment, and long camera travels become short
+// moves without the lift.
+function _reduceMotion() { try { return !!Settings.get('reduceMotion'); } catch (e) { return false; } }
+
+/** Jump the opening flyover to its last frame. A tap during it calls this. */
+export function skipFlyover() {
+    const a = activeAnims.find(x => x.isFlyover);
+    if (a) a.t = a.dur;
+    return !!a;
+}
 
 export function startFlyover(onComplete) {
     if (ActiveMap.isLinear()) {
         // Linear flyover: sweep along boardCurve
         const flyObj = { p: 0 };
         activeAnims.push({
-            obj: flyObj, start: { p: 0 }, to: { p: 1.0 }, dur: SCENE.FLYOVER_HBD / 1000,
+            obj: flyObj, start: { p: 0 }, to: { p: 1.0 }, dur: (_reduceMotion() ? 0.35 : SCENE.FLYOVER_HBD / 1000), isFlyover: true,
             onUpdate: () => {
                 const safeT   = Math.max(0.001, Math.min(flyObj.p, 0.999));
                 const pt      = boardCurve.getPoint(safeT);
@@ -2207,7 +2233,7 @@ export function startFlyover(onComplete) {
         const flyObj = { angle: 0, height: 90, dist: 110 };
         activeAnims.push({
             obj: flyObj, start: { angle: 0, height: 90, dist: 110 }, to: { angle: Math.PI * 1.5, height: 28, dist: 55 },
-            dur: SCENE.FLYOVER_CITY / 1000,
+            dur: (_reduceMotion() ? 0.35 : SCENE.FLYOVER_CITY / 1000), isFlyover: true,
             onUpdate: () => {
                 camera.position.set(
                     Math.cos(flyObj.angle) * flyObj.dist,
@@ -2279,6 +2305,7 @@ const CAM = {
 // rather than eases. One hop moves the target ~10 units; only a teleport or a
 // change of turn across the board exceeds this.
 const CAM_CUT = 40;
+let _camTransit = null;   // { t, dur, lift, fromPos, fromQuat } while crossing the city
 
 // The camera's own heading, smoothed. This is the single biggest cause of the
 // touchiness: the old code recomputed the heading every frame as
@@ -2293,7 +2320,7 @@ let   _camFwdInit = false;
 const _tmpGround  = new THREE.Vector3();
 const _tmpHead    = new THREE.Vector3();
 
-export function resetCameraSmoothing() { _camFwdInit = false; }
+export function resetCameraSmoothing() { _camFwdInit = false; _camTransit = null; }
 
 // Which way is this player facing, per the board itself?
 function _rawHeading(p) {
@@ -2514,10 +2541,79 @@ export function setBoardPaused(on) {
 }
 export function isBoardPaused() { return _boardPaused; }
 
+// The MATCH paused (pause menu, app in the background). Unlike _boardPaused the
+// scene still draws — the pause menu sits over a visible board — but no
+// animation, hop, dice or camera move advances (RELEASE_AUDIT RA-04).
+let _gamePaused = false;
+export function setGamePaused(on) { _gamePaused = !!on; }
+export function isGamePaused() { return _gamePaused; }
+
+// ADAPTIVE RESOLUTION — the same ladder the minigame stage uses. The board was
+// created at devicePixelRatio 2 and never adapted, which on a phone that cannot
+// hold ~3,000 draw calls a frame meant a hot, stuttering board for the whole
+// match (RELEASE_AUDIT RA-03). When frames run past 33 ms for a second and a
+// half, step down; never back up — flicker between two resolutions reads
+// worse than either. The board stops at 1: below it the tiles' icons blur.
+const _quality = { ratio: 2, ema: 1 / 60, since: 0, drops: 0 };
+function _adaptResolution(rawDt) {
+    if (!renderer || _gamePaused) return;
+    const q = _quality, d = Math.min(rawDt, 0.5);
+    q.ema += (d - q.ema) * 0.08;
+    q.since += d;
+    if (q.since < 1.5 || q.ema < 1 / 30) return;
+    const next = [1.5, 1].find(v => v < q.ratio - 0.01);
+    if (next === undefined) return;
+    q.ratio = next; q.since = 0; q.drops++;
+    renderer.setPixelRatio(next);
+    renderer.setSize(Math.max(window.innerWidth || 300, 300), Math.max(window.innerHeight || 500, 500));
+}
+export function getQuality() { return { ..._quality }; }
+
+// Shadows only where they read. 1,007 meshes cast into the sun's shadow map,
+// most of them props smaller than a token — bollards, lamps, crates, signs —
+// each drawn a second time every frame for a shadow nobody can see at this
+// camera height. Anything short and small stops casting; the tokens (tagged
+// charType) and the dice keep theirs.
+function _pruneShadowCasters(root) {
+    if (!root) return;
+    const box = new THREE.Box3(), size = new THREE.Vector3();
+    root.traverse(o => {
+        if (!o.isMesh || !o.castShadow) return;
+        for (let q = o; q; q = q.parent) if (q.userData && q.userData.charType || q === diceGrp) return;
+        box.setFromObject(o); box.getSize(size);
+        if (size.y < 1.6 && Math.max(size.x, size.z) < 3.5) o.castShadow = false;
+    });
+}
+
+// WEBGL CONTEXT LOSS. iOS drops a backgrounded page's WebGL context under
+// memory pressure; the board then came back black or frozen for good, because
+// only the minigame stage listened for it (RELEASE_AUDIT RA-04). There is no
+// saved match to restore into yet, so be honest: say what happened, and let a
+// tap bring the game back.
+function _watchContext(canvas) {
+    canvas.addEventListener('webglcontextlost', e => {
+        e.preventDefault();
+        if (document.getElementById('ctx-lost')) return;
+        const el = document.createElement('div');
+        el.id = 'ctx-lost';
+        el.style.cssText = 'position:fixed;inset:0;z-index:100000;display:flex;flex-direction:column;align-items:center;' +
+            'justify-content:center;gap:14px;background:rgba(8,6,20,.94);color:#fff;text-align:center;padding:32px;' +
+            "font-family:'Nunito',system-ui,sans-serif;";
+        el.innerHTML = '<div style="font-size:48px">📺</div><div style="font-size:22px;font-weight:900">The display was reset</div>' +
+            '<div style="font-size:15px;opacity:.8;max-width:320px;line-height:1.5">Your phone reclaimed the graphics while the game was in the background.</div>' +
+            '<button style="margin-top:8px;min-height:48px;padding:12px 28px;border:none;border-radius:12px;background:#f59e0b;color:#1a1a2e;font-weight:900;font-size:16px">TAP TO CONTINUE</button>';
+        el.querySelector('button').addEventListener('click', () => window.location.reload());
+        document.body.appendChild(el);
+    });
+    canvas.addEventListener('webglcontextrestored', () => { /* the reload above is the recovery */ });
+}
+
 function _loop() {
     requestAnimationFrame(_loop);
     if (!clock || _boardPaused) return;
-    const dt   = Math.min(clock.getDelta(), 0.1);
+    const raw  = clock.getDelta();
+    _adaptResolution(raw);
+    const dt   = _gamePaused ? 0 : Math.min(raw, 0.1);
     const time = clock.getElapsedTime();
 
     floatingIcons.forEach(f => {
@@ -2604,19 +2700,36 @@ function _loop() {
                 // disorienting drift whose first frames lurch. Past a distance no
                 // ordinary hop can produce, cut instead — including the heading,
                 // so the camera arrives already facing the right way.
-                if (camera.position.distanceTo(pos) > CAM_CUT) {
+                // It used to CUT here: up to 60 units and 160° in one frame,
+                // about eight times a match (RELEASE_AUDIT CAM-01). Now a short
+                // eased transit — a pan that lifts over the city — carries the
+                // camera there, re-aimed every frame in case the token is still
+                // moving. Reduce Motion gets a quicker, flatter move.
+                if (!_camTransit && camera.position.distanceTo(pos) > CAM_CUT) {
                     if (raw) _camFwd.copy(raw);
-                    const snapped = _followPose(p);
-                    camera.position.copy(snapped.pos);
-                    camera.lookAt(snapped.look);
-                    look.copy(snapped.look);
-                } else {
-                    camera.position.lerp(pos, _damp(0.07, dt));
+                    const rm = _reduceMotion();
+                    _camTransit = { t: 0, dur: rm ? 0.22 : 0.6, lift: rm ? 0 : 12,
+                                    fromPos: camera.position.clone(), fromQuat: camera.quaternion.clone() };
                 }
             }
-            _camHelper.position.copy(camera.position);
-            _camHelper.lookAt(look);
-            camera.quaternion.slerp(_camHelper.quaternion, _damp(0.09, dt));
+            if (_camTransit) {
+                const tr = _camTransit;
+                tr.t += dt;
+                const k = Math.min(1, tr.t / tr.dur);
+                const e = k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
+                const to = _followPose(p);
+                camera.position.lerpVectors(tr.fromPos, to.pos, e);
+                camera.position.y += Math.sin(k * Math.PI) * tr.lift;
+                _camHelper.position.copy(to.pos);
+                _camHelper.lookAt(to.look);
+                camera.quaternion.slerpQuaternions(tr.fromQuat, _camHelper.quaternion, e);
+                if (k >= 1) _camTransit = null;
+            } else {
+                if (!isNaN(pos.x)) camera.position.lerp(pos, _damp(0.07, dt));
+                _camHelper.position.copy(camera.position);
+                _camHelper.lookAt(look);
+                camera.quaternion.slerp(_camHelper.quaternion, _damp(0.09, dt));
+            }
         }
     } else if (cs === 'MAP') {
         const k = _damp(0.10, dt);

@@ -36,6 +36,10 @@ import * as ModalManager from '../ui/ModalManager.js';
 import * as MinigameManager from '../minigames/MinigameManager.js';
 import * as MinigameLayout from '../config/MinigameLayout.js';
 import * as ActiveMap from '../config/ActiveMap.js';
+import * as PauseMenu from '../ui/PauseMenu.js';
+
+// "1 coins" was on screen in every match (RELEASE_AUDIT UX-07).
+const _coins = n => `${n} coin${n === 1 ? '' : 's'}`;
 
 window.SPACE_META_REF  = SPACE_META;
 window.CITY_GRAPH_REF  = ActiveMap.graph();
@@ -178,7 +182,7 @@ export function confirmCharSelect() {
  *
  * The seat picker says how many are PLAYING; this says how many of them are
  * people. Without it the only mixed table available was one human and one bot,
- * because 1P meant "two seats, the second is Borat" rather than "one human".
+ * because 1P meant "two seats, the second is the bot" rather than "one human".
  * Three friends and a bot to round out the table is a real thing to want.
  */
 export function seatAsBot() {
@@ -415,10 +419,16 @@ export function startGame() {
         Renderer.init(document.getElementById('game-container'));
         UIManager.initCoinDisplays();
         UIManager.updateUI();
+        // A tap anywhere during the opening flyover jumps to its end. It was
+        // 9 s you could not get out of, every match (RELEASE_AUDIT UX-02).
+        const skipFly = () => Renderer.skipFlyover();
+        document.addEventListener('pointerdown', skipFly);
         Renderer.startFlyover(() => {
+            document.removeEventListener('pointerdown', skipFly);
             document.getElementById('ui-layer').style.display = 'block';
             state.cameraState = 'FOLLOW';
             const begin = () => {
+                PauseMenu.armBackButton();
                 UIManager.toast(`${state.players[state.activePlayer].name} goes first!`,
                     PLAYER_SLOTS[state.activePlayer].hex);
                 // A networked client is a replica: it draws the match but never
@@ -1257,7 +1267,7 @@ export function resolveSpaceEffect(p, spaceType, space) {
             // down, so the coins have to be seen leaving them.
             if (stolen > 0) {
                 _playSetPiece(done => Fx.play('magnetPull', { thief: p.id, victim: mark.id, coins: stolen }, done),
-                              'MAGNET', `🧲 Pulled ${stolen} coins straight out of ${mark.name}'s pocket.`, p, 'owner');
+                              'MAGNET', `🧲 Pulled ${_coins(stolen)} straight out of ${mark.name}'s pocket.`, p, 'owner');
                 return null;
             }
             return `${mark.name} had nothing left to take.`;
@@ -1812,7 +1822,7 @@ function _onRoundEnd() {
         const bankerIdx = p.allies.findIndex(a => a.type === 'banker');
         if (bankerIdx >= 0) {
             const interest = Math.floor(p.coins / 10);
-            if (interest > 0) { earnCoins(p, interest); UIManager.toast(`💼 Banker: +${interest} coins interest!`, '#fbbf24'); }
+            if (interest > 0) { earnCoins(p, interest); UIManager.toast(`💼 Banker: +${_coins(interest)} interest!`, '#fbbf24'); }
         }
     });
     // A buddy left waiting on the board runs out of patience. Without this the
@@ -2514,7 +2524,7 @@ function _applyItemEffect(p, itemId, isBot, override) {
             }
         });
     }
-    if (itemId === 'steal')       { const s = Math.min(10, richest.coins); loseCoins(richest, s); earnCoins(p, s); if (s > 0) UIManager.toast(`🕵️ Lifted ${s} coins from ${richest.name}.`, '#f5c842'); }
+    if (itemId === 'steal')       { const s = Math.min(10, richest.coins); loseCoins(richest, s); earnCoins(p, s); if (s > 0) UIManager.toast(`🕵️ Lifted ${_coins(s)} from ${richest.name}.`, '#f5c842'); }
     if (itemId === 'custom_dice') {
         if (isBot) {
             const pick = Bot.customDice(p);
@@ -2927,7 +2937,7 @@ function _startDuel(p, betAmount) {
     state.pendingDuelBet = safe;
     state.mgContext = 'duel';
     const duelSeats = [p.id, opp.id];
-    UIManager.toast(`⚔️ DUEL! ${p.name} and ${opp.name} bet ${safe} coins!`, '#ef4444');
+    UIManager.toast(`⚔️ DUEL! ${p.name} and ${opp.name} bet ${_coins(safe)}!`, '#ef4444');
     _contest(duelSeats, (winnerId) => {
         state.mgContext = null;
         // A duel is between exactly these two, whoever else is in the match:
@@ -2938,7 +2948,7 @@ function _startDuel(p, betAmount) {
         const actual  = Math.min(state.pendingDuelBet, loser.coins);
         loseCoins(loser, actual); earnCoins(winner, actual);
         winner.duelsWon++;
-        UIManager.toast(`${winner.name} wins the duel! +${actual} coins!`, '#fbbf24');
+        UIManager.toast(`${winner.name} wins the duel! +${_coins(actual)}!`, '#fbbf24');
         _checkContract(winner, 'duel_win');
         state.pendingDuelBet = 0;
         state.pendingDuelTarget = null;

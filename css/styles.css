@@ -1292,8 +1292,11 @@ body[data-hud-mode="solo"] #star-strip { top: calc(var(--rival-h) + 38px); }
 
 /* In-game rules button */
 #btn-rules {
-    position: absolute; top: calc(var(--hud-h) + 10px); right: 12px; z-index: 12;
-    width: 38px; height: 38px; border-radius: 50%; pointer-events: auto; cursor: pointer;
+    /* Above #swipe-zone (15): below it, the swipe zone swallowed every tap on
+       your own turn and the rules could not be opened (RELEASE_AUDIT G-01).
+       44 px is the minimum touch target on both stores' guidelines. */
+    position: absolute; top: calc(var(--hud-h) + 10px); right: 10px; z-index: 16;
+    width: 44px; height: 44px; border-radius: 50%; pointer-events: auto; cursor: pointer;
     background: rgba(18,14,38,0.92); border: 1px solid var(--border); color: rgba(255,255,255,0.85);
     font-size: 18px; box-shadow: 0 4px 12px rgba(0,0,0,0.5);
 }
@@ -2958,3 +2961,59 @@ body:not(.tabletop-mode) #turn-banner.tb-show .tb-bottom.tb-mine {
    the top-left corner, half of it in P2's zone. Pin it to the middle with the
    individual `translate` property, which leaves countPop's `transform` alone. */
 #minigame-layer > #mg-countdown { top: 50%; left: 50%; translate: -50% -50%; }
+
+/* ---- Pause (RELEASE_AUDIT RA-04) ----
+   The button sits opposite the rules button, above the swipe zone (15) for the
+   same reason. The overlay is below Settings / Rules / How to play (1500) so
+   those open on top of it and close back to it. */
+#btn-pause {
+    position: absolute; top: calc(var(--hud-h) + 10px); left: 10px; z-index: 16;
+    width: 44px; height: 44px; border-radius: 50%; pointer-events: auto; cursor: pointer;
+    background: rgba(18,14,38,0.92); border: 1px solid var(--border); color: rgba(255,255,255,0.85);
+    font-size: 17px; box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+}
+#btn-pause:active { background: rgba(245,200,66,0.2); border-color: var(--gold); }
+.tabletop-p2-turn #btn-pause { transform: rotate(180deg); top: auto; bottom: calc(var(--hud-h) + 10px); left: auto; right: 62px; }
+#pause-overlay { z-index: 1400; }
+.pause-panel { display: flex; flex-direction: column; gap: 10px; align-items: stretch; max-width: 340px; width: 100%; padding: 22px 18px; }
+.pause-panel .ob-title { text-align: center; font-size: 30px; }
+.pause-sub { text-align: center; font-size: 14px; color: rgba(255,255,255,.72); margin: -4px 0 6px; }
+.pause-btn { min-height: 48px; font-size: 16px; }
+.pause-confirm { display: flex; flex-direction: column; gap: 10px; text-align: center; font-size: 14px; color: rgba(255,255,255,.85); padding-top: 6px; border-top: 1px solid rgba(255,255,255,.12); }
+.pause-row { display: flex; gap: 10px; }
+.pause-row > * { flex: 1; }
+.ob-btn-danger { background: #dc2626; color: #fff; border: none; }
+
+/* The briefing's buttons stay on screen. They were at the end of a scrolling
+   sheet — below the fold on every phone measured, iPhone SE to Pro Max, with
+   nothing to say the sheet scrolled (RELEASE_AUDIT UX-01). */
+.cb-actions {
+    position: sticky; bottom: -16px; z-index: 2;
+    margin: 4px -16px -16px; padding: 12px 16px 16px;
+    background: linear-gradient(to bottom, rgba(20,16,40,0), var(--panel) 18px);
+}
+#city-briefing.cb-compact .cb-lore,
+#city-briefing.cb-compact .cb-hq { display: none; }
+
+/* ---- Safe areas (RELEASE_AUDIT T-04) ----
+   In an edge-to-edge app the notch / Dynamic Island covers the top rival bar
+   and the home indicator sits on the P1 bar and ROLL. The whole HUD layer is
+   inset instead of each bar, because every HUD element is positioned from
+   var(--hud-h) inside it; the inset strips are painted the bar colour so the
+   board does not show through behind the status bar. No-op where there is no
+   inset (desktop, most Android). */
+#ui-layer {
+    top: env(safe-area-inset-top, 0px); bottom: env(safe-area-inset-bottom, 0px);
+    left: env(safe-area-inset-left, 0px); right: env(safe-area-inset-right, 0px);
+}
+#ui-layer::before, #ui-layer::after {
+    content: ''; position: absolute; left: calc(-1 * env(safe-area-inset-left, 0px));
+    right: calc(-1 * env(safe-area-inset-right, 0px)); background: var(--panel); pointer-events: none;
+}
+#ui-layer::before { top: calc(-1 * env(safe-area-inset-top, 0px)); height: env(safe-area-inset-top, 0px); }
+#ui-layer::after  { bottom: calc(-1 * env(safe-area-inset-bottom, 0px)); height: env(safe-area-inset-bottom, 0px); }
+.fs-overlay, #city-briefing, #win-screen {
+    padding-top: max(14px, env(safe-area-inset-top, 0px));
+    padding-bottom: max(14px, env(safe-area-inset-bottom, 0px));
+}
+.ob-nav .ob-btn { white-space: nowrap; }   /* LET'S GO ✓ wrapped to two lines at 390 px */

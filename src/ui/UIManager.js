@@ -17,6 +17,7 @@ import { getPos, getTileMeshes, setMapCameraTarget, mapCamera, onResize, getCame
 import * as ActiveMap from '../config/ActiveMap.js';
 import * as Stars from '../core/Stars.js';
 import { MAP_REGISTRY } from '../config/MapRegistry.js';
+import * as Storage from '../core/Storage.js';
 
 // World units panned per pixel of drag on the map view.
 const MAP_DRAG_GAIN = 0.055;
@@ -1088,6 +1089,11 @@ export function showCityBriefing(onDone) {
             <span class="cb-len bfont">${r.spaces}</span>
         </div>`).join('');
 
+    // Seen it before: the headline and the roads, without the paragraphs of
+    // lore. The full version every single match was a page to scroll through
+    // before you could play (RELEASE_AUDIT UX-02).
+    el.classList.toggle('cb-compact', !!Storage.load('seen_city_briefing', false));
+    Storage.save('seen_city_briefing', true);
     el.style.display = 'flex';
     // Both players are about to play this board, so in tabletop mode the card
     // is drawn twice, the top copy turned to face Player 2.
@@ -1364,7 +1370,13 @@ export function showTurnBanner(playerIdx, opts = {}) {
     // that is the difference between reading a name and knowing to pick the
     // device up — the name alone made everybody check the HUD to work out
     // whether it meant them.
-    const isMe = isMySeat(playerIdx);
+    // Online, "me" is the seat this phone was given. Off the network there is
+    // no such seat: the device belongs to whichever human is up, so any human's
+    // own turn is theirs. Only testing localSeat said "waiting on them" to the
+    // player whose turn it was, in every 1P and pass-and-play match
+    // (RELEASE_AUDIT G-02).
+    const online = typeof state.localSeat === 'number';
+    const isMe = online ? isMySeat(playerIdx) : !p.isBot;
     const sub  = opts.sub || (p.isBot ? 'thinking…'
                : isMe ? 'YOUR TURN — roll the dice'
                : 'waiting on them');
