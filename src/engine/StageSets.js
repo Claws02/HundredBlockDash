@@ -901,25 +901,34 @@ export function buildMineFloor(stage, G) {
         scene.add(c); cracks.push(c);
     }
     // The rock walls round the floor: boulders and timber shoring.
+    //
+    // NOTHING may reach over the track. The first pass set boulders of up to
+    // 2.4 radius 1.6-3 units outside the rails, so the big ones sat on the
+    // right-hand column itself; and the camera leans in from +x, so anything
+    // tall on that side is projected back across the track as well (a thing
+    // h tall leans ~0.3h toward the middle). So every boulder is placed by its
+    // own radius clear of a margin round the track, and the camera-side ones
+    // are squashed low. Shoring posts stand on the far (-x) side only.
     const rock = [0x3a2a20, 0x4a3426, 0x2e221a];
+    const clear = G.w / 2 + 1.4;
     for (let i = 0; i < 26; i++) {
         const side = i % 2 ? 1 : -1;
-        const b = new THREE.Mesh(new THREE.DodecahedronGeometry(1 + _rand(i) * 1.4), _mat(rock[i % 3], 0.95));
+        const r = 0.9 + _rand(i) * 1.2;
+        const b = new THREE.Mesh(new THREE.DodecahedronGeometry(r), _mat(rock[i % 3], 0.95));
         const along = (i / 26 - 0.5) * 26;
-        b.position.set(side * (G.w / 2 + 1.6 + _rand(i + 3) * 1.4), 0.4, along);
-        b.rotation.set(_rand(i) * 3, _rand(i + 1) * 3, 0);
+        const low = side > 0;                          // the camera's side
+        b.scale.set(1, low ? 0.35 : 0.8, 1);
+        b.position.set(side * (clear + r + _rand(i + 3) * 1.2 + (low ? 0.8 : 0)), low ? r * 0.2 : r * 0.35, along);
+        b.rotation.set(0, _rand(i + 1) * 3, 0);
         scene.add(b);
     }
     const timber = _mat(0x5a3d26, 0.9);
     for (let z = -G.d / 2; z <= G.d / 2 + 0.01; z += G.d / 3) {
-        [-1, 1].forEach(side => {
-            const post = new THREE.Mesh(new THREE.BoxGeometry(0.4, 3.2, 0.4), timber);
-            post.position.set(side * (G.w / 2 + 0.9), 1.6, z); scene.add(post);
-        });
-        // Posts only. The overhead beams crossed between the camera and the
-        // track and hid a row of junctions from above.
+        const post = new THREE.Mesh(new THREE.BoxGeometry(0.4, 3.2, 0.4), timber);
+        post.position.set(-(G.w / 2 + 1.2), 1.6, z); scene.add(post);
     }
-    [[-G.w / 2 - 2.4, -G.d / 2 + 1, 0.1], [G.w / 2 + 2.4, G.d / 2 - 1, 0.35], [-G.w / 2 - 2.6, 3, 0.9], [G.w / 2 + 2.5, -4, 0.7]]
+    // Clutter at the far corners, clear of the rails; low things on the camera side.
+    [[-G.w / 2 - 2.6, -G.d / 2 + 1, 0.1], [G.w / 2 + 3.2, G.d / 2 + 1.5, 0.75], [-G.w / 2 - 2.8, 3, 0.9], [G.w / 2 + 3.4, -G.d / 2 - 1.5, 0.7]]
         .forEach(([x, z, r], i) => { const p = PROP_KIT.mine(r, 800 + i); p.position.set(x, 0, z); scene.add(p); });
 
     // Track: rails and sleepers along every edge.
