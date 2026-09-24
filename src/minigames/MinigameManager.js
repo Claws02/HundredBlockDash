@@ -43,6 +43,11 @@ const MG_MODULES = {
     vaultheist:  () => import('./VaultHeist.js'),
     express:     () => import('./Express.js'),
     minecart:    () => import('./MineCart.js'),
+    turfwar:     () => import('./TurfWar.js'),
+    lilypad:     () => import('./LilyPad.js'),
+    rooftop:     () => import('./RooftopRun.js'),
+    blockparty:  () => import('./BlockParty.js'),
+    riftdive:    () => import('./RiftDive.js'),
 };
 
 // The single place that knows which file a game lives in. Exported so the QA

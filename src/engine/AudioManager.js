@@ -106,6 +106,10 @@ export function sfx(name) {
             case 'whistle':     [[587, 0.22], [698, 0.18]].forEach(([f, v]) => _beep(f, 'sawtooth', v * 0.5, t, 0.9, ctx));
                                 _noise(0.08, t, 0.9, ctx); break;
             case 'slam':        _noise(0.45, t, 0.09, ctx); _beep(70, 'sine', 0.5, t, 0.12, ctx); break;
+            // Block Party: the beat. A kick on the one, a hat on the rest —
+            // short enough to sit under the call tones and the judgments.
+            case 'kick':        _beep(62, 'sine', 0.55, t, 0.13, ctx); _beep(110, 'sine', 0.25, t, 0.04, ctx); break;
+            case 'hat':         _noise(0.14, t, 0.03, ctx); break;
         }
     } catch (e) {}
 }

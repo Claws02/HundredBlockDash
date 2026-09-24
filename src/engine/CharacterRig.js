@@ -315,6 +315,109 @@ export class CharacterAnimator {
             T.hand[0].z = r.front + H * 0.45; T.hand[1].z = r.front + H * 0.45;
             break;
 
+        case 'run': {
+            // Flat out: leaning into it, the hands pumping high and hard.
+            const ph = t * this.rate * Math.PI;
+            const s = Math.sin(ph);
+            T.y = Math.abs(s) * 0.1;
+            T.rollZ = s * 0.06;
+            T.leanX = 0.32;
+            T.squash = 1 + (Math.abs(s) - 0.5) * 0.1;
+            T.eyeOpen = 0.8;
+            T.hand[0].z += s * 0.42 * H; T.hand[1].z -= s * 0.42 * H;
+            T.hand[0].y += (0.12 + Math.max(0, s) * 0.14) * H;
+            T.hand[1].y += (0.12 + Math.max(0, -s) * 0.14) * H;
+            const step = Math.floor(t * this.rate);
+            if (step !== this._lastStep) { this._lastStep = step; this.onStep?.(step); }
+            break;
+        }
+
+        case 'jump': {
+            // Stretched on the way up, tucked at the top, hands flung high.
+            const k = Math.min(1, t / 0.18);
+            T.squash = 1.1 - 0.16 * k;
+            T.leanX = 0.18;
+            T.eyeOpen = 1.2;
+            T.hand[0].y = H * (0.7 + 0.25 * k); T.hand[1].y = H * (0.7 + 0.25 * k);
+            T.hand[0].x -= 0.12 * H; T.hand[1].x += 0.12 * H;
+            T.hand[0].z = 0.1; T.hand[1].z = 0.1;
+            break;
+        }
+
+        case 'slide':
+            // Feet first, leaning right back, one hand out for balance.
+            T.squash = 0.6;
+            T.leanX = -0.55;
+            T.eyeOpen = 1.1;
+            T.hand[0].y = H * 0.18; T.hand[0].z = -0.15 * H; T.hand[0].x -= 0.2 * H;
+            T.hand[1].y = H * 0.7; T.hand[1].z = r.front + H * 0.3;
+            break;
+
+        // ── Dance (Block Party). Facing the camera, hand[0] is screen left. ──
+        case 'groove': {
+            // Nodding along between moves: a bounce on every beat (`rate` is
+            // beats per second), swaying from side to side every other one.
+            const ph = t * this.rate * Math.PI;
+            T.y = Math.abs(Math.sin(ph)) * 0.07;
+            T.squash = 1 - Math.abs(Math.sin(ph)) * 0.05;
+            T.rollZ = Math.sin(ph / 2) * 0.09;
+            T.nod = Math.abs(Math.sin(ph)) * 0.12;
+            T.hand[0].y = H * (0.4 + Math.abs(Math.sin(ph)) * 0.06);
+            T.hand[1].y = H * (0.4 + Math.abs(Math.sin(ph)) * 0.06);
+            T.hand[0].z = 0.1; T.hand[1].z = 0.1;
+            break;
+        }
+        case 'raise': {
+            // Raise the roof: both hands punched up, up on the toes.
+            const k = Math.min(1, t / 0.08);
+            T.y = 0.12 * k;
+            T.squash = 1 + 0.08 * k;
+            T.eyeOpen = 1.25;
+            T.hand[0].y = H * (0.6 + 0.55 * k); T.hand[1].y = H * (0.6 + 0.55 * k);
+            T.hand[0].x = -r.halfW * 0.55; T.hand[1].x = r.halfW * 0.55;
+            T.hand[0].z = 0.05; T.hand[1].z = 0.05;
+            T.hand[0].rx = -1.2 * k; T.hand[1].rx = -1.2 * k;
+            break;
+        }
+        case 'drop': {
+            // Drop it: a deep squat, hands on the knees, head up.
+            const k = Math.min(1, t / 0.08);
+            T.squash = 1 - 0.36 * k;
+            T.leanX = 0.12 * k;
+            T.eyeOpen = 1.1;
+            T.hand[0].y = H * 0.16; T.hand[1].y = H * 0.16;
+            T.hand[0].x = -r.halfW * 0.75; T.hand[1].x = r.halfW * 0.75;
+            T.hand[0].z = r.front * 0.8; T.hand[1].z = r.front * 0.8;
+            break;
+        }
+        case 'pointL':
+        case 'pointR': {
+            // Disco point: one arm flung up and out, the body leaning after it.
+            const side = this.state === 'pointL' ? -1 : 1;
+            const k = Math.min(1, t / 0.08);
+            const out = side < 0 ? 0 : 1, rest = 1 - out;
+            T.rollZ = -side * 0.22 * k;
+            T.eyeOpen = 1.15;
+            T.hand[out].x = side * (r.halfW * 0.7 + H * 0.5 * k);
+            T.hand[out].y = H * (0.6 + 0.45 * k);
+            T.hand[out].z = 0.1;
+            T.hand[rest].x = -side * r.halfW * 0.4;
+            T.hand[rest].y = H * 0.32;
+            T.hand[rest].z = r.front * 0.7;
+            break;
+        }
+        case 'clap': {
+            // Hands meet in front of the face, and bounce apart again.
+            const k = Math.min(1, t / 0.06), apart = t > 0.12 ? Math.min(1, (t - 0.12) / 0.2) : 0;
+            T.y = 0.06 * k;
+            T.eyeOpen = t < 0.12 ? 0.3 : 1.2;
+            const gap = r.halfW * (0.08 + apart * 0.35);
+            T.hand[0].x = -gap; T.hand[1].x = gap;
+            T.hand[0].y = H * 0.72; T.hand[1].y = H * 0.72;
+            T.hand[0].z = r.front + H * 0.2; T.hand[1].z = r.front + H * 0.2;
+            break;
+        }
+
         case 'defeat':
             // Shoulders down, head down.
             T.leanX = 0.28;

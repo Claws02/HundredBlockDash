@@ -177,6 +177,17 @@ export function createStage(host, opts = {}) {
         return c;
     };
 
+    /** A figure that is nobody's seat — a DJ, a referee — animated like the rest. */
+    stage.figure = (type, color) => {
+        if (!stage.gl) return null;
+        const rig = buildRiggedCharacter(type, color);
+        const anim = new CharacterAnimator(rig);
+        stage.scene.add(rig.root);
+        const c = { slot: -1, rig, anim };
+        stage._rigs.push(c);
+        return c;
+    };
+
     /**
      * Lights. `sun` is the key and casts shadows over `span` units around the
      * origin; `sky`/`ground` make the hemisphere fill. Colours are the set's to
@@ -231,6 +242,30 @@ export function createStage(host, opts = {}) {
         stage.renderer.setSize(stage.width, stage.height, false);
     }
 
+    // SPLIT SCREEN. `stage.views` is null (the one full-frame stage.camera) or
+    // a list of { camera, rect: [x, y, w, h] } in fractions of the frame, y up
+    // from the bottom as GL counts it. Each view is drawn into its own
+    // rectangle through its own camera; aspect is kept to the rectangle. The
+    // director's shots use stage.camera, so a game clears views for them.
+    stage.views = null;
+    function draw() {
+        const r = stage.renderer;
+        if (!stage.views) { r.render(stage.scene, stage.camera); return; }
+        const W = stage.width, H = stage.height;
+        r.setScissorTest(true);
+        stage.views.forEach(v => {
+            const x = Math.round(v.rect[0] * W), y = Math.round(v.rect[1] * H);
+            const w = Math.round((v.rect[0] + v.rect[2]) * W) - x, h = Math.round((v.rect[1] + v.rect[3]) * H) - y;
+            r.setViewport(x, y, w, h);
+            r.setScissor(x, y, w, h);
+            const a = w / Math.max(1, h);
+            if (Math.abs(v.camera.aspect - a) > 1e-3) { v.camera.aspect = a; v.camera.updateProjectionMatrix(); }
+            r.render(stage.scene, v.camera);
+        });
+        r.setScissorTest(false);
+        r.setViewport(0, 0, W, H);
+    }
+
     stage.start = fn => {
         stage._loop = fn;
         stage._last = 0;
@@ -246,7 +281,7 @@ export function createStage(host, opts = {}) {
             stage._rigs.forEach(c => c.anim.update(dt));
             try { stage._loop?.(dt, stage._elapsed); } catch (e) { console.error('[Stage] frame', e); }
             // The frame callback may have ended the game and disposed us.
-            if (!stage._disposed && stage.gl) stage.renderer.render(stage.scene, stage.camera);
+            if (!stage._disposed && stage.gl) draw();
         };
         stage._af = requestAnimationFrame(tick);
     };

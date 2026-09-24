@@ -18,7 +18,7 @@
 // that needs a set adds its key here, from the same table.
 // ============================================================
 
-import { DISTRICT_BIOMES } from '../config/GameConfig.js';
+import { DISTRICT_BIOMES, HBD_BIOMES } from '../config/GameConfig.js';
 import { PROP_KIT } from './Renderer.js';
 import { textPlane } from './Stage.js';
 
@@ -901,25 +901,34 @@ export function buildMineFloor(stage, G) {
         scene.add(c); cracks.push(c);
     }
     // The rock walls round the floor: boulders and timber shoring.
+    //
+    // NOTHING may reach over the track. The first pass set boulders of up to
+    // 2.4 radius 1.6-3 units outside the rails, so the big ones sat on the
+    // right-hand column itself; and the camera leans in from +x, so anything
+    // tall on that side is projected back across the track as well (a thing
+    // h tall leans ~0.3h toward the middle). So every boulder is placed by its
+    // own radius clear of a margin round the track, and the camera-side ones
+    // are squashed low. Shoring posts stand on the far (-x) side only.
     const rock = [0x3a2a20, 0x4a3426, 0x2e221a];
+    const clear = G.w / 2 + 1.4;
     for (let i = 0; i < 26; i++) {
         const side = i % 2 ? 1 : -1;
-        const b = new THREE.Mesh(new THREE.DodecahedronGeometry(1 + _rand(i) * 1.4), _mat(rock[i % 3], 0.95));
+        const r = 0.9 + _rand(i) * 1.2;
+        const b = new THREE.Mesh(new THREE.DodecahedronGeometry(r), _mat(rock[i % 3], 0.95));
         const along = (i / 26 - 0.5) * 26;
-        b.position.set(side * (G.w / 2 + 1.6 + _rand(i + 3) * 1.4), 0.4, along);
-        b.rotation.set(_rand(i) * 3, _rand(i + 1) * 3, 0);
+        const low = side > 0;                          // the camera's side
+        b.scale.set(1, low ? 0.35 : 0.8, 1);
+        b.position.set(side * (clear + r + _rand(i + 3) * 1.2 + (low ? 0.8 : 0)), low ? r * 0.2 : r * 0.35, along);
+        b.rotation.set(0, _rand(i + 1) * 3, 0);
         scene.add(b);
     }
     const timber = _mat(0x5a3d26, 0.9);
     for (let z = -G.d / 2; z <= G.d / 2 + 0.01; z += G.d / 3) {
-        [-1, 1].forEach(side => {
-            const post = new THREE.Mesh(new THREE.BoxGeometry(0.4, 3.2, 0.4), timber);
-            post.position.set(side * (G.w / 2 + 0.9), 1.6, z); scene.add(post);
-        });
-        // Posts only. The overhead beams crossed between the camera and the
-        // track and hid a row of junctions from above.
+        const post = new THREE.Mesh(new THREE.BoxGeometry(0.4, 3.2, 0.4), timber);
+        post.position.set(-(G.w / 2 + 1.2), 1.6, z); scene.add(post);
     }
-    [[-G.w / 2 - 2.4, -G.d / 2 + 1, 0.1], [G.w / 2 + 2.4, G.d / 2 - 1, 0.35], [-G.w / 2 - 2.6, 3, 0.9], [G.w / 2 + 2.5, -4, 0.7]]
+    // Clutter at the far corners, clear of the rails; low things on the camera side.
+    [[-G.w / 2 - 2.6, -G.d / 2 + 1, 0.1], [G.w / 2 + 3.2, G.d / 2 + 1.5, 0.75], [-G.w / 2 - 2.8, 3, 0.9], [G.w / 2 + 3.4, -G.d / 2 - 1.5, 0.7]]
         .forEach(([x, z, r], i) => { const p = PROP_KIT.mine(r, 800 + i); p.position.set(x, 0, z); scene.add(p); });
 
     // Track: rails and sleepers along every edge.
@@ -974,6 +983,615 @@ export function buildMineFloor(stage, G) {
     };
 }
 
+// ---- Industrial Zone: the paint works yard ------------------------------
+//
+// "The machines that keep the lights on." A concrete yard under a rust sky,
+// fenced with containers and pipe runs, with drums of paint stacked at the
+// corners. The paintable tiles belong to the game; this is everything round
+// them, kept low and clear of the floor on the camera's (+x) side.
+export function buildWorksYard(stage, { w, d }) {
+    const B = DISTRICT_BIOMES.ind;
+    const scene = stage.scene;
+    scene.background = new THREE.Color(_hex(B.bgBot));
+    scene.fog = null;
+    stage.light({ sun: 0xffd2a0, sunI: 1.25, sky: 0xffc890, ground: 0x4a3a2a, hemiI: 0.75,
+                  rim: 0xffb070, rimI: 0.3, dir: [6, 18, 5], span: 14 });
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(80, 80), _mat(0x6a6259, 0.95));
+    ground.rotation.x = -Math.PI / 2; ground.position.y = -0.02; ground.receiveShadow = true; scene.add(ground);
+    // A hazard-striped kerb round the paint floor.
+    const stripeA = _mat(0xfacc15, 0.6), stripeB = _mat(0x1f1f1f, 0.6);
+    const kerb = (x, z, lw, ld) => {
+        const n = Math.round(Math.max(lw, ld) / 0.6);
+        for (let i = 0; i < n; i++) {
+            const k = new THREE.Mesh(new THREE.BoxGeometry(lw > ld ? lw / n : lw, 0.18, lw > ld ? ld : ld / n), i % 2 ? stripeA : stripeB);
+            if (lw > ld) k.position.set(x - lw / 2 + (i + 0.5) * lw / n, 0.09, z);
+            else k.position.set(x, 0.09, z - ld / 2 + (i + 0.5) * ld / n);
+            k.receiveShadow = true; scene.add(k);
+        }
+    };
+    kerb(0, -d / 2 - 0.25, w + 1, 0.5); kerb(0, d / 2 + 0.25, w + 1, 0.5);
+    kerb(-w / 2 - 0.25, 0, 0.5, d); kerb(w / 2 + 0.25, 0, 0.5, d);
+    // Beyond the kerb: containers and pipes on the far side, cones and paint
+    // drums (low) on the camera's side.
+    [[-w / 2 - 3.2, -6, 0.45], [-w / 2 - 3.2, 3, 0.1], [-w / 2 - 3.4, 9.5, 0.5], [-w / 2 - 3, -11, 0.2]].forEach(([x, z, r], i) => {
+        const p = PROP_KIT.works(r, 1100 + i); p.position.set(x, 0, z); p.rotation.y = Math.PI / 2; scene.add(p);
+    });
+    [[w / 2 + 2.2, -7, 0.7], [w / 2 + 2.4, 6, 0.7]].forEach(([x, z, r], i) => {
+        const p = PROP_KIT.works(r, 1200 + i); p.position.set(x, 0, z); p.rotation.y = Math.PI / 2; scene.add(p);
+    });
+    const drumCols = [0xef4444, 0x3b82f6, 0x22c55e, 0xfacc15];
+    [[w / 2 + 1.6, d / 2 + 1.4], [-w / 2 - 1.6, d / 2 + 1.4], [w / 2 + 1.6, -d / 2 - 1.4], [-w / 2 - 1.6, -d / 2 - 1.4]].forEach(([x, z], i) => {
+        for (let k = 0; k < 3; k++) {
+            const drum = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 1.0, 14), _mat(drumCols[(i + k) % 4], 0.5, 0.3));
+            drum.position.set(x + (k - 1) * 0.9, 0.5, z); drum.castShadow = true; scene.add(drum);
+            const spill = new THREE.Mesh(new THREE.CircleGeometry(0.5 + _rand(i * 3 + k) * 0.5, 16),
+                new THREE.MeshBasicMaterial({ color: drumCols[(i + k) % 4] }));
+            spill.rotation.x = -Math.PI / 2; spill.position.set(x + (k - 1) * 0.9 + 0.4, 0.01, z + 0.5); scene.add(spill);
+        }
+    });
+    return { update() {} };
+}
+
+// ---- Fae Glade: the pond ----------------------------------------------
+//
+// "Glittering and treacherous." Night in the glade: a still, glowing pond,
+// glowing mushrooms and crystal spires round its banks, fireflies. The pads
+// are the game's; the set is the water and everything around it.
+export function buildFaePond(stage, { w, d }) {
+    const B = HBD_BIOMES.find(b => b.key === 'fae');
+    const scene = stage.scene;
+    scene.background = new THREE.Color(_hex(B.bgTop));
+    scene.fog = null;
+    scene.add(new THREE.HemisphereLight(0xc9a2ff, 0x1a0a24, 0.9));
+    const moon = new THREE.DirectionalLight(0xe6d6ff, 0.8);
+    moon.position.set(6, 20, 4); moon.castShadow = true;
+    const sc = moon.shadow.camera; sc.left = -14; sc.right = 14; sc.top = 14; sc.bottom = -14;
+    moon.shadow.mapSize.set(1024, 1024);
+    scene.add(moon);
+    const bank = new THREE.Mesh(new THREE.PlaneGeometry(80, 80), _mat(0x2a1838, 0.95));
+    bank.rotation.x = -Math.PI / 2; bank.position.y = -0.05; scene.add(bank);
+    // The water: a rounded pool of glowing teal, with slow ripples.
+    const water = new THREE.Mesh(new THREE.PlaneGeometry(w + 2, d + 2, 24, 36),
+        new THREE.MeshStandardMaterial({ color: 0x1b6f84, emissive: 0x0d3a52, emissiveIntensity: 0.9, roughness: 0.15, metalness: 0.2 }));
+    water.rotation.x = -Math.PI / 2; water.position.y = -0.02; water.receiveShadow = true;
+    scene.add(water);
+    // Banks: mushrooms and crystals round the pond, clear of it, the camera's
+    // side kept low.
+    for (let i = 0; i < 18; i++) {
+        const side = i % 2 ? 1 : -1;
+        const z = (i / 18 - 0.5) * (d + 4);
+        const g = PROP_KIT.faeDecor(4000 + i * 7);
+        g.position.set(side * (w / 2 + 1.8 + _rand(i) * 1.5), 0, z);
+        if (side > 0) g.scale.set(1, 0.45, 1);
+        scene.add(g);
+    }
+    // Fireflies.
+    const flies = [];
+    for (let i = 0; i < 26; i++) {
+        const f = new THREE.Mesh(new THREE.SphereGeometry(0.06, 6, 4), new THREE.MeshBasicMaterial({ color: 0xfff3a0 }));
+        f.userData = { x: (_rand(i) - 0.5) * (w + 4), z: (_rand(i + 5) - 0.5) * (d + 4), y: 0.6 + _rand(i + 9) * 2, ph: _rand(i + 2) * 6 };
+        scene.add(f); flies.push(f);
+    }
+    const pos = water.geometry.attributes.position;
+    const base = Float32Array.from(pos.array);
+    return {
+        water,
+        update(dt, t) {
+            for (let i = 0; i < pos.count; i++) {
+                const x = base[i * 3], y = base[i * 3 + 1];
+                pos.array[i * 3 + 2] = Math.sin(x * 1.3 + t * 1.4) * 0.03 + Math.cos(y * 1.1 + t) * 0.03;
+            }
+            pos.needsUpdate = true;
+            flies.forEach(f => {
+                const u = f.userData;
+                f.position.set(u.x + Math.sin(t * 0.7 + u.ph) * 0.8, u.y + Math.sin(t * 2 + u.ph) * 0.2, u.z + Math.cos(t * 0.5 + u.ph) * 0.8);
+                f.material.opacity = 0.5 + Math.sin(t * 5 + u.ph) * 0.5;
+            });
+        },
+    };
+}
+
+// ---- Back Alley rooftops: the neon night run --------------------------------
+//
+// "Night. The only district lit by its own signage rather than the sky." The
+// game hands over a COURSE — roofs (x0, x1, y), vents and hanging signs — and
+// the set builds a block of brick under every roof, windows lit at random,
+// the course's obstacles, and a finish banner. Behind it all, two layers of
+// skyline slide past slower than the roofs do, and a moon that hardly moves.
+// The camera travels, so the set is told where it is: update(dt, t, camX)
+// walks the key light and the parallax layers along with it.
+export function buildRooftops(stage) {
+    const B = DISTRICT_BIOMES.ba;
+    const scene = stage.scene;
+    scene.background = new THREE.Color(_hex(B.bgBot));
+    scene.fog = new THREE.Fog(_hex(B.fog), 30, 110);
+    const sky = _skyDome(_hex(B.bgTop), _hex(B.bgBot));
+    scene.add(sky);
+    const L = stage.light({ sun: 0xc9b8ff, sunI: 0.9, sky: 0x8a6ab8, ground: 0x2a1030, hemiI: 0.75,
+                            rim: 0x35e0ff, rimI: 0.9, dir: [-6, 14, 12], span: 16 });
+    if (L) scene.add(L.key.target);
+    // Neon spill: one pink and one cyan fill that ride along with the camera.
+    const pink = new THREE.PointLight(0xff4fa3, 1.1, 26, 1.6);
+    const cyan = new THREE.PointLight(0x35e0ff, 0.9, 26, 1.6);
+    scene.add(pink, cyan);
+    const moon = new THREE.Mesh(new THREE.CircleGeometry(5, 32), new THREE.MeshBasicMaterial({ color: 0xffe9f4, fog: false }));
+    moon.position.set(0, 26, -120); scene.add(moon);
+    const glow = new THREE.Mesh(new THREE.PlaneGeometry(400, 30), new THREE.MeshBasicMaterial({ color: 0xff7a3d, transparent: true, opacity: 0.35, fog: false, depthWrite: false }));
+    glow.position.set(0, -20, -40); scene.add(glow);                 // the street's orange haze, far below
+
+    // Skyline layers: box towers with lit windows, parallaxed.
+    const winGeo = new THREE.PlaneGeometry(0.5, 0.7);
+    const winMat = new THREE.MeshBasicMaterial({ color: 0xffc47a });
+    const layers = [];
+    [[-34, 0.35, 16, 0x241733], [-62, 0.15, 26, 0x1a1026]].forEach(([z, rate, tall, col], li) => {
+        const span = 180, items = [];
+        const mat = _mat(col, 0.95);
+        for (let i = 0; i < 16; i++) {
+            const w = 6 + _rand(i + li * 40) * 8, h = tall * (0.6 + _rand(i * 3 + li) * 0.9);
+            const g = new THREE.Group();
+            const box = new THREE.Mesh(new THREE.BoxGeometry(w, h + 30, 6), mat);
+            box.position.y = h / 2 - 15; g.add(box);
+            const lit = new THREE.InstancedMesh(winGeo, winMat, 40);
+            const m4 = new THREE.Matrix4();
+            let n = 0;
+            for (let k = 0; k < 40; k++) {
+                if (_rand(i * 91 + k + li * 7) > 0.45) continue;
+                m4.makeTranslation((_rand(k * 5 + i) - 0.5) * (w - 1), h - 1.2 - Math.floor(_rand(k * 13 + i) * 12) * 1.3, 3.02);
+                lit.setMatrixAt(n++, m4);
+            }
+            lit.count = n; g.add(lit);
+            if (_rand(i + 17 * li) < 0.3) {                 // a rooftop neon, far off
+                const col2 = [0xff2d78, 0x2ddcff, 0xffd12d, 0x8b5cf6][i % 4];
+                const bar = new THREE.Mesh(new THREE.BoxGeometry(w * 0.6, 0.6, 0.3), new THREE.MeshBasicMaterial({ color: col2 }));
+                bar.position.set(0, h + 0.8, 2.5); g.add(bar);
+            }
+            g.position.z = z;
+            g.userData.bx = i * (span / 16) + _rand(i + 3) * 4;
+            scene.add(g); items.push(g);
+        }
+        layers.push({ items, rate, span });
+    });
+
+    // ---- The course ----
+    let course = null;
+    const neon = [0xff2d78, 0x2ddcff, 0xffd12d, 0x8b5cf6, 0x34f5a0];
+    const WORDS = ['NOODLES', 'KARAOKE', 'PAWN', 'OPEN 24H', 'TATTOO', 'HOTEL', 'ARCADE', 'BAR', 'LUCKY', 'DUMPLINGS'];
+    const brick = _mat(0x3a2230, 0.95), brick2 = _mat(0x2c1c2a, 0.95), tar = _mat(0x2a2530, 0.8);
+    const metal = _mat(0x8a8f99, 0.4, 0.7);
+    function clear() {
+        if (!course) return;
+        scene.remove(course.group);
+        course.group.traverse(o => {
+            o.geometry?.dispose();
+            if (o.material && !o.material.userData?.shared) { o.material.map?.dispose(); o.material.dispose(); }
+        });
+        course = null;
+    }
+    [brick, brick2, tar, metal, winMat].forEach(m => { m.userData.shared = true; });
+
+    function layCourse(C) {
+        clear();
+        const group = new THREE.Group();
+        const steam = [];
+        const winsMax = C.roofs.length * 40;
+        const wins = new THREE.InstancedMesh(winGeo, winMat, winsMax);
+        const m4 = new THREE.Matrix4();
+        let wn = 0;
+        C.roofs.forEach((r, i) => {
+            const w = r.x1 - r.x0;
+            const block = new THREE.Mesh(new THREE.BoxGeometry(w, r.y + 26, 7), i % 2 ? brick : brick2);
+            block.position.set((r.x0 + r.x1) / 2, (r.y - 26) / 2, 0);
+            block.receiveShadow = true; group.add(block);
+            const top = new THREE.Mesh(new THREE.BoxGeometry(w + 0.1, 0.12, 7.1), tar);
+            top.position.set(block.position.x, r.y - 0.05, 0); top.receiveShadow = true; group.add(top);
+            // A lip on the far edge only; the near one would hide feet.
+            const lip = new THREE.Mesh(new THREE.BoxGeometry(w + 0.1, 0.5, 0.3), brick);
+            lip.position.set(block.position.x, r.y + 0.2, -3.4); group.add(lip);
+            // Lit windows on the face the camera sees.
+            for (let k = 0; k < 40 && wn < winsMax; k++) {
+                if (_rand(i * 57 + k) > 0.5) continue;
+                const col = Math.floor(_rand(k * 3 + i) * Math.max(1, Math.floor(w / 1.6)));
+                const row = 1 + Math.floor(_rand(k * 7 + i * 2) * 6);
+                m4.makeTranslation(r.x0 + 0.9 + col * 1.6, r.y - row * 1.6, 3.52);
+                wins.setMatrixAt(wn++, m4);
+            }
+            // Dressing along the back, clear of both lanes: tanks, crates, aerials.
+            const dec = Math.floor(_rand(i * 11) * 3);
+            for (let k = 0; k < dec; k++) {
+                const dx = r.x0 + 1.5 + _rand(i * 7 + k) * Math.max(0.5, w - 3);
+                const kind = _rand(i * 5 + k * 3);
+                let d;
+                if (kind < 0.35) {
+                    d = new THREE.Group();
+                    const tank = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1.8, 14), _mat(0x5a3a2c, 0.85));
+                    tank.position.y = 2.6; d.add(tank);
+                    const cap = new THREE.Mesh(new THREE.ConeGeometry(1.1, 0.7, 14), _mat(0x2c1c1a, 0.8));
+                    cap.position.y = 3.85; d.add(cap);
+                    [[-0.7, -0.7], [0.7, -0.7], [-0.7, 0.7], [0.7, 0.7]].forEach(([a, b]) => {
+                        const leg = new THREE.Mesh(new THREE.BoxGeometry(0.15, 1.7, 0.15), metal);
+                        leg.position.set(a, 0.85, b); d.add(leg);
+                    });
+                } else if (kind < 0.7) {
+                    d = PROP_KIT.alley(0.3 + _rand(i + k) * 0.2, 900 + i * 3 + k);
+                    d.scale.setScalar(0.7);
+                } else {
+                    d = new THREE.Group();
+                    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.07, 3.5, 6), metal);
+                    mast.position.y = 1.75; d.add(mast);
+                    const tip = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 6), new THREE.MeshBasicMaterial({ color: 0xff3355 }));
+                    tip.position.y = 3.55; d.add(tip);
+                }
+                d.position.set(dx, r.y, -2.6);
+                group.add(d);
+            }
+            // A big sign on the building's face, under the roof line.
+            if (i % 2 === 1 && w > 7) {
+                const word = WORDS[i % WORDS.length], col = neon[i % neon.length];
+                const css = '#' + col.toString(16).padStart(6, '0');
+                const sg = textPlane(word, { w: 3.6, h: 1.1, bg: '#140a18', fg: css, border: css });
+                sg.material.emissive = new THREE.Color(0xffffff); sg.material.emissiveMap = sg.material.map; sg.material.emissiveIntensity = 0.9;
+                sg.position.set(r.x0 + w * 0.5, r.y - 2.2, 3.56);
+                group.add(sg);
+            }
+        });
+        wins.count = wn; group.add(wins);
+
+        C.obstacles.forEach((o, i) => {
+            if (o.kind === 'vent') {
+                const g = new THREE.Group();
+                const box = new THREE.Mesh(new THREE.BoxGeometry(o.w, o.h, 3.6), metal);
+                box.position.y = o.h / 2; box.castShadow = true; box.receiveShadow = true; g.add(box);
+                const fan = new THREE.Mesh(new THREE.CylinderGeometry(o.h * 0.32, o.h * 0.32, 0.05, 14), _mat(0x2a2d33, 0.6, 0.5));
+                fan.rotation.x = Math.PI / 2; fan.position.set(0, o.h / 2, 1.82); g.add(fan);
+                const stripe = new THREE.Mesh(new THREE.BoxGeometry(o.w + 0.02, 0.08, 3.62), new THREE.MeshBasicMaterial({ color: 0xfacc15 }));
+                stripe.position.y = o.h - 0.1; g.add(stripe);
+                g.position.set(o.x, o.y, 0);
+                group.add(g);
+                steam.push({ at: new THREE.Vector3(o.x, o.y + o.h, 0), ph: _rand(i) * 3 });
+            } else if (o.kind === 'sign') {
+                const col = neon[(i + 2) % neon.length];
+                const css = '#' + col.toString(16).padStart(6, '0');
+                const g = new THREE.Group();
+                const hgt = o.top - o.bottom, mid = o.bottom + hgt / 2;
+                // The hazard is the bar across both lanes: a lit slab with a
+                // bright tube along its underside, the edge a runner meets.
+                const slab = new THREE.Mesh(new THREE.BoxGeometry(0.5, hgt, 4.2), _mat(0x1c0f22, 0.6, 0, { emissive: col, emissiveIntensity: 0.25 }));
+                slab.position.y = mid; g.add(slab);
+                const tube = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.12, 4.3), new THREE.MeshBasicMaterial({ color: col }));
+                tube.position.y = o.bottom; g.add(tube);
+                const tube2 = tube.clone(); tube2.position.y = o.top; g.add(tube2);
+                // Its name, facing the camera, standing up off the FAR end —
+                // on the near end it hid the near runner going under it.
+                const board = textPlane(WORDS[(i * 3) % WORDS.length], { w: 1.9, h: 0.7, bg: '#140a18', fg: css, border: css });
+                board.material.emissive = new THREE.Color(0xffffff); board.material.emissiveMap = board.material.map; board.material.emissiveIntensity = 1;
+                board.position.set(0, o.top + 0.45, -2.1); g.add(board);
+                [-2.2, 2.2].forEach(z => {
+                    const post = new THREE.Mesh(new THREE.BoxGeometry(0.14, o.top + 0.3, 0.14), metal);
+                    post.position.set(0, (o.top + 0.3) / 2, z); g.add(post);
+                });
+                g.position.set(o.x, o.y, 0);
+                group.add(g);
+            }
+        });
+
+        // Finish: a chequered strip and a banner over it.
+        const fin = C.finish, fr = C.roofs[C.roofs.length - 1];
+        const cv = document.createElement('canvas'); cv.width = 64; cv.height = 256;
+        const g2 = cv.getContext('2d');
+        for (let y = 0; y < 16; y++) for (let x = 0; x < 4; x++) { g2.fillStyle = (x + y) % 2 ? '#111' : '#f5f5f5'; g2.fillRect(x * 16, y * 16, 16, 16); }
+        const tex = new THREE.CanvasTexture(cv);
+        const strip = new THREE.Mesh(new THREE.PlaneGeometry(1, 7), new THREE.MeshBasicMaterial({ map: tex }));
+        strip.rotation.x = -Math.PI / 2; strip.position.set(fin, fr.y + 0.02, 0); group.add(strip);
+        const banner = textPlane('FINISH', { w: 4.6, h: 1.1, bg: '#140a18', fg: '#34f5a0', border: '#ff2d78' });
+        banner.material.emissive = new THREE.Color(0xffffff); banner.material.emissiveMap = banner.material.map; banner.material.emissiveIntensity = 1;
+        banner.position.set(fin, fr.y + 4.4, -2.5); group.add(banner);
+        [-3.2, 1.8].forEach(z => {
+            const post = new THREE.Mesh(new THREE.BoxGeometry(0.16, 4.6, 0.16), metal);
+            post.position.set(fin, fr.y + 2.3, z); group.add(post);
+        });
+        const bar = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 5.2), new THREE.MeshBasicMaterial({ color: 0xff2d78 }));
+        bar.position.set(fin, fr.y + 3.7, -0.7); group.add(bar);
+
+        group.traverse(o => { if (o.isMesh && !o.material?.isMeshBasicMaterial) o.castShadow = o.castShadow || false; });
+        scene.add(group);
+        course = { group, steam };
+    }
+
+    const wrap = (v, S) => ((v % S) + S * 1.5) % S - S / 2;
+    return {
+        layCourse,
+        /** Steam vents in reach of the camera; the game puffs them. */
+        get steam() { return course ? course.steam : []; },
+        update(dt, t, camX = 0, camY = 0) {
+            sky.position.x = camX; glow.position.x = camX;
+            moon.position.x = camX * 0.97 + 18;
+            pink.position.set(camX - 4, camY + 4, 5 + Math.sin(t * 1.3) * 0.5);
+            cyan.position.set(camX + 7, camY + 3, 4);
+            if (L) { L.key.position.set(camX - 6, camY + 14, 12); L.key.target.position.set(camX, camY, 0); L.back.position.set(camX + 3, camY + 8, -12); }
+            layers.forEach(l => l.items.forEach(g => { g.position.x = camX + wrap(g.userData.bx - camX * l.rate, l.span); }));
+        },
+        dispose: clear,
+    };
+}
+
+// ---- Shopping Promenade: the block party ---------------------------------
+//
+// "A street festival that never packs up." Golden hour on the promenade: a
+// light-up dance floor in the middle of the street, the DJ's booth behind it
+// between two speaker stacks, bunting and string lights overhead, stalls and
+// shop fronts behind, and a crowd bobbing along. update(dt, t, beat) takes the
+// music's position in beats, so the floor, the speakers and the crowd are all
+// on the same one.
+export function buildBlockParty(stage) {
+    const B = DISTRICT_BIOMES.shop;
+    const scene = stage.scene;
+    scene.background = new THREE.Color(_hex(B.bgBot));
+    scene.fog = new THREE.Fog(_hex(B.fog), 40, 120);
+    scene.add(_skyDome(0x6a3fa0, 0xf5b08a));
+    stage.light({ sun: 0xffc890, sunI: 0.95, sky: 0xc9a8e6, ground: 0x5a3448, hemiI: 0.55,
+                  rim: 0xff9ad0, rimI: 0.55, dir: [-10, 12, 12], span: 14 });
+
+    const street = new THREE.Mesh(new THREE.PlaneGeometry(120, 80), _mat(0x9a7a6a, 0.9));
+    street.rotation.x = -Math.PI / 2; street.receiveShadow = true; scene.add(street);
+    for (let i = -6; i <= 6; i++) {                     // paving joints
+        const j = new THREE.Mesh(new THREE.PlaneGeometry(0.06, 40), _mat(0xa98a70, 1));
+        j.rotation.x = -Math.PI / 2; j.position.set(i * 2.5, 0.005, -5); scene.add(j);
+    }
+
+    // The dance floor: 5 × 3 tiles that light to the beat.
+    const tiles = [];
+    const TW = 1.45, cols = [0xff4fa3, 0x35e0ff, 0xffd12d, 0x8b5cf6, 0x34f5a0];
+    const base = new THREE.Mesh(new THREE.BoxGeometry(5 * TW + 0.3, 0.12, 3 * TW + 0.3), _mat(0x1c1426, 0.5, 0.3));
+    base.position.y = 0.06; base.receiveShadow = true; scene.add(base);
+    for (let r = 0; r < 3; r++) for (let c = 0; c < 5; c++) {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(TW - 0.08, 0.06, TW - 0.08),
+            new THREE.MeshStandardMaterial({ color: 0x2a2036, emissive: cols[(r + c) % 5], emissiveIntensity: 0.2, roughness: 0.35 }));
+        m.position.set((c - 2) * TW, 0.14, (r - 1) * TW + 0.2);
+        m.receiveShadow = true; scene.add(m);
+        tiles.push({ m, r, c, col: cols[(r * 2 + c) % 5] });
+    }
+
+    // The booth and the speakers.
+    const booth = new THREE.Group();
+    const stageBox = new THREE.Mesh(new THREE.BoxGeometry(7, 0.7, 2.6), _mat(0x2a1f38, 0.6));
+    stageBox.position.y = 0.35; booth.add(stageBox);
+    const table = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.7, 0.9), _mat(0x121018, 0.4, 0.4));
+    table.position.set(0, 1.05, 0.6); booth.add(table);
+    const riser = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.3, 1.2), _mat(0x3a2a4a, 0.6));
+    riser.position.set(0, 0.85, -0.45); booth.add(riser);
+    const front = textPlane('BLOCK PARTY', { w: 2.3, h: 0.5, bg: '#140a18', fg: '#ffd12d', border: '#ff4fa3' });
+    front.material.emissive = new THREE.Color(0xffffff); front.material.emissiveMap = front.material.map; front.material.emissiveIntensity = 0.8;
+    front.position.set(0, 1.05, 1.06); booth.add(front);
+    const decks = [];
+    [-0.6, 0.6].forEach(x => {
+        const d = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.32, 0.05, 20), _mat(0x0c0c0c, 0.3));
+        d.position.set(x, 1.43, 0.6); booth.add(d); decks.push(d);
+        const lbl = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.02, 0.06), new THREE.MeshBasicMaterial({ color: 0xff4fa3 }));
+        lbl.position.y = 0.035; d.add(lbl);
+    });
+    const speakers = [];
+    [-2.9, 2.9].forEach(x => {
+        const g = new THREE.Group();
+        const cab = new THREE.Mesh(new THREE.BoxGeometry(1.1, 2.2, 0.9), _mat(0x18141e, 0.6));
+        cab.position.y = 1.1; g.add(cab);
+        [[1.55, 0.36], [0.6, 0.26]].forEach(([y, rad]) => {
+            const cone = new THREE.Mesh(new THREE.CylinderGeometry(rad, rad * 0.6, 0.12, 18), _mat(0x3a3440, 0.5, 0.3));
+            cone.rotation.x = Math.PI / 2; cone.position.set(0, y, 0.48); g.add(cone);
+            speakers.push(cone);
+        });
+        g.position.set(x, 0.7, 0.3); booth.add(g);
+    });
+    booth.position.set(0, 0, -3.9);
+    booth.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+    scene.add(booth);
+
+    // Shop fronts along the back, stalls at the sides.
+    // (PROP_KIT.shopFront dresses itself from the board's city materials, which
+    // do not exist when a game runs without the board; these are the set's own.)
+    const SHOPS = ['RECORDS', 'BAKERY', 'BOUTIQUE', 'TOYS', 'CAFÉ'];
+    const walls = [0xc07ad0, 0xd9a93a, 0x5aa6cf, 0xd97a8a, 0x5fbf86];
+    for (let i = 0; i < 5; i++) {
+        const g = new THREE.Group();
+        const w = 7.4 + _rand(i) * 1.2, h = 6 + _rand(i + 9) * 3;
+        const body = new THREE.Mesh(new THREE.BoxGeometry(w, h, 4), _mat(walls[i], 0.85));
+        body.position.y = h / 2; body.receiveShadow = true; g.add(body);
+        const win = new THREE.Mesh(new THREE.PlaneGeometry(w * 0.66, h * 0.36), _mat(0xfff4d6, 0.3, 0, { emissive: 0xffd9a0, emissiveIntensity: 0.55 }));
+        win.position.set(0, h * 0.26, 2.01); g.add(win);
+        // A striped awning over the window.
+        const cv = document.createElement('canvas'); cv.width = 64; cv.height = 8;
+        const c2 = cv.getContext('2d');
+        for (let k = 0; k < 8; k++) { c2.fillStyle = k % 2 ? '#ffffff' : '#' + cols[i].toString(16).padStart(6, '0'); c2.fillRect(k * 8, 0, 8, 8); }
+        const aw = new THREE.Mesh(new THREE.BoxGeometry(w * 0.8, 0.12, 1.6), new THREE.MeshStandardMaterial({ map: new THREE.CanvasTexture(cv), roughness: 0.7 }));
+        aw.rotation.x = 0.3; aw.position.set(0, h * 0.5, 2.7); aw.castShadow = true; g.add(aw);
+        const sign = textPlane(SHOPS[i], { w: w * 0.55, h: 0.8, bg: '#2a1838', fg: '#fff1b8', border: '#ff4fa3' });
+        sign.position.set(0, h * 0.72, 2.02); g.add(sign);
+        g.position.set((i - 2) * 9, 0, -12);
+        scene.add(g);
+    }
+    [[-7.5, -2.5], [-8, -6], [7.5, -2.5], [8, -6], [-11, -4], [11, -4]].forEach(([x, z], i) => {
+        const st = PROP_KIT.market(i % 2 ? 0.3 : 0.6, 1300 + i);
+        st.position.set(x, 0, z); st.rotation.y = x < 0 ? 0.5 : -0.5;
+        scene.add(st);
+    });
+
+    // Bunting and string lights on poles across the street.
+    const bulbs = [];
+    const poleMat = _mat(0x3a3440, 0.5, 0.5);
+    [-6.5, 6.5].forEach(x => [-1.5, -6].forEach(z => {
+        const p = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 5.4, 8), poleMat);
+        p.position.set(x, 2.7, z); scene.add(p);
+    }));
+    [-1.5, -6].forEach((z, li) => {
+        for (let i = 0; i <= 26; i++) {
+            const u = i / 26, x = -6.5 + u * 13, y = 5.2 - Math.sin(u * Math.PI) * 1.1;
+            if (i % 2 === 0) {
+                const flag = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.42, 3), new THREE.MeshStandardMaterial({ color: cols[(i / 2 + li) % 5], roughness: 0.8 }));
+                flag.rotation.x = Math.PI; flag.position.set(x, y - 0.25, z); scene.add(flag);
+            } else {
+                const b = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 6), new THREE.MeshBasicMaterial({ color: 0xfff1b8 }));
+                b.position.set(x, y - 0.05, z); scene.add(b); bulbs.push(b);
+            }
+        }
+    });
+
+    // The crowd: simple folk round the edges of the floor, bobbing along.
+    const crowd = [];
+    const skin = [0xf2c6a0, 0xc68b5e, 0x8d5a3b, 0xffd9b8];
+    const spots = [[-5.4, 1.2], [-5.8, -0.4], [-5, -1.9], [5.4, 1.2], [5.8, -0.4], [5.1, -1.9], [-4, -2.9], [4, -2.9], [-6.8, 0.6], [6.8, 0.6]];
+    spots.forEach(([x, z], i) => {
+        const g = new THREE.Group();
+        const body = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.34, 1.0, 10), _mat(cols[(i * 3) % 5], 0.8));
+        body.position.y = 0.55; g.add(body);
+        const head = new THREE.Mesh(new THREE.SphereGeometry(0.27, 12, 10), _mat(skin[i % 4], 0.8));
+        head.position.y = 1.3; g.add(head);
+        const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.6, 6), _mat(skin[i % 4], 0.8));
+        arm.position.set(0.3, 1.25, 0); arm.rotation.z = -0.4; g.add(arm);
+        g.position.set(x, 0, z);
+        g.lookAt(0, 0, 0.5);
+        g.traverse(o => { if (o.isMesh) o.castShadow = true; });
+        scene.add(g);
+        crowd.push({ g, arm, ph: _rand(i) * 0.5, jump: _rand(i + 4) > 0.5 });
+    });
+
+    // Two disco spots sweeping the floor.
+    const spots2 = [0xff4fa3, 0x35e0ff].map((c, i) => {
+        const l = new THREE.SpotLight(c, 1.6, 22, 0.35, 0.5, 1.2);
+        l.position.set(i ? 4 : -4, 7, 3);
+        scene.add(l); scene.add(l.target);
+        return l;
+    });
+
+    let lastBeat = -1;
+    return {
+        booth, tiles,
+        update(dt, t, beat = t * 2) {
+            const b = Math.floor(beat), frac = beat - b;
+            const pulse = Math.exp(-frac * 5);
+            if (b !== lastBeat) {
+                lastBeat = b;
+                tiles.forEach(tl => {
+                    const on = ((tl.r + tl.c + b) % 3 === 0) || ((b % 4 === 0) && tl.r === 1);
+                    tl.on = on;
+                    tl.m.material.emissive.setHex(cols[(tl.r + tl.c * 2 + b) % 5]);
+                });
+            }
+            tiles.forEach(tl => { tl.m.material.emissiveIntensity = tl.on ? 0.35 + pulse * 0.9 : 0.12; });
+            speakers.forEach(s => { s.scale.set(1 + pulse * 0.12, 1, 1 + pulse * 0.12); });
+            decks.forEach(d => { d.rotation.y += dt * 3.5; });
+            bulbs.forEach((bl, i) => { bl.material.color.setHex((i + b) % 4 === 0 ? 0xffffff : 0xffe08a); });
+            crowd.forEach(c => {
+                const k = Math.abs(Math.sin((beat + c.ph) * Math.PI));
+                c.g.position.y = (c.jump ? 0.22 : 0.08) * k;
+                c.arm.rotation.z = -0.4 - k * (c.jump ? 1.6 : 0.6);
+            });
+            spots2.forEach((l, i) => {
+                const a = t * 0.9 + i * Math.PI;
+                l.target.position.set(Math.sin(a) * 3, 0, Math.cos(a * 1.3) * 1.5);
+                l.intensity = 0.9 + pulse * 0.7;
+            });
+        },
+    };
+}
+
+// ---- The Void: the rift ----------------------------------------------------
+//
+// "Reality frays at the edge of the Void." A shaft straight down through
+// nothing, its walls cracked with light, and at the bottom the core — the
+// Crown's own glow. Divers start on a glass disc over the mouth of it. The
+// game lays its own rings and shards; the set gives the shaft depth to read:
+// rim lights every twenty units, spires jutting in from the walls, and streaks
+// hanging in the dark that race upward past anyone falling through them.
+export function buildRift(stage, { depth = 420, radius = 7 } = {}) {
+    const B = HBD_BIOMES.find(b => b.key === 'void');
+    const scene = stage.scene;
+    scene.background = new THREE.Color(_hex(B.bgTop));
+    scene.fog = new THREE.Fog(0x120a2a, 14, 75);
+    scene.add(new THREE.HemisphereLight(0x9a8aff, 0x0a0a1a, 0.85));
+    const key = new THREE.DirectionalLight(0xc9d6ff, 0.7);
+    key.position.set(3, 10, 4); scene.add(key);
+
+    // The walls: cracked with light, the texture repeated all the way down.
+    const cv = document.createElement('canvas'); cv.width = 256; cv.height = 256;
+    const g = cv.getContext('2d');
+    g.fillStyle = '#0d0b22'; g.fillRect(0, 0, 256, 256);
+    for (let i = 0; i < 14; i++) {
+        g.strokeStyle = ['#3b82f6', '#a855f7', '#22d3ee', '#60a5fa'][i % 4];
+        g.globalAlpha = 0.25 + _rand(i) * 0.4; g.lineWidth = 1 + _rand(i + 3) * 2;
+        g.beginPath();
+        let x = _rand(i + 7) * 256, y = _rand(i + 11) * 256;
+        g.moveTo(x, y);
+        for (let k = 0; k < 5; k++) { x += (_rand(i * 5 + k) - 0.5) * 70; y += _rand(i * 3 + k) * 50; g.lineTo(x, y); }
+        g.stroke();
+    }
+    g.globalAlpha = 1;
+    const tex = new THREE.CanvasTexture(cv);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(5, Math.round((depth + 60) / 18));
+    const wall = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, depth + 60, 40, 1, true),
+        new THREE.MeshStandardMaterial({ map: tex, emissiveMap: tex, emissive: 0xffffff, emissiveIntensity: 0.55, side: THREE.BackSide, roughness: 0.8 }));
+    wall.position.y = -depth / 2 - 10;
+    scene.add(wall);
+
+    // Rim lights, every twenty units down.
+    const rims = [];
+    for (let y = -10; y > -depth; y -= 20) {
+        const rim = new THREE.Mesh(new THREE.TorusGeometry(radius - 0.05, 0.07, 6, 48),
+            new THREE.MeshBasicMaterial({ color: (y / 20) % 2 ? 0x22d3ee : 0xa855f7 }));
+        rim.rotation.x = Math.PI / 2; rim.position.y = y; scene.add(rim); rims.push(rim);
+    }
+    // Spires jutting in from the walls.
+    const up = new THREE.Vector3(0, 1, 0);
+    for (let i = 0; i < 40; i++) {
+        const a = _rand(i * 3) * Math.PI * 2, y = -8 - _rand(i * 7 + 1) * (depth - 10);
+        const sp = PROP_KIT.voidSpire(5000 + i * 11);
+        sp.scale.setScalar(0.55 + _rand(i + 2) * 0.35);
+        sp.position.set(Math.cos(a) * (radius - 0.1), y, Math.sin(a) * (radius - 0.1));
+        sp.quaternion.setFromUnitVectors(up, new THREE.Vector3(-Math.cos(a), (_rand(i) - 0.5) * 0.6, -Math.sin(a)).normalize());
+        scene.add(sp);
+    }
+    // Streaks: still in the world, so falling past them is the speed.
+    const N = Math.round(depth * 1.2);
+    const streaks = new THREE.InstancedMesh(new THREE.BoxGeometry(0.035, 1.8, 0.035),
+        new THREE.MeshBasicMaterial({ color: 0x9fb8ff, transparent: true, opacity: 0.45, depthWrite: false }), N);
+    const m4 = new THREE.Matrix4();
+    for (let i = 0; i < N; i++) {
+        const a = _rand(i + 0.5) * Math.PI * 2, r = Math.sqrt(_rand(i * 2 + 0.3)) * (radius - 0.6);
+        m4.makeTranslation(Math.cos(a) * r, 4 - _rand(i * 3 + 0.7) * (depth + 8), Math.sin(a) * r);
+        streaks.setMatrixAt(i, m4);
+    }
+    scene.add(streaks);
+
+    // The glass disc they stand on at the top.
+    const disc = new THREE.Mesh(new THREE.CylinderGeometry(3.2, 3.2, 0.15, 36),
+        new THREE.MeshStandardMaterial({ color: 0x9ad8ff, emissive: 0x2a5a9a, emissiveIntensity: 0.6, transparent: true, opacity: 0.55, roughness: 0.1 }));
+    disc.position.y = -0.08; scene.add(disc);
+    const lip = new THREE.Mesh(new THREE.TorusGeometry(3.2, 0.08, 6, 36), new THREE.MeshBasicMaterial({ color: 0x60a5fa }));
+    lip.rotation.x = Math.PI / 2; disc.add(lip);
+
+    // The core at the bottom, and the floor they land on.
+    const coreY = -depth - 2;
+    const floor = new THREE.Mesh(new THREE.CylinderGeometry(radius - 0.1, radius - 0.1, 0.4, 40),
+        new THREE.MeshStandardMaterial({ color: 0x1a1640, emissive: 0x3b2a8a, emissiveIntensity: 0.5, roughness: 0.4 }));
+    floor.position.y = coreY - 0.2; scene.add(floor);
+    const core = new THREE.Mesh(new THREE.CircleGeometry(2.4, 40), new THREE.MeshBasicMaterial({ color: 0xfff0a0 }));
+    core.rotation.x = -Math.PI / 2; core.position.y = coreY + 0.02; scene.add(core);
+    const halo = new THREE.Mesh(new THREE.RingGeometry(2.6, 3.4, 40), new THREE.MeshBasicMaterial({ color: 0xffd12d, transparent: true, opacity: 0.6, side: THREE.DoubleSide }));
+    halo.rotation.x = -Math.PI / 2; halo.position.y = coreY + 0.03; scene.add(halo);
+    const glow = new THREE.PointLight(0xffe08a, 2.2, 40, 1.4);
+    glow.position.set(0, coreY + 3, 0); scene.add(glow);
+
+    return {
+        depth, radius, coreY, disc,
+        update(dt, t) {
+            rims.forEach((r, i) => { r.material.opacity = 1; r.scale.setScalar(1 + Math.sin(t * 3 + i) * 0.004); });
+            halo.rotation.z += dt * 0.6;
+            halo.material.opacity = 0.45 + Math.sin(t * 4) * 0.2;
+            glow.intensity = 2 + Math.sin(t * 3) * 0.4;
+            tex.offset.x = (t * 0.004) % 1;
+        },
+    };
+}
+
 /** Sets by district key. A game asks for the one its story is set in. */
 export const STAGE_SETS = {
     hub: buildPerditionStreet,
@@ -981,4 +1599,9 @@ export const STAGE_SETS = {
     fin: buildBankFloor,
     rail: buildRailRun,
     mine: buildMineFloor,
+    ind: buildWorksYard,
+    fae: buildFaePond,
+    ba: buildRooftops,
+    shop: buildBlockParty,
+    void: buildRift,
 };

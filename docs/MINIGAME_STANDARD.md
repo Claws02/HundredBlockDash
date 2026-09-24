@@ -276,7 +276,7 @@ Criteria 7 and 8 are gated by §2 — if you followed the rules they're free.
 The roster should spread across verbs so the rotation feels fresh. Current
 shipped games and the target spread:
 
-The roster of **15**. One game per verb is necessary but **not sufficient** —
+The roster of **33** (the registry's `MG_TYPES`). One game per verb is necessary but **not sufficient** —
 see `docs/MINIGAME_BACKLOG.md` for the shared-object test that comes first. Five
 games that passed the verb test and failed the fun test are in `archived/`.
 
@@ -309,6 +309,11 @@ games that passed the verb test and failed the fun test are in `archived/`.
 | Asym sneak (3D)      | guard the light, steal the gold| ✅ Vault Heist      |
 | Roof sumo (3D)       | shove, and duck the bridge    | ✅ The 4:15 to Perdition |
 | Shared switches (3D) | throw the junction ahead      | ✅ Mine Cart Mayhem  |
+| Territory (3D)       | paint the yard, bomb the rest | ✅ Turf War          |
+| Hop & stomp (3D)     | keep moving, land on them     | ✅ Lily Pad Leap     |
+| Auto-runner race (3D)| jump the gaps, slide, trip    | ✅ Rooftop Run       |
+| Call & response (3D) | copy the DJ, on the beat      | ✅ Block Party       |
+| Split-screen race (3D)| steer your own dive          | ✅ Rift Dive         |
 
 **Curation rule:** the 40 files in `src/minigames/archived/` are a **design
 backlog, not a code backlog** — their imports and shared-DOM dependencies are
@@ -369,9 +374,12 @@ wrong.
 | `createStage(host, { hold, fov })` | Renderer, scene and camera sized to the layer, with DPR capped at 2. The board's render loop is paused until `dispose()`. **Adaptive resolution:** if frames run past 33 ms for 1.5 s, it steps the pixel ratio down (2 → 1.5 → 1 → 0.75). Below 10 fps the capped `dt` would otherwise slow the game clock itself. |
 | `hold: 'side'` | The landscape hold (`MG_ORIENTATIONS.sideon`). Two players sit side by side, and **P1 is on the right** (the home edge, where P1's ready button is). If the viewport is portrait, the stage turns itself 90° clockwise, and `#minigame-layer.is-sideon` turns the manager's ready buttons and countdown to match. The two edge status pills are hidden, so a side-on game draws its prompts in `stage.hud`. |
 | `stage.toLocal(x, y)` | A pointer position in the stage's own frame, whichever way it is turned. Partition input with this, never with screen coordinates. |
-| `stage.character(slot)` | The figure that seat picked, rigged and animated (`CharacterRig.js`). `anim.play('idle' / 'walk' / 'ready' / 'aim' / 'hit' / 'fall' / 'victory' / 'defeat' / 'duck' / 'shove')`, `anim.face(angle)`, and the accents `anim.fire()` and `anim.flinch()`. `rig.hold(side, prop)` puts a prop in a hand. |
-| `STAGE_SETS[district](stage)` | A set built from `DISTRICT_BIOMES` and the board's own `PROP_KIT`. It returns handles the game can animate (Perdition: `ringBell`, `startleCrow`, `rollTumbleweed`) and an `update(dt, t)`. Built so far: `hub` (Perdition's main street), `bad` (Boot Hill Badlands: two fort sites across a dry wash), `fin` (a bank floor at night), `rail` (the roof of a moving train through Ironwood Railyard: the scenery scrolls past in parallax and the set carries the bridges) and `mine` (a Cinder Mine cart floor). `fin` and `mine` take the game's layout (walls, or a track graph), so the scenery and the collision are the same numbers. |
+| `stage.character(slot)` | The figure that seat picked, rigged and animated (`CharacterRig.js`). `anim.play('idle' / 'walk' / 'ready' / 'aim' / 'hit' / 'fall' / 'victory' / 'defeat' / 'duck' / 'shove' / 'run' / 'jump' / 'slide')`, the dance set `'groove'` (bounce on the beat: `rate` is beats per second) · `'raise'` · `'drop'` · `'pointL'` · `'pointR'` · `'clap'`, `anim.face(angle)`, and the accents `anim.fire()` and `anim.flinch()`. `rig.hold(side, prop)` puts a prop in a hand. |
+| `stage.figure(type, color)` | A rigged, animated figure that is nobody's seat — Block Party's DJ. Disposed with the stage. |
+| `STAGE_SETS[district](stage)` | A set built from `DISTRICT_BIOMES` and the board's own `PROP_KIT`. It returns handles the game can animate (Perdition: `ringBell`, `startleCrow`, `rollTumbleweed`) and an `update(dt, t)`. Built so far: `hub` (Perdition's main street), `bad` (Boot Hill Badlands: two fort sites across a dry wash), `fin` (a bank floor at night), `rail` (the roof of a moving train through Ironwood Railyard: the scenery scrolls past in parallax and the set carries the bridges), `mine` (a Cinder Mine cart floor), `ind` (the works yard), `fae` (the Fae Glade pond), `ba` (Back Alley rooftops at night: `layCourse(course)` builds the roofs, vents and signs a game hands it, and `update(dt, t, camX, camY)` walks the light and the parallax skyline with a travelling camera), `shop` (a block party on the Promenade: `update(dt, t, beat)` lights the floor, pumps the speakers and bobs the crowd on the music's beat) and `void` (a rift straight down through the Void, with the core at the bottom). `fin`, `mine` and `ba` take the game's layout (walls, a track graph, a course), so the scenery and the collision are the same numbers. |
 | `createDirector(stage)` (`StageDirector.js`) | **Beat 6's two ends.** `open({ place, title, sub, from, to, onDone })` is the opening shot: a camera move under letterbox bars with a title card. `close({ winner, figs, sub, closeUp, onDone })` is the winner's moment: the winner turns to camera and celebrates, everyone else slumps, confetti falls in the winner's colour, and the card shows their name in their colour. Call `update(dt)` every frame; while it returns true the director owns the camera. In the face-off hold the card is drawn twice, back to back, and `closeUp` lets a game shoot the winner from their own end of the table. |
+| `stage.views` | **Split screen.** `null` draws the one full-frame `stage.camera`. A list of `{ camera, rect: [x, y, w, h] }` (fractions of the frame, y up from the bottom) draws each rectangle through its own camera, aspect kept to the rectangle. Rift Dive is the reference: P1's camera has `up (0, 0, -1)` in the bottom half, P2's `up (0, 0, 1)` in the top, so each half reads the right way up from its own end and a drag maps to the floor as `x = dx · s, z = dy · s` with `s = ±1` by seat. Clear it for director shots. |
+| `StageKit.js` | The pieces every stage game was writing for itself: `seat(slot)`, `faceoffHud` / `sideHud`, `touch(stage, { split })` (per-seat drag, hold, tap and release), `effects(stage)` (bursts, puffs, confetti) and `overheadCam`. |
 | `stage.start(frame)` | The loop. `dt` is capped and every rig is animated before your `frame(dt)` runs. |
 | `stage.dispose()` | Every geometry, material, texture, listener and the WebGL context, and the board is resumed. Call it from your `_destroy`, which you register with `registerMinigameCleanup` as always. |
 

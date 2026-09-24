@@ -39,6 +39,11 @@ export const MG_TYPES = [
     'vaultheist',
     'express',
     'minecart',
+    'turfwar',
+    'lilypad',
+    'rooftop',
+    'blockparty',
+    'riftdive',
 ];
 
 export const MG_INFO = {
@@ -70,6 +75,11 @@ export const MG_INFO = {
     vaultheist:  { icon: '🏦', title: 'VAULT HEIST',   desc: 'Lay the phone flat between you. Two rounds — one as the THIEF, one as the GUARD. THIEF: drag to sneak in, grab the gold at the guard\'s end (the vault stack is worth 3, deposit boxes 2, cash bags 1), and get back to the green ESCAPE strip at YOUR end — gold only counts once you are home, and carrying it slows you down. GUARD: drag to walk; your torch points the way you go. Keep the thief in your light for a full second and they leave with nothing — walking into them won\'t do it. Columns and the counter block the light. Most gold banked wins!' },
     express:     { icon: '🚂', title: 'THE 4:15 TO PERDITION', desc: 'Turn the phone sideways and sit side by side. You are both on the roof of a moving train. DRAG across your half to walk, TAP to lunge and shove, HOLD to duck. Shove them off either end of the roof! When the whistle blows, a low bridge is coming — anyone still standing when it passes is swept off. Ducking braces you against a shove too, but you cannot walk or shove while you duck. First to 2 rounds.' },
     minecart:    { icon: '⛏️', title: 'MINE CART MAYHEM', desc: 'Lay the phone flat between you. Your character rides a mine cart that never stops rolling. TAP to throw the switch at the junction you are heading for — your colour on the floor shows which way you will go. The switches are SHARED: flip one and it is flipped for your rival too. Grab gems (blue ones are worth 3), and steer clear of TNT — hit it and you stop and spill 2 gems. Meet head-on and you both bounce back. Most gems in 40 seconds wins!' },
+    turfwar:     { icon: '🎨', title: 'TURF WAR', desc: 'Lay the phone flat between you. Your character pushes a paint roller round the paint works yard — DRAG on your half to run, and every tile you roll over turns your colour, including theirs. Their wet paint slows you down. Grab a paint bomb for a big splat. Most of the yard in your colour when the whistle blows wins!' },
+    lilypad:     { icon: '🐸', title: 'LILY PAD LEAP', desc: 'Lay the phone flat between you. You are both on lily pads in the Fae Glade pond, and every pad SINKS under you — faster with two on it. DRAG to aim at a pad (it lights up in your colour) and LET GO to hop. Land on the pad your rival is on to STOMP them off it — into the water if there is nowhere else. Sunk pads come back up after a while. Last one dry takes the round; first to 2 wins!' },
+    rooftop:     { icon: '🌃', title: 'ROOFTOP RUN', desc: 'Turn the phone sideways and sit side by side. You are both racing across the Back Alley rooftops at night — you run on your own. Tap the TOP of your half to JUMP the gaps and the vents (hold it for a higher jump); tap the BOTTOM to SLIDE under the low neon signs. Slide into the runner in front and you trip them up! Miss a gap and you drop to the street and lose time. First to the finish banner wins the race; first to 2 races wins!' },
+    blockparty:  { icon: '🪩', title: 'BLOCK PARTY', desc: 'Turn the phone sideways and sit side by side. It is a street party on the Promenade and the DJ calls the moves: watch the DJ dance a phrase, one move per beat — then dance it straight back, both of you at once. SWIPE UP to raise the roof, DOWN to drop, LEFT or RIGHT to point, TAP to clap. On the beat is PERFECT, near it is GOOD; the wrong move or off the beat is a MISS. A phrase with no misses is a FULL COMBO. The phrases get longer and faster, and the last two are from memory. Most points wins!' },
+    riftdive:    { icon: '🌌', title: 'RIFT DIVE', desc: 'Lay the phone flat between you — the screen splits in two, and each half is your own camera following your own diver straight down a rift through the Void. DRAG on your half to steer. Fly through the glowing RINGS for a burst of speed; clip a red SHARD and you tumble and slow right down. You share the shaft, so you can bump each other out of the way. First to the core at the bottom wins!' },
 };
 
 // ============================================================
@@ -195,6 +205,11 @@ export const MG_NET = {
     vaultheist:  'local',      // one bank floor, the beam and the thief in it
     express:     'local',      // one roof, shoves that land on contact
     minecart:    'local',      // one set of switches, flipped for both
+    turfwar:     'local',
+    lilypad:     'local',
+    rooftop:     'local',
+    blockparty:  'local',
+    riftdive:    'local',
 };
 
 // The parallel games whose SCORE is also a coin haul.
@@ -286,6 +301,11 @@ export const MG_SHAPE = {
     vaultheist:  'arena',   // + ASYM: one guards, one steals, then they swap
     express:     'arena',   // one roof, one bridge coming for both of them
     minecart:    'arena',   // one track, one set of switches
+    turfwar:     'arena',
+    lilypad:     'arena',
+    rooftop:     'arena',
+    blockparty:  'arena',
+    riftdive:    'arena',
 };
 
 // Modifiers laid over a shape: the seats do not have the same job (ASYM), or
@@ -330,6 +350,11 @@ export const MG_ORIENTATION_MAP = {
     vaultheist:  'faceoff',
     express:     'sideon',
     minecart:    'faceoff',
+    turfwar:     'faceoff',
+    lilypad:     'faceoff',
+    rooftop:     'sideon',
+    blockparty:  'sideon',
+    riftdive:    'faceoff',
 };
 
 export const FALLBACK_TRIVIA = [
@@ -506,6 +531,11 @@ export const MG_PROFILE = {
     // is a 34 px tile — under the 44 px the control law asks for. On a tablet
     // quarter the same grid is 68 px a side, so 3-4 seats is a tablet game.
     oddoneout:   { genre: 'brain',    control: 'tap',   wire: 'none',     seats: [2, 4], live: true, roomy: true },
+    turfwar:     { genre: 'push',     control: 'thumb', wire: 'snapshot', seats: [2, 4], live: false },
+    lilypad:     { genre: 'push',     control: 'thumb', wire: 'events',   seats: [2, 4], live: false },
+    rooftop:     { genre: 'race',     control: 'tap',   wire: 'events',   seats: [2, 2], live: false },
+    blockparty:  { genre: 'reflex',   control: 'thumb', wire: 'events',   seats: [2, 2], live: false },
+    riftdive:    { genre: 'race',     control: 'thumb', wire: 'snapshot', seats: [2, 2], live: false },
 };
 
 // The order the wire tiers come in, cheapest first. Used by the READINESS sort:
