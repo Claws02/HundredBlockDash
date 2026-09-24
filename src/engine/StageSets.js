@@ -1091,6 +1091,229 @@ export function buildFaePond(stage, { w, d }) {
     };
 }
 
+// ---- Back Alley rooftops: the neon night run --------------------------------
+//
+// "Night. The only district lit by its own signage rather than the sky." The
+// game hands over a COURSE — roofs (x0, x1, y), vents and hanging signs — and
+// the set builds a block of brick under every roof, windows lit at random,
+// the course's obstacles, and a finish banner. Behind it all, two layers of
+// skyline slide past slower than the roofs do, and a moon that hardly moves.
+// The camera travels, so the set is told where it is: update(dt, t, camX)
+// walks the key light and the parallax layers along with it.
+export function buildRooftops(stage) {
+    const B = DISTRICT_BIOMES.ba;
+    const scene = stage.scene;
+    scene.background = new THREE.Color(_hex(B.bgBot));
+    scene.fog = new THREE.Fog(_hex(B.fog), 30, 110);
+    const sky = _skyDome(_hex(B.bgTop), _hex(B.bgBot));
+    scene.add(sky);
+    const L = stage.light({ sun: 0xc9b8ff, sunI: 0.9, sky: 0x8a6ab8, ground: 0x2a1030, hemiI: 0.75,
+                            rim: 0x35e0ff, rimI: 0.9, dir: [-6, 14, 12], span: 16 });
+    if (L) scene.add(L.key.target);
+    // Neon spill: one pink and one cyan fill that ride along with the camera.
+    const pink = new THREE.PointLight(0xff4fa3, 1.1, 26, 1.6);
+    const cyan = new THREE.PointLight(0x35e0ff, 0.9, 26, 1.6);
+    scene.add(pink, cyan);
+    const moon = new THREE.Mesh(new THREE.CircleGeometry(5, 32), new THREE.MeshBasicMaterial({ color: 0xffe9f4, fog: false }));
+    moon.position.set(0, 26, -120); scene.add(moon);
+    const glow = new THREE.Mesh(new THREE.PlaneGeometry(400, 30), new THREE.MeshBasicMaterial({ color: 0xff7a3d, transparent: true, opacity: 0.35, fog: false, depthWrite: false }));
+    glow.position.set(0, -20, -40); scene.add(glow);                 // the street's orange haze, far below
+
+    // Skyline layers: box towers with lit windows, parallaxed.
+    const winGeo = new THREE.PlaneGeometry(0.5, 0.7);
+    const winMat = new THREE.MeshBasicMaterial({ color: 0xffc47a });
+    const layers = [];
+    [[-34, 0.35, 16, 0x241733], [-62, 0.15, 26, 0x1a1026]].forEach(([z, rate, tall, col], li) => {
+        const span = 180, items = [];
+        const mat = _mat(col, 0.95);
+        for (let i = 0; i < 16; i++) {
+            const w = 6 + _rand(i + li * 40) * 8, h = tall * (0.6 + _rand(i * 3 + li) * 0.9);
+            const g = new THREE.Group();
+            const box = new THREE.Mesh(new THREE.BoxGeometry(w, h + 30, 6), mat);
+            box.position.y = h / 2 - 15; g.add(box);
+            const lit = new THREE.InstancedMesh(winGeo, winMat, 40);
+            const m4 = new THREE.Matrix4();
+            let n = 0;
+            for (let k = 0; k < 40; k++) {
+                if (_rand(i * 91 + k + li * 7) > 0.45) continue;
+                m4.makeTranslation((_rand(k * 5 + i) - 0.5) * (w - 1), h - 1.2 - Math.floor(_rand(k * 13 + i) * 12) * 1.3, 3.02);
+                lit.setMatrixAt(n++, m4);
+            }
+            lit.count = n; g.add(lit);
+            if (_rand(i + 17 * li) < 0.3) {                 // a rooftop neon, far off
+                const col2 = [0xff2d78, 0x2ddcff, 0xffd12d, 0x8b5cf6][i % 4];
+                const bar = new THREE.Mesh(new THREE.BoxGeometry(w * 0.6, 0.6, 0.3), new THREE.MeshBasicMaterial({ color: col2 }));
+                bar.position.set(0, h + 0.8, 2.5); g.add(bar);
+            }
+            g.position.z = z;
+            g.userData.bx = i * (span / 16) + _rand(i + 3) * 4;
+            scene.add(g); items.push(g);
+        }
+        layers.push({ items, rate, span });
+    });
+
+    // ---- The course ----
+    let course = null;
+    const neon = [0xff2d78, 0x2ddcff, 0xffd12d, 0x8b5cf6, 0x34f5a0];
+    const WORDS = ['NOODLES', 'KARAOKE', 'PAWN', 'OPEN 24H', 'TATTOO', 'HOTEL', 'ARCADE', 'BAR', 'LUCKY', 'DUMPLINGS'];
+    const brick = _mat(0x3a2230, 0.95), brick2 = _mat(0x2c1c2a, 0.95), tar = _mat(0x2a2530, 0.8);
+    const metal = _mat(0x8a8f99, 0.4, 0.7);
+    function clear() {
+        if (!course) return;
+        scene.remove(course.group);
+        course.group.traverse(o => {
+            o.geometry?.dispose();
+            if (o.material && !o.material.userData?.shared) { o.material.map?.dispose(); o.material.dispose(); }
+        });
+        course = null;
+    }
+    [brick, brick2, tar, metal, winMat].forEach(m => { m.userData.shared = true; });
+
+    function layCourse(C) {
+        clear();
+        const group = new THREE.Group();
+        const steam = [];
+        const winsMax = C.roofs.length * 40;
+        const wins = new THREE.InstancedMesh(winGeo, winMat, winsMax);
+        const m4 = new THREE.Matrix4();
+        let wn = 0;
+        C.roofs.forEach((r, i) => {
+            const w = r.x1 - r.x0;
+            const block = new THREE.Mesh(new THREE.BoxGeometry(w, r.y + 26, 7), i % 2 ? brick : brick2);
+            block.position.set((r.x0 + r.x1) / 2, (r.y - 26) / 2, 0);
+            block.receiveShadow = true; group.add(block);
+            const top = new THREE.Mesh(new THREE.BoxGeometry(w + 0.1, 0.12, 7.1), tar);
+            top.position.set(block.position.x, r.y - 0.05, 0); top.receiveShadow = true; group.add(top);
+            // A lip on the far edge only; the near one would hide feet.
+            const lip = new THREE.Mesh(new THREE.BoxGeometry(w + 0.1, 0.5, 0.3), brick);
+            lip.position.set(block.position.x, r.y + 0.2, -3.4); group.add(lip);
+            // Lit windows on the face the camera sees.
+            for (let k = 0; k < 40 && wn < winsMax; k++) {
+                if (_rand(i * 57 + k) > 0.5) continue;
+                const col = Math.floor(_rand(k * 3 + i) * Math.max(1, Math.floor(w / 1.6)));
+                const row = 1 + Math.floor(_rand(k * 7 + i * 2) * 6);
+                m4.makeTranslation(r.x0 + 0.9 + col * 1.6, r.y - row * 1.6, 3.52);
+                wins.setMatrixAt(wn++, m4);
+            }
+            // Dressing along the back, clear of both lanes: tanks, crates, aerials.
+            const dec = Math.floor(_rand(i * 11) * 3);
+            for (let k = 0; k < dec; k++) {
+                const dx = r.x0 + 1.5 + _rand(i * 7 + k) * Math.max(0.5, w - 3);
+                const kind = _rand(i * 5 + k * 3);
+                let d;
+                if (kind < 0.35) {
+                    d = new THREE.Group();
+                    const tank = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1.8, 14), _mat(0x5a3a2c, 0.85));
+                    tank.position.y = 2.6; d.add(tank);
+                    const cap = new THREE.Mesh(new THREE.ConeGeometry(1.1, 0.7, 14), _mat(0x2c1c1a, 0.8));
+                    cap.position.y = 3.85; d.add(cap);
+                    [[-0.7, -0.7], [0.7, -0.7], [-0.7, 0.7], [0.7, 0.7]].forEach(([a, b]) => {
+                        const leg = new THREE.Mesh(new THREE.BoxGeometry(0.15, 1.7, 0.15), metal);
+                        leg.position.set(a, 0.85, b); d.add(leg);
+                    });
+                } else if (kind < 0.7) {
+                    d = PROP_KIT.alley(0.3 + _rand(i + k) * 0.2, 900 + i * 3 + k);
+                    d.scale.setScalar(0.7);
+                } else {
+                    d = new THREE.Group();
+                    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.07, 3.5, 6), metal);
+                    mast.position.y = 1.75; d.add(mast);
+                    const tip = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 6), new THREE.MeshBasicMaterial({ color: 0xff3355 }));
+                    tip.position.y = 3.55; d.add(tip);
+                }
+                d.position.set(dx, r.y, -2.6);
+                group.add(d);
+            }
+            // A big sign on the building's face, under the roof line.
+            if (i % 2 === 1 && w > 7) {
+                const word = WORDS[i % WORDS.length], col = neon[i % neon.length];
+                const css = '#' + col.toString(16).padStart(6, '0');
+                const sg = textPlane(word, { w: 3.6, h: 1.1, bg: '#140a18', fg: css, border: css });
+                sg.material.emissive = new THREE.Color(0xffffff); sg.material.emissiveMap = sg.material.map; sg.material.emissiveIntensity = 0.9;
+                sg.position.set(r.x0 + w * 0.5, r.y - 2.2, 3.56);
+                group.add(sg);
+            }
+        });
+        wins.count = wn; group.add(wins);
+
+        C.obstacles.forEach((o, i) => {
+            if (o.kind === 'vent') {
+                const g = new THREE.Group();
+                const box = new THREE.Mesh(new THREE.BoxGeometry(o.w, o.h, 3.6), metal);
+                box.position.y = o.h / 2; box.castShadow = true; box.receiveShadow = true; g.add(box);
+                const fan = new THREE.Mesh(new THREE.CylinderGeometry(o.h * 0.32, o.h * 0.32, 0.05, 14), _mat(0x2a2d33, 0.6, 0.5));
+                fan.rotation.x = Math.PI / 2; fan.position.set(0, o.h / 2, 1.82); g.add(fan);
+                const stripe = new THREE.Mesh(new THREE.BoxGeometry(o.w + 0.02, 0.08, 3.62), new THREE.MeshBasicMaterial({ color: 0xfacc15 }));
+                stripe.position.y = o.h - 0.1; g.add(stripe);
+                g.position.set(o.x, o.y, 0);
+                group.add(g);
+                steam.push({ at: new THREE.Vector3(o.x, o.y + o.h, 0), ph: _rand(i) * 3 });
+            } else if (o.kind === 'sign') {
+                const col = neon[(i + 2) % neon.length];
+                const css = '#' + col.toString(16).padStart(6, '0');
+                const g = new THREE.Group();
+                const hgt = o.top - o.bottom, mid = o.bottom + hgt / 2;
+                // The hazard is the bar across both lanes: a lit slab with a
+                // bright tube along its underside, the edge a runner meets.
+                const slab = new THREE.Mesh(new THREE.BoxGeometry(0.5, hgt, 4.2), _mat(0x1c0f22, 0.6, 0, { emissive: col, emissiveIntensity: 0.25 }));
+                slab.position.y = mid; g.add(slab);
+                const tube = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.12, 4.3), new THREE.MeshBasicMaterial({ color: col }));
+                tube.position.y = o.bottom; g.add(tube);
+                const tube2 = tube.clone(); tube2.position.y = o.top; g.add(tube2);
+                // Its name, facing the camera, standing up off the FAR end —
+                // on the near end it hid the near runner going under it.
+                const board = textPlane(WORDS[(i * 3) % WORDS.length], { w: 1.9, h: 0.7, bg: '#140a18', fg: css, border: css });
+                board.material.emissive = new THREE.Color(0xffffff); board.material.emissiveMap = board.material.map; board.material.emissiveIntensity = 1;
+                board.position.set(0, o.top + 0.45, -2.1); g.add(board);
+                [-2.2, 2.2].forEach(z => {
+                    const post = new THREE.Mesh(new THREE.BoxGeometry(0.14, o.top + 0.3, 0.14), metal);
+                    post.position.set(0, (o.top + 0.3) / 2, z); g.add(post);
+                });
+                g.position.set(o.x, o.y, 0);
+                group.add(g);
+            }
+        });
+
+        // Finish: a chequered strip and a banner over it.
+        const fin = C.finish, fr = C.roofs[C.roofs.length - 1];
+        const cv = document.createElement('canvas'); cv.width = 64; cv.height = 256;
+        const g2 = cv.getContext('2d');
+        for (let y = 0; y < 16; y++) for (let x = 0; x < 4; x++) { g2.fillStyle = (x + y) % 2 ? '#111' : '#f5f5f5'; g2.fillRect(x * 16, y * 16, 16, 16); }
+        const tex = new THREE.CanvasTexture(cv);
+        const strip = new THREE.Mesh(new THREE.PlaneGeometry(1, 7), new THREE.MeshBasicMaterial({ map: tex }));
+        strip.rotation.x = -Math.PI / 2; strip.position.set(fin, fr.y + 0.02, 0); group.add(strip);
+        const banner = textPlane('FINISH', { w: 4.6, h: 1.1, bg: '#140a18', fg: '#34f5a0', border: '#ff2d78' });
+        banner.material.emissive = new THREE.Color(0xffffff); banner.material.emissiveMap = banner.material.map; banner.material.emissiveIntensity = 1;
+        banner.position.set(fin, fr.y + 4.4, -2.5); group.add(banner);
+        [-3.2, 1.8].forEach(z => {
+            const post = new THREE.Mesh(new THREE.BoxGeometry(0.16, 4.6, 0.16), metal);
+            post.position.set(fin, fr.y + 2.3, z); group.add(post);
+        });
+        const bar = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 5.2), new THREE.MeshBasicMaterial({ color: 0xff2d78 }));
+        bar.position.set(fin, fr.y + 3.7, -0.7); group.add(bar);
+
+        group.traverse(o => { if (o.isMesh && !o.material?.isMeshBasicMaterial) o.castShadow = o.castShadow || false; });
+        scene.add(group);
+        course = { group, steam };
+    }
+
+    const wrap = (v, S) => ((v % S) + S * 1.5) % S - S / 2;
+    return {
+        layCourse,
+        /** Steam vents in reach of the camera; the game puffs them. */
+        get steam() { return course ? course.steam : []; },
+        update(dt, t, camX = 0, camY = 0) {
+            sky.position.x = camX; glow.position.x = camX;
+            moon.position.x = camX * 0.97 + 18;
+            pink.position.set(camX - 4, camY + 4, 5 + Math.sin(t * 1.3) * 0.5);
+            cyan.position.set(camX + 7, camY + 3, 4);
+            if (L) { L.key.position.set(camX - 6, camY + 14, 12); L.key.target.position.set(camX, camY, 0); L.back.position.set(camX + 3, camY + 8, -12); }
+            layers.forEach(l => l.items.forEach(g => { g.position.x = camX + wrap(g.userData.bx - camX * l.rate, l.span); }));
+        },
+        dispose: clear,
+    };
+}
+
 /** Sets by district key. A game asks for the one its story is set in. */
 export const STAGE_SETS = {
     hub: buildPerditionStreet,
@@ -1100,4 +1323,5 @@ export const STAGE_SETS = {
     mine: buildMineFloor,
     ind: buildWorksYard,
     fae: buildFaePond,
+    ba: buildRooftops,
 };

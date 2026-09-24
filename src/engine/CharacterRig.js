@@ -315,6 +315,44 @@ export class CharacterAnimator {
             T.hand[0].z = r.front + H * 0.45; T.hand[1].z = r.front + H * 0.45;
             break;
 
+        case 'run': {
+            // Flat out: leaning into it, the hands pumping high and hard.
+            const ph = t * this.rate * Math.PI;
+            const s = Math.sin(ph);
+            T.y = Math.abs(s) * 0.1;
+            T.rollZ = s * 0.06;
+            T.leanX = 0.32;
+            T.squash = 1 + (Math.abs(s) - 0.5) * 0.1;
+            T.eyeOpen = 0.8;
+            T.hand[0].z += s * 0.42 * H; T.hand[1].z -= s * 0.42 * H;
+            T.hand[0].y += (0.12 + Math.max(0, s) * 0.14) * H;
+            T.hand[1].y += (0.12 + Math.max(0, -s) * 0.14) * H;
+            const step = Math.floor(t * this.rate);
+            if (step !== this._lastStep) { this._lastStep = step; this.onStep?.(step); }
+            break;
+        }
+
+        case 'jump': {
+            // Stretched on the way up, tucked at the top, hands flung high.
+            const k = Math.min(1, t / 0.18);
+            T.squash = 1.1 - 0.16 * k;
+            T.leanX = 0.18;
+            T.eyeOpen = 1.2;
+            T.hand[0].y = H * (0.7 + 0.25 * k); T.hand[1].y = H * (0.7 + 0.25 * k);
+            T.hand[0].x -= 0.12 * H; T.hand[1].x += 0.12 * H;
+            T.hand[0].z = 0.1; T.hand[1].z = 0.1;
+            break;
+        }
+
+        case 'slide':
+            // Feet first, leaning right back, one hand out for balance.
+            T.squash = 0.6;
+            T.leanX = -0.55;
+            T.eyeOpen = 1.1;
+            T.hand[0].y = H * 0.18; T.hand[0].z = -0.15 * H; T.hand[0].x -= 0.2 * H;
+            T.hand[1].y = H * 0.7; T.hand[1].z = r.front + H * 0.3;
+            break;
+
         case 'defeat':
             // Shoulders down, head down.
             T.leanX = 0.28;

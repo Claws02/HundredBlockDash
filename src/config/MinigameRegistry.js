@@ -41,6 +41,7 @@ export const MG_TYPES = [
     'minecart',
     'turfwar',
     'lilypad',
+    'rooftop',
 ];
 
 export const MG_INFO = {
@@ -74,6 +75,7 @@ export const MG_INFO = {
     minecart:    { icon: '⛏️', title: 'MINE CART MAYHEM', desc: 'Lay the phone flat between you. Your character rides a mine cart that never stops rolling. TAP to throw the switch at the junction you are heading for — your colour on the floor shows which way you will go. The switches are SHARED: flip one and it is flipped for your rival too. Grab gems (blue ones are worth 3), and steer clear of TNT — hit it and you stop and spill 2 gems. Meet head-on and you both bounce back. Most gems in 40 seconds wins!' },
     turfwar:     { icon: '🎨', title: 'TURF WAR', desc: 'Lay the phone flat between you. Your character pushes a paint roller round the paint works yard — DRAG on your half to run, and every tile you roll over turns your colour, including theirs. Their wet paint slows you down. Grab a paint bomb for a big splat. Most of the yard in your colour when the whistle blows wins!' },
     lilypad:     { icon: '🐸', title: 'LILY PAD LEAP', desc: 'Lay the phone flat between you. You are both on lily pads in the Fae Glade pond, and every pad SINKS under you — faster with two on it. DRAG to aim at a pad (it lights up in your colour) and LET GO to hop. Land on the pad your rival is on to STOMP them off it — into the water if there is nowhere else. Sunk pads come back up after a while. Last one dry takes the round; first to 2 wins!' },
+    rooftop:     { icon: '🌃', title: 'ROOFTOP RUN', desc: 'Turn the phone sideways and sit side by side. You are both racing across the Back Alley rooftops at night — you run on your own. Tap the TOP of your half to JUMP the gaps and the vents (hold it for a higher jump); tap the BOTTOM to SLIDE under the low neon signs. Slide into the runner in front and you trip them up! Miss a gap and you drop to the street and lose time. First to the finish banner wins the race; first to 2 races wins!' },
 };
 
 // ============================================================
@@ -201,6 +203,7 @@ export const MG_NET = {
     minecart:    'local',      // one set of switches, flipped for both
     turfwar:     'local',
     lilypad:     'local',
+    rooftop:     'local',
 };
 
 // The parallel games whose SCORE is also a coin haul.
@@ -294,6 +297,7 @@ export const MG_SHAPE = {
     minecart:    'arena',   // one track, one set of switches
     turfwar:     'arena',
     lilypad:     'arena',
+    rooftop:     'arena',
 };
 
 // Modifiers laid over a shape: the seats do not have the same job (ASYM), or
@@ -340,6 +344,7 @@ export const MG_ORIENTATION_MAP = {
     minecart:    'faceoff',
     turfwar:     'faceoff',
     lilypad:     'faceoff',
+    rooftop:     'sideon',
 };
 
 export const FALLBACK_TRIVIA = [
@@ -518,6 +523,7 @@ export const MG_PROFILE = {
     oddoneout:   { genre: 'brain',    control: 'tap',   wire: 'none',     seats: [2, 4], live: true, roomy: true },
     turfwar:     { genre: 'push',     control: 'thumb', wire: 'snapshot', seats: [2, 4], live: false },
     lilypad:     { genre: 'push',     control: 'thumb', wire: 'events',   seats: [2, 4], live: false },
+    rooftop:     { genre: 'race',     control: 'tap',   wire: 'events',   seats: [2, 2], live: false },
 };
 
 // The order the wire tiers come in, cheapest first. Used by the READINESS sort:
