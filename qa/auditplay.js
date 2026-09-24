@@ -175,6 +175,8 @@ const MAX = +maxSecS, FRESH = freshS === '1';
     const vis = sel => page.evaluate(sel => {
         const el = document.querySelector(sel);
         if (!el) return null;
+        // A person scrolls to a button they can see the sheet has; so do we.
+        { const r0 = el.getBoundingClientRect(); if (r0.width > 1 && (r0.bottom > innerHeight || r0.top < 0)) { el.scrollIntoView({ block: 'center' }); window.__scrolledFor = (window.__scrolledFor || []).concat(sel); } }
         const cs = getComputedStyle(el);
         const r = el.getBoundingClientRect();
         if (cs.display === 'none' || cs.visibility === 'hidden' || +cs.opacity < 0.1 || r.width < 2 || r.height < 2) return null;
