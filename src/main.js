@@ -5,7 +5,11 @@ import * as MinigameManager from './minigames/MinigameManager.js';
 import * as Settings from './core/Settings.js';
 import * as Onboarding from './ui/Onboarding.js';
 import * as PauseMenu from './ui/PauseMenu.js';
+import * as MatchSave from './core/MatchSave.js';
+import * as CrashReport from './core/CrashReport.js';
 import * as Storage from './core/Storage.js';
+import * as Audio from './engine/AudioManager.js';
+import { state as gameState } from './core/GameState.js';
 import * as Commands from './core/Commands.js';
 import { MG_INFO, MG_TYPES, MG_GENRES, MG_WIRE_ORDER,
          profileOf, surfacesOf, blockedReason } from './config/MinigameRegistry.js';
@@ -17,17 +21,21 @@ import * as Session from './net/NetSession.js';
 window.addEventListener('error', e => {
     console.error('[HundredBlockDash] Uncaught error:', e.message, e.filename, e.lineno);
 });
+CrashReport.init();
 window.addEventListener('unhandledrejection', e => {
     console.error('[HundredBlockDash] Unhandled promise rejection:', e.reason);
 });
 
 // Wire all managers with the controller reference
 Settings.init();          // load + apply audio/motion prefs before anything plays
+// Music: the menu theme until a match starts; silent while a minigame plays.
+Audio.setMusicGate(() => !gameState.mgActive);
+Audio.setMusicMood('menu');
 UIManager.init(GameController);
 ModalManager.init(GameController);
 MinigameManager.init(GameController);
 Onboarding.init();
-PauseMenu.init({ onQuit: () => GameController.mainMenu() });
+PauseMenu.init({ onQuit: () => GameController.quitMatch() });
 Onboarding.refreshSplashStats();
 
 // ============================================================
@@ -140,6 +148,16 @@ document.querySelectorAll('[data-diff]').forEach(btn => {
 });
 
 document.getElementById('btn-next').addEventListener('click', () => GameController.goToCharSelect());
+// RESUME MATCH, when a local match was left unfinished (RELEASE_AUDIT RA-04).
+{
+    const btn = document.getElementById('btn-resume');
+    const intent = Storage.load('intent', null);
+    if (btn && MatchSave.has() && intent !== 'rematch') {
+        document.getElementById('resume-sub').textContent = MatchSave.describe();
+        btn.style.display = '';
+    }
+    btn?.addEventListener('click', () => { btn.disabled = true; GameController.resumeMatch(); });
+}
 
 // ============================================================
 // CHARACTER SELECT

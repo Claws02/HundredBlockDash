@@ -1,0 +1,29 @@
+{
+  "name": "hundred-block-dash",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Hundred Block Dash — a party board game for 1–4 players.",
+  "scripts": {
+    "build:web": "node scripts/build-web.js",
+    "check": "bash qa/parsecheck.sh src",
+    "smoke": "node qa/ci-smoke.js",
+    "art": "node scripts/render-store-art.js",
+    "cap:assets": "npx @capacitor/assets generate --iconBackgroundColor '#1a0b2e' --splashBackgroundColor '#1a0b2e'",
+    "cap:sync": "npm run build:web && npx cap sync",
+    "android": "npm run cap:sync && npx cap open android",
+    "ios": "npm run cap:sync && npx cap open ios"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/app": "^8.1.1",
+    "@capacitor/core": "^8.5.2",
+    "@capacitor/haptics": "^8.0.2",
+    "@capacitor/ios": "^8.5.2",
+    "@capacitor/splash-screen": "^8.0.2",
+    "@capacitor/status-bar": "^8.0.3"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^8.5.2"
+  }
+}

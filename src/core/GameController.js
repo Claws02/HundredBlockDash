@@ -26,7 +26,7 @@ import { earnCoins, loseCoins } from './Economy.js';
 import * as Storage from './Storage.js';
 import * as Director from './Director.js';
 import { SCENE, BOT_THINK } from '../config/SceneTiming.js';
-import { sfx, haptic } from '../engine/AudioManager.js';
+import { sfx, haptic, setMusicMood } from '../engine/AudioManager.js';
 import * as Renderer from '../engine/Renderer.js';
 import * as SetPieces from '../engine/SetPieces.js';
 import * as Fx from '../engine/Fx.js';
@@ -37,6 +37,7 @@ import * as MinigameManager from '../minigames/MinigameManager.js';
 import * as MinigameLayout from '../config/MinigameLayout.js';
 import * as ActiveMap from '../config/ActiveMap.js';
 import * as PauseMenu from '../ui/PauseMenu.js';
+import * as MatchSave from './MatchSave.js';
 
 // "1 coins" was on screen in every match (RELEASE_AUDIT UX-07).
 const _coins = n => `${n} coin${n === 1 ? '' : 's'}`;
@@ -381,7 +382,7 @@ function _measureShareDevice() {
         MinigameLayout.SHAPES.SPLIT, seats, w, h).ok ? 'tablet' : 'phone';
 }
 
-export function startGame() {
+export function startGame(resume = null) {
     if (state.gameStarted) return;
     _measureShareDevice();
     Director.reset();          // no beat from a previous match may fire into this one
@@ -389,6 +390,15 @@ export function startGame() {
     _pendingStepsAfterGate = 0;
     _buddyRemindedRound = -1;
     _finalRoundAnnounced = false;
+    if (resume) {
+        const m = resume.extra || {};
+        _gateFromTurnStart    = !!m.gateFromTurnStart;
+        _pendingStepsAfterGate = m.pendingStepsAfterGate || 0;
+        _buddyRemindedRound   = m.buddyRemindedRound ?? -1;
+        _finalRoundAnnounced  = !!m.finalRoundAnnounced;
+    } else {
+        MatchSave.clear();     // a new match: the old save is no longer the game in hand
+    }
     state.gameStarted = true;
     window.CITY_GRAPH_REF = ActiveMap.graph();   // the QA harness boots off this
     _savePrefs();
@@ -397,18 +407,26 @@ export function startGame() {
     document.getElementById('char-select').style.display  = 'none';
     document.getElementById('map-select').style.display   = 'none';
     document.getElementById('game-container').style.display = 'block';
+    document.body.classList.add('board-on');
+    setMusicMood('board');   // the rotate-upright card only applies from here
     setTimeout(() => {
         if (!state.gameStarted) return;
         UIManager.setPlayerNames();
-        state.activePlayer = Math.floor(Math.random() * playerCount());
-        resetPlayers();
         UIManager.resetTurnAnnouncer();   // a new match announces its first turn
         UIManager.resetForkPrimer();      // ...and explains its first fork
-        if (ActiveMap.isLinear()) {
+        if (resume) {
+            // Everything is already in `state`; only the linear board's realm
+            // count lives outside it.
+            if (ActiveMap.isLinear() && state.hbd) setHbdRealmCount(state.hbd.realmCount);
+        } else if (ActiveMap.isLinear()) {
+            state.activePlayer = Math.floor(Math.random() * playerCount());
+            resetPlayers();
             state.hbd = buildHbdConfig(state.hbdLength);
             setHbdRealmCount(state.hbd.realmCount);
             generateBoard();
         } else {
+            state.activePlayer = Math.floor(Math.random() * playerCount());
+            resetPlayers();
             initCityBoard();
             // One Star is live from the first frame. Placing it here rather than
             // on the first turn means the briefing, the map view and the HUD all
@@ -419,6 +437,22 @@ export function startGame() {
         Renderer.init(document.getElementById('game-container'));
         UIManager.initCoinDisplays();
         UIManager.updateUI();
+        if (resume) {
+            // Straight back to the turn that was about to start: no flyover, no
+            // briefing, no fresh buddy or bounties — they are all in the save.
+            document.getElementById('ui-layer').style.display = 'block';
+            // The 3D figures that are not in the save: buddies walking with
+            // their players, and a buddy waiting on the board.
+            state.players.forEach(p => (p.allies || []).forEach((a, i) => { a.mesh = Renderer.attachAllyMesh(p, i, a.type); }));
+            if (state.allyOnMap) Renderer.placeAllyMarker(state.allyOnMap.nodeId, state.allyOnMap.allyType);
+            state.gameState = 'INIT';
+            state.cameraState = 'FOLLOW';
+            Renderer.snapCameraToActive();
+            PauseMenu.armBackButton();
+            UIManager.toast(`Welcome back — ${state.players[state.activePlayer].name} to play.`, PLAYER_SLOTS[state.activePlayer].hex);
+            Director.wait(600, proceedTurn);
+            return;
+        }
         // A tap anywhere during the opening flyover jumps to its end. It was
         // 9 s you could not get out of, every match (RELEASE_AUDIT UX-02).
         const skipFly = () => Renderer.skipFlyover();
@@ -604,6 +638,7 @@ export function startPreRoll() {
 }
 
 export function executeRoll(flickVelocity) {
+    if (!state.players[state.activePlayer]?.isBot) UIManager.noteHumanRoll();
     const p = state.players[state.activePlayer];
     state.gameState = 'ROLLING';
     UIManager.hideSwipeZone();
@@ -1906,7 +1941,18 @@ export function buddyReport() {
     };
 }
 
+// What the controller itself remembers between turns, beyond `state`. Saved
+// with the match so a resumed game announces, gates and reminds exactly as the
+// uninterrupted one would have.
+function _turnMemory() {
+    return { gateFromTurnStart: _gateFromTurnStart, pendingStepsAfterGate: _pendingStepsAfterGate,
+             finalRoundAnnounced: _finalRoundAnnounced, buddyRemindedRound: _buddyRemindedRound };
+}
+
 export function proceedTurn() {
+    // The top of a turn is the one moment the whole match is plain data: save it
+    // here, so closing the app loses at most the turn in progress (RA-04).
+    if (!state.netReplica) MatchSave.save(_turnMemory());
     UIManager.hideActionRows();
     UIManager.applyOrientation();
     const p = state.players[state.activePlayer];
@@ -3007,8 +3053,39 @@ export function confirmDuelBet(betAmount) {
 
 // Win-screen actions. Rematch flags an intent the next page-load honours
 // (main.js → quickStart); both reload to guarantee a clean engine reset.
-export function rematch()  { Storage.save('intent', 'rematch'); window.location.reload(); }
-export function mainMenu() { Storage.remove('intent'); window.location.reload(); }
+// A reload flashed white and read as a crash-and-restart inside an app wrapper
+// (RELEASE_AUDIT G-05). The engine reset still goes through a reload — it is
+// the one reset guaranteed clean — but behind a fade, so it reads as a cut.
+function _fadeThenReload() {
+    const f = document.createElement('div');
+    f.style.cssText = 'position:fixed;inset:0;z-index:200000;background:#0b0918;opacity:0;transition:opacity .22s ease;pointer-events:all;';
+    document.body.appendChild(f);
+    requestAnimationFrame(() => { f.style.opacity = '1'; });
+    setTimeout(() => window.location.reload(), 240);
+}
+export function rematch()  { Storage.save('intent', 'rematch'); _fadeThenReload(); }
+export function mainMenu() { Storage.remove('intent'); _fadeThenReload(); }
+/** LEAVE from the pause menu: the match is abandoned, not kept for later. */
+export function quitMatch() { MatchSave.clear(); mainMenu(); }
+
+/** Pick up the saved match from the splash. False if there is none. */
+export function resumeMatch() {
+    const snap = MatchSave.load();
+    if (!snap) return false;
+    const s = snap.state;
+    // Seats first, so the table is the right size before anything reads it.
+    setPlayerCount(s.players.length);
+    Object.keys(s).forEach(k => {
+        if (k === 'players' || k === 'gameStarted') return;
+        state[k] = s[k];
+    });
+    state.players.forEach((p, i) => { Object.assign(p, s.players[i]); p.mesh = null; });
+    state.gameStarted = false;
+    state.mgActive = false;
+    document.getElementById('splash').style.display = 'none';
+    startGame(snap);
+    return true;
+}
 
 // ============================================================
 // MAP

@@ -30,6 +30,8 @@ import * as Scenes from '../ui/Scenes.js';
 import { state } from '../core/GameState.js';
 
 const _seat = id => state.players[id];
+// The token the effect is about reacts too, when the effect names a seat.
+const _react = (a, kind) => { if (typeof a.seat === 'number') Renderer.tokenReact(_seat(a.seat), kind); };
 
 /**
  * Where an effect happens.
@@ -53,8 +55,8 @@ function _pos(a) {
 // Every effect, and how to play one from its data. Anything not in here is not
 // mirrored — the same safe default as SCENE_TIER.
 const FX = {
-    coinPop:      (a, done) => { SetPieces.coinPop(_pos(a), !!a.big); done && done(); },
-    finePop:      (a, done) => { SetPieces.finePop(_pos(a), !!a.big, a.lost !== false); done && done(); },
+    coinPop:      (a, done) => { SetPieces.coinPop(_pos(a), !!a.big); _react(a, 'cheer'); done && done(); },
+    finePop:      (a, done) => { SetPieces.finePop(_pos(a), !!a.big, a.lost !== false); if (a.lost !== false) _react(a, 'flinch'); done && done(); },
     trucePop:     (a, done) => { SetPieces.trucePop(Renderer.getPos(a.a), Renderer.getPos(a.b)); done && done(); },
     shopGlow:     (a, done) => { SetPieces.shopGlow(_pos(a)); done && done(); },
     mysteryUnbox: (a, done) => SetPieces.mysteryUnbox(_pos(a), done || (() => {})),

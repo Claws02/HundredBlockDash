@@ -6,11 +6,12 @@
 // ============================================================
 
 import { state } from './GameState.js';
+import * as MatchSave from './MatchSave.js';
 import { DISTRICT_DOMINANCE_BONUS, HQ_META, HBD_FINISH_BONUS, PLAYER_SLOTS } from '../config/GameConfig.js';
 import { earnCoins } from './Economy.js';
 import * as Stats from './Stats.js';
 import * as ModalManager from '../ui/ModalManager.js';
-import { sfx } from '../engine/AudioManager.js';
+import { sfx, setMusicMood } from '../engine/AudioManager.js';
 import * as ActiveMap from '../config/ActiveMap.js';
 import * as Scenes from '../ui/Scenes.js';
 
@@ -202,8 +203,9 @@ export function calculateWinner(applyBonuses = true) {
         el.style.cssText = `left:${Math.random()*100}%;top:-10px;background:${colors[Math.floor(Math.random()*colors.length)]};width:${6+Math.random()*8}px;height:${6+Math.random()*8}px;animation-duration:${2+Math.random()*2}s;animation-delay:${Math.random()*1.5}s;`;
         confettiEl.appendChild(el);
     }
+    MatchSave.clear();   // the match is over; there is nothing to come back to
     document.getElementById('win-screen').style.display = 'flex';
-    sfx('win');
+    (setMusicMood('menu'), sfx('win'));
 }
 
 // ---- The race, turn by turn ----------------------------------------------

@@ -111,7 +111,7 @@ function _buildRules() {
         <div class="ob-panel ob-panel-wide">
             <div class="ob-head">
                 <div class="ob-head-title bfont">📖 RULES & REFERENCE</div>
-                <button class="ob-x" id="rules-close">✕</button>
+                <button class="ob-x" id="rules-close" aria-label="Close rules">✕</button>
             </div>
             <div class="ob-scroll">
                 <div class="ob-section bfont">🟦 SPACES</div>${spaceRows}
@@ -135,7 +135,7 @@ function _buildSettings() {
         <div class="ob-panel">
             <div class="ob-head">
                 <div class="ob-head-title bfont">⚙️ SETTINGS</div>
-                <button class="ob-x" id="settings-close">✕</button>
+                <button class="ob-x" id="settings-close" aria-label="Close settings">✕</button>
             </div>
             <div class="ob-scroll">
                 <label class="set-row">
@@ -154,7 +154,24 @@ function _buildSettings() {
                     <span>🌀 Reduce motion</span>
                     <input type="checkbox" class="set-toggle" id="set-motion">
                 </label>
+                <div class="set-row set-row-stack">
+                    <span id="set-ts-label">🔠 Text size</span>
+                    <div class="set-seg" role="radiogroup" aria-labelledby="set-ts-label">
+                        <button class="set-seg-btn" data-ts="1" role="radio">100%</button>
+                        <button class="set-seg-btn" data-ts="1.15" role="radio">115%</button>
+                        <button class="set-seg-btn" data-ts="1.3" role="radio">130%</button>
+                    </div>
+                </div>
+                <label class="set-row">
+                    <span>🔋 Battery saver <small class="set-note">no shadows, lower resolution</small></span>
+                    <input type="checkbox" class="set-toggle" id="set-battery">
+                </label>
+                <label class="set-row">
+                    <span>🎵 Music</span>
+                    <input type="range" min="0" max="100" class="set-range" id="set-music" aria-label="Music volume">
+                </label>
                 <button class="ob-btn ob-btn-ghost set-wide" id="set-howto">❓ How to play</button>
+                <a class="ob-btn ob-btn-ghost set-wide set-link" id="set-privacy" href="privacy.html" target="_blank" rel="noopener">🔒 Privacy policy</a>
                 <button class="ob-btn ob-btn-ghost set-wide" id="set-reset">🗑️ Reset stats</button>
             </div>
         </div>`;
@@ -169,6 +186,12 @@ function _buildSettings() {
     volume.addEventListener('change',   () => sfx('coin_gain'));
     haptics.addEventListener('change',  () => { Settings.set('haptics', haptics.checked); if (haptics.checked) sfx('countdown'); });
     motion.addEventListener('change',   () => Settings.set('reduceMotion', motion.checked));
+    document.querySelectorAll('.set-seg-btn[data-ts]').forEach(btn => btn.addEventListener('click', () => {
+        Settings.set('textScale', +btn.dataset.ts); _syncSettingsUI(); sfx('countdown');
+    }));
+    document.getElementById('set-battery').addEventListener('change', e => Settings.set('batterySaver', e.target.checked));
+    const music = document.getElementById('set-music');
+    music.addEventListener('input', () => Settings.set('music', music.value / 100));
     document.getElementById('set-howto').addEventListener('click', () => { closeSettings(); openHowToPlay(); });
     document.getElementById('set-reset').addEventListener('click', e => {
         Stats.reset();
@@ -184,6 +207,12 @@ function _syncSettingsUI() {
     document.getElementById('set-volume').value    = Math.round(s.volume * 100);
     document.getElementById('set-haptics').checked = s.haptics;
     document.getElementById('set-motion').checked  = s.reduceMotion;
+    document.getElementById('set-battery').checked = !!s.batterySaver;
+    document.getElementById('set-music').value     = Math.round((s.music ?? 0.5) * 100);
+    document.querySelectorAll('.set-seg-btn[data-ts]').forEach(b => {
+        const on = Math.abs(+b.dataset.ts - (+s.textScale || 1)) < 0.01;
+        b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on));
+    });
 }
 
 export function openSettings()  { _syncSettingsUI(); document.getElementById('settings-overlay').style.display = 'flex'; }

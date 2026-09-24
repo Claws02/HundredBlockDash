@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Static sweep (module parse, dead refs, command bus, scene routing)
+        run: bash qa/parsecheck.sh src
+      - name: Web build for Capacitor
+        run: node scripts/build-web.js
+      - name: Install Playwright Chromium
+        run: npm install --no-save playwright@1.56 && npx playwright install --with-deps chromium
+      - name: Smoke (boot, fonts, first roll)
+        run: |
+          npx --yes http-server -p 8129 -s -c-1 . &
+          npx --yes wait-on -t 30000 http://127.0.0.1:8129/index.html
+          node qa/ci-smoke.js

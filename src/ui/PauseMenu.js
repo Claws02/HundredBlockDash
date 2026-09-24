@@ -84,6 +84,22 @@ export function init({ onQuit }) {
         if (_open) close(); else open();
         _guardHistory();
     });
+    _wireNative();
+}
+
+// In the Capacitor build: Android's hardware Back and the OS telling us the app
+// went to the background come from the App plugin, not the web page — without
+// these, Back closed the app mid-match. Absent on the web; nothing happens.
+function _wireNative() {
+    const App = window.Capacitor?.Plugins?.App;
+    if (!App || !App.addListener) return;
+    App.addListener('backButton', () => {
+        if (_open) { close(); return; }
+        if (_inMatch()) { open(); return; }
+        // Anywhere else — the menus — Back leaves, as Android users expect.
+        try { App.exitApp(); } catch (e) {}
+    });
+    App.addListener('appStateChange', ({ isActive }) => { if (!isActive) open({ quiet: true }); });
 }
 
 // Call when a match begins, so Back has something to pop.

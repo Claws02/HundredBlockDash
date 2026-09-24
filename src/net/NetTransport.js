@@ -19,6 +19,8 @@
 // connection is up, no game data touches a relay: it goes phone to phone,
 // encrypted. So a flaky relay costs you a JOIN, never a match in progress.
 
+import { RELEASE } from '../config/Release.js';
+
 const APP_ID = 'hundred-block-dash';
 
 // Strategy bundles, loaded on demand — the online path should cost an offline
@@ -118,6 +120,14 @@ export async function connect(code, opts = {}) {
     if (!isValidCode(roomId)) throw new Error(`bad room code: ${code}`);
 
     const forced = opts.strategy || forcedStrategy();
+    // A TURN relay, when the release config names one, for the networks that
+    // cannot hole-punch phone-to-phone. Public STUN stays first in the list.
+    if (!opts.rtcConfig && RELEASE.turnServers && RELEASE.turnServers.length) {
+        opts = { ...opts, rtcConfig: { iceServers: [
+            { urls: ['stun:stun.l.google.com:19302', 'stun:global.stun.twilio.com:3478'] },
+            ...RELEASE.turnServers,
+        ] } };
+    }
     const order = forced ? [forced] : STRATEGY_ORDER;
     let lastErr = null;
 

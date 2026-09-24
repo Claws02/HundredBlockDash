@@ -796,7 +796,7 @@ export function init(container) {
 
     const W = Math.max(window.innerWidth  || 300, 300);
     const H = Math.max(window.innerHeight || 500, 500);
-    camera = new THREE.PerspectiveCamera(50, W / H, 0.1, 1000);
+    camera = new THREE.PerspectiveCamera(_fovFor(W / H), W / H, 0.1, 1000);
     camera.position.set(0, isHBD ? 30 : 50, isHBD ? 40 : 60);
     camera.lookAt(0, 0, 0);
 
@@ -854,6 +854,8 @@ export function init(container) {
     if (isHBD) _buildHBDScene();
     buildPlayerMeshes();
     _pruneShadowCasters(scene);
+    if (_cityEnvGroup && !/[?&]noopt\b/.test(location.search)) _lastOptimise = _optimiseStatic(_cityEnvGroup);
+    Settings.onChange(_applyBatterySaver);
 
     clock = new THREE.Clock();
     startLoop();
@@ -1995,6 +1997,25 @@ export function playSwapCinematic(playerA, playerB, onDone) {
     // Standing on the same tile: there is nothing to watch, so don't.
     if (aStart.distanceTo(bStart) < 0.8) { done(); return; }
 
+    // Reduce Motion: no saucer and no travelling camera. Both tokens fade out
+    // where they stand, trade places and fade back in, with the camera still
+    // (RELEASE_AUDIT A-01).
+    if (_reduceMotion()) {
+        const ms = [playerA.mesh, playerB.mesh];
+        const grow = (v) => ms.forEach(m => m.scale.setScalar(Math.max(0.02, v)));
+        sfx('swap');
+        activeAnims.push({ obj: { v: 0 }, start: { v: 0 }, to: { v: 1 }, dur: 0.3,
+            onUpdate: (pr) => grow(1 - pr),
+            onComplete: () => {
+                playerA.mesh.position.set(bStart.x, 0, bStart.z);
+                playerB.mesh.position.set(aStart.x, 0, aStart.z);
+                activeAnims.push({ obj: { v: 0 }, start: { v: 0 }, to: { v: 1 }, dur: 0.3,
+                    onUpdate: (pr) => grow(pr),
+                    onComplete: () => { grow(1); endSwapCinematic(); done(); } });
+            } });
+        return;
+    }
+
     const HOVER = 9;
     const ufo = _swapUfo || (_swapUfo = _buildUfo());
     if (!ufo.parent) scene.add(ufo);
@@ -2194,7 +2215,8 @@ export function endCinematic() {
 // Total run time, so the caller can size its beat from the animation rather
 // than guessing a number that then drifts out of sync with it.
 export function swapCinematicMs() {
-    return Math.round((SWAP.DESCEND + SWAP.BEAM * 2 + SWAP.TRAVEL * 2 + SWAP.DROP * 2 + SWAP.LIFT) * 1000 * (_reduceMotion() ? 0.3 : 1));
+    if (_reduceMotion()) return 600;          // the cross-fade: 0.3 s out, 0.3 s in
+    return Math.round((SWAP.DESCEND + SWAP.BEAM * 2 + SWAP.TRAVEL * 2 + SWAP.DROP * 2 + SWAP.LIFT) * 1000);
 }
 
 // ---- Flyover (game start) ----
@@ -2306,6 +2328,8 @@ const CAM = {
 // change of turn across the board exceeds this.
 const CAM_CUT = 40;
 let _camTransit = null;   // { t, dur, lift, fromPos, fromQuat } while crossing the city
+const _tmpNdc = new THREE.Vector3();
+let _offFrameT = 0;       // how long the active token has been out of the middle of the frame
 
 // The camera's own heading, smoothed. This is the single biggest cause of the
 // touchiness: the old code recomputed the heading every frame as
@@ -2474,6 +2498,26 @@ export function clampMapTarget() {
     mapCam.targetPos.x  -= ox; mapCam.targetPos.z  -= oz;
 }
 
+// The whole circuit from above, fitted to the screen (RELEASE_AUDIT C-05). The
+// map used to open as a low shot near the player under a half-screen sheet, so
+// "scout the map" never showed where the roads go. Nearly straight down, north
+// up; `sheetFrac` is how much of the bottom of the screen the map sheet covers,
+// so the board is fitted into the part left visible.
+export function setMapOverview(sheetFrac = 0.28) {
+    _measureBoardExtent();
+    const { cx, cz, r } = _panBounds;
+    const R = Math.max(10, r - 20);
+    const vHalf = (camera.fov * Math.PI / 180) / 2;
+    const tV = Math.tan(vHalf) * (1 - sheetFrac), tH = Math.tan(vHalf) * camera.aspect;
+    const h = (R / Math.min(tV, tH)) * 1.06;
+    // Shift the aim down the screen so the board sits in the visible top part.
+    const lookZ = cz + Math.tan(vHalf) * h * sheetFrac * 0.9;
+    mapCam.targetPos.set(cx, h, lookZ + h * 0.08);
+    mapCam.targetLook.set(cx, 0, lookZ);
+    mapCam.dragCamStart.copy(mapCam.targetPos);
+    mapCam.dragLookStart.copy(mapCam.targetLook);
+}
+
 export function setMapCameraTarget(nodeId, offsetY = 50, offsetZ = 30) {
     // getPos() already resolves both address spaces: a string is a City node id,
     // a number is a Hundred Block Dash board index. The old numeric branch went
@@ -2523,8 +2567,18 @@ export function onResize() {
     if (!camera || !renderer) return;
     const W = Math.max(window.innerWidth || 300, 300);
     const H = Math.max(window.innerHeight || 500, 500);
-    camera.aspect = W / H; camera.updateProjectionMatrix();
+    camera.aspect = W / H; camera.fov = _fovFor(W / H); camera.updateProjectionMatrix();
     renderer.setSize(W, H);
+}
+
+// A fixed 50° VERTICAL field of view left a tall phone about 24° wide — a
+// narrow slice in which a junction's side road fell off screen — and a
+// landscape phone about 90° (RELEASE_AUDIT CAM-02). Keep at least 30° across,
+// and never more than 62° up and down.
+function _fovFor(aspect) {
+    const minH = 30 * Math.PI / 180;
+    const v = 2 * Math.atan(Math.tan(minH / 2) / Math.max(0.1, aspect)) * 180 / Math.PI;
+    return Math.min(62, Math.max(50, v));
 }
 
 // ---- Main render loop ----
@@ -2681,6 +2735,7 @@ function _loop() {
         });
     }
 
+    _tickReactions(dt, time);
     _cameraWatchdog(dt);
 
     const cs = state.cameraState;
@@ -2729,6 +2784,18 @@ function _loop() {
                 _camHelper.position.copy(camera.position);
                 _camHelper.lookAt(look);
                 camera.quaternion.slerp(_camHelper.quaternion, _damp(0.09, dt));
+                // The token must be in the shot. A landing once framed a bare
+                // ground plane and a tower with nobody in it (RELEASE_AUDIT
+                // C-06): if the active token has been outside the middle of the
+                // frame for a moment, fetch it with a short transit.
+                _tmpNdc.copy(p.mesh.position).project(camera);
+                const outside = Math.abs(_tmpNdc.x) > 0.8 || _tmpNdc.y < -0.8 || _tmpNdc.y > 0.8 || _tmpNdc.z > 1;
+                _offFrameT = outside ? _offFrameT + dt : 0;
+                if (_offFrameT > 0.35 && dt > 0) {
+                    _offFrameT = 0;
+                    _camTransit = { t: 0, dur: _reduceMotion() ? 0.2 : 0.45, lift: 0,
+                                    fromPos: camera.position.clone(), fromQuat: camera.quaternion.clone() };
+                }
             }
         }
     } else if (cs === 'MAP') {
@@ -2752,6 +2819,182 @@ function _loop() {
     }
 
     if (renderer && scene && camera) renderer.render(scene, camera);
+}
+
+// ============================================================
+// STATIC SCENERY — fewer draw calls (RELEASE_AUDIT RA-03)
+// ============================================================
+//
+// The city was 2,189 separate meshes and 1,277 materials: every lamp, bollard,
+// crate and window its own draw call, and most props building a fresh material
+// of a colour a hundred other props already had. On a phone WebView that is
+// ~3,000 calls a frame once shadows are counted. This runs once, after the city
+// is built:
+//
+//   1. identical materials (same type, colours, surface, map) become one;
+//   2. meshes that now share a material, in the same 48-unit cell of the city,
+//      become one merged mesh — so the renderer still culls by neighbourhood.
+//
+// Left alone, because they have to stay separate objects: anything that moves
+// (_cityLive puffs, bars, fans, parts; floatingIcons), anything transparent, and
+// any building that fades when it hides the token (_canOcclude) — those are
+// merged only inside themselves, keeping their own faded materials.
+let _lastOptimise = null;
+const OPT_CELL = 48;   // world units per merge cell: big enough to batch a block, small enough to cull by street
+export function getOptimiseStats() { return _lastOptimise; }
+/** QA: draw calls and triangles for one render from a fixed viewpoint, so two
+ *  builds can be compared on the same view. Does not touch the game camera. */
+export function qaRenderFrom(pos, look) {
+    if (!renderer || !scene || !camera) return null;
+    const cam = camera.clone();
+    cam.position.set(pos[0], pos[1], pos[2]); cam.lookAt(look[0], look[1], look[2]);
+    cam.updateMatrixWorld(true);
+    renderer.render(scene, cam);
+    return { calls: renderer.info.render.calls, triangles: renderer.info.render.triangles };
+}
+/** Last frame's draw calls and triangles, for QA and the diagnostics log. */
+export function getRenderInfo() { return renderer ? { calls: renderer.info.render.calls, triangles: renderer.info.render.triangles, geometries: renderer.info.memory.geometries, shadows: renderer.shadowMap.enabled, pixelRatio: renderer.getPixelRatio() } : null; }
+
+function _optimiseStatic(root) {
+    const CELL = +(new URLSearchParams(location.search).get('optcell')) || OPT_CELL;
+    const before = { meshes: 0, materials: new Set() };
+    root.traverse(o => { if (o.isMesh) { before.meshes++; before.materials.add(o.material); } });
+
+    // Everything that animates as an object.
+    // Entries hold objects directly, in arrays, or in small wrappers ({m, base,
+    // phase} for motes), so walk a couple of levels. Whatever moves, and the
+    // material of whatever moves, is left exactly as built.
+    const moving = new Set();
+    // Materials something animates: never swapped for a lookalike.
+    const liveMats = new Set();
+    const addMat = m => { if (m && m.isMaterial) liveMats.add(m); else if (Array.isArray(m)) m.forEach(addMat); };
+    const walk = (v, depth) => {
+        if (!v || typeof v !== 'object' || depth > 3) return;
+        if (v.isObject3D) { moving.add(v); addMat(v.material); return; }
+        if (v.isMaterial) { liveMats.add(v); return; }
+        if (Array.isArray(v)) { v.forEach(x => walk(x, depth + 1)); return; }
+        if (Object.getPrototypeOf(v) === Object.prototype) Object.values(v).forEach(x => walk(x, depth + 1));
+    };
+    _cityLive.forEach(e => walk(e, 0));
+    floatingIcons.forEach(f => walk(f, 0));
+
+    const isMoving = o => { for (let q = o; q && q !== root; q = q.parent) if (moving.has(q)) return true; return false; };
+    const occluderOf = o => { for (let q = o.parent; q && q !== root; q = q.parent) if (q.userData && q.userData.occludes) return q; return null; };
+
+    // 1. One material per look (outside occluders, which own their clones).
+    const canon = new Map();
+    const keyOf = m => [m.type, m.color && m.color.getHex(), m.emissive && m.emissive.getHex(), m.emissiveIntensity,
+        m.roughness, m.metalness, m.opacity, m.transparent, m.side, m.map && m.map.uuid, m.flatShading, m.vertexColors,
+        m.depthWrite, m.alphaTest, m.clearcoat, m.transmission].join('|');
+    root.traverse(o => {
+        if (!o.isMesh || Array.isArray(o.material) || liveMats.has(o.material) || isMoving(o) || occluderOf(o)) return;
+        const k = keyOf(o.material);
+        const c = canon.get(k);
+        if (!c) canon.set(k, o.material);
+        else if (c !== o.material) o.material = c;
+    });
+
+    // 2. Merge by material and cell, within `root` and within each occluder.
+    root.updateMatrixWorld(true);
+    const scopes = new Map();   // scope object → Map(key → [meshes])
+    root.traverse(o => {
+        if (!o.isMesh || o.isInstancedMesh || o.isSkinnedMesh || Array.isArray(o.material)) return;
+        if (isMoving(o) || o.material.transparent || !o.geometry || !o.geometry.isBufferGeometry) return;
+        if (!o.geometry.attributes.position) return;
+        const scope = occluderOf(o) || root;
+        const wp = o.getWorldPosition(new THREE.Vector3());
+        const cell = scope === root ? `${Math.floor(wp.x / CELL)},${Math.floor(wp.z / CELL)}` : '';
+        const key = `${o.material.uuid}|${o.castShadow ? 1 : 0}${o.receiveShadow ? 1 : 0}|${cell}`;
+        if (!scopes.has(scope)) scopes.set(scope, new Map());
+        const m = scopes.get(scope);
+        if (!m.has(key)) m.set(key, []);
+        m.get(key).push(o);
+    });
+    let merged = 0, removed = 0;
+    const inv = new THREE.Matrix4(), mtx = new THREE.Matrix4(), nmat = new THREE.Matrix3();
+    scopes.forEach((groups, scope) => {
+        scope.updateMatrixWorld(true);
+        inv.copy(scope.matrixWorld).invert();
+        groups.forEach(list => {
+            if (list.length < 2) return;
+            const mat = list[0].material;
+            const needUv = !!(mat.map || mat.normalMap || mat.emissiveMap || mat.roughnessMap);
+            const needCol = !!mat.vertexColors;
+            const parts = [];
+            for (const o of list) {
+                let g = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
+                if (!g.attributes.normal) g.computeVertexNormals();
+                if (needUv && !g.attributes.uv) { g.dispose(); return; }        // cannot merge this group safely
+                if (needCol && !g.attributes.color) { g.dispose(); return; }
+                mtx.multiplyMatrices(inv, o.matrixWorld);
+                g.applyMatrix4(mtx);
+                parts.push(g);
+            }
+            const count = parts.reduce((a, g) => a + g.attributes.position.count, 0);
+            const pos = new Float32Array(count * 3), nor = new Float32Array(count * 3);
+            const uv = needUv ? new Float32Array(count * 2) : null, col = needCol ? new Float32Array(count * 3) : null;
+            let off = 0;
+            parts.forEach(g => {
+                const n = g.attributes.position.count;
+                pos.set(g.attributes.position.array.subarray(0, n * 3), off * 3);
+                nor.set(g.attributes.normal.array.subarray(0, n * 3), off * 3);
+                if (uv) uv.set(g.attributes.uv.array.subarray(0, n * 2), off * 2);
+                if (col) col.set(g.attributes.color.array.subarray(0, n * 3), off * 3);
+                off += n;
+                g.dispose();
+            });
+            const geo = new THREE.BufferGeometry();
+            geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+            geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+            if (uv) geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+            if (col) geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+            geo.computeBoundingSphere();
+            const mesh = new THREE.Mesh(geo, mat);
+            mesh.castShadow = list[0].castShadow; mesh.receiveShadow = list[0].receiveShadow;
+            mesh.userData.merged = list.length;
+            scope.add(mesh);
+            list.forEach(o => {
+                o.parent && o.parent.remove(o);
+                if (!_SHARED_GEOS.has(o.geometry)) { try { o.geometry.dispose(); } catch (e) {} }
+                removed++;
+            });
+            merged++;
+        });
+    });
+    // Groups left empty by the merge are dead weight in every traversal.
+    const empties = [];
+    root.traverse(o => { if (o !== root && o.isGroup && !o.children.length && !moving.has(o) && !(o.userData && o.userData.occludes)) empties.push(o); });
+    empties.forEach(o => o.parent && o.parent.remove(o));
+
+    const after = { meshes: 0, materials: new Set() };
+    root.traverse(o => { if (o.isMesh) { after.meshes++; after.materials.add(o.material); } });
+    return { meshesBefore: before.meshes, meshesAfter: after.meshes, materialsBefore: before.materials.size,
+             materialsAfter: after.materials.size, mergedGroups: merged, removed };
+}
+
+// BATTERY SAVER: no shadow map (every caster is drawn twice without it) and
+// the board held at 1× resolution. Toggling shadows needs every material's
+// shader rebuilt once, which is a single hitch when the setting changes.
+let _batteryOn = null, _batteryWasOn = false;
+function _applyBatterySaver(s) {
+    if (!renderer) return;
+    const on = !!s.batterySaver;
+    if (on === _batteryOn) return;
+    _batteryOn = on;
+    renderer.shadowMap.enabled = !on;
+    if (scene) scene.traverse(o => {
+        if (!o.material) return;
+        (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => { m.needsUpdate = true; });
+    });
+    // On: 1×. Off again: back to the device's own ratio, and the adaptive
+    // ladder takes it down from there if the frame rate asks.
+    const want = on ? 1 : Math.min(window.devicePixelRatio || 1, 2);
+    if (_quality.ratio !== want && (on || _batteryWasOn)) {
+        _quality.ratio = want; _quality.drops = 0; _quality.since = 0;
+        renderer.setPixelRatio(want);
+        renderer.setSize(Math.max(window.innerWidth || 300, 300), Math.max(window.innerHeight || 500, 500));
+    }
+    _batteryWasOn = on;
 }
 
 // ============================================================
@@ -3762,6 +4005,7 @@ function _buildCityScene() {
     _buildDistrictLights();
     _buildOverheads();
     _buildDistrictMotes();
+    _buildTraffic();
 }
 
 /** Is the active board the Clover (Star Territory)? */
@@ -3840,6 +4084,11 @@ function _buildOverheads() {
             // every sign face down the road, where an approaching player sees it.
             g.rotation.y = _facingAngle(pos) + Math.PI / 2;
             g.traverse(o => { if (o.isMesh) o.castShadow = true; });
+            // A span is exactly the thing the follow camera looks THROUGH: the
+            // Back Alley's washing lines and the Promenade's bunting filled two
+            // thirds of the frame at landings (RELEASE_AUDIT C-03). It fades
+            // like a building when it is between the camera and the token.
+            _canOcclude(g, SPAN_HALF * 0.6);
             _cityEnvGroup.add(g);
         });
     });
@@ -4538,6 +4787,234 @@ function _lmCoolingTowers() {                            // the power plant
     return g;
 }
 
+// ---- Token reactions (RELEASE_AUDIT M-01) ----
+//
+// Board tokens only ever hopped. Now a token jumps for joy on a coin gain,
+// winces on a fine, and the one whose roll it is breathes while it waits, so
+// the board reacts to what just happened to whom. Reactions stand aside the
+// moment anything else animates the same token (a hop, a set piece).
+const _reacts = new Map();          // mesh → { kind, t }
+let _breathing = null;
+
+export function tokenReact(player, kind) {
+    if (!player || !player.mesh || !['cheer', 'flinch'].includes(kind)) return;
+    _reacts.set(player.mesh, { kind, t: 0 });
+}
+
+function _meshBusy(m) {
+    return state.cameraState === 'CINEMATIC' || activeAnims.some(a => a.obj === m || a.obj === m.position || a.obj === m.scale);
+}
+function _settleToken(m) { m.position.y = 0; m.scale.setScalar(1); m.rotation.z = 0; }
+
+function _tickReactions(dt, time) {
+    const calm = _reduceMotion() ? 0.35 : 1;
+    _reacts.forEach((r, m) => {
+        if (_meshBusy(m) || !m.parent) { _reacts.delete(m); return; }
+        r.t += dt;
+        const D = r.kind === 'cheer' ? 0.62 : 0.5;
+        const p = Math.min(1, r.t / D), arc = Math.sin(p * Math.PI);
+        if (r.kind === 'cheer') {
+            m.position.y = arc * 1.7 * calm;
+            m.scale.set(1 - arc * 0.06, 1 + arc * 0.12, 1 - arc * 0.06);
+        } else {
+            m.scale.set(1 + arc * 0.16, 1 - arc * 0.22, 1 + arc * 0.16);
+            m.rotation.z = Math.sin(p * Math.PI * 6) * 0.14 * (1 - p) * calm;
+        }
+        if (p >= 1) { _settleToken(m); _reacts.delete(m); }
+    });
+
+    // The waiting token breathes: a slow 3 % swell, nothing that moves it.
+    const p = state.players[state.activePlayer];
+    const m = p && p.mesh;
+    const want = m && state.gameState === 'PRE_ROLL' && !_reacts.has(m) && !_meshBusy(m) && !_gamePaused ? m : null;
+    if (_breathing && _breathing !== want) { _breathing.scale.setScalar(1); _breathing = null; }
+    if (want) {
+        _breathing = want;
+        const b = Math.sin(time * 2.4) * 0.03 * calm;
+        want.scale.set(1 - b * 0.4, 1 + b, 1 - b * 0.4);
+    }
+}
+
+// ---- Traffic and people (RELEASE_AUDIT C-01) ----
+//
+// The city was a still diorama: parked cars, nobody walking. The player roads
+// are the ring and the lobes, and nothing may drive on those — a car crossing
+// a token's hop reads as a bug, not as life. So the traffic runs on four
+// avenues out through the gaps between districts, each a closed out-and-back
+// loop so no car ever pops in or out; and people pace the inner pavement of
+// each district, past the props, clear of the lobe ends where the spurs join.
+//
+// One InstancedMesh for every car and two for the people (bodies, heads): three
+// draw calls however many there are. They stand still while the match is paused
+// and under Battery saver.
+const TRAFFIC = { perAvenue: 3, r0: 66, r1: 124, lane: 1.7, walkersPerDistrict: 7 };
+
+function _mergeColoured(parts) {
+    let count = 0;
+    const geos = parts.map(({ geo, m, c }) => {
+        const g = (geo.index ? geo.toNonIndexed() : geo.clone());
+        g.applyMatrix4(m);
+        count += g.attributes.position.count;
+        return { g, c };
+    });
+    const pos = new Float32Array(count * 3), nor = new Float32Array(count * 3), col = new Float32Array(count * 3);
+    let off = 0;
+    geos.forEach(({ g, c }) => {
+        const n = g.attributes.position.count;
+        pos.set(g.attributes.position.array.subarray(0, n * 3), off * 3);
+        nor.set(g.attributes.normal.array.subarray(0, n * 3), off * 3);
+        for (let i = 0; i < n; i++) col.set(c, (off + i) * 3);
+        off += n;
+        g.dispose();
+    });
+    const out = new THREE.BufferGeometry();
+    out.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    out.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+    out.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    out.computeBoundingSphere();
+    return out;
+}
+
+function _buildTraffic() {
+    if (_isClover()) return;
+    const runs = districtRuns();
+    if (!runs.length) return;
+
+    // ---- Avenues: the middle of each gap between two districts. ----
+    const avenues = runs.map((run, i) => {
+        const next = runs[(i + 1) % runs.length];
+        let d = next.deg[0] - run.deg[1];
+        while (d > 180) d -= 360;
+        while (d < -180) d += 360;
+        const a = (run.deg[1] + d / 2) * Math.PI / 180;
+        return { dir: new THREE.Vector3(Math.cos(a), 0, -Math.sin(a)), side: new THREE.Vector3(Math.sin(a), 0, Math.cos(a)) };
+    });
+    avenues.forEach(av => {
+        const p0 = av.dir.clone().multiplyScalar(TRAFFIC.r0 - 3), p1 = av.dir.clone().multiplyScalar(TRAFFIC.r1 + 3);
+        _cityEnvGroup.add(_ribbon([p0, p1], 9.5, _CM.sidewalk, -0.60));
+        _cityEnvGroup.add(_ribbon([p0, p1], 7, _CM.asphalt, -0.595));
+        // A turning circle at the inner end, so the U-turn has somewhere to be.
+        const pad = new THREE.Mesh(new THREE.CircleGeometry(4.2, 20), _CM.asphalt);
+        pad.rotation.x = -Math.PI / 2; pad.position.copy(av.dir).multiplyScalar(TRAFFIC.r0).setY(-0.594);
+        pad.receiveShadow = true;
+        _cityEnvGroup.add(pad);
+    });
+
+    // ---- Cars: one merged, vertex-coloured shape; the instance colour paints
+    // the body and tints the glass and tyres a little, which reads fine. ----
+    const M = (x, y, z, rx = 0) => new THREE.Matrix4().compose(new THREE.Vector3(x, y, z),
+        new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, 0, 0)), new THREE.Vector3(1, 1, 1));
+    const wheel = new THREE.CylinderGeometry(0.38, 0.38, 0.3, 8);
+    const carGeo = _mergeColoured([
+        { geo: _roundedBox(3.9, 1.0, 1.7, 0.32, 3), m: M(0, 0.78, 0), c: [1, 1, 1] },
+        { geo: _roundedBox(2.0, 0.8, 1.5, 0.3, 3), m: M(-0.25, 1.5, 0), c: [0.32, 0.4, 0.52] },
+        ...[[-1.3, 0.65], [1.3, 0.65], [-1.3, -0.65], [1.3, -0.65]].map(([x, z]) =>
+            ({ geo: wheel, m: M(x, 0.38, z, Math.PI / 2), c: [0.12, 0.12, 0.12] })),
+    ]);
+    wheel.dispose();
+    const nCars = avenues.length * TRAFFIC.perAvenue;
+    const cars = new THREE.InstancedMesh(carGeo,
+        new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.4, metalness: 0.3 }), nCars);
+    cars.castShadow = true;
+    cars.frustumCulled = false;       // instances roam far beyond the base shape's bounds
+    const paints = [0xdc2626, 0x2563eb, 0xf8fafc, 0x111827, 0x16a34a, 0xf59e0b, 0x7c3aed, 0x0ea5e9];
+    const straight = TRAFFIC.r1 - TRAFFIC.r0, turn = Math.PI * TRAFFIC.lane;
+    const loop = 2 * straight + 2 * turn;
+    const carState = [];
+    for (let i = 0; i < nCars; i++) {
+        cars.setColorAt(i, new THREE.Color(paints[Math.floor(_seeded(i * 7 + 3) * paints.length)]));
+        carState.push({ av: avenues[i % avenues.length], d: (Math.floor(i / avenues.length) / TRAFFIC.perAvenue + _seeded(i * 13) * 0.2) * loop,
+                        speed: 7 + _seeded(i * 5 + 1) * 4 });
+    }
+    _cityEnvGroup.add(cars);
+
+    // ---- People ----
+    const body = new THREE.CylinderGeometry(0.3, 0.36, 1.15, 8);
+    body.translate(0, 0.62, 0);
+    const head = new THREE.SphereGeometry(0.27, 10, 8);
+    head.translate(0, 1.47, 0);
+    const walkers = [];
+    runs.forEach((run, ri) => {
+        const curve = new THREE.CatmullRomCurve3(lobeSamples(run, 40));
+        for (let k = 0; k < TRAFFIC.walkersPerDistrict; k++) {
+            const seed = ri * 41 + k * 7;
+            walkers.push({ curve, len: curve.getLength(), seed,
+                           off: 9.6 + _seeded(seed) * 1.4, phase: _seeded(seed + 1) * 2,
+                           speed: 1.1 + _seeded(seed + 2) * 0.6 });
+        }
+    });
+    const bodies = new THREE.InstancedMesh(body, new THREE.MeshStandardMaterial({ roughness: 0.8 }), walkers.length);
+    const heads = new THREE.InstancedMesh(head, new THREE.MeshStandardMaterial({ roughness: 0.7 }), walkers.length);
+    const coats = [0xef4444, 0x3b82f6, 0x22c55e, 0xeab308, 0xa855f7, 0xf97316, 0x14b8a6, 0xe5e7eb, 0x334155];
+    const skins = [0xf1c27d, 0xe0ac69, 0xc68642, 0x8d5524, 0xffdbac];
+    walkers.forEach((w, i) => {
+        bodies.setColorAt(i, new THREE.Color(coats[Math.floor(_seeded(w.seed + 3) * coats.length)]));
+        heads.setColorAt(i, new THREE.Color(skins[Math.floor(_seeded(w.seed + 4) * skins.length)]));
+    });
+    [bodies, heads].forEach(m => { m.castShadow = false; m.frustumCulled = false; _cityEnvGroup.add(m); });
+
+    const entry = { kind: 'traffic', cars, carState, bodies, heads, walkers, loop, straight, turn, t: 0 };
+    _cityLive.push(entry);
+    _tickTraffic(entry, 0.001, true); // place everything before the first frame, saver or not
+}
+
+const _tfM = new THREE.Matrix4(), _tfQ = new THREE.Quaternion(), _tfP = new THREE.Vector3(),
+      _tfS = new THREE.Vector3(1, 1, 1), _tfUp = new THREE.Vector3(0, 1, 0), _tfT = new THREE.Vector3();
+
+function _tickTraffic(e, dt, force = false) {
+    if (!force && (!dt || _batteryOn)) return;
+    e.t += dt;
+    const { r0, lane } = TRAFFIC;
+    // Cars: out along the right-hand lane, round the far end, back along the
+    // other, round the turning circle.
+    e.carState.forEach((c, i) => {
+        c.d = (c.d + c.speed * dt) % e.loop;
+        const { dir, side } = c.av;
+        let d = c.d, x, z, hx, hz;
+        if (d < e.straight) {                                     // outbound
+            const r = r0 + d;
+            x = dir.x * r + side.x * lane; z = dir.z * r + side.z * lane; hx = dir.x; hz = dir.z;
+        } else if ((d -= e.straight) < e.turn) {                  // far U-turn
+            const a = d / lane;                                   // 0..π
+            const cx = dir.x * TRAFFIC.r1, cz = dir.z * TRAFFIC.r1;
+            x = cx + side.x * lane * Math.cos(a) + dir.x * lane * Math.sin(a);
+            z = cz + side.z * lane * Math.cos(a) + dir.z * lane * Math.sin(a);
+            hx = -side.x * Math.sin(a) + dir.x * Math.cos(a); hz = -side.z * Math.sin(a) + dir.z * Math.cos(a);
+        } else if ((d -= e.turn) < e.straight) {                  // inbound
+            const r = TRAFFIC.r1 - d;
+            x = dir.x * r - side.x * lane; z = dir.z * r - side.z * lane; hx = -dir.x; hz = -dir.z;
+        } else {                                                  // turning circle
+            const a = (d - e.straight) / lane;
+            const cx = dir.x * r0, cz = dir.z * r0;
+            x = cx - side.x * lane * Math.cos(a) - dir.x * lane * Math.sin(a);
+            z = cz - side.z * lane * Math.cos(a) - dir.z * lane * Math.sin(a);
+            hx = side.x * Math.sin(a) - dir.x * Math.cos(a); hz = side.z * Math.sin(a) - dir.z * Math.cos(a);
+        }
+        _tfQ.setFromAxisAngle(_tfUp, Math.atan2(-hz, hx));
+        _tfM.compose(_tfP.set(x, 0, z), _tfQ, _tfS);
+        e.cars.setMatrixAt(i, _tfM);
+    });
+    e.cars.instanceMatrix.needsUpdate = true;
+
+    // People: pace the inner pavement end to end and back, with a little bob.
+    e.walkers.forEach((w, i) => {
+        const p = (w.phase + e.t * w.speed / w.len) % 2;
+        const u = 0.12 + 0.76 * (p < 1 ? p : 2 - p);
+        const at = w.curve.getPointAt(u);
+        w.curve.getTangentAt(u, _tfT);
+        let nx = -_tfT.z, nz = _tfT.x;                             // a quarter turn in XZ
+        if (nx * at.x + nz * at.z > 0) { nx = -nx; nz = -nz; }     // the inner side
+        const fwd = p < 1 ? 1 : -1;
+        const bob = Math.abs(Math.sin(e.t * 7 + w.seed)) * 0.08;
+        _tfQ.setFromAxisAngle(_tfUp, Math.atan2(-_tfT.z * fwd, _tfT.x * fwd));
+        _tfM.compose(_tfP.set(at.x + nx * w.off, bob, at.z + nz * w.off), _tfQ, _tfS);
+        e.bodies.setMatrixAt(i, _tfM);
+        e.heads.setMatrixAt(i, _tfM);
+    });
+    e.bodies.instanceMatrix.needsUpdate = true;
+    e.heads.instanceMatrix.needsUpdate = true;
+}
+
 // ---- Motion ----
 //
 // Four cheap systems, all driven from _loop(). A city that never moves reads as
@@ -4547,6 +5024,7 @@ const _cityLive = [];
 function _animateCityLife(time, dt) {
     for (let i = 0; i < _cityLive.length; i++) {
         const e = _cityLive[i];
+        if (e.kind === 'traffic') { _tickTraffic(e, dt); continue; }
         if (e.kind === 'steam') {
             // Puffs march up on staggered phases, fading as they rise.
             const base = e.base ?? 0.3;

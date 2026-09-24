@@ -119,7 +119,7 @@ function _myName() {
 async function _host() {
     _busy(true, 'Opening a room…');
     try {
-        const code = await Session.host(_myName());
+        const code = await _withTimeout(Session.host(_myName()));
         _setPhase('room');
         _paintCode(code);
         _paintRoster(Session.roster());
@@ -133,10 +133,11 @@ async function _join() {
     if (!isValidCode(code)) return;
     _busy(true, 'Looking for the room…');
     try {
-        await Session.join(code, _myName());
+        await _withTimeout(Session.join(code, _myName()));
         _setPhase('room');
         _paintCode(code);
         _paintRoster(Session.roster());
+        _watchForHost(code);
     } catch (e) {
         _paintStatus({ kind: 'error', error: e && e.message });
     } finally { _busy(false); }
@@ -355,6 +356,8 @@ function _paintStatus(info) {
         hosting:  () => `Room open — waiting for players. (${info.strategy})`,
         joining:  () => `Connected — finding the room… (${info.strategy})`,
         error:    () => `⚠️ ${info.error || 'Could not connect.'} Check the signal and try again.`,
+        'no-host': () => `⚠️ No answer from room ${info.code} yet. Check the code with the host. `
+                       + `If it is right, joining the same Wi-Fi as the host usually fixes it — some networks block direct connections.`,
         kicked:   () => info.reason === 'full'    ? 'That room is full.'
                       : info.reason === 'started' ? 'That match has already started.'
                       : 'That room is running a different version of the game.',
@@ -364,7 +367,30 @@ function _paintStatus(info) {
         left:     () => '',
     }[info.kind];
     el.textContent = msg ? msg() : '';
-    el.classList.toggle('is-error', info.kind === 'error' || info.kind === 'kicked');
+    el.classList.toggle('is-error', info.kind === 'error' || info.kind === 'kicked' || info.kind === 'no-host');
+}
+
+// A room that never answers used to leave "finding the room…" on screen for
+// ever (RELEASE_AUDIT RA-02). Reaching the relays gets 15 seconds; after that
+// the player is told what to try rather than left to guess.
+const CONNECT_TIMEOUT_MS = 15000;
+function _withTimeout(p) {
+    let t;
+    const limit = new Promise((_, rej) => { t = setTimeout(() => rej(new Error('No connection to the matchmaking service.')), CONNECT_TIMEOUT_MS); });
+    return Promise.race([p, limit]).finally(() => clearTimeout(t));
+}
+
+// Joined the relay but the host has not seated us: a wrong code, a host that
+// closed the room, or two networks that cannot reach each other directly.
+let _hostWatch = null;
+function _watchForHost(code) {
+    clearTimeout(_hostWatch);
+    _hostWatch = setTimeout(() => {
+        const lobby = document.getElementById('lobby');
+        if (Session.isClient() && Session.mySeat() === null && lobby && lobby.style.display !== 'none') {
+            _paintStatus({ kind: 'no-host', code });
+        }
+    }, CONNECT_TIMEOUT_MS);
 }
 
 function _busy(on, label) {
