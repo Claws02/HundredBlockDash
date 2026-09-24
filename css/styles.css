@@ -269,7 +269,6 @@ body[data-hud-mode="solo"] #contracts-strip { top: calc(var(--rival-h) + 40px); 
 
 #swipe-zone { position: absolute; inset: var(--hud-h) 0 var(--hud-h) 0; pointer-events: auto; display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 15; }
 #swipe-zone.act { display: flex; }
-.swipe-hint { font-size: calc(36px * var(--ts, 1)); color: rgba(255,255,255,.4); pointer-events: none; animation: swipeAnim 2s infinite; text-align: center; }
 @keyframes swipeAnim { 0% { transform: translateY(20px); opacity: 0 } 50% { opacity: 1 } 100% { transform: translateY(-40px); opacity: 0 } }
 
 /* Space Info Card */
@@ -1883,25 +1882,6 @@ body.buddy-report.tabletop-p2-turn #toast-box { top: auto; bottom: calc(var(--hu
    enough to read without looking for it — this is the number the whole fork
    decision is made against. Kept off the middle of the board so the two roads
    the arrows point down stay visible. */
-/* Shown at the first fork of a match only — that fork can arrive on turn one,
-   before the player has taken a single ordinary turn. */
-#junction-primer {
-    /* Directly above SCOUT THE MAP, not under the banner: the top of the screen
-       already carries the round counter, the bounty strip, the fork banner and
-       the SPACES LEFT readout, and a fifth row up there covers the roads the
-       arrows are pointing down. */
-    position: absolute; bottom: calc(var(--hud-h) + 74px); left: 50%; top: auto;
-    transform: translateX(-50%);
-    max-width: 300px; text-align: center; pointer-events: none;
-    font-family: 'Nunito', system-ui, sans-serif; font-size: calc(12px * var(--ts, 1)); font-weight: 700;
-    line-height: 1.35; color: rgba(255,255,255,.86);
-    background: rgba(8,6,18,.82); border: 1px solid rgba(255,255,255,.16);
-    border-radius: 14px; padding: 5px 12px;
-}
-.tabletop-p2-turn #junction-primer {
-    bottom: auto; top: calc(var(--hud-h) + 74px);
-    transform: translateX(-50%) rotate(180deg);
-}
 #junction-steps {
     /* Below the round counter, the bounty strip AND the banner. The first
        placement was 58px down and the gold digit came out half-hidden behind
@@ -3020,7 +3000,6 @@ body:not(.tabletop-mode) #turn-banner.tb-show .tb-bottom.tb-mine {
 /* The hint sits high in the swipe zone, clear of the token the follow camera
    puts in the lower half (RELEASE_AUDIT G-03). */
 #swipe-zone { justify-content: flex-start; }
-#swipe-zone .swipe-hint { margin-top: 18vh; font-size: calc(30px * var(--ts, 1)); }
 
 /* Settings additions: text size, battery saver, music, privacy (RELEASE_AUDIT A-03, RA-03, VA-01, RA-02) */
 .set-row-stack { flex-direction: column; align-items: stretch; gap: 8px; }
@@ -3096,27 +3075,3 @@ html.is-tablet .btn-action { width: 108px; height: 108px; border-radius: 26px; }
 html.is-tablet #btn-rules, html.is-tablet #btn-pause { width: 52px; height: 52px; }
 html.is-tablet .inv-slot { width: 30px; height: 30px; }
 
-/* ---- Coached first turn (RELEASE_AUDIT UX-03) ----
-   Never blocks: both layers let every touch through to the game. */
-#coach {
-    display: none; position: fixed; z-index: 210; pointer-events: none;
-    background: #fff8e1; color: #1a0b2e; border-radius: 14px; padding: 12px 14px;
-    font-family: 'Nunito', system-ui, sans-serif; font-weight: 700; line-height: 1.35;
-    font-size: calc(15px * var(--ts, 1));
-    box-shadow: 0 8px 24px rgba(0,0,0,.45), 0 0 0 3px var(--gold, #f5c842);
-    animation: coachIn .25s ease-out;
-}
-#coach b { color: #9a3412; }
-#coach::after {
-    content: ''; position: absolute; left: calc(var(--tip, 50%) - 9px); bottom: -9px;
-    border: 9px solid transparent; border-bottom: 0; border-top-color: #fff8e1;
-}
-#coach.below::after { bottom: auto; top: -9px; border-top: 0; border-bottom: 9px solid #fff8e1; }
-#coach-ring {
-    display: none; position: fixed; z-index: 209; pointer-events: none; border-radius: 16px;
-    box-shadow: 0 0 0 3px var(--gold, #f5c842), 0 0 18px 4px rgba(245,200,66,.7);
-    animation: coachPulse 1.4s ease-in-out infinite;
-}
-@keyframes coachIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-@keyframes coachPulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
-body.reduce-motion #coach, body.reduce-motion #coach-ring { animation: none; }

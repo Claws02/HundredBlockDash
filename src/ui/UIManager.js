@@ -607,7 +607,6 @@ function _wireBranchChoiceEvents() {
 // view and brings them straight back here afterwards.
 
 let _junction = null;   // { junctionId, fromNodeId, options, frame }
-let _seenAFork = false; // the primer under the banner shows once per match
 
 export function showJunctionArrows(junctionId, fromNodeId, options, stepsLeft) {
     Scenes.emit('junction', { junctionId, fromNodeId, options, stepsLeft, seat: state.activePlayer });
@@ -631,19 +630,6 @@ export function showJunctionArrows(junctionId, fromNodeId, options, stepsLeft) {
 
     document.getElementById('junction-banner').textContent =
         `${state.players[state.activePlayer].name.toUpperCase()} — CHOOSE YOUR ROAD`;
-
-    // The first fork of a match can land on turn one: players start on r1, r5
-    // feeds bp_b, so a roll of 5 or 6 reaches a junction before anyone has taken
-    // an ordinary turn. That is the rule working, but arriving cold — straight
-    // out of the briefing into a full-screen decision — is what reads as "the
-    // junction scene popped up at the start of the match". Naming it the first
-    // time turns a surprise into an instruction.
-    const primer = document.getElementById('junction-primer');
-    if (primer) {
-        const first = !_seenAFork;
-        _seenAFork = true;
-        primer.style.display = first ? '' : 'none';
-    }
 
     // How far the roll still carries you. A fork is a choice about which run of
     // tiles to spend the REST of the roll on, and that number was nowhere on
@@ -1446,7 +1432,6 @@ export function announceTurnIfChanged(playerIdx) {
 }
 
 // A new match has not seen a fork yet, so the primer is due again.
-export function resetForkPrimer() { _seenAFork = false; }
 
 export function resetTurnAnnouncer() { _lastAnnouncedTurn = -1; }
 
@@ -1850,19 +1835,6 @@ function _wireSwipeEvents() {
     zone.addEventListener('mouseup', e => up(e.clientX, e.clientY));
 }
 
-// The "swipe up or tap ROLL" hint is for learning, not for every turn of every
-// match: it sat over your own token for the whole game (RELEASE_AUDIT G-03).
-// Three human rolls on this device and it goes.
-const HINT_ROLLS = 3;
-export function noteHumanRoll() {
-    const n = +Storage.load('human_rolls', 0) || 0;
-    if (n < HINT_ROLLS + 1) Storage.save('human_rolls', n + 1);
-}
-function _syncSwipeHint() {
-    const hint = document.querySelector('#swipe-zone .swipe-hint');
-    if (hint) hint.style.display = (+Storage.load('human_rolls', 0) || 0) >= HINT_ROLLS ? 'none' : '';
-}
-
 /**
  * Arm the swipe-to-roll zone.
  *
@@ -1874,7 +1846,6 @@ function _syncSwipeHint() {
  * silently does nothing.
  */
 export function showSwipeZone() {
-    _syncSwipeHint();
     if (state.playStyle === 'online') { _updateSwipeZone(); return; }
     document.getElementById('swipe-zone').classList.add('act');
 }

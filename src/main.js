@@ -9,7 +9,6 @@ import * as MatchSave from './core/MatchSave.js';
 import * as CrashReport from './core/CrashReport.js';
 import * as Storage from './core/Storage.js';
 import * as Audio from './engine/AudioManager.js';
-import * as Coach from './ui/Coach.js';
 import { state as gameState } from './core/GameState.js';
 import * as Commands from './core/Commands.js';
 import { MG_INFO, MG_TYPES, MG_GENRES, MG_WIRE_ORDER,
@@ -32,7 +31,6 @@ Settings.init();          // load + apply audio/motion prefs before anything pla
 // Music: the menu theme until a match starts; silent while a minigame plays.
 Audio.setMusicGate(() => !gameState.mgActive);
 Audio.setMusicMood('menu');
-Coach.init();
 UIManager.init(GameController);
 ModalManager.init(GameController);
 MinigameManager.init(GameController);

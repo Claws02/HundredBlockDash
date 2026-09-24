@@ -407,13 +407,12 @@ export function startGame(resume = null) {
     document.getElementById('char-select').style.display  = 'none';
     document.getElementById('map-select').style.display   = 'none';
     document.getElementById('game-container').style.display = 'block';
-    document.body.classList.add('board-on');
-    setMusicMood('board');   // the rotate-upright card only applies from here
+    document.body.classList.add('board-on');   // the rotate-upright card only applies from here
+    setMusicMood('board');
     setTimeout(() => {
         if (!state.gameStarted) return;
         UIManager.setPlayerNames();
         UIManager.resetTurnAnnouncer();   // a new match announces its first turn
-        UIManager.resetForkPrimer();      // ...and explains its first fork
         if (resume) {
             // Everything is already in `state`; only the linear board's realm
             // count lives outside it.
@@ -638,7 +637,6 @@ export function startPreRoll() {
 }
 
 export function executeRoll(flickVelocity) {
-    if (!state.players[state.activePlayer]?.isBot) UIManager.noteHumanRoll();
     const p = state.players[state.activePlayer];
     state.gameState = 'ROLLING';
     UIManager.hideSwipeZone();
