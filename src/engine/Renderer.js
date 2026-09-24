@@ -5725,4 +5725,11 @@ export const PROP_KIT = {
     // r in [0.62, 0.78) is the dust devil, which registers itself in the
     // board's own animation list — a stage must never ask for that one.
     badlands:    (r, seed) => _propBadlands(r >= 0.62 && r < 0.78 ? 0.9 : r, seed),
+    // r in [0.24, 0.60) is the signal lamp and the steaming stack, which both
+    // register in the board's animation list; a stage gets rails, coal or the
+    // handcar.
+    railyard:    (r, seed) => _propRailyard(r >= 0.24 && r < 0.6 ? 0.7 : r, seed),
+    railShed:    (pos, seed) => _mkRailShed(pos, seed),
+    // r in [0.46, 0.66) is the hanging lantern, which registers itself.
+    mine:        (r, seed) => _propMine(r >= 0.46 && r < 0.66 ? 0.8 : r, seed),
 };

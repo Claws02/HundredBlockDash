@@ -41,6 +41,8 @@ const MG_MODULES = {
     highnoon:    () => import('./HighNoon.js'),
     barrage:     () => import('./Barrage.js'),
     vaultheist:  () => import('./VaultHeist.js'),
+    express:     () => import('./Express.js'),
+    minecart:    () => import('./MineCart.js'),
 };
 
 // The single place that knows which file a game lives in. Exported so the QA

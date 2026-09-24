@@ -484,16 +484,37 @@ export function buildBankFloor(stage, L) {
         shaft.rotation.x = -Math.PI / 2; shaft.position.set(x - Math.sign(x) * 1.5, 0.02, z); scene.add(shaft);
     });
 
-    // Doors: the thieves' way in and out, the two corners at each end, marked
-    // on the floor with an arrow out.
-    [-1, 1].forEach(end => [-1, 1].forEach(side => {
-        const mat = new THREE.MeshBasicMaterial({ color: 0x3a6fd0, transparent: true, opacity: 0.45 });
-        const m = new THREE.Mesh(new THREE.PlaneGeometry(L.doorHalf * 2, L.exit), mat);
-        m.rotation.x = -Math.PI / 2; m.position.set(side * L.doorX, 0.015, end * (D - L.exit / 2)); scene.add(m);
-        const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.35, 0.7, 3),
-            new THREE.MeshBasicMaterial({ color: 0x9cc0ff, transparent: true, opacity: 0.7 }));
-        arrow.rotation.x = end * Math.PI / 2; arrow.position.set(side * L.doorX, 0.03, end * (D - L.exit / 2)); scene.add(arrow);
-    }));
+    // Escape zones: the whole strip across each end. A thief banks the moment
+    // they are back in their own. It used to be two corner doors, and the
+    // obvious way home — straight back to the middle of your own end — ran into
+    // the other vault, so a player could carry gold round the room and never
+    // bank it. Each strip is a glowing band with chevrons pointing out and
+    // ESCAPE painted on the floor the right way up for the player at that end.
+    const escapes = {};
+    [-1, 1].forEach(end => {
+        const g = new THREE.Group();
+        const band = new THREE.Mesh(new THREE.PlaneGeometry(L.w - 0.8, L.exit),
+            new THREE.MeshBasicMaterial({ color: 0x22c55e, transparent: true, opacity: 0.3, depthWrite: false }));
+        band.rotation.x = -Math.PI / 2; band.position.y = 0.015; g.add(band);
+        const edge = new THREE.Mesh(new THREE.PlaneGeometry(L.w - 0.8, 0.08),
+            new THREE.MeshBasicMaterial({ color: 0x4ade80, transparent: true, opacity: 0.9 }));
+        edge.rotation.x = -Math.PI / 2; edge.position.set(0, 0.02, -end * L.exit / 2); g.add(edge);
+        const chevrons = [];
+        [-4, -2, 2, 4].forEach(x => {
+            const c = new THREE.Mesh(new THREE.ConeGeometry(0.32, 0.6, 3),
+                new THREE.MeshBasicMaterial({ color: 0x86efac, transparent: true, opacity: 0.85 }));
+            c.rotation.x = end * Math.PI / 2; c.position.set(x, 0.04, 0); g.add(c); chevrons.push(c);
+        });
+        const word = textPlane('ESCAPE', { w: 2.4, h: 0.8, bg: '#14532d', fg: '#bbf7d0', border: '#22c55e' });
+        word.material.transparent = true;
+        word.rotation.x = -Math.PI / 2;
+        if (end < 0) word.rotation.z = Math.PI;      // the far player reads it from their side
+        word.position.y = 0.03; g.add(word);
+        g.position.set(0, 0, end * (D - L.exit / 2));
+        g.userData = { band, chevrons, word, end };
+        scene.add(g);
+        escapes[end] = g;
+    });
 
     // Columns.
     const marble = _mat(0xe7e3da, 0.4);
@@ -562,49 +583,394 @@ export function buildBankFloor(stage, L) {
     });
 
     // Loot, placed at the game's spots, handed back so the game can hide what
-    // gets taken and restore it between rounds.
-    const barMat = _mat(0xf2c14e, 0.25, 0.9, { emissive: 0x6a4a00, emissiveIntensity: 0.55 });
-    const sackMat = _mat(0x8a6a3e, 0.9);
+    // gets taken and restore it between rounds. From straight overhead in a
+    // dark room the first pass was a few gold pixels, so every prize is now
+    // oversized, floats and turns over a bright pulsing ring, and carries its
+    // value painted beside it for the thief to read.
+    const barMat = _mat(0xffd35c, 0.2, 0.85, { emissive: 0xb07a00, emissiveIntensity: 0.9 });
+    const sackMat = _mat(0xa07a45, 0.8, 0, { emissive: 0x3a2a10, emissiveIntensity: 0.5 });
+    const LOOT_SCALE = 1.6;
     const loot = L.loot.map(l => {
         const g = new THREE.Group();
+        const float = new THREE.Group();
         if (l.kind === 'bar') {
             for (let i = 0; i < 3; i++) {
                 const bar = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.22, 0.3), barMat);
                 bar.position.set((i - 1) * 0.34, 0.11 + (i === 1 ? 0.22 : 0), 0);
-                g.add(bar);
+                float.add(bar);
             }
         } else if (l.kind === 'box') {
-            // A safe-deposit drawer pulled out onto a pedestal.
-            const ped = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.6, 0.7), _mat(0x3a4150, 0.5, 0.5));
-            ped.position.y = 0.3; g.add(ped);
-            const box = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.28, 0.5), _mat(0x9aa3b2, 0.3, 0.85));
-            box.position.y = 0.74; g.add(box);
+            // A safe-deposit drawer pulled out, gold showing.
+            const box = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.28, 0.5), _mat(0xb8c2d2, 0.25, 0.9));
+            box.position.y = 0.14; float.add(box);
             const handle = new THREE.Mesh(new THREE.TorusGeometry(0.08, 0.02, 6, 12, Math.PI), barMat);
-            handle.position.set(0, 0.74, 0.26); g.add(handle);
-            const glint = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.06, 0.3), barMat);
-            glint.position.y = 0.9; g.add(glint);
+            handle.position.set(0, 0.14, 0.26); float.add(handle);
+            const glint = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.08, 0.34), barMat);
+            glint.position.y = 0.3; float.add(glint);
         } else {
             const bag = new THREE.Mesh(new THREE.SphereGeometry(0.34, 12, 10), sackMat);
-            bag.scale.set(1, 1.15, 1); bag.position.y = 0.36; g.add(bag);
+            bag.scale.set(1, 1.15, 1); bag.position.y = 0.36; float.add(bag);
             const tie = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.12, 0.2, 8), sackMat);
-            tie.position.y = 0.78; g.add(tie);
-            const sign = textPlane('$', { w: 0.38, h: 0.38, bg: '#8a6a3e', fg: '#f3dca8', border: '#8a6a3e' });
-            sign.position.set(0, 0.4, 0.33); g.add(sign);
+            tie.position.y = 0.78; float.add(tie);
+            const sign = textPlane('$', { w: 0.38, h: 0.38, bg: '#8a6a3e', fg: '#fff3c4', border: '#8a6a3e' });
+            sign.position.set(0, 0.4, 0.33); float.add(sign);
         }
-        // A warm pool on the floor under every prize, so loot reads from
-        // straight above in a dark room.
-        const pool = new THREE.Mesh(new THREE.CircleGeometry(0.75, 20),
-            new THREE.MeshBasicMaterial({ color: 0xffc94d, transparent: true, opacity: 0.28, depthWrite: false }));
+        float.scale.setScalar(LOOT_SCALE);
+        float.position.y = 0.35;
+        float.traverse(o => { if (o.isMesh) o.castShadow = true; });
+        g.add(float);
+        const ring = new THREE.Mesh(new THREE.RingGeometry(0.95, 1.25, 28),
+            new THREE.MeshBasicMaterial({ color: 0xffc94d, transparent: true, opacity: 0.5, depthWrite: false, side: THREE.DoubleSide }));
+        ring.rotation.x = -Math.PI / 2; ring.position.y = 0.025; g.add(ring);
+        const pool = new THREE.Mesh(new THREE.CircleGeometry(0.95, 24),
+            new THREE.MeshBasicMaterial({ color: 0xffd35c, transparent: true, opacity: 0.22, depthWrite: false }));
         pool.rotation.x = -Math.PI / 2; pool.position.y = 0.02; g.add(pool);
+        const tag = textPlane(`+${l.v}`, { w: 1.2, h: 0.8, bg: '#3b2a05', fg: '#ffd35c', border: '#ffd35c' });
+        tag.rotation.x = -Math.PI / 2; tag.position.set(l.x > 0.5 ? -1.55 : 1.55, 0.05, 0); g.add(tag);
         g.position.set(l.x, 0, l.z);
-        g.traverse(o => { if (o.isMesh && o !== pool) o.castShadow = true; });
+        g.userData = { float, ring, pool, tag, phase: Math.random() * 6 };
         scene.add(g);
         return g;
     });
 
     return {
-        loot, vaults, place: B.name,
-        update(dt, t) { loot.forEach((g, i) => { g.children[g.children.length - 1].material.opacity = 0.22 + Math.sin(t * 3 + i) * 0.08; }); },
+        loot, vaults, escapes, place: B.name,
+        /** Turn the value labels to face the thief (`end` = +1 for P1's end, -1 for P2's). */
+        orientFor(end) {
+            loot.forEach(g => {
+                g.userData.tag.rotation.z = end > 0 ? 0 : Math.PI;
+                // Beside the prize on the side facing the middle of the room,
+                // so a prize by a wall never paints its value into the wall.
+                g.userData.tag.position.x = g.position.x > 0.5 ? -1.55 : 1.55;
+            });
+        },
+        /** Light the thief's escape strip: dim on the way in, blazing with loot. */
+        showEscape(end, carrying) {
+            Object.values(escapes).forEach(e => {
+                const mine = e.userData.end === end;
+                e.visible = mine;
+                e.userData.hot = mine && carrying;
+            });
+        },
+        update(dt, t) {
+            loot.forEach(g => {
+                const u = g.userData, k = t * 3 + u.phase;
+                u.float.position.y = 0.35 + Math.sin(k) * 0.12;
+                u.float.rotation.y += dt * 1.2;
+                u.ring.scale.setScalar(1 + Math.sin(k) * 0.12);
+                u.ring.material.opacity = 0.45 + Math.sin(k) * 0.15;
+            });
+            Object.values(escapes).forEach(e => {
+                const u = e.userData, hot = !!u.hot;
+                u.band.material.opacity = hot ? 0.42 + Math.sin(t * 6) * 0.14 : 0.14;
+                u.word.material.opacity = hot ? 1 : 0.45;
+                u.chevrons.forEach((c, i) => {
+                    c.material.opacity = hot ? 0.5 + 0.5 * Math.max(0, Math.sin(t * 7 - i)) : 0.25;
+                });
+            });
+        },
+    };
+}
+
+// ---- Ironwood Railyard: on the roof of the 4:15 -------------------------
+//
+// The train stands still and the Territory goes past it. Everything outside
+// the train is a SCROLLER: it moves +x at its own speed and wraps round, so
+// the near things (sleepers, telegraph poles, the yard's clutter) stream by
+// and the far ones (buttes, the water tower) crawl — parallax is what sells
+// the speed. The train points -x: the locomotive is on the left.
+//
+// A bridge is a low timber trestle across the track, spawned ahead of the
+// train and carried past with the near scenery. The set moves it; the game
+// asks where it is.
+export function buildRailRun(stage, { speed = 16, roofY = 3.4, roofHalf = 5.6 } = {}) {
+    const B = DISTRICT_BIOMES.rail;
+    const scene = stage.scene;
+    scene.background = new THREE.Color(_hex(B.bgBot));
+    scene.fog = new THREE.Fog(_hex(B.fog), 45, 170);
+    scene.add(_skyDome(_hex(B.bgTop), _hex(B.bgBot)));
+    // Dawn: a low sun from ahead of the train.
+    stage.light({ sun: 0xffc98a, sunI: 1.35, sky: 0xbfd0ea, ground: 0x6a4a30, hemiI: 0.6,
+                  rim: 0x9fd0ff, rimI: 0.45, dir: [-18, 10, 10], span: 12 });
+    const sunDisc = new THREE.Mesh(new THREE.CircleGeometry(8, 32), new THREE.MeshBasicMaterial({ color: 0xffd9a0, fog: false }));
+    sunDisc.position.set(-90, 12, -150); sunDisc.lookAt(0, 12, 0); scene.add(sunDisc);
+
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(500, 400), _mat(0x8a6a4c, 1));
+    ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
+    const bed = new THREE.Mesh(new THREE.PlaneGeometry(500, 4.4), _mat(0x6f6358, 1));
+    bed.rotation.x = -Math.PI / 2; bed.position.y = 0.02; bed.receiveShadow = true; scene.add(bed);
+    const steel = _mat(0x9aa0a8, 0.35, 0.85);
+    [-0.75, 0.75].forEach(z => {
+        const r = new THREE.Mesh(new THREE.BoxGeometry(500, 0.12, 0.1), steel);
+        r.position.set(0, 0.22, z); scene.add(r);
+    });
+
+    const scrollers = [];
+    const scroll = (obj, rate, span) => { obj.userData.scroll = { rate, span }; scene.add(obj); scrollers.push(obj); return obj; };
+
+    // Sleepers: the one thing close enough to read the speed off.
+    const sleeperMat = _mat(0x4a3526, 0.95);
+    for (let i = 0; i < 50; i++) {
+        const sl = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.14, 2.6), sleeperMat);
+        sl.position.set(-60 + i * 2.4, 0.1, 0); sl.receiveShadow = true;
+        scroll(sl, 1, 120);
+    }
+    // Telegraph poles along the line, and the yard going by behind them.
+    const wood = _mat(0x5a4230, 0.9);
+    for (let i = 0; i < 8; i++) {
+        const g = new THREE.Group();
+        const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.16, 7, 7), wood);
+        pole.position.y = 3.5; g.add(pole);
+        const arm = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.14, 1.8), wood);
+        arm.position.y = 6.6; g.add(arm);
+        g.position.set(-60 + i * 15, 0, -5.5);
+        scroll(g, 1, 120);
+    }
+    for (let i = 0; i < 9; i++) {
+        const r = [0.1, 0.65, 0.85, 0.2, 0.7, 0.9, 0.15, 0.68, 0.8][i];
+        const p = PROP_KIT.railyard(r, 500 + i);
+        p.position.set(-60 + i * 13.5 + _rand(i) * 4, 0, -9 - _rand(i + 3) * 6);
+        p.rotation.y = _rand(i + 7) * 3;
+        scroll(p, 1, 120);
+    }
+    for (let i = 0; i < 3; i++) {
+        const shed = PROP_KIT.railShed(new THREE.Vector3(0, 0, 0), 600 + i);
+        shed.position.set(-70 + i * 50, 0, -22);
+        scroll(shed, 0.55, 150);
+    }
+    // Far away: buttes and the water tower, barely moving.
+    [[-80, -90, 1], [-20, -110, 2], [40, -95, 3], [100, -120, 4]].forEach(([x, z, sd]) => {
+        const r = PROP_KIT.badlandsRock(new THREE.Vector3(0, 0, 0), 700 + sd);
+        r.position.set(x, 0, z); r.scale.setScalar(1.5);
+        scroll(r, 0.06, 260);
+    });
+    const tower = new THREE.Group();
+    const tank = new THREE.Mesh(new THREE.CylinderGeometry(3, 3, 4, 16), _mat(0x6b4a2c, 0.85));
+    tank.position.y = 10; tower.add(tank);
+    const cap = new THREE.Mesh(new THREE.ConeGeometry(3.3, 1.8, 16), _mat(0x3f2a1a, 0.8));
+    cap.position.y = 12.9; tower.add(cap);
+    [[-2, -2], [2, -2], [-2, 2], [2, 2]].forEach(([x, z]) => {
+        const leg = new THREE.Mesh(new THREE.BoxGeometry(0.4, 8, 0.4), wood);
+        leg.position.set(x, 4, z); tower.add(leg);
+    });
+    tower.position.set(10, 0, -45);
+    scroll(tower, 0.25, 200);
+
+    // ---- The train: a carriage under the players, the locomotive ahead ----
+    const train = new THREE.Group();
+    const red = _mat(0x8a2f22, 0.6), dark = _mat(0x24201c, 0.5, 0.4), brass = _mat(0xc9a24a, 0.3, 0.85);
+    const L = roofHalf * 2;
+    const body = new THREE.Mesh(new THREE.BoxGeometry(L, roofY - 1.1, 2.6), red);
+    body.position.y = 0.95 + (roofY - 1.1) / 2; train.add(body);
+    const roof = new THREE.Mesh(new THREE.BoxGeometry(L + 0.3, 0.2, 2.9), _mat(0x3a2c22, 0.75));
+    roof.position.y = roofY - 0.1; train.add(roof);
+    for (let i = 0; i < 7; i++) {        // windows, warm inside
+        const w = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.8), new THREE.MeshBasicMaterial({ color: 0xffd99a }));
+        w.position.set(-L / 2 + 1 + i * (L - 2) / 6, 2.4, 1.31); train.add(w);
+    }
+    const trim = new THREE.Mesh(new THREE.BoxGeometry(L, 0.12, 2.64), brass);
+    trim.position.y = 1.4; train.add(trim);
+    const wheels = [], spokes = [];
+    [-L / 2 + 1.2, -L / 2 + 2.4, L / 2 - 2.4, L / 2 - 1.2].forEach(x => [-1.1, 1.1].forEach(z => {
+        const wh = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.18, 16), dark);
+        wh.rotation.x = Math.PI / 2; wh.position.set(x, 0.72, z); train.add(wh); wheels.push(wh);
+        const spoke = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.08, 0.2), brass);
+        spoke.position.copy(wh.position); spoke.position.z += Math.sign(z) * 0.1; train.add(spoke); spokes.push(spoke);
+    }));
+    // The locomotive, nose to the left.
+    const loco = new THREE.Group();
+    const boiler = new THREE.Mesh(new THREE.CylinderGeometry(1.15, 1.15, 5.5, 18), _mat(0x1f2328, 0.4, 0.6));
+    boiler.rotation.z = Math.PI / 2; boiler.position.set(-3.2, 2.4, 0); loco.add(boiler);
+    const band = new THREE.Mesh(new THREE.CylinderGeometry(1.18, 1.18, 0.2, 18), brass);
+    band.rotation.z = Math.PI / 2; band.position.set(-2.2, 2.4, 0); loco.add(band);
+    const cab = new THREE.Mesh(new THREE.BoxGeometry(2.4, 3.2, 2.6), _mat(0x2d3a2e, 0.6));
+    cab.position.set(0.6, 2.5, 0); loco.add(cab);
+    const stack = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.3, 1.4, 12), dark);
+    stack.position.set(-5, 4.2, 0); loco.add(stack);
+    const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.3, 10, 8), new THREE.MeshBasicMaterial({ color: 0xfff2c0 }));
+    lamp.position.set(-6, 3.1, 0); loco.add(lamp);
+    const catcher = new THREE.Mesh(new THREE.ConeGeometry(1.2, 1.2, 4), _mat(0x6b2a1e, 0.6));
+    catcher.rotation.z = Math.PI / 2; catcher.position.set(-6.3, 0.9, 0); loco.add(catcher);
+    [-4.6, -3.2, -1.8, 0.2].forEach(x => [-1.1, 1.1].forEach(z => {
+        const wh = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.7, 0.2, 16), dark);
+        wh.rotation.x = Math.PI / 2; wh.position.set(x, 0.9, z); loco.add(wh); wheels.push(wh);
+    }));
+    loco.position.x = -roofHalf - 2.8;
+    train.add(loco);
+    train.traverse(o => { if (o.isMesh) { o.castShadow = true; } });
+    scene.add(train);
+
+    // Smoke off the stack, streaming back over the roof.
+    const smoke = [];
+    const smokeMat = new THREE.MeshStandardMaterial({ color: 0xd8d0c8, transparent: true, opacity: 0.6, roughness: 1 });
+    for (let i = 0; i < 9; i++) {
+        const m = new THREE.Mesh(new THREE.SphereGeometry(0.5, 8, 6), smokeMat.clone());
+        m.userData.t = i / 9 * 2.2;
+        scene.add(m); smoke.push(m);
+    }
+    const stackTop = new THREE.Vector3(-roofHalf - 2.8 - 5, 5, 0);
+
+    // ---- Bridges ----
+    const bridges = [];
+    function makeBridge() {
+        const g = new THREE.Group();
+        const beamY = roofY + 1.05;
+        const beam = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.7, 8), _mat(0x5a4230, 0.9));
+        beam.position.y = beamY + 0.35; g.add(beam);
+        const warn = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.18, 8.02), _mat(0xfacc15, 0.5, 0, { emissive: 0x7a5a00, emissiveIntensity: 0.6 }));
+        warn.position.y = beamY + 0.05; g.add(warn);
+        [-3.8, 3.8].forEach(z => {
+            const post = new THREE.Mesh(new THREE.BoxGeometry(0.7, beamY + 0.7, 0.7), _mat(0x4a3526, 0.9));
+            post.position.set(0, (beamY + 0.7) / 2, z); g.add(post);
+            const brace = new THREE.Mesh(new THREE.BoxGeometry(0.25, 3.5, 0.25), _mat(0x4a3526, 0.9));
+            brace.position.set(0, beamY - 1.2, z * 0.8); brace.rotation.x = z > 0 ? 0.6 : -0.6; g.add(brace);
+        });
+        g.traverse(o => { if (o.isMesh) o.castShadow = true; });
+        g.visible = false;
+        scene.add(g);
+        return g;
+    }
+    for (let i = 0; i < 2; i++) bridges.push(makeBridge());
+
+    let wheelAng = 0;
+    return {
+        speed, roofY, roofHalf, train, bridges,
+        /** Send a bridge from `x` ahead of the train (negative x). */
+        spawnBridge(x) {
+            const b = bridges.find(k => !k.visible) || bridges[0];
+            b.visible = true; b.position.set(x, 0, 0);
+            return b;
+        },
+        update(dt, t) {
+            const d = speed * dt;
+            scrollers.forEach(o => {
+                const s = o.userData.scroll;
+                o.position.x += d * s.rate;
+                if (o.position.x > s.span / 2) o.position.x -= s.span;
+            });
+            bridges.forEach(b => { if (b.visible) { b.position.x += d; if (b.position.x > 40) b.visible = false; } });
+            wheelAng += d / 0.6;
+            wheels.forEach(w => { w.rotation.y = wheelAng; });
+            spokes.forEach(sp => { sp.rotation.z = -wheelAng; });
+            // A gentle rock on the springs.
+            train.position.y = Math.sin(t * 9) * 0.025;
+            train.rotation.z = Math.sin(t * 2.3) * 0.004;
+            smoke.forEach(m => {
+                m.userData.t += dt;
+                if (m.userData.t > 2.2) m.userData.t -= 2.2;
+                const k = m.userData.t;
+                m.position.set(stackTop.x + k * (speed * 0.55), stackTop.y + k * 1.6, Math.sin(k * 3 + m.id) * 0.4);
+                m.scale.setScalar(0.4 + k * 0.55);
+                m.material.opacity = Math.max(0, 0.5 - k * 0.23);
+            });
+        },
+    };
+}
+
+// ---- Cinder Mine: the cart floor ----------------------------------------
+//
+// Underground, "lit by lantern and furnace, not by any sky". The game hands
+// over its track GRAPH (nodes and edges, the numbers the carts ride on) and
+// the set lays rails and sleepers along every edge, a turntable plate and a
+// switch arrow at every junction, and dresses the dark around it: wet rock,
+// ember cracks glowing up through the floor, timber shoring, the ore carts
+// and spoil heaps of the mine's own prop set.
+export function buildMineFloor(stage, G) {
+    const B = DISTRICT_BIOMES.mine;
+    const scene = stage.scene;
+    scene.background = new THREE.Color(0x0c0806);
+    scene.fog = null;
+    scene.add(new THREE.HemisphereLight(0x8a5a3a, 0x120a06, 0.85));
+    const key = new THREE.DirectionalLight(0xffc48a, 0.55);
+    key.position.set(6, 20, 4); scene.add(key);
+    // Two furnace glows, fixed, so the floor is warm at the ends.
+    [[-7, -11], [7, 11]].forEach(([x, z]) => {
+        const l = new THREE.PointLight(0xff7a2a, 1.4, 22, 1.6);
+        l.position.set(x, 3, z); scene.add(l);
+    });
+
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), _mat(0x2a1d16, 0.95));
+    floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor);
+    // Ember cracks: thin glowing lines across the rock, pulsing.
+    const ember = new THREE.MeshBasicMaterial({ color: 0xff6a1a, transparent: true, opacity: 0.55 });
+    const cracks = [];
+    for (let i = 0; i < 22; i++) {
+        const c = new THREE.Mesh(new THREE.PlaneGeometry(0.08 + _rand(i) * 0.08, 1 + _rand(i + 4) * 3), ember.clone());
+        c.rotation.x = -Math.PI / 2; c.rotation.z = _rand(i + 9) * Math.PI;
+        c.position.set((_rand(i + 1) - 0.5) * 14, 0.012, (_rand(i + 2) - 0.5) * 24);
+        scene.add(c); cracks.push(c);
+    }
+    // The rock walls round the floor: boulders and timber shoring.
+    const rock = [0x3a2a20, 0x4a3426, 0x2e221a];
+    for (let i = 0; i < 26; i++) {
+        const side = i % 2 ? 1 : -1;
+        const b = new THREE.Mesh(new THREE.DodecahedronGeometry(1 + _rand(i) * 1.4), _mat(rock[i % 3], 0.95));
+        const along = (i / 26 - 0.5) * 26;
+        b.position.set(side * (G.w / 2 + 1.6 + _rand(i + 3) * 1.4), 0.4, along);
+        b.rotation.set(_rand(i) * 3, _rand(i + 1) * 3, 0);
+        scene.add(b);
+    }
+    const timber = _mat(0x5a3d26, 0.9);
+    for (let z = -G.d / 2; z <= G.d / 2 + 0.01; z += G.d / 3) {
+        [-1, 1].forEach(side => {
+            const post = new THREE.Mesh(new THREE.BoxGeometry(0.4, 3.2, 0.4), timber);
+            post.position.set(side * (G.w / 2 + 0.9), 1.6, z); scene.add(post);
+        });
+        // Posts only. The overhead beams crossed between the camera and the
+        // track and hid a row of junctions from above.
+    }
+    [[-G.w / 2 - 2.4, -G.d / 2 + 1, 0.1], [G.w / 2 + 2.4, G.d / 2 - 1, 0.35], [-G.w / 2 - 2.6, 3, 0.9], [G.w / 2 + 2.5, -4, 0.7]]
+        .forEach(([x, z, r], i) => { const p = PROP_KIT.mine(r, 800 + i); p.position.set(x, 0, z); scene.add(p); });
+
+    // Track: rails and sleepers along every edge.
+    const steel = _mat(0x8f949b, 0.35, 0.85), sleeper = _mat(0x4a3322, 0.95);
+    G.edges.forEach(([a, b]) => {
+        const A = G.nodes[a], Bn = G.nodes[b];
+        const dx = Bn.x - A.x, dz = Bn.z - A.z, len = Math.hypot(dx, dz), ang = Math.atan2(dx, dz);
+        const g = new THREE.Group();
+        g.position.set((A.x + Bn.x) / 2, 0, (A.z + Bn.z) / 2);
+        g.rotation.y = ang;
+        for (let t = -len / 2 + 0.35; t < len / 2 - 0.3; t += 0.5) {
+            const sl = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.08, 0.2), sleeper);
+            sl.position.set(0, 0.04, t); sl.receiveShadow = true; g.add(sl);
+        }
+        [-0.28, 0.28].forEach(x => {
+            const r = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.09, len), steel);
+            r.position.set(x, 0.12, 0); g.add(r);
+        });
+        scene.add(g);
+    });
+    // Junctions: a plate and a switch arrow the game turns.
+    const arrows = G.nodes.map(n => {
+        const plate = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.62, 0.08, 20), _mat(0x6b5a48, 0.5, 0.6));
+        plate.position.set(n.x, 0.05, n.z); scene.add(plate);
+        const arrow = new THREE.Group();
+        const shaft = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.06, 0.6), new THREE.MeshBasicMaterial({ color: 0xffe2a8 }));
+        shaft.position.z = 0.05; arrow.add(shaft);
+        const head = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.4, 3), new THREE.MeshBasicMaterial({ color: 0xffe2a8 }));
+        head.rotation.x = Math.PI / 2; head.position.z = 0.5; arrow.add(head);
+        arrow.position.set(n.x, 0.12, n.z);
+        arrow.visible = n.exits > 2;           // a corner has no choice to show
+        scene.add(arrow);
+        return arrow;
+    });
+
+    const dust = B.motes ? _motes({ ...B.motes, spread: 14 }) : null;
+    if (dust) scene.add(dust);
+
+    return {
+        arrows,
+        update(dt, t) {
+            cracks.forEach((c, i) => { c.material.opacity = 0.35 + Math.sin(t * 2 + i) * 0.2; });
+            if (dust) {
+                const p = dust.geometry.attributes.position, a = p.array;
+                for (let i = 0; i < a.length; i += 3) {
+                    a[i + 1] += dt * dust.userData.rise * 0.5;
+                    if (a[i + 1] > 5) a[i + 1] = 0;
+                }
+                p.needsUpdate = true;
+            }
+        },
     };
 }
 
@@ -613,4 +979,6 @@ export const STAGE_SETS = {
     hub: buildPerditionStreet,
     bad: buildBootHill,
     fin: buildBankFloor,
+    rail: buildRailRun,
+    mine: buildMineFloor,
 };
