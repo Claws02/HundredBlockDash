@@ -5732,4 +5732,13 @@ export const PROP_KIT = {
     railShed:    (pos, seed) => _mkRailShed(pos, seed),
     // r in [0.46, 0.66) is the hanging lantern, which registers itself.
     mine:        (r, seed) => _propMine(r >= 0.46 && r < 0.66 ? 0.8 : r, seed),
+    // r >= 0.78 is the smoking stack, which registers itself.
+    works:       (r, seed) => _propWorks(r >= 0.78 ? 0.5 : r, seed),
+    market:      (r, seed) => _propMarket(r, seed),
+    // r >= 0.55 is the steam vent and the neon, which register themselves.
+    alley:       (r, seed) => _propAlley(r >= 0.55 ? 0.4 : r, seed),
+    faeDecor:    seed => _mkFaeDecor(seed),
+    // The floating shard (r < 0.55) registers itself; a stage gets the spire.
+    voidSpire:   seed => { let s = seed; while (_sr(s) < 0.55) s += 0.37; return _mkVoidDecor(s); },
+    shopFront:   (pos, colorIdx) => _mkShopBuilding(pos, colorIdx, false),
 };

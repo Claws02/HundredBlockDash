@@ -983,6 +983,55 @@ export function buildMineFloor(stage, G) {
     };
 }
 
+// ---- Industrial Zone: the paint works yard ------------------------------
+//
+// "The machines that keep the lights on." A concrete yard under a rust sky,
+// fenced with containers and pipe runs, with drums of paint stacked at the
+// corners. The paintable tiles belong to the game; this is everything round
+// them, kept low and clear of the floor on the camera's (+x) side.
+export function buildWorksYard(stage, { w, d }) {
+    const B = DISTRICT_BIOMES.ind;
+    const scene = stage.scene;
+    scene.background = new THREE.Color(_hex(B.bgBot));
+    scene.fog = null;
+    stage.light({ sun: 0xffd2a0, sunI: 1.25, sky: 0xffc890, ground: 0x4a3a2a, hemiI: 0.75,
+                  rim: 0xffb070, rimI: 0.3, dir: [6, 18, 5], span: 14 });
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(80, 80), _mat(0x6a6259, 0.95));
+    ground.rotation.x = -Math.PI / 2; ground.position.y = -0.02; ground.receiveShadow = true; scene.add(ground);
+    // A hazard-striped kerb round the paint floor.
+    const stripeA = _mat(0xfacc15, 0.6), stripeB = _mat(0x1f1f1f, 0.6);
+    const kerb = (x, z, lw, ld) => {
+        const n = Math.round(Math.max(lw, ld) / 0.6);
+        for (let i = 0; i < n; i++) {
+            const k = new THREE.Mesh(new THREE.BoxGeometry(lw > ld ? lw / n : lw, 0.18, lw > ld ? ld : ld / n), i % 2 ? stripeA : stripeB);
+            if (lw > ld) k.position.set(x - lw / 2 + (i + 0.5) * lw / n, 0.09, z);
+            else k.position.set(x, 0.09, z - ld / 2 + (i + 0.5) * ld / n);
+            k.receiveShadow = true; scene.add(k);
+        }
+    };
+    kerb(0, -d / 2 - 0.25, w + 1, 0.5); kerb(0, d / 2 + 0.25, w + 1, 0.5);
+    kerb(-w / 2 - 0.25, 0, 0.5, d); kerb(w / 2 + 0.25, 0, 0.5, d);
+    // Beyond the kerb: containers and pipes on the far side, cones and paint
+    // drums (low) on the camera's side.
+    [[-w / 2 - 3.2, -6, 0.45], [-w / 2 - 3.2, 3, 0.1], [-w / 2 - 3.4, 9.5, 0.5], [-w / 2 - 3, -11, 0.2]].forEach(([x, z, r], i) => {
+        const p = PROP_KIT.works(r, 1100 + i); p.position.set(x, 0, z); p.rotation.y = Math.PI / 2; scene.add(p);
+    });
+    [[w / 2 + 2.2, -7, 0.7], [w / 2 + 2.4, 6, 0.7]].forEach(([x, z, r], i) => {
+        const p = PROP_KIT.works(r, 1200 + i); p.position.set(x, 0, z); p.rotation.y = Math.PI / 2; scene.add(p);
+    });
+    const drumCols = [0xef4444, 0x3b82f6, 0x22c55e, 0xfacc15];
+    [[w / 2 + 1.6, d / 2 + 1.4], [-w / 2 - 1.6, d / 2 + 1.4], [w / 2 + 1.6, -d / 2 - 1.4], [-w / 2 - 1.6, -d / 2 - 1.4]].forEach(([x, z], i) => {
+        for (let k = 0; k < 3; k++) {
+            const drum = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 1.0, 14), _mat(drumCols[(i + k) % 4], 0.5, 0.3));
+            drum.position.set(x + (k - 1) * 0.9, 0.5, z); drum.castShadow = true; scene.add(drum);
+            const spill = new THREE.Mesh(new THREE.CircleGeometry(0.5 + _rand(i * 3 + k) * 0.5, 16),
+                new THREE.MeshBasicMaterial({ color: drumCols[(i + k) % 4] }));
+            spill.rotation.x = -Math.PI / 2; spill.position.set(x + (k - 1) * 0.9 + 0.4, 0.01, z + 0.5); scene.add(spill);
+        }
+    });
+    return { update() {} };
+}
+
 /** Sets by district key. A game asks for the one its story is set in. */
 export const STAGE_SETS = {
     hub: buildPerditionStreet,
@@ -990,4 +1039,5 @@ export const STAGE_SETS = {
     fin: buildBankFloor,
     rail: buildRailRun,
     mine: buildMineFloor,
+    ind: buildWorksYard,
 };
