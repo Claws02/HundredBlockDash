@@ -1,164 +1,126 @@
 // ============================================================
-// Tree Climb: are the leaves actually random, and does a miss drop you?
-//
-// The sides used to strictly alternate — left, right, left, right — because the
-// anti-repeat guard compared the new side against the side just jumped to, which
-// was the same value by the time it ran. It read as random in the code and was a
-// metronome on the screen. This reads the lit leaf straight off the canvas over
-// a long climb and checks the sequence for the properties randomness has.
-//
-// It also checks the fall: grab the wrong side and you drop to the last branch
-// placed on THAT side, then climb the same ladder back. The pending leaf after a
-// fall is therefore predictable from the ladder you climbed, which makes the
-// rule checkable without exporting anything.
-//
-// usage: node treeclimb.js
+// TREE CLIMB — the 3D oaks, split screen, and solo across phones.
+//   1. Built; two views once the climb is set.
+//   2. A real tap on the side the leaf grew climbs and banks a coin; six in a row.
+//   3. The leaves are not a metronome (runs of two happen over a long ladder).
+//   4. The wrong side drops you to the last branch on THAT side; coins stay.
+//   5. P2's taps are read from their end (their right is the stage's left).
+//   6. Time up: highest wins, and the win callback carries payouts + standings.
+//   7. Solo (across phones): one full-screen view, and the score is the coins.
+//   8. A hard bot beats an idle player; no leaks, no errors.
+// usage: node treeclimb.js          (screenshots: qa/shot-treeclimb-*.png)
 // ============================================================
-const { chromium } = require('/opt/node22/lib/node_modules/playwright');
-const fs = require('fs');
-const path = require('path');
+require('./stageprobe').run('treeclimb', async ({ page, ok, launch, state, shot, waitPhase, forceEnd, waitResult, cleanup }) => {
+    const waitFor = async (fn, ms = 8000) => {
+        const t0 = Date.now();
+        while (Date.now() - t0 < ms) { const s = await state(); if (s && fn(s)) return s; await page.waitForTimeout(50); }
+        return state();
+    };
+    // P1 holds the bottom; P2 the top, from the far end.
+    const tapSide = async (slot, side) => {
+        const right = slot === 0 ? side > 0 : side < 0;
+        await page.mouse.click(right ? 320 : 90, slot === 0 ? 700 : 190);
+    };
+    const climb = async slot => {
+        const s = await waitFor(st => !st.climbers[slot].busy);
+        const h = s.climbers[slot].height;
+        await tapSide(slot, s.climbers[slot].pending);
+        return waitFor(st => st.climbers[slot].height === h + 1 && !st.climbers[slot].busy);
+    };
 
-const AGENT = fs.readFileSync(path.join(__dirname, 'agent.js'), 'utf8');
-const BASE = process.env.QA_BASE || 'http://127.0.0.1:8129/index.html';
-const pass = [], fail = [];
-const ok = (n, c, d) => (c ? pass : fail).push(n + (d ? ` — ${d}` : ''));
-
-(async () => {
-    const browser = await chromium.launch({
-        executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
-        args: ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=swiftshader',
-               '--enable-unsafe-swiftshader', '--mute-audio'],
-    });
-    const ctx = await browser.newContext({ viewport: { width: 412, height: 892 }, hasTouch: true });
-    const page = await ctx.newPage();
-    const errors = [];
-    page.on('pageerror', e => errors.push('PAGEERROR: ' + e.message));
-    page.on('console', m => { if (m.type() === 'error' && !/Failed to load resource/.test(m.text())) errors.push('CONSOLE: ' + m.text()); });
-
-    await page.addInitScript(() => { try { localStorage.clear(); localStorage.setItem('hbd_seen_howto', 'true'); } catch (e) {} });
-    await page.goto(BASE, { waitUntil: 'domcontentloaded' });
-    await page.addScriptTag({ content: AGENT });
-    await page.waitForFunction(() => !!window.CITY_GRAPH_REF, null, { timeout: 20000 });
-    await page.evaluate(() => window.__QA.bind());
-
-    // Two humans, so nothing is driving P2 while we watch P1's stem.
+    // Launch by hand so the win callback's payouts and standings are kept.
     await page.evaluate(async () => {
         const { state } = await import('/src/core/GameState.js');
         const MM = await import('/src/minigames/MinigameManager.js');
-        const layer = document.getElementById('minigame-layer');
-        [...layer.children].filter(el => !el.id).forEach(el => el.remove());
-        layer.style.display = 'flex';
-        document.getElementById('splash').style.display = 'none';
-        [1, 2].forEach(i => { document.getElementById(`mg-ready-${i}`).style.display = 'none'; });
-        state.mgActive = true; state.gameState = 'MINIGAME';
-        state.mgType = 'treeclimb'; state.players[1].isBot = false;
         window.__RESULT = undefined;
+        state.mgActive = true; state.mgType = 'treeclimb';
+        state.players[0].isBot = false; state.players[1].isBot = false;
+        document.getElementById('minigame-layer').style.display = 'flex';
+        document.getElementById('splash').style.display = 'none';
         const mod = await MM.loadMinigame('treeclimb');
-        mod.start(false, w => { window.__RESULT = w; }, 0.55);
+        window.__G = mod; window.__T0 = performance.now();
+        mod.start(false, (w, pay, stand) => { window.__RESULT = { winner: w, pay, stand, ms: performance.now() - window.__T0 }; }, 0.55);
     });
-    await page.waitForTimeout(700);
+    await page.waitForTimeout(900);
+    await shot('intro');
+    await waitPhase('climb', 30000);
+    await page.evaluate(() => window.__G._debugClock(0));
+    let s = await state();
+    ok('split screen once the climb is set', s.gl && s.views === 2 && s.n === 2, `views ${s.views}`);
 
-    // The lit leaf is the only bright green on the stem — climbed branches are
-    // drawn dark and the ones above are dimmer still. Its x tells us the side.
-    const leafSide = () => page.evaluate(() => {
-        const cv = [...document.querySelectorAll('#minigame-layer canvas')].pop();
-        if (!cv) return null;
-        const g = cv.getContext('2d');
-        const dpr = cv.width / cv.clientWidth;
-        const H = cv.clientHeight;
-        const meY = H - 168, SPACING = 74;
-        const y0 = Math.round((meY - SPACING - 34) * dpr);
-        const h  = Math.round(68 * dpr);
-        const band = g.getImageData(0, y0, cv.width, h).data;
-        let sum = 0, n = 0;
-        for (let i = 0; i < band.length; i += 4) {
-            const r = band[i], gg = band[i + 1], b = band[i + 2];
-            if (gg > 185 && r < 165 && b < 165) { sum += ((i / 4) % cv.width); n++; }
-        }
-        if (n < 8) return null;
-        const stemX = cv.clientWidth * 0.5;
-        return (sum / n / dpr) > stemX ? 1 : -1;
+    s = await climb(0);
+    ok('a tap on the side the leaf grew climbs and banks a coin', s.climbers[0].height === 1 && s.climbers[0].coins === 1, JSON.stringify(s.climbers[0]));
+    for (let i = 0; i < 5; i++) { await page.evaluate(() => window.__G._debugClock(0)); s = await climb(0); }
+    ok('six in a row', s.climbers[0].height === 6 && s.climbers[0].coins === 6, `height ${s.climbers[0].height}`);
+    await shot('climb');
+
+    // Wrong side: predict the landing from the ladder.
+    const c = s.climbers[0], wrong = -c.pending;
+    let expect = 0;
+    for (let i = c.height - 2; i >= 0; i--) if (c.branches[i] === wrong) { expect = i + 1; break; }
+    await tapSide(0, wrong);
+    await page.waitForTimeout(150);
+    await shot('fall');
+    s = await waitFor(st => !st.climbers[0].busy && st.climbers[0].falls === 1);
+    ok('the wrong side drops you to the last branch on that side, coins kept',
+       s.climbers[0].height === expect && s.climbers[0].coins === 6, `6 → ${s.climbers[0].height} (expected ${expect}), coins ${s.climbers[0].coins}`);
+
+    // P2, from the far end.
+    await page.evaluate(() => window.__G._debugClock(0));
+    s = await climb(1);
+    s = await climb(1);
+    ok('P2\'s taps are read from their end', s.climbers[1].height === 2, `P2 height ${s.climbers[1].height}`);
+    await shot('p2');
+
+    // A long ladder is not a metronome.
+    for (let i = 0; i < 14; i++) { await page.evaluate(() => window.__G._debugClock(0)); s = await climb(0); }
+    const br = s.climbers[0].branches;
+    let pairs = 0, triples = 0;
+    for (let i = 1; i < br.length; i++) if (br[i] === br[i - 1]) pairs++;
+    for (let i = 2; i < br.length; i++) if (br[i] === br[i - 1] && br[i] === br[i - 2]) triples++;
+    ok('the leaves repeat sides sometimes, never three alike', pairs > 0 && triples === 0, `${br.length} branches, ${pairs} repeats, ${triples} triples`);
+
+    await page.evaluate(() => window.__G._debugClock(29.6));
+    s = await waitFor(st => st.phase === 'over', 5000);
+    ok('time up ends the climb; the verdict is full-frame', s.phase === 'over' && s.views === 0, `phase ${s.phase} views ${s.views}`);
+    await page.waitForTimeout(1200);
+    await shot('verdict');
+    const r = await waitResult(20000);
+    ok('highest wins, and the result carries payouts and standings',
+       !!r && r.winner === 0 && Array.isArray(r.pay) && r.pay[0] === s.climbers[0].coins && r.stand[0] === s.climbers[0].height && r.stand[1] === 2,
+       JSON.stringify(r));
+
+    // Solo, the way a phone plays it in an online round.
+    const solo = await page.evaluate(async () => {
+        const Solo = await import('/src/minigames/SoloArena.js');
+        window.__SOLO = undefined;
+        Solo.play('treeclimb', 12345, sc => { window.__SOLO = sc; });
+        const MM = await import('/src/minigames/MinigameManager.js');
+        window.__G = await MM.loadMinigame('treeclimb');
+        return true;
     });
-
-    const tap = (side) => page.evaluate(s => {
-        const ov = [...document.getElementById('minigame-layer').children].find(e => !e.id);
-        const x = s > 0 ? window.innerWidth * 0.80 : window.innerWidth * 0.20;
-        const y = window.innerHeight * 0.80;          // P1's half
-        ov.dispatchEvent(new PointerEvent('pointerdown', { clientX: x, clientY: y, bubbles: true, cancelable: true }));
-    }, side);
-
-    // ── Climb, recording every side as it comes ────────────────────────────
-    const ladder = [];
-    for (let i = 0; i < 16; i++) {
-        const s = await leafSide();
-        if (s === null) break;
-        ladder.push(s);
-        await tap(s);
-        await page.waitForTimeout(300);               // jump + settle
+    await waitPhase('climb', 30000);
+    await page.evaluate(() => window.__G._debugClock(0));
+    s = await state();
+    ok('solo is one full-screen view', s.n === 1 && s.views === 1, `n ${s.n} views ${s.views}`);
+    for (let i = 0; i < 3; i++) {
+        const st = await waitFor(x => !x.climbers[0].busy);
+        const h = st.climbers[0].height;
+        await page.mouse.click(st.climbers[0].pending > 0 ? 320 : 90, 450);
+        s = await waitFor(x => x.climbers[0].height === h + 1 && !x.climbers[0].busy);
     }
-    ok('climb: the probe could read and climb the stem', ladder.length >= 14,
-       `${ladder.length} branches read`);
+    await shot('solo');
+    ok('solo taps read the left and right of the whole screen', s.climbers[0].height === 3, `height ${s.climbers[0].height}`);
+    await page.evaluate(() => window.__G._debugClock(29.8));
+    const t0 = Date.now();
+    let score;
+    while (Date.now() - t0 < 10000) { score = await page.evaluate(() => window.__SOLO); if (score !== undefined) break; await page.waitForTimeout(100); }
+    ok('solo reports the banked coins as its score', score === 3, `score ${score}`);
+    // The caller (NetMinigame) resets solo mode once the score is in.
+    await page.evaluate(async () => (await import('/src/minigames/SoloArena.js')).reset());
 
-    // Randomness, checked the way you check a coin: both sides come up, and the
-    // sequence is not a perfect alternation.
-    const lefts = ladder.filter(s => s === -1).length;
-    let alternations = 0, repeats = 0;
-    for (let i = 1; i < ladder.length; i++) {
-        if (ladder[i] === ladder[i - 1]) repeats++; else alternations++;
-    }
-    ok('random: both sides appear', lefts > 0 && lefts < ladder.length,
-       `${lefts} left of ${ladder.length}`);
-    ok('random: the sides do NOT strictly alternate',
-       repeats > 0, `${repeats} repeat(s), ${alternations} alternation(s) in ${ladder.length}`);
-    ok('random: nor do they get stuck on one side',
-       alternations > 0, `${alternations} alternation(s)`);
-
-    // Never three of the same side running — the one restriction on the draw.
-    let worst = 1, run = 1;
-    for (let i = 1; i < ladder.length; i++) {
-        run = ladder[i] === ladder[i - 1] ? run + 1 : 1;
-        worst = Math.max(worst, run);
-    }
-    ok('random: never three of the same side in a row', worst <= 2, `longest run ${worst}`);
-
-    // ── The fall ───────────────────────────────────────────────────────────
-    // Standing on branch `height-1`, grabbing the wrong side drops us to the
-    // last branch below that carries it. The leaf showing afterwards is then the
-    // one above wherever we landed — which the ladder we recorded predicts.
-    const height = ladder.length;
-    const pending = await leafSide();
-    ok('fall: a leaf is showing before the miss', pending !== null, String(pending));
-    const wrong = -pending;
-    let to = 0;
-    for (let i = height - 2; i >= 0; i--) if (ladder[i] === wrong) { to = i + 1; break; }
-
-    await tap(wrong);
-    await page.waitForTimeout(900);                   // fall + recovery
-    const after = await leafSide();
-    ok('fall: grabbing the wrong side drops you to the last branch on that side',
-       after !== null && after === ladder[to],
-       `fell to height ${to}, expected leaf ${ladder[to]}, saw ${after}`);
-    ok('fall: it costs real height, never zero', to < height, `${height} → ${to}`);
-    await page.screenshot({ path: path.join(__dirname, 'shot-treeclimb.png') });
-
-    // And the ladder above is unchanged — you re-climb what you fell down.
-    const reclimb = [];
-    for (let i = 0; i < Math.min(3, height - to); i++) {
-        const s = await leafSide();
-        if (s === null) break;
-        reclimb.push(s);
-        await tap(s);
-        await page.waitForTimeout(300);
-    }
-    ok('fall: the branches above survive, so you climb the same ladder back',
-       reclimb.length > 0 && reclimb.every((s, i) => s === ladder[to + i]),
-       `saw [${reclimb}] expected [${ladder.slice(to, to + reclimb.length)}]`);
-
-    ok('no console/page errors', errors.length === 0, [...new Set(errors)].slice(0, 3).join(' | '));
-    fs.writeFileSync(path.join(__dirname, 'result-treeclimb.json'),
-        JSON.stringify({ pass, fail, ladder, height, pending, to, errors: [...new Set(errors)] }, null, 2));
-    console.log('PASS:'); pass.forEach(p => console.log('  ✓', p));
-    console.log('FAIL:'); fail.length ? fail.forEach(p => console.log('  ✗', p)) : console.log('  (none)');
-    await browser.close();
-    process.exit(fail.length ? 1 : 0);
-})();
+    await launch({ bot: true, skill: 0.85 });
+    const rb = await waitResult(180000);
+    ok('a hard bot beats an idle player', !!rb && rb.winner === 1, rb ? `winner=${rb.winner} in ${(rb.ms / 1000).toFixed(1)}s` : 'timed out');
+    await cleanup();
+});

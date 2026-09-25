@@ -38,7 +38,7 @@ const EXPECT = {
     steadyhand:   [true,  'tablet', true ],
     rhythmforge: [false, null,     false],
     lootcatch:    [true,  'tablet', true ],
-    treeclimb:    [true,  'tablet', true ],
+    treeclimb:    [false, null,     true ],
     tankclash:   [false, null,     true ],   // dual controls, but great online
     penalty:     [false, null,     false],
     clearout:     [false, null,     true ],
@@ -75,7 +75,7 @@ const EXPECT = {
 // The headline counts from the plan. If a property changes and one of these
 // moves, the plan is out of date and should be updated deliberately.
 const EXPECT_PHONE_MANY = 4;    // LIVE games — converted to N slots
-const EXPECT_TABLET_MANY = 9;    // ...plus the `roomy` games, which need the extra room
+const EXPECT_TABLET_MANY = 8;    // ...plus the `roomy` games, which need the extra room
 const EXPECT_ONLINE = 31;       // possible across devices
 const EXPECT_ONLINE_NOW = 5;    // running across devices today
 
