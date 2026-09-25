@@ -1,724 +1,381 @@
 // ============================================================
-// TREE CLIMB — a stem each, one race, and a coin for every branch.
-// TWO, THREE OR FOUR players, all climbing at once.
+// TREE CLIMB — a trunk each, one race, and a coin for every branch.
+// (3D rebuild of the 2D original, kept in archived/TreeClimb.js.)
 //
-// A leaf sprouts on the left or the right of your stem. Tap that side to swing
-// up onto it. The NEXT leaf does not exist until you are standing on the last
-// one, so the game is never a memorised pattern — it is a read-and-react loop
-// that gets faster the higher you go.
+// Face-off hold, SPLIT SCREEN: each half is a side-on camera riding up that
+// player's own trunk. Played across phones (solo) the one trunk fills the
+// screen.
 //
-// Grab the wrong side and you fall to the last branch actually placed on THAT
-// side — the ladder above you survives, so you climb the same branches back.
-// Coins bank off the deepest height you reached, so a fall costs you the race
-// but never your purse: the comeback rule (§3) is served by the money rather
-// than by making mistakes free.
+// A leaf sprouts on the LEFT or the RIGHT of your trunk. Tap that side of your
+// half and you jump up onto it; only then does the next one grow. Sides are
+// random (never three alike in a row), so it is a read, not a rhythm.
+// Grab the wrong side and you fall to the last branch on THAT side — the
+// branches above survive, so you climb the same ladder back.
 //
-// The climbers are the players' real 3D board pieces, rendered once at the start
-// of the round and drawn as sprites.
-//
-// COIN GAME (R6b): every branch pays, and everybody keeps what they climbed.
-// You are racing for the bonus, not for the right to be paid at all.
-//
-// LIVE (MG_PROFILE.live): one stem per seat, all of them climbing at the same
-// time. Nothing was ever shared but the clock — a private ladder, a private
-// purse, a private fall — so the conversion is the arrays and the zones. It is
-// `roomy`: a stem needs vertical room to scroll, and a quarter of a phone is
-// 206x400 with a 74 px branch spacing, which is five branches of visible tree.
+// COIN GAME (R6b): every new branch banks a coin, and a fall never takes one
+// back. 30 seconds; highest when the clock runs out takes the round.
 // ============================================================
 
 import { state } from '../core/GameState.js';
-import { CHAR_ICONS } from '../config/GameConfig.js';
-import { createCharacterMesh } from '../engine/Renderer.js';
 import { sfx, haptic } from '../engine/AudioManager.js';
-import { registerMinigameCleanup, slotCount, isBotSlot, seatFor } from './MinigameManager.js';
-import { zonesFor } from '../config/MinigameLayout.js';
+import { registerMinigameCleanup, isBotSlot } from './MinigameManager.js';
+import { createStage } from '../engine/Stage.js';
+import { createDirector } from '../engine/StageDirector.js';
+import { seat, faceoffHud, effects } from '../engine/StageKit.js';
 import * as Solo from './SoloArena.js';
 
-// ── Tunables ────────────────────────────────────────────────────────────────
-// A RACE AGAINST THE CLOCK, not to a finish line. Whoever is highest when the
-// 30 s runs out takes it — there is no top to reach. First-to-N ended the moment
-// the leader arrived, which meant the trailing player's climb simply stopped
-// being counted, and a run of bad luck early was unrecoverable because the race
-// was over before they could make it back. On a clock every second is still
-// worth climbing for, right to the last one.
-const MATCH_TIME  = 30;     // s — the whole game
-// 1 per branch, not 2: at 2 the winner hit the 30 cap every single time, which
-// made the payout a flat number instead of a record of how far you got.
-const COIN_PER    = 1;      // coins banked per branch
-const MAX_PAYOUT  = 30;     // R6b: cap it, matching Loot Catch's ceiling
-const RISE_TIME   = 0.20;   // s of the jump up onto a leaf
-const FALL_PER    = 0.16;   // s per branch dropped when you grab the wrong side
-const RECOVER_MS  = 170;    // brief hold after landing a fall
-const SPACING     = 74;     // px between branches on the drawn stem
-const PERCH_DX    = 30;     // px the climber sits off-centre, onto its branch
-const HOP_H       = 22;     // px of arc above the line during a jump
+// ── Rules (unchanged from the 2D game) ───────────────────────────────────────
+const MATCH_TIME = 30;
+const COIN_PER = 1, MAX_PAYOUT = 30;
+const RISE_TIME = 0.20, FALL_PER = 0.16, RECOVER = 0.17;
+// ── The tree ─────────────────────────────────────────────────────────────────
+const SP = 1.15;                         // world units between branches
+const TRUNK_X = [-3.6, 3.6];             // P1's tree, P2's tree
+const PERCH = 0.95;                      // how far out on its branch a climber stands
+const TREE_H = 90 * SP;
+const READY_TIME = 1.4;
+const FIG_SCALE = 0.62;
 
-// ── Module state ────────────────────────────────────────────────────────────
-let _done = false, _onWin = null, _isBot = false, _botSkill = 0.55;
-let _overlay = null, _canvas = null, _ctx = null, _dpr = 1;
-let _af = null, _last = 0, _elapsed = 0;
-let _W = 0, _H = 0;
-// Per player: height climbed, the side the pending leaf grew on, animation and
-// stun clocks, and the scrolling offset that makes the stem slide past.
-let _p = null;
-let _n = 2;                       // slots, not seats
-let _botDelay = [];               // one per slot: every bot climbs at its own pace
-let _sprites = [];                // one climber per slot, pre-rendered from the 3D models
-let _zones = [];                  // one rect+rotation per slot, from MinigameLayout
-const _cleanups = [];
-const _timers   = [];
+// ── Module state ─────────────────────────────────────────────────────────────
+let _done = false, _onWin = null, _botSkill = 0.55;
+let _overlay = null, _stage = null, _dir = null, _hud = null, _fx = null;
+let _n = 2, _p = [], _cams = [], _botDelay = [];
+let _mats = null, _geo = null;
+let _phase = 'intro', _phaseT = 0, _t = 0, _clock = 0;
 
-// ── The climbers are the real board pieces ──────────────────────────────────
-//
-// Each player's actual 3D character is rendered ONCE into an offscreen canvas at
-// the start of the round and then drawn as a sprite. Rendering it live would
-// mean holding a second WebGL context open for the whole game alongside the
-// board's, for a model that never changes shape — so the context is created,
-// used for two frames and released immediately.
-//
-// If anything here fails the game falls back to the flat emoji climber, because
-// a minigame that will not start is far worse than one drawn simply.
-function _renderCharSprites() {
-    const out = new Array(_n).fill(null);
-    if (typeof THREE === 'undefined') return out;
-    let gl = null;
-    try {
-        const SIZE = 168;
-        gl = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-        gl.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));   // R4
-        gl.setSize(SIZE, SIZE, false);
-        gl.setClearColor(0x000000, 0);
-
-        const scene = new THREE.Scene();
-        scene.add(new THREE.AmbientLight(0xffffff, 0.9));
-        const key = new THREE.DirectionalLight(0xffffff, 1.15);
-        key.position.set(2.5, 4, 3.5);
-        scene.add(key);
-        const rim = new THREE.DirectionalLight(0xbcd8ff, 0.5);
-        rim.position.set(-3, 2, -2);
-        scene.add(rim);
-        const cam = new THREE.PerspectiveCamera(30, 1, 0.1, 60);
-
-        for (let pid = 0; pid < _n; pid++) {
-            const p = state.players[seatFor(pid)];
-            const grp = createCharacterMesh(p?.charType || 'slime', p?.color ?? 0xffffff);
-            scene.add(grp);
-            // Frame whatever the model happens to be — they range from a squat
-            // slime to a banker in a top hat. Pulling back a fixed multiple of
-            // the model's height cropped the tall ones (the bunny lost its ears,
-            // the cabbie half its cap), so the distance is solved from the
-            // bounding SPHERE and the field of view, with a margin.
-            const box = new THREE.Box3().setFromObject(grp);
-            const sph = box.getBoundingSphere(new THREE.Sphere());
-            const mid = sph.center;
-            const dist = (sph.radius * 1.10) / Math.sin((cam.fov * Math.PI / 180) / 2);
-            cam.position.set(mid.x + dist * 0.16, mid.y + dist * 0.11, mid.z + dist);
-            cam.lookAt(mid);
-            gl.render(scene, cam);
-
-            const cv = document.createElement('canvas');
-            cv.width = gl.domElement.width; cv.height = gl.domElement.height;
-            cv.getContext('2d').drawImage(gl.domElement, 0, 0);
-            out[pid] = cv;
-
-            scene.remove(grp);
-            grp.traverse(n => {
-                if (n.geometry) n.geometry.dispose();
-                if (n.material) (Array.isArray(n.material) ? n.material : [n.material]).forEach(m => m.dispose());
-            });
-        }
-    } catch (e) {
-        return new Array(_n).fill(null);
-    } finally {
-        // Hand the context straight back — the board needs it more than we do.
-        if (gl) { try { gl.forceContextLoss && gl.forceContextLoss(); } catch (e) {} gl.dispose(); }
-    }
-    return out;
-}
-
-function _after(fn, ms) {
-    const id = setTimeout(() => { _timers.splice(_timers.indexOf(id), 1); fn(); }, ms);
-    _timers.push(id);
-    return id;
-}
-
-// The stem is a ladder of branches that PERSISTS. `branches[i]` is the side of
-// the i-th branch from the ground, and the invariant is that there is always
-// exactly one more branch than you have climbed — `branches[height]` is the leaf
-// you are reading right now. Falling doesn't delete the branches above you; you
-// climb the same ladder back up, which is why the sides have to be remembered
-// rather than recomputed.
-function _newClimber() {
-    const c = {
-        height: 0,          // branches climbed; you stand on branches[height-1]
-        best: 0,            // deepest height reached — coins bank off this
-        branches: [],       // side of every branch placed, ground upward
-        perch: 0,           // side you are standing on (0 = the ground)
-        anim: null,         // { kind:'rise'|'fall', from, to, fromX, toX, t, dur }
-        holdUntil: 0,       // performance.now() during the recovery after a fall
-        shake: 0,
-        coins: 0,
-        falls: 0,
-    };
-    c.branches.push(_nextSide(c));
+// ── The ladder ───────────────────────────────────────────────────────────────
+// `branches[i]` is the side of the i-th branch from the ground, and there is
+// always exactly one more branch than you have climbed: `branches[height]` is
+// the leaf you are reading now.
+function _newClimber(slot) {
+    const c = { slot, height: 0, best: 0, branches: [], meshes: [], perch: 0, anim: null, hold: 0,
+                coins: 0, falls: 0, shake: 0 };
+    _grow(c);
     return c;
 }
-
-// Genuinely random, with one restriction: never a third of the same side in a
-// row. The old rule read the side you had *just jumped to*, which was always the
-// current side by the time it ran — so it flipped every single time and the tree
-// was a perfect left-right-left ladder. Runs of two are now common and are what
-// make the read worth doing.
+// Genuinely random, never a third of the same side in a row. Drawn by BRANCH
+// index from the shared seed when solo, so every phone climbs the same tree.
 function _nextSide(c) {
-    // By BRANCH index: the read is the whole game, so two players comparing
-    // heights have to have climbed the same tree — and they reach branch 12 at
-    // very different moments, which is precisely what a shared stream cannot
-    // survive.
     const r = Solo.isSolo() ? Solo.draw(c.branches.length) : Math.random();
     let s = r < 0.5 ? -1 : 1;
     const n = c.branches.length;
     if (n >= 2 && c.branches[n - 1] === c.branches[n - 2] && s === c.branches[n - 1]) s = -s;
     return s;
 }
+const _pending = c => c.branches[c.height];
 
-// The leaf currently showing: always the next branch up the ladder.
-function _pending(c) { return c.branches[c.height]; }
+function _grow(c) {
+    const side = _nextSide(c);
+    c.branches.push(side);
+    if (!_stage?.gl) return;
+    const i = c.branches.length - 1;
+    const g = new THREE.Group();
+    const stick = new THREE.Mesh(_geo.stick, _mats.bark);
+    stick.rotation.z = Math.PI / 2 - side * 0.25; stick.position.set(side * 0.55, -0.12, 0); g.add(stick);
+    const pad = new THREE.Mesh(_geo.pad, _mats.leaf.clone());
+    pad.scale.set(1, 0.32, 0.8); pad.position.set(side * PERCH, 0.02, 0); g.add(pad);
+    [-1, 1].forEach(k => {
+        const tuft = new THREE.Mesh(_geo.tuft, pad.material);
+        tuft.position.set(side * (PERCH + 0.3), 0.15, k * 0.28); g.add(tuft);
+    });
+    g.position.set(_trunkX(c), (i + 1) * SP, 0);
+    g.scale.setScalar(0.01);
+    _stage.add(g);
+    c.meshes.push({ g, mat: pad.material, born: _t });
+}
+const _trunkX = c => (_n === 1 ? 0 : TRUNK_X[c.slot]);
 
-// ── Lifecycle ───────────────────────────────────────────────────────────────
 export function start(isBot, onWin, botSkill = 0.55) {
     if (!state.mgActive) return;
-    _done = false; _onWin = onWin; _isBot = isBot; _botSkill = botSkill;
-    _n = Solo.isSolo() ? 1 : Math.max(2, Math.min(4, slotCount()));
-    _p = Array.from({ length: _n }, () => _newClimber());
-    _last = 0; _elapsed = 0;
-    _botDelay = Array.from({ length: _n }, () => _botReact());
-    _sprites = _renderCharSprites();
+    _done = false; _onWin = onWin; _botSkill = botSkill;
+    _phase = 'intro'; _phaseT = 0; _t = 0; _clock = 0;
+    _n = Solo.isSolo() ? 1 : 2;
     registerMinigameCleanup(_destroy);           // R3
-    _build();
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-        if (_done) return;
-        _resize();
-        const neu = document.getElementById('mg-neutral');
-        if (neu) neu.textContent = 'TAP THE SIDE THE LEAF GREW';
-        _af = requestAnimationFrame(_tick);
-    }));
-}
 
-// ── DOM (R2) ────────────────────────────────────────────────────────────────
-function _build() {
     const mg = document.getElementById('minigame-layer');
-    if (_overlay) { _overlay.remove(); _overlay = null; }
-
-    _overlay = document.createElement('div');
-    _overlay.style.cssText =
-        'position:absolute;inset:0;overflow:hidden;touch-action:none;' +
-        'background:linear-gradient(180deg,#0a1a10 0%,#123021 50%,#0a1a10 100%);';
-
-    _canvas = document.createElement('canvas');
-    _canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;';
-    _overlay.appendChild(_canvas);
-    _ctx = _canvas.getContext('2d');
-
-    // R1a: each player taps in their OWN frame. P2 holds the phone upside down,
-    // so their "left" is the screen's right — the side has to be flipped before
-    // it is compared with the leaf.
-    const onDown = e => {
-        if (_done) return;
-        e.preventDefault();
-        // Alone there is no upside-down zone to flip for: your left is left.
-        if (Solo.isSolo()) {
-            _tap(0, e.clientX < _overlay.clientWidth / 2 ? -1 : 1);
-            return;
-        }
-        const r = _overlay.getBoundingClientRect();
-        const x = e.clientX - r.left, y = e.clientY - r.top;
-        const pid = _zoneAt(x, y);
-        if (pid < 0 || isBotSlot(pid)) return;   // a bot's stem ignores fingers
-        const z = _zones[pid], zr = z.rect;
-        // Left and right are read inside the player's OWN zone, and a seat at
-        // the far edge holds the screen the other way up — so their left is the
-        // screen's right, and the side is flipped before it meets the leaf.
-        const half = (x - zr.x) < zr.w / 2 ? -1 : 1;
-        _tap(pid, z.rot === 180 ? -half : half);
-    };
-    _overlay.addEventListener('pointerdown', onDown);
-    _cleanups.push(() => _overlay.removeEventListener('pointerdown', onDown));
-
-    const onResize = () => _resize();
-    window.addEventListener('resize', onResize);
-    _cleanups.push(() => window.removeEventListener('resize', onResize));
-
+    _overlay = document.createElement('div');    // R2
+    _overlay.style.cssText = 'position:absolute;inset:0;overflow:hidden;background:#bfe3ff;z-index:5;';
     mg.appendChild(_overlay);
-}
-
-function _resize() {
-    if (!_canvas || !_overlay) return;
-    _dpr = Math.min(window.devicePixelRatio || 1, 2);       // R4
-    _W = _overlay.clientWidth; _H = _overlay.clientHeight;
-    _canvas.width  = Math.round(_W * _dpr);
-    _canvas.height = Math.round(_H * _dpr);
-    _ctx.setTransform(_dpr, 0, 0, _dpr, 0, 0);
-    _zones = zonesFor(_n, _W, _H);
-}
-
-/** Which slot's zone contains this point, or -1. */
-function _zoneAt(x, y) {
-    for (let i = 0; i < _zones.length; i++) {
-        const r = _zones[i].rect;
-        if (x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h) return i;
+    _stage = createStage(_overlay, { hold: 'faceoff', fov: 50, background: 0xbfe3ff });
+    _hud = faceoffHud(_stage, { bg: 'rgba(20,40,20,.78)' });
+    if (_n === 1) {
+        // Alone on the phone: no far half. The near half's strip takes the screen.
+        const [near, far] = _stage.hud.children;
+        if (far) far.style.display = 'none';
+        if (near) near.style.height = '100%';
     }
-    return -1;
+    _fx = effects(_stage);
+    _dir = createDirector(_stage);
+    if (_stage.gl) {
+        _mats = {
+            bark: new THREE.MeshStandardMaterial({ color: 0x6b4423, roughness: 0.95 }),
+            leaf: new THREE.MeshStandardMaterial({ color: 0x3f9b3a, roughness: 0.8, emissive: 0x7dff5a, emissiveIntensity: 0 }),
+            coin: new THREE.MeshStandardMaterial({ color: 0xffd23f, emissive: 0xb07a00, emissiveIntensity: 0.6, metalness: 0.4, roughness: 0.3 }),
+        };
+        _geo = { stick: new THREE.CylinderGeometry(0.07, 0.12, 1.2, 6), pad: new THREE.SphereGeometry(0.5, 10, 8), tuft: new THREE.SphereGeometry(0.26, 8, 6) };
+        _buildWood();
+        _cams = Array.from({ length: _n }, (_, slot) => {
+            const c = new THREE.PerspectiveCamera(50, 1, 0.1, 120);
+            c.up.set(0, slot === 0 ? 1 : -1, 0);  // the far half reads from its own end
+            return c;
+        });
+    }
+    _p = Array.from({ length: _n }, (_, slot) => _newClimber(slot));
+    _p.forEach(_buildFig);
+    _botDelay = _p.map(() => _botReact());
+    for (let s = 0; s < _n; s++) _hud.hint(s, seat(s).bot ? '' : 'TAP THE SIDE THE LEAF GREW');
+
+    // Taps: which half (whose tree), then which side of it, as that player sees it.
+    _stage.listen('pointerdown', e => {
+        e.preventDefault();
+        if (_phase !== 'climb') return;
+        const p = _stage.toLocal(e.clientX, e.clientY);
+        const right = p.x >= _stage.width / 2;
+        if (_n === 1) { _tap(0, right ? 1 : -1); return; }
+        const slot = p.y >= _stage.height / 2 ? 0 : 1;
+        if (isBotSlot(slot)) return;
+        // The far half is rolled 180°: P2's right is the stage's left.
+        _tap(slot, (right ? 1 : -1) * (slot === 0 ? 1 : -1));
+    });
+
+    const mid = 0;
+    _dir.open({
+        place: 'THE FAE WILDS · THE BIG OAKS', title: 'TREE CLIMB',
+        sub: `🪙 A COIN A BRANCH · ${MATCH_TIME} SECONDS`,
+        from: { pos: [mid + 2, 3, 16], look: [mid, 6, 0] },
+        to: { pos: [mid, 2, 9], look: [mid, 1.5, 0] },
+        onDone: () => { if (!_done) _enter('ready'); },
+    });
+    _stage.start(_frame);
 }
 
-// ── Moves ───────────────────────────────────────────────────────────────────
-function _tap(pid, side) {
-    const c = _p[pid];
-    if (!c || c.anim) return;                           // mid jump or mid fall
-    if (performance.now() < c.holdUntil) return;        // still picking yourself up
+function _destroy() {
+    _done = true;
+    if (_stage) { _stage.views = null; _stage.dispose(); _stage = null; }
+    if (_overlay) { _overlay.remove(); _overlay = null; }
+    _cams = []; _dir = null; _hud = null; _fx = null; _mats = null; _geo = null;
+}
 
+// ── The wood ─────────────────────────────────────────────────────────────────
+function _buildWood() {
+    const scene = _stage.scene;
+    scene.fog = new THREE.Fog(0xbfe3ff, 12, 48);
+    scene.add(new THREE.HemisphereLight(0xeaf6ff, 0x4a6b2a, 0.85));
+    const sun = new THREE.DirectionalLight(0xfff2d6, 0.7); sun.position.set(4, 20, 10); scene.add(sun);
+    const ground = new THREE.Mesh(new THREE.CircleGeometry(40, 32), new THREE.MeshStandardMaterial({ color: 0x5fae45, roughness: 1 }));
+    ground.rotation.x = -Math.PI / 2; _stage.add(ground);
+    const xs = _n === 1 ? [0] : TRUNK_X;
+    xs.forEach(x => {
+        const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.46, TREE_H, 12), _mats.bark);
+        trunk.position.set(x, TREE_H / 2, 0); _stage.add(trunk);
+        // Roots, and a sign every ten branches so height reads at a glance.
+        for (let k = 0; k < 5; k++) {
+            const r = new THREE.Mesh(new THREE.ConeGeometry(0.25, 1.4, 5), _mats.bark);
+            const a = k / 5 * Math.PI * 2;
+            r.position.set(x + Math.cos(a) * 0.45, 0.2, Math.sin(a) * 0.45); r.rotation.set(Math.sin(a) * 1.2, 0, -Math.cos(a) * 1.2); _stage.add(r);
+        }
+        for (let m = 10; m <= 80; m += 10) {
+            const cv = document.createElement('canvas'); cv.width = 64; cv.height = 32;
+            const g = cv.getContext('2d');
+            g.fillStyle = '#c8955a'; g.fillRect(0, 0, 64, 32); g.strokeStyle = '#5a3a1a'; g.lineWidth = 3; g.strokeRect(1, 1, 62, 30);
+            g.fillStyle = '#3a220c'; g.font = 'bold 22px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(String(m), 32, 17);
+            const sign = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 0.4), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(cv) }));
+            sign.position.set(x, (m + 0.5) * SP, 0.42); _stage.add(sign);
+        }
+    });
+    // A wood behind, and a canopy that the tops disappear into.
+    const leafM = new THREE.MeshStandardMaterial({ color: 0x2f7d3a, roughness: 0.9 });
+    for (let k = 0; k < 26; k++) {
+        const x = -26 + k * 2.1 + Math.random(), z = -14 - Math.random() * 16, h = 8 + Math.random() * 10;
+        const t = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.45, h, 7), _mats.bark); t.position.set(x, h / 2, z); _stage.add(t);
+        const c = new THREE.Mesh(new THREE.SphereGeometry(2 + Math.random() * 1.5, 9, 7), leafM); c.position.set(x, h, z); _stage.add(c);
+    }
+}
+
+function _buildFig(c) {
+    if (!_stage.gl) return;
+    const ch = _stage.character(c.slot);
+    ch.rig.root.scale.setScalar(FIG_SCALE);
+    ch.anim.play('ready');
+    // `c.anim` is the jump in progress; the character's animator is `c.ctl`.
+    Object.assign(c, { rig: ch.rig, ctl: ch.anim });
+    // The coin that waits above the next NEW branch.
+    const coin = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.06, 16), _mats.coin);
+    coin.rotation.x = Math.PI / 2; _stage.add(coin);
+    c.coin = coin;
+}
+
+// ── Play ─────────────────────────────────────────────────────────────────────
+function _tap(slot, side) {
+    const c = _p[slot];
+    if (!c || c.anim || c.hold > 0 || _phase !== 'climb') return;
     if (side === _pending(c)) {
-        // Jump: arc from the branch you're on onto the leaf you just picked.
-        c.anim = { kind: 'rise', from: c.height, to: c.height + 1,
-                   fromX: c.perch, toX: side, t: 0, dur: RISE_TIME };
+        c.anim = { kind: 'rise', from: c.height, to: c.height + 1, fromX: c.perch, toX: side, t: 0, dur: RISE_TIME };
         sfx('seq_lit');
-        if (pid === 0) haptic([12]);
+        if (!isBotSlot(slot)) haptic([12]);
         return;
     }
-
-    // Wrong side. You jumped at thin air on THAT side, so you drop to the last
-    // branch that was actually placed there — searched strictly below the one
-    // you're standing on, so a mistake always costs you height. If that side has
-    // nothing below you, it is all the way back to the ground.
+    // Wrong side: down to the last branch placed on THAT side, or the ground.
     let to = 0;
-    for (let i = c.height - 2; i >= 0; i--) {
-        if (c.branches[i] === side) { to = i + 1; break; }
-    }
+    for (let i = c.height - 2; i >= 0; i--) if (c.branches[i] === side) { to = i + 1; break; }
     c.falls++;
-    c.shake = 9;
-    c.anim = { kind: 'fall', from: c.height, to,
-               fromX: c.perch, toX: to > 0 ? c.branches[to - 1] : 0,
-               t: 0, dur: Math.max(0.18, (c.height - to) * FALL_PER) };
+    c.shake = 0.35;
+    c.anim = { kind: 'fall', from: c.height, to, fromX: c.perch, toX: to > 0 ? c.branches[to - 1] : 0, t: 0,
+               dur: Math.max(0.18, (c.height - to) * FALL_PER) };
     sfx('land_bad');
-    if (pid === 0) haptic([26, 40, 26]);
+    if (!isBotSlot(slot)) haptic([26, 40, 26]);
 }
 
-// An animation finished — apply it.
-function _settle(pid) {
-    const c = _p[pid];
+function _land(c) {
     const a = c.anim;
     c.anim = null;
     c.height = a.to;
-    c.perch  = a.toX;
-
-    if (a.kind === 'fall') {
-        c.holdUntil = performance.now() + RECOVER_MS;
-        return;                                        // coins already banked
-    }
-
-    // Landed a branch. Coins bank off the DEEPEST height reached, so a later
-    // fall never takes money back out of your pocket.
+    c.perch = a.toX;
+    if (a.kind === 'fall') { c.hold = RECOVER; return; }       // coins already banked
     if (c.height > c.best) {
         c.best = c.height;
         c.coins = Math.min(MAX_PAYOUT, c.best * COIN_PER);
-        if (pid === 0) sfx('coin_gain');
+        sfx('coin_gain');
+        if (_stage?.gl) _fx.burst(new THREE.Vector3(_trunkX(c) + c.perch * PERCH, c.height * SP + 1.1, 0.2), 0xffd23f, 0.1, 0.22);
     }
-    // Keep exactly one leaf showing above the top of the ladder.
-    if (c.branches.length <= c.height) c.branches.push(_nextSide(c));
+    if (c.branches.length <= c.height) _grow(c);
 }
 
-// ── Bot (§5) ────────────────────────────────────────────────────────────────
-// The bot reads the same leaf a player does, with a skill-scaled reaction delay
-// and a chance of grabbing the wrong side — which stuns it exactly as it would
-// a human, so the tiers differ in climbing rate rather than in the rules.
-function _botReact() {
-    return (0.62 - _botSkill * 0.40 + Math.random() * 0.16) * 1000;
-}
-
-function _botStep(pid, dtMs) {
-    const c = _p[pid];
-    if (!c || c.anim || performance.now() < c.holdUntil) return;
-    _botDelay[pid] -= dtMs;
-    if (_botDelay[pid] > 0) return;
-    _botDelay[pid] = _botReact();
+const _botReact = () => 0.62 - _botSkill * 0.40 + Math.random() * 0.16;
+function _botStep(c, dt) {
+    if (c.anim || c.hold > 0) return;
+    _botDelay[c.slot] -= dt;
+    if (_botDelay[c.slot] > 0) return;
+    _botDelay[c.slot] = _botReact();
     const want = _pending(c);
-    // 15% easy → 5% hard. It was 23% easy, which was fine when a mistake cost a
-    // moment — now that it costs one or two branches the errors compound, and
-    // measured, the easy bot failed to reach the top inside the ceiling about
-    // half the time. The tiers still separate cleanly on climb rate.
-    const wrong = Math.random() < (0.20 - _botSkill * 0.18);
-    _tap(pid, wrong ? -want : want);
+    _tap(c.slot, Math.random() < 0.20 - _botSkill * 0.18 ? -want : want);
 }
 
-// ── Loop (R1) ───────────────────────────────────────────────────────────────
-function _tick(now) {
-    if (!state.mgActive || _done) return;
-    _af = requestAnimationFrame(_tick);
-    const dt = _last === 0 ? 1 / 60 : Math.min((now - _last) / 1000, 0.1);
-    _last = now;
-    _elapsed += dt;
+function _enter(phase) {
+    _phase = phase; _phaseT = 0;
+    if (phase === 'ready') {
+        if (_stage?.gl) _stage.views = _cams.map((cam, slot) => ({ camera: cam, rect: _n === 1 ? [0, 0, 1, 1] : slot === 0 ? [0, 0, 1, 0.5] : [0, 0.5, 1, 0.5] }));
+        _hud.say('READY…', '', 1200, _t, '#facc15'); sfx('countdown');
+    } else if (phase === 'climb') { _hud.say('CLIMB!', '', 700, _t, '#4ade80'); sfx('go'); haptic([40]); }
+}
 
-    for (let i = 0; i < _n; i++) {
-        const c = _p[i];
-        if (c.anim) {
-            c.anim.t += dt / c.anim.dur;
-            if (c.anim.t >= 1) _settle(i);
-        }
-        if (c.shake > 0) c.shake = Math.max(0, c.shake - dt * 26);
-    }
-    // Every bot climbs its own stem. This used to drive slot 1 alone, so above
-    // two seats the third and fourth climbers never left the ground.
-    for (let pid = 0; pid < _n; pid++) if (isBotSlot(pid)) _botStep(pid, dt * 1000);
+function _frame(dt) {
     if (_done) return;
-
-    if (_elapsed >= MATCH_TIME) { _finishOnHeight(); return; }
-    _draw();
+    _t += dt; _phaseT += dt;
+    _hud.tick(_t);
+    if (_phase === 'ready' && _phaseT >= READY_TIME) _enter('climb');
+    if (_phase === 'climb') {
+        _clock += dt;
+        _p.forEach(c => {
+            c.hold = Math.max(0, c.hold - dt);
+            if (c.anim) { c.anim.t += dt / c.anim.dur; if (c.anim.t >= 1) _land(c); }
+            if (isBotSlot(c.slot) && _n > 1) _botStep(c, dt);
+        });
+        if (_clock >= MATCH_TIME) _end();
+    }
+    _p.forEach(c => _draw(c, dt));
+    _fx?.update(dt);
+    const dirOwns = !!_dir && _dir.update(dt);
+    if (_done) return;
+    _renderHud();
 }
 
-// ── Draw ────────────────────────────────────────────────────────────────────
-function _draw() {
-    const ctx = _ctx;
-    ctx.clearRect(0, 0, _W, _H);
-    // No second climber, no rotation, no divider: the tree is the screen.
-    if (Solo.isSolo()) { _drawHalf(0); return; }
-    if (!_zones.length) _zones = zonesFor(_n, _W, _H);
-    _zones.forEach((z, pid) => {
-        const r = z.rect;
-        ctx.save();
-        // Clip to the zone: a stem is taller than its zone and would otherwise
-        // scroll straight over the neighbour above it.
-        ctx.beginPath(); ctx.rect(r.x, r.y, r.w, r.h); ctx.clip();
-        if (z.rot === 180) {
-            ctx.translate(r.x + r.w, r.y + r.h);
-            ctx.rotate(Math.PI);
-        } else {
-            ctx.translate(r.x, r.y);
-        }
-        _drawHalf(pid, r.w, r.h);
-        ctx.restore();
-    });
-    _drawDivider();
-}
+const _ease = t => t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
 
-// Drawn in the player's OWN zone, with 0,0 at its top-left corner: the caller
-// has already translated (and rotated a far seat), so every zone is identical
-// by construction (R5). `zw`/`zh` are that zone's size — the whole screen alone,
-// a half at two seats, a quarter at four.
-function _drawHalf(pid, zw, zh) {
-    const ctx = _ctx, c = _p[pid];
-    if (zw === undefined) { zw = _W; zh = _H; }
-    // Everything below used to measure from the top edge of a half. In zone
-    // coordinates that edge IS zero, and the height is simply the zone's.
-    const halfTop = 0;
-    const a = c.anim;
-    const falling = !!a && a.kind === 'fall';
-    const recovering = performance.now() < c.holdUntil;
-
-    // The climber sits at a fixed height and the stem scrolls past, so the
-    // sense of climbing comes from the world moving rather than from the
-    // character drifting toward an edge it would eventually hit.
-    // R1b: kept well clear of the outer edge, where the status pill floats.
-    const meY = zh - 168;
-    // Centred in the zone. This was 0.37 — pushed off-centre back when every
-    // stem was drawn into one undivided frame, where two trunks at the middle
-    // would have tiled into a single continuous trunk spanning the screen.
-    // Each player now has a zone of their own holding exactly one tree, so the
-    // offset has no job left and only parks the tree off to one side.
-    const cx  = zw * 0.5 + (c.shake ? Math.sin(performance.now() / 22) * c.shake : 0);
-
-    // Visual height, which runs continuously through a jump or a fall so the
-    // stem scrolls with the movement instead of snapping at the end of it.
-    // A fall accelerates; a jump eases out at the top of its arc.
-    const t = a ? Math.min(1, a.t) : 0;
+function _draw(c, dt) {
+    if (!c.rig) return;
+    c.shake = Math.max(0, c.shake - dt);
+    const a = c.anim, t = a ? Math.min(1, a.t) : 0;
     const p = a ? (a.kind === 'fall' ? t * t : _ease(t)) : 0;
     const climbed = a ? a.from + (a.to - a.from) * p : c.height;
-    const off = climbed * SPACING;
-
-    // ── Stem ───────────────────────────────────────────────────────────────
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(0, halfTop, zw, zh - halfTop);
-    ctx.clip();
-
-    ctx.fillStyle = '#5b3a1e';
-    ctx.fillRect(cx - 17, halfTop - 40, 34, zh - halfTop + 60);
-    ctx.fillStyle = 'rgba(0,0,0,.22)';
-    ctx.fillRect(cx + 5, halfTop - 40, 8, zh - halfTop + 60);
-    // Bark texture, scrolling with the climb so the stem visibly moves.
-    ctx.strokeStyle = 'rgba(0,0,0,.20)'; ctx.lineWidth = 2;
-    for (let k = -2; k < 14; k++) {
-        const y = halfTop + ((k * 46 + (off % 46)) % (zh - halfTop + 92)) - 20;
-        ctx.beginPath(); ctx.moveTo(cx - 14, y); ctx.lineTo(cx + 12, y + 7); ctx.stroke();
-    }
-
-    // ── The ladder ─────────────────────────────────────────────────────────
-    // Every branch is drawn from the remembered side, not from a formula, so
-    // what you climbed back down to is what you climbed up. Only the leaf you
-    // are reading right now is lit; the rest are behind you or above you.
-    const lit = _pending(c);
-    const litIdx = c.height;
-    for (let i = Math.max(0, Math.floor(climbed) - 5); i < c.branches.length; i++) {
-        const y = meY + (climbed - (i + 1)) * SPACING;
-        if (y > zh + 60) continue;
-        if (y < halfTop - 60) break;
-        const live = i === litIdx && !falling;
-        const pulse = live ? 0.75 + Math.sin(performance.now() / 180) * 0.25 : 1;
-        _branch(ctx, cx, y, c.branches[i], live ? 1 : (i < c.height ? 0.5 : 0.34), pulse);
-    }
-
-    // ── The climber ────────────────────────────────────────────────────────
-    // Sideways travel onto (or down to) the branch, with a hop over the top of
-    // a jump. This is the whole reason the jump reads as a jump: the character
-    // visibly leaves one branch and arrives on the one you pressed.
-    const fromX = a ? a.fromX * PERCH_DX : c.perch * PERCH_DX;
-    const toX   = a ? a.toX   * PERCH_DX : c.perch * PERCH_DX;
-    const meX   = cx + fromX + (toX - fromX) * (a ? _ease(t) : 0);
-    const hop   = a && a.kind === 'rise' ? -Math.sin(t * Math.PI) * HOP_H : 0;
-    const tumble = falling ? t * 5.2 : 0;
-    const armSide = a && a.kind === 'rise' ? a.toX : 0;
-    _climber(ctx, meX, meY + hop, pid, armSide, recovering, tumble);
-    ctx.restore();
-
-    // ── HUD at this player's edge ──────────────────────────────────────────
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.font = '900 34px "Bebas Neue", sans-serif';
-    ctx.fillStyle = SLOT_ACCENT[pid] || '#ffffff';
-    // Height climbed, and the clock — the clock IS the finish line now, so it
-    // has to be the thing you can see from your own edge.
-    ctx.fillText(`${c.height}`, zw / 2 - 40, zh - 96);
-    const left = Math.max(0, MATCH_TIME - _elapsed);
-    ctx.fillStyle = left <= 5 ? '#ef4444' : 'rgba(255,255,255,.82)';
-    ctx.fillText(`${Math.ceil(left)}s`, zw / 2 + 44, zh - 96);
-    ctx.font = '800 11px "Nunito", system-ui, sans-serif';
-    ctx.fillStyle = 'rgba(255,255,255,.42)';
-    ctx.fillText('BRANCHES', zw / 2 - 40, zh - 74);
-    ctx.fillText('LEFT', zw / 2 + 44, zh - 74);
-    ctx.font = '800 14px "Nunito", system-ui, sans-serif';
-    ctx.fillStyle = '#fcd34d';
-    ctx.fillText(`🪙 ${c.coins}`, zw / 2, zh - 56);
-
-    if (falling || recovering) {
-        ctx.font = '900 20px "Bebas Neue", sans-serif';
-        ctx.fillStyle = '#ef4444';
-        ctx.fillText('MISSED — FELL!', zw / 2, zh - 124);
-    }
-
-    // Left/right tap hints, lit on the side the leaf is on so the control and
-    // the answer are never ambiguous — shape and position, not colour (§4).
-    for (const s of [-1, 1]) {
-        const bx = zw / 2 + s * (zw * 0.30);
-        const live = !a && !recovering && s === lit;
-        ctx.globalAlpha = live ? 0.92 : 0.16;
-        ctx.fillStyle = '#e7f6cf';
-        ctx.beginPath();
-        ctx.moveTo(bx + s * 15, zh - 116);
-        ctx.lineTo(bx - s * 9, zh - 132);
-        ctx.lineTo(bx - s * 9, zh - 100);
-        ctx.closePath(); ctx.fill();
-        ctx.globalAlpha = 1;
-    }
-}
-
-function _branch(ctx, cx, y, side, alpha, pulse = 1) {
-    ctx.globalAlpha = alpha;
-    ctx.strokeStyle = '#6b4423'; ctx.lineWidth = 9; ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.moveTo(cx + side * 12, y);
-    ctx.lineTo(cx + side * 60, y - 6);
-    ctx.stroke();
-    // Leaf cluster on the end.
-    const lx = cx + side * 74, ly = y - 10;
-    ctx.fillStyle = alpha < 1 ? '#3f6b34' : '#6ee06a';
-    for (const [ox, oy, r] of [[0, 0, 17 * pulse], [-13 * side, 5, 12 * pulse], [11 * side, 8, 11 * pulse]]) {
-        ctx.beginPath(); ctx.ellipse(lx + ox, ly + oy, r, r * 0.72, side * 0.3, 0, Math.PI * 2); ctx.fill();
-    }
-    if (alpha === 1) {
-        ctx.strokeStyle = 'rgba(255,255,255,.5)'; ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.ellipse(lx, ly, 19 * pulse, 14 * pulse, 0, 0, Math.PI * 2); ctx.stroke();
-    }
-    ctx.globalAlpha = 1;
-}
-
-// The character each player actually chose, so the climber up the tree is the
-// one whose token is on the board. Falls back to a plain face if the type is
-// somehow unknown, which keeps the game playable rather than drawing nothing.
-// By SEAT, not by slot: the climber in slot 2 is a real player with a real
-// character, and reading state.players[2] only happens to be right when the
-// roster is the identity.
-function _charIcon(pid) {
-    return CHAR_ICONS[state.players[seatFor(pid)]?.charType] || null;
-}
-
-function _climber(ctx, cx, y, pid, armSide, dazed, tumble = 0) {
-    const body = SLOT_ACCENT[pid] || '#ffffff';
-    const sprite = _sprites[pid];
-    const icon = _charIcon(pid);
-    ctx.save();
-    // A fall tumbles. The rotation is around the body, so the arm and the
-    // character go with it and it reads as losing your grip.
-    if (tumble) { ctx.translate(cx, y); ctx.rotate(tumble); ctx.translate(-cx, -y); }
-    // Reaching arm, so the jump reads as an action rather than a teleport.
-    if (armSide) {
-        ctx.strokeStyle = body; ctx.lineWidth = 6; ctx.lineCap = 'round';
-        ctx.beginPath(); ctx.moveTo(cx, y - 6); ctx.lineTo(cx + armSide * 40, y - 26); ctx.stroke();
-    }
-    if (sprite) {
-        // The real board piece. It is already built in the player's colour, so
-        // it says whose climber it is without needing a disc behind it.
-        // Sized and seated so the model's feet land on the branch rather than
-        // its bounding box centre — the frame carries a margin all round.
-        const h = 84, w = h * (sprite.width / sprite.height);
-        ctx.save();
-        ctx.shadowColor = 'rgba(0,0,0,.45)'; ctx.shadowBlur = 8; ctx.shadowOffsetY = 3;
-        ctx.drawImage(sprite, cx - w / 2, y - h * 0.70, w, h);
-        ctx.restore();
-    } else {
-        // Fallback if the model could not be rendered: the player's colour as a
-        // disc with their character's icon on it. Nine characters are choosable
-        // by either player, so the icon alone cannot say whose climber this is
-        // (§4 — and never colour alone either).
-        ctx.fillStyle = body;
-        ctx.beginPath(); ctx.ellipse(cx, y, 17, 19, 0, 0, Math.PI * 2); ctx.fill();
-        ctx.strokeStyle = 'rgba(0,0,0,.35)'; ctx.lineWidth = 2; ctx.stroke();
-        if (icon) {
-            ctx.font = '24px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
-            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-            ctx.fillText(icon, cx, y + 1);
-        } else {
-            ctx.fillStyle = '#fff';
-            ctx.beginPath(); ctx.arc(cx - 5, y - 5, 3.2, 0, Math.PI * 2); ctx.fill();
-            ctx.beginPath(); ctx.arc(cx + 5, y - 5, 3.2, 0, Math.PI * 2); ctx.fill();
-        }
-    }
-    ctx.restore();
-    if (dazed) {
-        ctx.strokeStyle = '#fbbf24'; ctx.lineWidth = 3;
-        for (let k = 0; k < 3; k++) {
-            const a = performance.now() / 160 + k * 2.1;
-            ctx.beginPath();
-            ctx.arc(cx + Math.cos(a) * 26, y - 26 + Math.sin(a) * 8, 3, 0, Math.PI * 2);
-            ctx.stroke();
-        }
-    }
-}
-
-// A ladder on the centre line showing both climbers, so "am I winning?" is
-// answered without either player reading the other's half upside down.
-const SLOT_ACCENT = ['#ff5a5a', '#5a9bff', '#5fd68a', '#ffd45f'];
-
-// The zone borders, plus one standings bar per climber stacked on the centre
-// line. At two seats this is the divider the face-off always had; at four it is
-// the cross between the quarters, and the bar sits where everybody can read it.
-function _drawDivider() {
-    const ctx = _ctx;
-    ctx.strokeStyle = 'rgba(255,255,255,.14)'; ctx.lineWidth = 2;
-    _zones.forEach(z => {
-        const r = z.rect;
-        ctx.strokeRect(r.x + 1, r.y + 1, r.w - 2, r.h - 2);
+    const fx = a ? a.fromX + (a.toX - a.fromX) * _ease(t) : c.perch;
+    const hop = a && a.kind === 'rise' ? Math.sin(t * Math.PI) * 0.45 : 0;
+    const x0 = _trunkX(c);
+    const y = climbed * SP + hop + (climbed > 0 ? 0.12 : 0);
+    c.rig.root.position.set(x0 + fx * PERCH + (c.shake ? Math.sin(_t * 60) * 0.06 : 0), y, 0.05);
+    c.rig.root.rotation.z = a && a.kind === 'fall' ? t * 5.2 : 0;
+    c.rig.root.rotation.y = fx * 0.5;
+    const want = _phase === 'over' ? (c.slot === _winnerSlot() ? 'victory' : 'ready')
+        : a && a.kind === 'fall' ? 'hit' : c.hold > 0 ? 'hit' : 'ready';
+    if (c.pose !== want && _phase !== 'over') { c.pose = want; c.ctl.play(want); }
+    // Leaves: sprout in, and the one to read now glows.
+    c.meshes.forEach((m, i) => {
+        m.g.scale.setScalar(Math.min(1, 0.01 + (_t - m.born) * 6));
+        const live = i === c.height && !(a && a.kind === 'fall');
+        m.mat.emissiveIntensity = live ? 0.35 + Math.sin(_t * 9) * 0.2 : 0;
+        m.mat.color.setHex(live ? 0x7dff5a : i < c.height ? 0x2e6b2a : 0x3f9b3a);
     });
-
-    const y = _H / 2;
-    const bh = Math.max(4, Math.round(14 / _n));
-    const bw = _W * 0.44, bx = (_W - bw) / 2;
-    ctx.fillStyle = 'rgba(8,6,18,.72)';
-    _round(ctx, bx - 6, y - _n * bh / 2 - 5, bw + 52, _n * bh + 10, 7); ctx.fill();
-    // With no finish line the bars are scaled to whoever is currently highest,
-    // so the gap between them is the thing being read rather than progress
-    // toward a number nobody is racing to.
-    const lead = Math.max(1, ..._p.map(c => c.height));
-    for (let i = 0; i < _n; i++) {
-        ctx.fillStyle = SLOT_ACCENT[i] || '#fff';
-        _round(ctx, bx, y - _n * bh / 2 + i * bh, Math.max(2, bw * (_p[i].height / lead)), bh - 1, 2);
-        ctx.fill();
+    // The coin sits over the next branch while that branch is a new best.
+    if (c.coin) {
+        const nb = c.height + 1, side = c.branches[c.height];
+        c.coin.visible = nb > c.best && _phase !== 'over';
+        c.coin.position.set(x0 + side * PERCH, nb * SP + 0.75 + Math.sin(_t * 4) * 0.06, 0);
+        c.coin.rotation.z = _t * 3;
     }
-    ctx.fillStyle = 'rgba(255,255,255,.85)';
-    ctx.font = '900 12px "Bebas Neue", sans-serif';
-    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-    ctx.fillText(_p.map(c => c.height).join('–'), bx + bw + 6, y);
-}
-
-function _round(ctx, x, y, w, h, r) {
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.arcTo(x + w, y, x + w, y + h, r);
-    ctx.arcTo(x + w, y + h, x, y + h, r);
-    ctx.arcTo(x, y + h, x, y, r);
-    ctx.arcTo(x, y, x + w, y, r);
-    ctx.closePath();
-}
-
-function _ease(t) { const x = Math.min(1, t); return 1 - (1 - x) * (1 - x); }
-
-// ── End (R6 / R6b) ──────────────────────────────────────────────────────────
-// Out of time with nobody at the top: the higher climber takes it. Reported as
-// what it is — the old copy said "REACHES THE TOP" for this too, which claimed
-// something that had plainly not happened.
-function _finishOnHeight() {
-    if (Solo.isSolo()) return _finishSolo();
-    _finish(_leader(), true);
-}
-
-/** The outright highest climber, or -1 if the top is shared. */
-function _leader() {
-    const best = Math.max(..._p.map(c => c.height));
-    const top = _p.reduce((a, c, i) => (c.height === best ? a.concat(i) : a), []);
-    return top.length === 1 ? top[0] : -1;
-}
-
-function _nameOf(pid) {
-    const p = state.players[seatFor(pid)];
-    return (p && p.name ? p.name : `P${pid + 1}`).toUpperCase();
-}
-
-/**
- * Branches climbed. This is a payday game, so the number is also the haul the
- * host pays out — see MG_PAYOUT. Coins bank off the DEEPEST height reached, so
- * reporting the banked coins rather than the current height keeps the online
- * rule the same as the offline one: a fall never takes money back.
- */
-export function soloScore() { return Math.min(_p[0].coins, MAX_PAYOUT); }
-
-function _finishSolo() {
-    if (_done) return;
-    _done = true;
-    const neu = document.getElementById('mg-neutral');
-    if (neu) neu.textContent = `${_p[0].best} BRANCHES — ${_p[0].coins} 🪙 BANKED`;
-    sfx('mg_win'); haptic('heavy');
-    const banked = soloScore();
-    _after(() => { _destroy(); Solo.soloFinish(banked); }, 1400);
-}
-
-// Every finish is now on height — there is no top to reach — so the flag stays
-// only to keep the signature honest for a future finish-line variant.
-function _finish(winnerId, onHeight = false) {
-    if (_done) return;
-    _done = true;
-    state.mgActive = false;
-    const neu = document.getElementById('mg-neutral');
-    if (neu) {
-        const score = _p.map(c => c.height).join('–');
-        neu.textContent = winnerId < 0
-            ? `TIME! DEAD HEAT — ${score}`
-            : `TIME! ${_nameOf(winnerId)} CLIMBED HIGHEST — ${score}`;
+    const cam = _cams[c.slot];
+    if (cam) {
+        // The climber a little below the middle, the next two leaves above.
+        const want = new THREE.Vector3(x0, climbed * SP + 0.6, _n === 1 ? 9.5 : 7.5);
+        if (!cam.userData.init) { cam.position.copy(want); cam.userData.init = true; }
+        cam.position.lerp(want, Math.min(1, dt * 7));
+        cam.lookAt(x0, cam.position.y + 0.4, 0);
     }
-    sfx(winnerId < 0 ? 'land_bad' : 'mg_win');
-    haptic('heavy');
-    // BOTH of these are read NOW, not inside the timer. _destroy() nulls _p, and
-    // the callback calls _destroy() before _onWin — so a standings array built
-    // in there is built from nothing and throws, which is exactly what it did:
-    // every Tree Climb round ended on a TypeError and never reported a result.
-    const payouts   = _p.map(c => Math.min(c.coins, MAX_PAYOUT));
+}
+
+function _winnerSlot() {
+    if (_p.length < 2) return 0;
+    return _p[0].height > _p[1].height ? 0 : _p[1].height > _p[0].height ? 1 : -1;
+}
+
+function _renderHud() {
+    if (!_hud) return;
+    const left = Math.max(0, Math.ceil(MATCH_TIME - _clock));
+    _p.forEach(c => {
+        _hud.line(c.slot, `🌳 ${c.height} · 🪙 ${c.coins} · ⏱ ${left}s`);
+        if (_clock > 5 || c.falls) _hud.hint(c.slot, c.hold > 0 || (c.anim && c.anim.kind === 'fall') ? 'WRONG SIDE!' : '');
+    });
+    const el = document.getElementById('mg-neutral');
+    if (el && _phase === 'climb') el.textContent = _n === 1 ? `${_p[0].height} BRANCHES · ⏱ ${left}s` : `${seat(0).name} ${_p[0].height} – ${_p[1].height} ${seat(1).name} · ⏱ ${left}s`;
+}
+
+// ── End ──────────────────────────────────────────────────────────────────────
+/** Banked coins: the payday number the host pays out (MG_PAYOUT). */
+export function soloScore() { return _p[0] ? Math.min(_p[0].coins, MAX_PAYOUT) : 0; }
+
+function _end() {
+    if (_phase === 'over') return;
+    _phase = 'over';
+    _hud.say('');
+    _p.forEach(c => { if (c.anim) _land(c); });
+    // Read NOW: _destroy() clears everything before the callback runs.
+    const payouts = _p.map(c => Math.min(c.coins, MAX_PAYOUT));
     const standings = _p.map(c => c.height);
-    _after(() => { _destroy(); _onWin(winnerId, payouts, standings); }, 1400);
+    const el = document.getElementById('mg-neutral');
+    if (_n === 1) {
+        if (el) el.textContent = `${_p[0].best} BRANCHES — ${_p[0].coins} 🪙 BANKED`;
+        _hud.say('TIME!', `${_p[0].coins} 🪙 BANKED`, 0, _t, '#facc15');
+        sfx('mg_win'); haptic('heavy');
+        const banked = soloScore();
+        setTimeout(() => { if (_done) return; _destroy(); Solo.soloFinish(banked); }, 1400);
+        return;
+    }
+    const w = _winnerSlot();
+    if (_stage) _stage.views = null;               // the director's shots are full-frame
+    _dir.close({
+        winner: w, figs: _p.filter(c => c.rig).map(c => ({ slot: c.slot, rig: c.rig, anim: c.ctl })),
+        sub: w < 0 ? `LEVEL AT ${standings[0]} BRANCHES` : `${standings[w]} BRANCHES TO ${standings[1 - w]}`,
+        closeUp: (f, p) => ({ pos: [p.x, p.y + 1.2, p.z + 5.5], look: [p.x, p.y + 0.7, p.z] }),
+        onDone: () => { if (_done) return; _destroy(); _onWin?.(w, payouts, standings); },
+    });
+    if (el) el.textContent = w < 0 ? `TIME! DEAD HEAT — ${standings.join('–')}` : `TIME! ${seat(w).name} CLIMBED HIGHEST — ${standings.join('–')}`;
 }
 
-// ── Cleanup (R3) ────────────────────────────────────────────────────────────
-function _destroy() {
-    _done = true;
-    _timers.forEach(clearTimeout); _timers.length = 0;
-    _cleanups.forEach(f => { try { f(); } catch (e) {} }); _cleanups.length = 0;
-    if (_af) { cancelAnimationFrame(_af); _af = null; }
-    _ctx = null; _canvas = null;
-    if (_overlay) { _overlay.remove(); _overlay = null; }
-    _p = null; _sprites = []; _zones = [];
-    _last = 0; _elapsed = 0; _W = 0; _H = 0;
+// ── Probe hooks ──────────────────────────────────────────────────────────────
+export function _debugState() {
+    return { phase: _phase, clock: +_clock.toFixed(2), n: _n,
+             climbers: _p.map(c => ({ height: c.height, best: c.best, coins: c.coins, falls: c.falls, pending: _pending(c),
+                                      branches: c.branches.slice(), busy: !!c.anim || c.hold > 0 })),
+             views: _stage?.views ? _stage.views.length : 0, gl: !!_stage?.gl, turned: !!_stage?.turned };
 }
+/** Probes: stop (or restart) the clock, so a slow renderer cannot run it out mid-test. */
+export function _debugClock(s) { _clock = s; }

@@ -9,15 +9,12 @@ export const MG_TYPES = [
     'rhythmforge',
     'orbdeflect',
     'snapstrike',
-    'quickdraw',
     'gridrecall',
     'oddoneout',
     'steadyhand',
     'sortrush',
-    'framematch',
     'speedboat',
     'lootcatch',
-    'freeze',
     'clearout',
     // The four classic formats the genre is built on, added to fix the roster's
     // structural gaps (docs/MINIGAME_BACKLOG.md): a paddle-and-ball rally,
@@ -30,7 +27,6 @@ export const MG_TYPES = [
     // had been defined and unused since the orientation config was written.
     'memorymatch',
     'bombpass',
-    'grandprix',
     'treeclimb',
     // The first game on the shared 3D stage (src/engine/Stage.js): the players'
     // own figures, in Perdition, in the landscape hold.
@@ -53,32 +49,32 @@ export const MG_TYPES = [
     'balloontoss',
     'minigolf',
     'bowling',
+    'sackrace',
+    'snowball',
+    'pancakes',
+    'shellgame',
 ];
 
 export const MG_INFO = {
-    sumospheres: { icon: '⭕', title: 'SUMO SPHERES',  desc: 'Drag your half to roll your sphere and knock the opponent off the arena! Build momentum for bigger hits. The arena shrinks after 30 seconds — last one standing wins!' },
+    sumospheres: { icon: '⭕', title: 'SUMO SPHERES',  desc: 'Everybody rides a glass ball on one stone ring. DRAG in your zone to roll — hold a direction to build momentum, and momentum is what knocks people flying. At 22 seconds the outer tiles start to crumble and the straw rope pulls in. Last one in the ring wins!' },
     tankclash:   { icon: '🎯', title: 'TANK CLASH',    desc: 'Use the left joystick to move and aim your tank, tap the right side to fire! Use cover to dodge shots. First to land 3 hits wins!' },
     rhythmforge: { icon: '🥁', title: 'RHYTHM FORGE',  desc: 'Tap the correct lane as notes reach the hit zone! 3 rounds of increasing difficulty — each player takes a turn. Perfect, Great, and Good hits score 3, 2, and 1 points. Most points overall wins!' },
     orbdeflect:  { icon: '🌀', title: 'ORB DEFLECT',   desc: 'Draw glowing barriers with your finger to deflect the orb into your opponent\'s core! P1 owns the bottom half, P2 the top. 3 HP each — first to lose all HP loses, or most HP after 30 seconds wins!' },
     snapstrike:  { icon: '💥', title: 'SNAP STRIKE',   desc: 'A needle sweeps your bar — tap to lock it on the bullseye! PERFECT, GREAT, and GOOD snaps score 3, 2, and 1 points. The bar speeds up and the target shrinks across 5 rounds. Highest total wins!' },
-    quickdraw:   { icon: '🤠', title: 'QUICK DRAW',    desc: 'Both halves say WAIT. The instant they flip to DRAW, tap as fast as you can — first finger wins the round! But tap too early and you false-start and lose it. Best of 3 wins the duel.' },
     gridrecall:  { icon: '🧠', title: 'GRID RECALL',   desc: 'A pattern of tiles flashes on your 3×3 grid, then vanishes — race to tap it all back from memory! The FIRST player to nail the whole pattern wins the round, but one wrong tile knocks you out. The pattern grows and the flash shortens across 4 rounds. Win the most rounds to take it!' },
     oddoneout:   { icon: '🔍', title: 'ODD ONE OUT',   desc: 'Every tile on your grid is the same shade except one. Tap the odd tile to score and get a fresh, harder grid — more tiles, subtler difference. A wrong tap locks you briefly and deals a new grid, so you are never stuck on one you cannot see. Most correct in 30 seconds wins!' },
     steadyhand:  { icon: '🎯', title: 'STEADY HAND',   desc: 'A target drifts around your half — keep your finger on it to bank time! It speeds up as the round goes on. Whoever holds the target longest after 22 seconds wins.' },
-    framematch:  { icon: '🖼️', title: 'FRAME MATCH',   desc: 'One face in the middle, cut into three strips. The top and bottom are the face you were shown — the MIDDLE swaps for somebody else\'s every second. Tap your side the moment the face is whole. Tap when it is not and you sit out a second and a half. FIRST TO 3 ROUNDS!' },
-    speedboat:   { icon: '🚤', title: 'SPEED BOAT',    desc: 'One river, one set of rocks, and a camera on your own boat. DRAG to steer across the water, TAP to change gear — SLOW, CRUISE, FLAT OUT. Flat out finishes in fifteen seconds and is also the gear where the next line of rocks arrives before you can reach the gap in it, and a hit at speed costs more. Boats shove each other. FIRST TO THE FLAG!' },
+    speedboat:   { icon: '🚤', title: 'SPEED BOAT',    desc: 'One river, two boats, a chase camera each. DRAG ⬅➡ to steer, TAP to change gear — SLOW, CRUISE, FLAT OUT. Every line of rocks has one gate, flagged red and green, and it moves. Flat out gets there fastest and hits hardest — a crash knocks you back to SLOW. Boats shove each other. FIRST TO THE FLAG!' },
     sortrush:    { icon: '🔺', title: 'SHAPE SNAP',    desc: 'One shape flashes up in the middle — both of you are looking at the same one. Slam the matching button on your side before your rival does to take the round. The four buttons get shuffled every round, so you have to actually find it. Wrong button locks you out; jumping early hands them the round. FIRST TO 3 WINS!' },
     lootcatch:   { icon: '🧺', title: 'LOOT CATCH',    desc: '💰 PAYDAY ROUND — every coin you catch is REAL money, and everybody keeps what they scoop, win or lose. Loot drops in waves down four lanes: mostly 💣, with a 🪙 coin or a 💎 gem (worth 3) hidden among them. Pick the lane and get there — the basket takes time to cross, so the far coin is a gamble. The same waves fall on every side. Biggest haul after 34 seconds wins the bonus and rolls first, but nobody leaves empty-handed.' },
-    freeze:      { icon: '👁️', title: 'FREEZE',        desc: 'One Eye in the middle of one track, and it picks a side. HOLD your half to run at it — but when the Eye turns and looks at YOU, freeze or get sent back. It does not always watch both of you: when it stares at your rival, that is your free run. Get spotted and your scuffle covers their footsteps and hands them a free step. FIRST HAND ON THE EYE WINS!' },
     clearout:    { icon: '🥏', title: 'CLEAR OUT',     desc: 'A wall splits the arena with one small gap. You start with 4 discs on your side — drag back and release to slingshot them through the gap onto your rival\'s side. Discs collide and ricochet! First to empty their own side wins (or fewest discs on your side when the clock runs out).' },
     puck:        { icon: '🏒', title: 'PUCK',          desc: 'Air hockey. One puck, one table, a goal at each end. Drag your mallet anywhere in your half — the puck bounces off the walls and off whoever gets to it. Strike on the move to add pace, use the side walls for angles, and don\'t get caught upfield. FIRST TO 5 GOALS!' },
-    penalty:     { icon: '⚽', title: 'PENALTY',       desc: 'One shoots, one keeps, then you swap. The SHOOTER pulls the ball back and lets go — how far you pull is how hard it is hit, and a harder ball gets UP. The KEEPER slides along the line and keeps diving through the flight, so a soft shot gives them time to reach it. Hit it hard enough to beat the dive, and not so hard it clears the bar. Aim near a post and the keeper cannot reach it, but the woodwork can. 3 kicks each, most goals wins!' },
+    penalty:     { icon: '⚽', title: 'PENALTY',       desc: 'A shootout under the stadium lights: one shoots, one keeps, then you swap — each with your own camera. The SHOOTER pulls back and lets go: how far you pull is how hard it is hit, and a harder ball gets UP; pull left to put it right. Only you can see your aim ring. The KEEPER slides along the line and keeps diving through the flight, so a soft shot gives them time. Too hard clears the bar; too near a post hits it. 3 kicks each, most goals wins!' },
     lightcycles: { icon: '🏍️', title: 'LIGHT CYCLES',  desc: 'Two cycles, one arena, solid trails behind both. Push your stick to steer — up, down, left, right. Crash into any wall — theirs, yours, or the arena\'s — and you lose the round. Every metre you take is a metre they can\'t have. Best of 3, and the arena closes in each round.' },
     fourinarow:  { icon: '🔴', title: 'FOUR IN A ROW', desc: 'The classic, on one shared board you both read from your own edge. Tap a column on your side to drop a disc. First to line up four — across, down or diagonally — wins. No clock on this one: take as long over a move as you need.' },
     memorymatch: { icon: '🃏', title: 'MEMORY MATCH',  desc: '🪙 COIN GAME — lay the phone flat and both lean in. 25 cards: twelve pairs and one lone JACKPOT. Turn two on your go; match them and you keep the coins AND go again. Miss and they flip back — but now you both know what\'s there. Every pair pays, win or lose, and the jackpot pays triple. Most pairs takes it.' },
-    bombpass:    { icon: '💣', title: 'BOMB PASS',     desc: 'One lit bomb, and neither of you wants it. While it\'s on YOUR side, tap to smack it back — every return sends it faster. Let it reach the wall behind you and it goes off in your hands. Swing while it\'s on their side and you whiff, and you\'re locked out just long enough to regret it. Watch the fuse: when it burns out the bomb blows wherever it is. Best of 3!' },
-    grandprix:   { icon: '🏎️', title: 'GRAND PRIX',    desc: 'One circuit, every car, one view — the whole track is on screen and you can see the race. HOLD your half for gas and let go to slow: there is no brake and no steering. Every corner has a speed painted on it, and over that speed the car starts to let go — it wobbles and scrubs off pace, and if you do not lift it spins. Catch the slide and you keep the lap. Whoever is behind gets a slipstream. 2 laps!' },
-    treeclimb:   { icon: '🌳', title: 'TREE CLIMB',    desc: '🪙 COIN GAME — 30 SECONDS, and whoever is HIGHEST when it runs out wins. A leaf sprouts LEFT or RIGHT — tap that side and you jump onto it, and only then does the next one grow. Sides don\'t just alternate, so watch it: two in a row happens. Grab the wrong side and you fall to the last branch on THAT side. Coins bank as you climb and a fall never takes them back.' },
+    bombpass:    { icon: '💣', title: 'HOT POTATO',    desc: 'One lit bomb in the works yard, and neither of you wants it. While it\'s on YOUR side of the line, TAP to bat it back — every return sends it faster. Let it reach you and it goes off in your hands. Tap while it\'s on their side and you whiff, locked out just long enough to regret it. Watch the fuse burn down on the bomb: when it runs out it blows wherever it is. First to 3!' },
+    treeclimb:   { icon: '🌳', title: 'TREE CLIMB',    desc: '🪙 COIN GAME — a tree each and 30 SECONDS; whoever is HIGHEST when it runs out wins. A glowing leaf sprouts LEFT or RIGHT of your trunk — tap that side of your half to jump onto it, and only then does the next one grow. Sides don\'t just alternate: two in a row happens. Grab the wrong side and you fall to the last branch on THAT side. Every new branch banks a coin, and a fall never takes one back.' },
     highnoon:    { icon: '🤠', title: 'HIGH NOON',     desc: 'Perdition, ten to four. Turn the phone sideways and sit side by side. HOLD your thumb down on your half and your character paces away from theirs. When the BELL rings they spin round — LET GO first to fire first. Let go before the bell and you flinched: the round is theirs. The crow, the slamming shutter and the tumbleweed are not the bell. First to 3 rounds wins!' },
     barrage:     { icon: '💣', title: 'BOOT HILL BARRAGE', desc: 'Turn the phone sideways and sit side by side. Your character stands on top of your fort with a cannon. DRAG BACK anywhere on your half — pull further for more power, and the angle you pull is the angle it flies — then LET GO to fire. Shells burst on whatever they hit. Knock their fort down before they knock down yours! Both cannons fire at once, with a short reload. Hit the legs, not the roof.' },
     vaultheist:  { icon: '🏦', title: 'VAULT HEIST',   desc: 'Lay the phone flat between you. Two rounds — one as the THIEF, one as the GUARD. THIEF: drag to sneak in, grab the gold at the guard\'s end (the vault stack is worth 3, deposit boxes 2, cash bags 1), and get back to the green ESCAPE strip at YOUR end — gold only counts once you are home, and carrying it slows you down. GUARD: drag to walk; your torch points the way you go. Keep the thief in your light for a full second and they leave with nothing — walking into them won\'t do it. Columns and the counter block the light. Most gold banked wins!' },
@@ -98,6 +94,10 @@ export const MG_INFO = {
     balloontoss: { icon: '💦', title: 'WATER BALLOON TOSS', desc: 'Turn the phone sideways and sit side by side. You are lobbing a water balloon back and forth in the park. As it comes to you, a ring closes in on your hands: TAP on your half as the ring meets them to catch it. Too early or too late and it bursts all over you. After every clean exchange you both step back, so the throws get longer and the timing tighter. First one soaked loses the round, best of three!' },
     minigolf: { icon: '⛳', title: 'MINI GOLF', desc: 'Turn the phone sideways and sit side by side for three holes of crazy golf in the park. You take turns: DRAG BACK on your half and LET GO to putt, and the further you pull, the harder you hit. Hole 1: get through the windmill between its sails. Hole 2: hit the loop hard enough to make it round. Hole 3: cross the pond on the bridge, because water costs a stroke. You can knock each other\'s ball. Fewest strokes wins!' },
     bowling: { icon: '🎳', title: 'BOWLING', desc: 'Lay the phone flat between you. Two neon lanes run side by side, one each, and the screen splits so each half is your own view down your lane. FLICK up your half toward the pins to bowl: a faster flick rolls a faster ball, and a curve in your flick puts hook on it. Watch the gutters! Two frames each, with proper strikes and spares, and a strike or spare in the last frame earns bonus balls. Most pins wins!' },
+    sackrace: { icon: '🥔', title: 'SACK RACE', desc: 'Two lanes across the hay meadow. TAP to hop — and it is a RHYTHM: a ring over your head closes in as you land, and a tap as it turns green chains the next hop, longer and higher. Tap late and you shuffle from scratch; tap twice in the air and you faceplant. Only a chain of two or more clears a hay bale. FIRST TO THE FLAG!' },
+    snowball: { icon: '☃️', title: 'SNOWBALL FIGHT', desc: 'A half of the winter yard each, with two snow walls. DRAG to run, FLICK to throw — flick further to throw further — and STAND STILL to crouch and pack snow (three snowballs at most). Crouched behind a wall you\'re safe from a straight throw — to get somebody hiding, come round the side. Three hits and you\'re out!' },
+    pancakes: { icon: '🥞', title: 'PANCAKE STACK', desc: 'Turn the phone sideways: a plate each at the diner counter. A pancake slides back and forth over your plate — TAP to drop it. The ring under it goes green when you\'re lined up. They\'re real pancakes: drop one off-centre and the stack leans, lean far enough and it topples. Each one that lands makes the next slide faster. Most pancakes on your plate after 40 seconds wins!' },
+    shellgame: { icon: '🥤', title: 'SHELL GAME', desc: 'Three brass cups, one pea. A cup lifts to show you the pea, then Madame Fortuna shuffles. When she stops, tap LEFT, MIDDLE or RIGHT on your half — as YOU see the table from your end. Picks stay secret until you\'ve both locked in. Five rounds, each shuffle longer and faster. Most right picks wins!' },
 };
 
 // ============================================================
@@ -154,13 +154,16 @@ export const MG_ORIENTATIONS = {
 // meant to be a bug signal, not a game rule. These four have no clock of their
 // own by design: they run until somebody wins, and terminate because their board
 // or arena strictly fills up rather than because time is called on them. They
-// need a net that a slow but perfectly normal game cannot trip.
+// need a net that a slow but perfectly normal game cannot trip. Mini Golf does
+// have a shot clock, but three holes taken in turns still run past 90 s.
 // ============================================================
 export const MG_WATCHDOG_MS = {
     memorymatch: 240000,   // 25 cards, taken in turns
     fourinarow:  240000,   // 30 cells, taken in turns
     lightcycles: 240000,   // best of 3, each round ends on a crash
     penalty:     240000,   // no shot clock — the taker shoots when ready
+    minigolf:    240000,   // three holes in turns: ~2 min is a normal round
+    shellgame:   150000,   // five shuffles and a pick clock each, plus sudden death
 };
 
 // ============================================================
@@ -200,15 +203,12 @@ export const MG_NET = {
     rhythmforge: 'local',
     orbdeflect:  'local',
     snapstrike:  'parallel',
-    quickdraw:   'local',      // "first finger wins" — a race, not two scores
     gridrecall:  'local',      // likewise: the round goes to whoever finishes first
     oddoneout:   'parallel',
     steadyhand:  'parallel',
     sortrush:    'local',
-    framematch:  'local',      // "first finger wins" once the picture is whole
     speedboat:   'local',      // one river, boats that touch — a shared simulation
     lootcatch:   'parallel',
-    freeze:      'local',
     clearout:    'local',
     puck:        'local',
     penalty:     'local',
@@ -216,7 +216,6 @@ export const MG_NET = {
     fourinarow:  'local',
     memorymatch: 'local',
     bombpass:    'local',
-    grandprix:   'local',
     treeclimb:   'parallel',
     highnoon:    'local',      // first to let go after the bell — a timestamp race
     barrage:     'local',      // one physics world, both forts in it
@@ -237,6 +236,10 @@ export const MG_NET = {
     balloontoss: 'local',
     minigolf: 'local',
     bowling: 'local',
+    sackrace: 'local',
+    snowball: 'local',
+    pancakes: 'local',
+    shellgame: 'local',
 };
 
 // The parallel games whose SCORE is also a coin haul.
@@ -305,15 +308,12 @@ export const MG_SHAPE = {
     rhythmforge: 'relay',   // alternating turns; one player plays at a time
     orbdeflect:  'arena',   // one orb crossing one middle
     snapstrike:  'split',   // a bar each, a shared clock
-    quickdraw:   'arena',   // one signal, first finger takes it
     gridrecall:  'split',   // a grid each — but the ROUND goes to whoever finishes first
     oddoneout:   'split',
     steadyhand:  'split',
     sortrush:    'arena',   // one shape in the middle, both racing for it
-    framematch:  'arena',   // one picture in the middle, everybody reading it
     speedboat:   'arena',   // one river; what is split is the CAMERA, not the water
     lootcatch:   'split',
-    freeze:      'arena',   // one track, and the eye at the end of it is the prize
     clearout:    'arena',   // discs cross the wall onto their side
     puck:        'arena',
     penalty:     'arena',   // + ASYM: the two seats are doing different jobs
@@ -321,7 +321,6 @@ export const MG_SHAPE = {
     fourinarow:  'table',
     memorymatch: 'table',
     bombpass:    'arena',
-    grandprix:   'arena',   // one track, both cars, one camera
     treeclimb:   'split',
     highnoon:    'arena',   // one street, one bell, both figures in it
     barrage:     'arena',   // one wash, shells crossing it both ways
@@ -342,6 +341,10 @@ export const MG_SHAPE = {
     balloontoss: 'arena',
     minigolf: 'arena',
     bowling: 'arena',
+    sackrace: 'arena',
+    snowball: 'arena',
+    pancakes: 'arena',
+    shellgame: 'arena',
 };
 
 // Modifiers laid over a shape: the seats do not have the same job (ASYM), or
@@ -363,15 +366,12 @@ export const MG_ORIENTATION_MAP = {
     rhythmforge: 'faceoff',
     orbdeflect:  'faceoff',
     snapstrike:  'faceoff',
-    quickdraw:   'quickdraw',
     gridrecall:  'faceoff',
     oddoneout:   'faceoff',
     steadyhand:  'faceoff',
     sortrush:    'faceoff',
-    framematch:  'faceoff',
     speedboat:   'faceoff',
     lootcatch:   'faceoff',
-    freeze:      'faceoff',
     clearout:    'faceoff',
     puck:        'faceoff',
     penalty:     'faceoff',
@@ -379,7 +379,6 @@ export const MG_ORIENTATION_MAP = {
     fourinarow:  'faceoff',
     memorymatch: 'huddle',
     bombpass:    'faceoff',
-    grandprix:   'faceoff',
     treeclimb:   'faceoff',
     highnoon:    'sideon',
     barrage:     'sideon',
@@ -400,6 +399,10 @@ export const MG_ORIENTATION_MAP = {
     balloontoss: 'sideon',
     minigolf: 'sideon',
     bowling: 'faceoff',
+    sackrace: 'sideon',
+    snowball: 'faceoff',
+    pancakes: 'sideon',
+    shellgame: 'faceoff',
 };
 
 export const FALLBACK_TRIVIA = [
@@ -483,13 +486,11 @@ export const MG_GENRES = {
 };
 
 export const MG_PROFILE = {
-    quickdraw:   { genre: 'reflex',   control: 'tap',   wire: 'stamp',    seats: [2, 4], live: true },
     sortrush:    { genre: 'reflex',   control: 'tap',   wire: 'stamp',    seats: [2, 4], live: true },
     // Not roomy, and it is the clearest case in the roster of why that is a
     // question about the ZONE and not about the game. The picture is big and it
     // is shared: it sits in the middle of the table and every seat reads the
     // same one. What a seat needs of its own is somewhere to put a thumb.
-    framematch:  { genre: 'reflex',   control: 'tap',   wire: 'stamp',    seats: [2, 4], live: true },
     // Not roomy, and this is the case where that is a judgement rather than a
     // measurement. A zone holds a scrolling stretch of river with rocks in it,
     // which sounds exactly like the games behind a tablet — but the player sets
@@ -498,7 +499,7 @@ export const MG_PROFILE = {
     // than in pixels for exactly this reason — which is a shade over two seconds
     // of warning at the slowest gear and just under one at the fastest. The zone
     // size sets the risk here instead of deciding whether the game works.
-    speedboat:   { genre: 'race',     control: 'thumb', wire: 'exact',    seats: [2, 4], live: true },
+    speedboat:   { genre: 'race',     control: 'thumb', wire: 'snapshot', seats: [2, 2], live: false },
     snapstrike:  { genre: 'reflex',   control: 'tap',   wire: 'none',     seats: [2, 4], live: true },
 
     // roomy: the target drifts, so a zone has to be somewhere to drift in. A
@@ -509,7 +510,6 @@ export const MG_PROFILE = {
     // Two-sided by construction: ONE corridor with two tokens creeping at each
     // other from the ends. Four tokens is a different game, not a wider one, so
     // this stays a face-off. (Owner's call.)
-    freeze:      { genre: 'nerve',    control: 'thumb', wire: 'scalar',   seats: [2, 2], live: false },
 
     // roomy: a playfield with things falling through it. A phone quarter is
     // 206x400 and the drop is over before the basket has moved — there is no
@@ -518,7 +518,7 @@ export const MG_PROFILE = {
     // roomy: the stem scrolls vertically at 74 px a branch, so a zone needs
     // height to read as a climb. A phone quarter is 400 px — five branches of
     // visible tree — which is not a race you can see coming.
-    treeclimb:   { genre: 'scramble', control: 'tap',   wire: 'none',     seats: [2, 4], live: true, roomy: true },
+    treeclimb:   { genre: 'scramble', control: 'tap',   wire: 'none',     seats: [2, 2], live: false },
 
     tankclash:   { genre: 'aim',      control: 'dual',  wire: 'snapshot', seats: [2, 4], live: false },
     penalty:     { genre: 'aim',      control: 'thumb', wire: 'exact',    seats: [2, 2], live: false },
@@ -543,7 +543,6 @@ export const MG_PROFILE = {
     // Not roomy: the TRACK is not divided — everybody races the same circuit,
     // which is what a race is. Only the throttle is partitioned, a pad per
     // quadrant, and a pad needs no room at all.
-    grandprix:   { genre: 'race',     control: 'thumb', wire: 'scalar',   seats: [2, 4], live: true },
 
     memorymatch: { genre: 'brain',    control: 'tap',   wire: 'exact',    seats: [2, 2], live: false },
     fourinarow:  { genre: 'brain',    control: 'tap',   wire: 'exact',    seats: [2, 2], live: false },
@@ -590,6 +589,10 @@ export const MG_PROFILE = {
     balloontoss: { genre: 'nerve', control: 'tap', wire: 'snapshot', seats: [2, 2], live: false },
     minigolf: { genre: 'aim', control: 'thumb', wire: 'snapshot', seats: [2, 2], live: false },
     bowling: { genre: 'aim', control: 'thumb', wire: 'snapshot', seats: [2, 2], live: false },
+    sackrace: { genre: 'race', control: 'tap', wire: 'snapshot', seats: [2, 2], live: false },
+    snowball: { genre: 'aim', control: 'thumb', wire: 'snapshot', seats: [2, 2], live: false },
+    pancakes: { genre: 'aim', control: 'tap', wire: 'snapshot', seats: [2, 2], live: false },
+    shellgame: { genre: 'brain', control: 'tap', wire: 'snapshot', seats: [2, 2], live: false },
 };
 
 // The order the wire tiers come in, cheapest first. Used by the READINESS sort:

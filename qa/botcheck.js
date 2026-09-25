@@ -49,6 +49,12 @@ const TIERS = [['easy', 0.25], ['hard', 0.85]];
         types = types.filter(t => want.includes(t));
     }
 
+    // A game with its own watchdog override (turn-based: Mini Golf, Four in a
+    // Row…) gets that long, as qa/arcade.js does; a fixed 70 s calls a normal
+    // three-hole round a hang.
+    const watchdogs = await page.evaluate(async () => (await import('/src/config/MinigameRegistry.js')).MG_WATCHDOG_MS);
+    const budgetFor = t => Math.max(BUDGET, Math.round((watchdogs[t] || 0) / 1000));
+
     const rows = [];
     for (const type of types) {
         for (const [tier, skill] of TIERS) {
@@ -82,7 +88,7 @@ const TIERS = [['easy', 0.25], ['hard', 0.85]];
             // No human input at all — the bot must carry the game to a result.
             const t0 = Date.now();
             let result;
-            while ((Date.now() - t0) / 1000 < BUDGET) {
+            while ((Date.now() - t0) / 1000 < budgetFor(type)) {
                 result = await page.evaluate(() => window.__botResult);
                 if (result !== undefined) break;
                 await page.waitForTimeout(200);

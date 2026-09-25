@@ -25,6 +25,7 @@
 //   src/config/MinigameRegistry.js   MG_TYPES, MG_INFO, MG_NET, MG_SHAPE,
 //                                    MG_ORIENTATION_MAP, MG_PROFILE
 //   src/minigames/MinigameManager.js MG_MODULES (lazy import)
+//   qa/surfaces.js                   its expected surfaces, and the online count
 //
 // Then follow docs/MINIGAME_3D_PLAYBOOK.md from step 3. The game starts as the
 // template's coin scramble: face-off hold, 2 seats, offline only (MG_NET
@@ -105,6 +106,18 @@ let g = mgr;
     g = g.slice(0, end) + `\n    ${key}: () => import('./${Name}.js'),` + g.slice(end);
 }
 
+// qa/surfaces.js holds a hand-written expectation per game, plus the count of
+// games playable across devices; a new stage game adds a row and one to it.
+const surfPath = path.join(ROOT, 'qa/surfaces.js');
+let surf = fs.readFileSync(surfPath, 'utf8');
+{
+    const m = /const EXPECT = \{/.exec(surf);
+    if (!m) die('could not find EXPECT in qa/surfaces.js');
+    const end = surf.indexOf('\n};', m.index);
+    surf = surf.slice(0, end) + `\n    ${key}:${' '.repeat(Math.max(1, 12 - key.length))}[false, null,     true ],   // 3D stage game` + surf.slice(end);
+    surf = surf.replace(/const EXPECT_ONLINE = (\d+);/, (_, n) => `const EXPECT_ONLINE = ${+n + 1};`);
+}
+
 // ---- The game and its probe --------------------------------------------------
 const game = fs.readFileSync(P.tpl, 'utf8')
     .replace(/__TITLE__/g, title.toUpperCase())
@@ -161,6 +174,7 @@ const plan = [
     [P.game, game, 'new'], [P.probe, probe, 'new'],
     [P.reg, r, 'MG_TYPES, MG_INFO, MG_NET, MG_SHAPE, MG_ORIENTATION_MAP, MG_PROFILE'],
     [P.mgr, g, 'MG_MODULES'],
+    [surfPath, surf, 'EXPECT row, EXPECT_ONLINE + 1'],
 ];
 for (const [file, text, what] of plan) {
     console.log(`${DRY ? '·' : '✓'} ${path.relative(ROOT, file)}  (${what})`);

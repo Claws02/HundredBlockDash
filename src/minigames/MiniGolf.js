@@ -46,18 +46,24 @@ const FIG_SCALE = 0.95;
 const HOLES = [
     {   name: 'THE WINDMILL', par: 2,
         tee: [-7, 0], cup: [7, 0.8],
-        walls: [[0, -HZ, 0, -0.55], [0, 0.55, 0, HZ]],
+        // The mill's two halves, solid, with the doorway (the open channel
+        // between them) at |z| < 0.55.
+        walls: [[-0.6, -0.55, 0.6, -0.55], [-0.6, -0.55, -0.6, -HZ], [0.6, -0.55, 0.6, -HZ],
+                [-0.6, 0.55, 0.6, 0.55], [-0.6, 0.55, -0.6, HZ], [0.6, 0.55, 0.6, HZ]],
         windmill: { x: 0 },
+        route: [[-7, 0], [-0.9, 0], [0.9, 0], [7, 0.8]],
     },
     {   name: 'THE LOOP', par: 3,
         tee: [-7, -2.2], cup: [7, 1.6],
         walls: [[-1.5, -1.0, 1.5, -1.0], [-1.5, -1.0, -1.5, HZ], [1.5, -1.0, 1.5, HZ]],
         loop: { x0: -1.5, x1: 1.5, zMax: -1.0 },
+        route: [[-7, -2.2], [-1.7, -2.1], [1.7, -2.1], [4.2, -1.2], [7, 1.6]],
     },
     {   name: 'THE FOUNTAIN BRIDGE', par: 2,
         tee: [-7, 0], cup: [7, 0],
         walls: [[5.2, -1.4, 5.8, -1.4], [5.2, 1.4, 5.8, 1.4]],
         pond: { x: 0, z: 0, r: 2.5, bridge: 0.55 },
+        route: [[-7, 0], [-2.9, 0], [2.9, 0], [7, 0]],
     },
 ];
 function _walls(h) {
@@ -78,7 +84,7 @@ function _gapShut(t) {
 // ── Module state ─────────────────────────────────────────────────────────────
 let _done = false, _onWin = null, _botSkill = 0.55;
 let _overlay = null, _stage = null, _set = null, _dir = null, _hud = null, _in = null, _fx = null;
-let _balls = [], _strokes = [[], []], _hole = -1, _turn = 0, _holeGrp = null, _sails = null, _gate = null, _aim = null;
+let _balls = [], _strokes = [[], []], _hole = -1, _turn = 0, _holeGrp = null, _sails = null, _gate = null, _aim = null, _chevrons = [];
 let _phase = 'intro', _sub = '', _subT = 0, _t = 0, _clockT = 0, _idle = [0, 0], _bot = [];
 let _figs = [];
 
@@ -120,7 +126,7 @@ function _destroy() {
     _done = true;
     if (_stage) { _stage.dispose(); _stage = null; }
     if (_overlay) { _overlay.remove(); _overlay = null; }
-    _balls = []; _figs = []; _holeGrp = null; _sails = null; _aim = null; _set = null; _dir = null; _hud = null; _in = null; _fx = null;
+    _balls = []; _figs = []; _holeGrp = null; _sails = null; _aim = null; _chevrons = []; _set = null; _dir = null; _hud = null; _in = null; _fx = null;
 }
 function _finish(w) { if (_done) return; _destroy(); _onWin?.(w); }
 
@@ -181,33 +187,88 @@ function _buildHole(h) {
     pole.position.set(h.cup[0], 0.9, h.cup[1]); g.add(pole);
     const flag = new THREE.Mesh(new THREE.PlaneGeometry(0.6, 0.38), new THREE.MeshStandardMaterial({ color: 0xef4444, side: THREE.DoubleSide }));
     flag.position.set(h.cup[0] + 0.3, 1.5, h.cup[1]); g.add(flag);
-    _sails = null; _gate = null;
-    if (h.windmill) {
-        const body = new THREE.Mesh(new THREE.BoxGeometry(1.2, 2.2, 1.6), new THREE.MeshStandardMaterial({ color: 0xc2410c, roughness: 0.7 }));
-        body.position.set(0, 1.2, -1.4); body.castShadow = true; g.add(body);
-        const body2 = body.clone(); body2.position.z = 1.4; g.add(body2);
-        const roof = new THREE.Mesh(new THREE.ConeGeometry(1.6, 1.4, 4), new THREE.MeshStandardMaterial({ color: 0x7c2d12 }));
-        roof.position.set(0, 3.0, 0); roof.rotation.y = Math.PI / 4; g.add(roof);
-        const top = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.9, 4.4), new THREE.MeshStandardMaterial({ color: 0xc2410c, roughness: 0.7 }));
-        top.position.set(0, 1.95, 0); g.add(top);
-        _sails = new THREE.Group();
-        for (let k = 0; k < 4; k++) {
-            const s = new THREE.Mesh(new THREE.BoxGeometry(0.34, 2.0, 0.06), new THREE.MeshStandardMaterial({ color: 0xfef3c7, roughness: 0.6 }));
-            s.position.y = 1.0; const arm = new THREE.Group(); arm.add(s); arm.rotation.z = k * Math.PI / 2; _sails.add(arm);
+    _sails = null; _gate = null; _chevrons = [];
+    // The route: glowing chevrons on the felt, tee → obstacle → cup, with a
+    // light running along them so "go this way" is unmistakable.
+    if (h.route) {
+        const shape = new THREE.Shape();
+        shape.moveTo(0.22, 0); shape.lineTo(-0.12, 0.2); shape.lineTo(-0.04, 0); shape.lineTo(-0.12, -0.2); shape.closePath();
+        const geo = new THREE.ShapeGeometry(shape);
+        let n = 0;
+        for (let i = 0; i < h.route.length - 1; i++) {
+            const [x1, z1] = h.route[i], [x2, z2] = h.route[i + 1];
+            const len = Math.hypot(x2 - x1, z2 - z1), ang = Math.atan2(z2 - z1, x2 - x1);
+            for (let d = 0.6; d < len - 0.3; d += 0.75) {
+                const x = x1 + (x2 - x1) * d / len, z = z1 + (z2 - z1) * d / len;
+                if (Math.hypot(x - h.tee[0], z - h.tee[1]) < 0.7 || Math.hypot(x - h.cup[0], z - h.cup[1]) < 0.8) continue;
+                if (h.windmill && Math.abs(x) < 0.7) continue;
+                if (h.loop && x > h.loop.x0 - 0.1 && x < h.loop.x1 + 0.1) continue;
+                const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0xfff3b0, transparent: true, opacity: 0.5, depthWrite: false }));
+                m.rotation.set(-Math.PI / 2, 0, -ang); m.position.set(x, 0.112, z);
+                m.userData.k = n++; g.add(m); _chevrons.push(m);
+            }
         }
-        // Sails on the face toward the players, where the camera sees them turn.
-        _sails.position.set(0, 1.95, 2.3);
+    }
+    if (h.windmill) {
+        // Two solid halves either side of an open channel: from above, the
+        // doorway is the gap in the middle of the mill.
+        const brick = new THREE.MeshStandardMaterial({ color: 0xc2410c, roughness: 0.75 });
+        const trim = new THREE.MeshStandardMaterial({ color: 0xfef3c7, roughness: 0.6 });
+        [-1, 1].forEach(sd => {
+            const half = new THREE.Mesh(new THREE.BoxGeometry(1.2, 2.4, HZ - 0.55), brick);
+            half.position.set(0, 1.3, sd * (0.55 + (HZ - 0.55) / 2)); half.castShadow = true; g.add(half);
+            const cap = new THREE.Mesh(new THREE.BoxGeometry(1.35, 0.14, HZ - 0.45), trim);
+            cap.position.set(0, 2.55, sd * (0.55 + (HZ - 0.55) / 2)); g.add(cap);
+            // Doorposts, white, so the opening is framed.
+            const post = new THREE.Mesh(new THREE.BoxGeometry(1.25, 1.1, 0.12), trim);
+            post.position.set(0, 0.65, sd * 0.61); g.add(post);
+        });
+        // The cap and the sail hub over the doorway.
+        const lintel = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.5, 1.4), brick);
+        lintel.position.set(0, 2.3, 0); lintel.castShadow = true; g.add(lintel);
+        const roof = new THREE.Mesh(new THREE.ConeGeometry(1.25, 1.3, 4), new THREE.MeshStandardMaterial({ color: 0x7c2d12, roughness: 0.8 }));
+        roof.position.set(0, 3.2, 0); roof.rotation.y = Math.PI / 4; g.add(roof);
+        _sails = new THREE.Group();
+        const sailM = new THREE.MeshStandardMaterial({ color: 0xfefce8, roughness: 0.6, side: THREE.DoubleSide });
+        for (let k = 0; k < 4; k++) {
+            const arm = new THREE.Group();
+            const spar = new THREE.Mesh(new THREE.BoxGeometry(0.08, 2.15, 0.06), new THREE.MeshStandardMaterial({ color: 0x78350f }));
+            spar.position.y = 1.07; arm.add(spar);
+            const cloth = new THREE.Mesh(new THREE.PlaneGeometry(0.46, 1.6), sailM);
+            cloth.position.set(0.26, 1.25, 0.02); arm.add(cloth);
+            arm.rotation.z = k * Math.PI / 2; _sails.add(arm);
+        }
+        const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.3, 12), new THREE.MeshStandardMaterial({ color: 0x3f2a1a }));
+        hub.rotation.x = Math.PI / 2; _sails.add(hub);
+        // Turning on the players' side of the doorway: a blade swung down is
+        // visibly across the way through, which is exactly when it is shut.
+        _sails.position.set(0, 2.3, 0.78);
         g.add(_sails);
-        // The gap's gate: a bar across it while a sail is down, so the timing is
-        // something you can see, not only something you find out.
         _gate = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.3, 1.1), new THREE.MeshStandardMaterial({ color: 0xfde047, emissive: 0x7a5d00, emissiveIntensity: 0.5 }));
         _gate.position.set(0, 0.28, 0); g.add(_gate);
     }
     if (h.loop) {
-        const ring = new THREE.Mesh(new THREE.TorusGeometry(0.95, 0.12, 10, 40), new THREE.MeshStandardMaterial({ color: 0x3b82f6, roughness: 0.4, metalness: 0.3 }));
-        ring.position.set(0, 1.05, -2.1); g.add(ring);
-        const block = new THREE.Mesh(new THREE.BoxGeometry(3.0, 0.5, HZ + 1.0), new THREE.MeshStandardMaterial({ color: 0x166534, roughness: 0.9 }));
-        block.position.set(0, 0.35, (HZ - 1.0) / 2); g.add(block);
+        // A real loop-the-loop: two rails the ball rides up, over and down, with
+        // a sideways drift so the way out passes the way in.
+        const rails = new THREE.MeshStandardMaterial({ color: 0x3b82f6, roughness: 0.3, metalness: 0.5 });
+        [-0.2, 0.2].forEach(off => {
+            const pts = [];
+            for (let i = 0; i <= 64; i++) { const p = _loopPoint(1, i / 64); pts.push(new THREE.Vector3(p.x, p.y + BR * 0.2, p.z + off)); }
+            const tube = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 96, 0.06, 8, false), rails);
+            tube.castShadow = true; g.add(tube);
+        });
+        // Struts to the ground, so it stands.
+        [[-0.75, -2.35], [0.75, -1.85]].forEach(([x, z]) => {
+            const st = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.0, 6), new THREE.MeshStandardMaterial({ color: 0x94a3b8 }));
+            st.position.set(x, 0.55, z); g.add(st);
+        });
+        // The hedge that closes the rest of the hole, so the loop is the way.
+        const hedge = new THREE.Mesh(new THREE.BoxGeometry(3.0, 0.7, HZ + 1.0), new THREE.MeshStandardMaterial({ color: 0x166534, roughness: 1 }));
+        hedge.position.set(0, 0.45, (HZ - 1.0) / 2); hedge.castShadow = true; g.add(hedge);
+        for (let i = 0; i < 9; i++) {
+            const bush = new THREE.Mesh(new THREE.SphereGeometry(0.45, 8, 6), new THREE.MeshStandardMaterial({ color: i % 2 ? 0x15803d : 0x22883f, roughness: 1 }));
+            bush.position.set(-1.1 + (i % 3) * 1.1, 0.85, -0.6 + Math.floor(i / 3) * 1.4); g.add(bush);
+        }
     }
     if (h.pond) {
         const water = new THREE.Mesh(new THREE.CircleGeometry(h.pond.r, 40), new THREE.MeshStandardMaterial({ color: 0x38a3e8, emissive: 0x0b4f7a, emissiveIntensity: 0.4, roughness: 0.1 }));
@@ -219,6 +280,16 @@ function _buildHole(h) {
     }
     _stage.add(g);
     _holeGrp = g;
+}
+
+// The loop's path, u 0..1, for a ball heading dir (±1): along the lane to the
+// bottom of the loop, round it, and on out the other side.
+const LOOP_R = 0.95, LOOP_Z = -2.1;
+function _loopPoint(dir, u) {
+    if (u < 0.18) { const k = u / 0.18; return { x: dir * (-1.5 + 1.5 * k), y: 0.1, z: LOOP_Z - 0.3 }; }
+    if (u > 0.82) { const k = (u - 0.82) / 0.18; return { x: dir * 1.5 * k, y: 0.1, z: LOOP_Z + 0.3 }; }
+    const phi = (u - 0.18) / 0.64 * Math.PI * 2;
+    return { x: dir * LOOP_R * Math.sin(phi), y: 0.1 + LOOP_R * (1 - Math.cos(phi)), z: LOOP_Z - 0.3 + 0.6 * (phi / (Math.PI * 2)) };
 }
 
 // ── Physics (pure enough to run ahead for the bot) ───────────────────────────
@@ -384,7 +455,7 @@ function _frame(dt) {
                     b.loop.t += dt;
                     if (b.loop.t >= b.loop.dur) {
                         const s = b.loop.dir;
-                        b.x = s > 0 ? h.loop.x1 + 0.35 : h.loop.x0 - 0.35; b.z = -2.1; b.vx = s * b.loop.v * 0.72; b.vz = 0; b.loop = null;
+                        b.x = s > 0 ? h.loop.x1 + 0.35 : h.loop.x0 - 0.35; b.z = LOOP_Z + 0.3 * s; b.vx = s * b.loop.v * 0.72; b.vz = 0; b.loop = null;
                     }
                     return;
                 }
@@ -404,7 +475,7 @@ function _frame(dt) {
                     _hud.say('SPLASH!', 'ONE STROKE · BACK WHERE YOU HIT FROM', 1000, _t, '#38bdf8');
                     b.x = b.from[0]; b.z = b.from[1]; b.vx = b.vz = 0;
                 } else if (res === 'loop') {
-                    b.loop = { t: 0, dur: 0.6, v: Math.abs(b.vx), dir: Math.sign(b.vx) || 1 }; sfx('boost');
+                    b.loop = { t: 0, dur: 1.1, v: Math.abs(b.vx), dir: Math.sign(b.vx) || 1 }; sfx('boost');
                 } else if (res === 'fail') sfx('land_bad');
             });
             // Ball on ball.
@@ -426,12 +497,15 @@ function _frame(dt) {
     _balls.forEach(b => {
         if (!b.mesh) return;
         if (b.loop) {
-            const u = b.loop.t / b.loop.dur, a = u * Math.PI * 2;
-            b.mesh.position.set(b.loop.dir * (u - 0.5) * 1.4, 1.05 - Math.cos(a) * 0.95, -2.1);
+            const p = _loopPoint(b.loop.dir, Math.min(1, b.loop.t / b.loop.dur));
+            b.mesh.position.set(p.x, p.y + BR, p.z);
         } else b.mesh.position.set(b.x, b.holed ? -0.1 : 0.1 + BR, b.z);
         b.mesh.visible = !(b.holed && _strokes[b.slot][_hole] > MAX_STROKES);
     });
-    if (_sails) _sails.rotation.z = -_sailAngle(_t);
+    // Arm k points at angle a + k·90° once the group is turned a − 90°, which is
+    // the angle _gapShut tests against straight down.
+    if (_sails) _sails.rotation.z = _sailAngle(_t) - Math.PI / 2;
+    _chevrons.forEach(c => { c.material.opacity = 0.28 + 0.6 * Math.max(0, Math.sin(c.userData.k * 0.55 - _t * 4)); });
     if (_gate) _gate.visible = _gapShut(_t);
     _set?.update?.(dt, _t);
     _fx?.update(dt);

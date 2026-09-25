@@ -22,7 +22,7 @@ const ok = (n, c, d) => (c ? pass : fail).push(n + (d ? ` — ${d}` : ''));
 
 // A coin game and an ordinary one: the coin games pay per-player hauls on top of
 // the flat reward, so both routes into the wallet have to be closed.
-const ROUNDS = ['lootcatch', 'snapstrike', 'treeclimb', 'quickdraw'];
+const ROUNDS = ['lootcatch', 'snapstrike', 'treeclimb', 'sortrush'];
 
 (async () => {
     const browser = await chromium.launch({

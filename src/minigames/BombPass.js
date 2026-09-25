@@ -1,468 +1,290 @@
 // ============================================================
-// BOMB PASS — one lit bomb, and neither of you wants it.
+// HOT POTATO — one lit bomb in the works yard, and neither of you wants it.
+// (3D rebuild of Bomb Pass; the 2D original is in archived/BombPass.js.)
 //
-// The bomb flies between the two halves. While it is in YOUR half, tap to bat
-// it back; every return sends it faster. Let it reach the wall behind you and
-// it goes off in your hands.
+// Face-off hold, one shared overhead camera. You stand at your end of the
+// yard; the bomb is lobbed back and forth between you.
 //
-// The fuse is the second clock. It burns down the whole round and it is drawn
-// on the bomb, so it is pressure you can see rather than a random ending: when
-// it runs out the bomb detonates wherever it happens to be, and whoever's half
-// that is loses the round. Late in a round you are trying to get rid of it, not
-// to rally — which flips the whole feel of the exchange without changing a rule.
+//   TAP while the bomb is on YOUR side of the line to bat it back. Every
+//   return sends it faster. Let it reach you and it goes off in your hands.
 //
-// Tapping while the bomb is in the OTHER half is a whiff and locks you out
-// briefly, so mashing is not a strategy. That single rule is what makes this a
-// game of timing rather than hot potato.
+// The fuse is the second clock: it burns down the whole round, you can see it
+// shorten on the bomb, and when it runs out the bomb blows wherever it is —
+// whoever's side that is loses the round. Tapping while it is on THEIR side is
+// a whiff and locks you out briefly, so mashing does not work. First to 3.
 // ============================================================
 
 import { state } from '../core/GameState.js';
 import { sfx, haptic } from '../engine/AudioManager.js';
-import { registerMinigameCleanup } from './MinigameManager.js';
+import { registerMinigameCleanup, isBotSlot } from './MinigameManager.js';
+import { createStage } from '../engine/Stage.js';
+import { STAGE_SETS } from '../engine/StageSets.js';
+import { createDirector } from '../engine/StageDirector.js';
+import { seat, faceoffHud, touch, effects, overheadCam } from '../engine/StageKit.js';
 
-// ── Tunables ────────────────────────────────────────────────────────────────
-// First to 3. At first-to-2 a player who missed both returns was out in eight
-// seconds — under the §3 floor. Three rounds is the same game with a floor you
-// can actually come back from after one bad read.
-const WIN_ROUNDS  = 3;
-// R1b. The floating status pill owns roughly the outer 48 px, so the wall sits
-// far enough in to leave a clear band between it and the pill for this player's
-// HUD. Measured on a 412x892 phone: the "TAP! IT'S YOURS" prompt was drawn
-// behind the pill at the old 74.
-const WALL_PAD    = 108;    // px from each outer edge
-// Measured: at 330 px/s the bomb crossed a half in 1.3 s, so a round could be
-// over before a player who glanced away looked back — the §3 floor. It now
-// hangs at the centre for a beat and sets off slower, which makes the FIRST
-// return reachable and leaves the acceleration to do the difficulty.
-const SERVE_HANG  = 0.85;   // s the bomb hovers at the centre before it launches
-const SPEED_0     = 232;    // px/s at the serve
-const SPEED_MUL   = 1.085;  // per return
-const SPEED_MAX   = 1150;
-const FUSE_MIN    = 7.0;    // s
-const FUSE_MAX    = 11.5;
-const WHIFF_MS    = 340;    // lockout after swinging at nothing
-const BLAST_MS    = 1250;   // explosion hold before the next round
-const MATCH_TIME  = 56;     // s ceiling
+// ── Rules (the 2D game's, in world units: one px of the old half = 1/84.5 u) ─
+const W = 6, D = 10;
+const WALL = 4.0;                        // |z| where the bomb reaches a player
+const WIN_ROUNDS = 3;
+const SERVE_HANG = 0.85;
+const SPEED_0 = 2.75, SPEED_MUL = 1.085, SPEED_MAX = 13.6;
+const FUSE_MIN = 7.0, FUSE_MAX = 11.5;
+const WHIFF = 0.34, BLAST = 1.6;
+const MATCH_TIME = 56;
+const FIG_SCALE = 1.0;
 
-// ── Module state ────────────────────────────────────────────────────────────
-let _done = false, _onWin = null, _isBot = false, _botSkill = 0.55;
-let _overlay = null, _canvas = null, _ctx = null, _dpr = 1;
-let _af = null, _last = 0, _elapsed = 0;
-let _W = 0, _H = 0;
-let _wins = [0, 0];
-let _round = 0;
-let _phase = 'serve';       // 'serve' | 'live' | 'blast'
-let _bomb = null;           // { y, vy, speed, fuse, fuseMax, rallies }
-let _lock = [0, 0];         // performance.now() until each player may swing
-let _flash = [0, 0];        // swing animation per half
-let _parts = [];            // explosion particles
-let _sparks = [];           // fuse sparks
-let _blastAt = null;        // { x, y, t } while exploding
-let _loser = -1;
-let _shake = 0;
-let _botNext = 0;
-const _cleanups = [];
-const _timers   = [];
+// ── Module state ─────────────────────────────────────────────────────────────
+let _done = false, _onWin = null, _botSkill = 0.55;
+let _overlay = null, _stage = null, _set = null, _dir = null, _hud = null, _in = null, _fx = null;
+let _figs = [], _bomb = null, _mesh = null, _halves = [];
+let _wins = [0, 0], _round = 0, _phase = 'intro', _phaseT = 0, _t = 0, _clock = 0;
+let _lock = [0, 0], _botNext = null, _shake = 0, _frozen = false, _loser = -1;
 
-function _after(fn, ms) {
-    const id = setTimeout(() => { _timers.splice(_timers.indexOf(id), 1); fn(); }, ms);
-    _timers.push(id);
-    return id;
-}
-
-// ── Lifecycle ───────────────────────────────────────────────────────────────
 export function start(isBot, onWin, botSkill = 0.55) {
     if (!state.mgActive) return;
-    _done = false; _onWin = onWin; _isBot = isBot; _botSkill = botSkill;
-    _wins = [0, 0]; _round = 0; _phase = 'serve';
-    _bomb = null; _lock = [0, 0]; _flash = [0, 0];
-    _parts = []; _sparks = []; _blastAt = null; _loser = -1; _shake = 0;
-    _last = 0; _elapsed = 0; _botNext = 0;
+    _done = false; _onWin = onWin; _botSkill = botSkill;
+    _wins = [0, 0]; _round = 0; _phase = 'intro'; _phaseT = 0; _t = 0; _clock = 0;
+    _lock = [0, 0]; _botNext = null; _shake = 0; _frozen = false; _loser = -1; _bomb = null;
     registerMinigameCleanup(_destroy);           // R3
-    _build();
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-        if (_done) return;
-        _resize();
-        _serve();
-        _af = requestAnimationFrame(_tick);
-    }));
-}
 
-// ── DOM (R2) ────────────────────────────────────────────────────────────────
-function _build() {
     const mg = document.getElementById('minigame-layer');
-    if (_overlay) { _overlay.remove(); _overlay = null; }
-
-    _overlay = document.createElement('div');
-    _overlay.style.cssText =
-        'position:absolute;inset:0;overflow:hidden;touch-action:none;' +
-        'background:radial-gradient(ellipse at 50% 50%, #2a1414 0%, #0a0608 78%);';
-
-    _canvas = document.createElement('canvas');
-    _canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;';
-    _overlay.appendChild(_canvas);
-    _ctx = _canvas.getContext('2d');
-
-    const onDown = e => {
-        if (_done) return;
-        e.preventDefault();
-        const pid = e.clientY < _overlay.clientHeight / 2 ? 1 : 0;
-        if (pid === 1 && _isBot) return;
-        _swing(pid);
-    };
-    _overlay.addEventListener('pointerdown', onDown);
-    _cleanups.push(() => _overlay.removeEventListener('pointerdown', onDown));
-
-    const onResize = () => _resize();
-    window.addEventListener('resize', onResize);
-    _cleanups.push(() => window.removeEventListener('resize', onResize));
-
+    _overlay = document.createElement('div');    // R2
+    _overlay.style.cssText = 'position:absolute;inset:0;overflow:hidden;background:#3a2418;z-index:5;';
     mg.appendChild(_overlay);
+    _stage = createStage(_overlay, { hold: 'faceoff', fov: 38, background: 0x3a2418 });
+    _hud = faceoffHud(_stage);
+    _in = touch(_stage, { split: 'y', onDown: slot => _swing(slot) });
+    _fx = effects(_stage);
+    _dir = createDirector(_stage);
+    if (_stage.gl) {
+        _stage.camera.up.set(0, 0, -1);          // P1's end at the bottom of the phone
+        _set = STAGE_SETS.ind(_stage, { w: W, d: D });
+        _buildYard();
+    }
+    _figs = [0, 1].map(_buildFig);
+    [0, 1].forEach(slot => _hud.hint(slot, seat(slot).bot ? '' : 'TAP WHEN IT\'S ON YOUR SIDE'));
+
+    _dir.open({
+        place: 'THE WORKS YARD · SHIFT CHANGE', title: 'HOT POTATO',
+        sub: `ONE LIT BOMB · FIRST TO ${WIN_ROUNDS}`,
+        from: { pos: [7, 5, 7], look: [0, 1, 0] },
+        to: overheadCam(_stage, W, D, 3),
+        onDone: () => { if (!_done) _serve(); },
+    });
+    _stage.start(_frame);
 }
 
-function _resize() {
-    if (!_canvas || !_overlay) return;
-    _dpr = Math.min(window.devicePixelRatio || 1, 2);       // R4
-    _W = _overlay.clientWidth; _H = _overlay.clientHeight;
-    _canvas.width  = Math.round(_W * _dpr);
-    _canvas.height = Math.round(_H * _dpr);
-    _ctx.setTransform(_dpr, 0, 0, _dpr, 0, 0);
+function _destroy() {
+    _done = true;
+    if (_stage) { _stage.dispose(); _stage = null; }
+    if (_overlay) { _overlay.remove(); _overlay = null; }
+    _figs = []; _mesh = null; _halves = []; _set = null; _dir = null; _hud = null; _in = null; _fx = null;
+}
+function _finish(w) { if (_done) return; _destroy(); _onWin?.(w); }
+
+// ── The yard, the halves, the bomb ──────────────────────────────────────────
+function _buildYard() {
+    const add = (geo, mat, x, y, z) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); _stage.add(m); return m; };
+    // Each side of the line tinted its player's colour; it glows when the bomb is on it.
+    _halves = [0, 1].map(slot => {
+        const m = add(new THREE.PlaneGeometry(W, D / 2), new THREE.MeshBasicMaterial({ color: seat(slot).color, transparent: true, opacity: 0.12, depthWrite: false }), 0, 0.01, (slot === 0 ? 1 : -1) * D / 4);
+        m.rotation.x = -Math.PI / 2;
+        return m;
+    });
+    const line = add(new THREE.PlaneGeometry(W, 0.1), new THREE.MeshBasicMaterial({ color: 0xffffff }), 0, 0.02, 0);
+    line.rotation.x = -Math.PI / 2;
+    // The bomb: a black iron ball, a brass cap, a fuse that burns down, a spark.
+    const g = new THREE.Group();
+    const iron = new THREE.Mesh(new THREE.SphereGeometry(0.34, 20, 16), new THREE.MeshStandardMaterial({ color: 0x1b1b1f, roughness: 0.35, metalness: 0.6 }));
+    iron.castShadow = true; g.add(iron);
+    const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 0.1, 10), new THREE.MeshStandardMaterial({ color: 0xb08d3a, metalness: 0.7, roughness: 0.3 }));
+    cap.position.y = 0.34; g.add(cap);
+    const fuse = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 1, 6), new THREE.MeshStandardMaterial({ color: 0xd9c89a }));
+    fuse.geometry.translate(0, 0.5, 0); fuse.position.y = 0.38; fuse.rotation.z = -0.35; g.add(fuse);
+    const spark = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffd166 }));
+    g.add(spark);
+    const glow = new THREE.PointLight(0xff9a3c, 0.8, 3); g.add(glow);
+    const shadow = add(new THREE.RingGeometry(0.25, 0.4, 24), new THREE.MeshBasicMaterial({ color: 0xffd166, transparent: true, opacity: 0.8, depthWrite: false }), 0, 0.03, 0);
+    shadow.rotation.x = -Math.PI / 2;
+    g.scale.setScalar(1.3);                      // read from overhead, at phone size
+    _stage.add(g);
+    _mesh = { g, fuse, spark, glow, shadow };
+    g.visible = false; shadow.visible = false;
 }
 
-// ── Round flow ──────────────────────────────────────────────────────────────
+function _buildFig(slot) {
+    const f = { slot, z: (slot === 0 ? 1 : -1) * (WALL + 0.55) };
+    if (_stage.gl) {
+        const c = _stage.character(slot);
+        c.rig.root.scale.setScalar(FIG_SCALE);
+        c.rig.root.position.set(0, 0, f.z);
+        c.anim.face(slot === 0 ? Math.PI : 0, true);
+        c.anim.play('ready');
+        Object.assign(f, { rig: c.rig, anim: c.anim });
+    }
+    return f;
+}
+
+// ── Rounds ───────────────────────────────────────────────────────────────────
 function _serve() {
     if (_done) return;
     const fuse = FUSE_MIN + Math.random() * (FUSE_MAX - FUSE_MIN);
-    // Serve toward whoever is ahead, so a lead is never a rest.
-    const toward = _wins[0] === _wins[1] ? (Math.random() < 0.5 ? 1 : -1)
-                                         : (_wins[0] > _wins[1] ? 1 : -1);
-    _bomb = { y: _H / 2, vy: toward * SPEED_0, speed: SPEED_0, fuse, fuseMax: fuse,
-              rallies: 0, hang: SERVE_HANG };
-    _lock = [0, 0];
-    _phase = 'live';
-    _botNext = 0;
-    _say(`ROUND ${_round + 1} — ${_wins[0]}–${_wins[1]}`);
+    // Served toward whoever is ahead, so a lead is never a rest.
+    const toward = _wins[0] === _wins[1] ? (Math.random() < 0.5 ? 1 : -1) : (_wins[0] > _wins[1] ? 1 : -1);
+    _bomb = { z: 0, vz: toward * SPEED_0, speed: SPEED_0, fuse, fuseMax: fuse, rallies: 0, hang: SERVE_HANG };
+    _lock = [0, 0]; _botNext = null; _loser = -1;
+    _phase = 'live'; _phaseT = 0;
+    _figs.forEach(f => f.anim?.play('ready'));
+    if (_mesh) { _mesh.g.visible = true; _mesh.shadow.visible = true; }
+    _hud.say(`ROUND ${_round + 1}`, `${seat(0).name} ${_wins[0]} – ${_wins[1]} ${seat(1).name}`, 1100, _t, '#ff9a3c');
     sfx('countdown');
 }
 
-function _swing(pid) {
-    if (_phase !== 'live' || !_bomb) return;
-    // Nobody owns the bomb on the line, so an eager swing at the serve is
-    // simply ignored rather than punished with a lockout.
-    if (_bomb.hang > 0) return;
-    const now = performance.now();
-    if (now < _lock[pid]) return;
-    _flash[pid] = 1;
-    if (_inHalf(pid)) {
+const _inHalf = slot => !!_bomb && (slot === 0 ? _bomb.z > 0 : _bomb.z < 0);
+
+function _swing(slot) {
+    if (_phase !== 'live' || !_bomb || _bomb.hang > 0) return;
+    if (_clock < _lock[slot]) return;
+    const f = _figs[slot];
+    f.anim?.play('shove', { restart: true });
+    if (_inHalf(slot)) {
         _bomb.rallies++;
         _bomb.speed = Math.min(SPEED_MAX, _bomb.speed * SPEED_MUL);
-        _bomb.vy = (pid === 0 ? -1 : 1) * _bomb.speed;
+        _bomb.vz = (slot === 0 ? -1 : 1) * _bomb.speed;
         sfx('boost');
-        if (pid === 0) haptic([16]);
-        _burst(_W / 2, _bomb.y, 8, '#ffd166');
+        if (!isBotSlot(slot)) haptic([16]);
+        if (_stage?.gl) _fx.burst(_mesh.g.position.clone(), 0xffd166, 0.25, 0.15);
     } else {
-        // Swung at nothing. The lockout is what stops mashing from working.
-        _lock[pid] = now + WHIFF_MS;
+        // Swung at nothing: the lockout is what stops mashing from working.
+        _lock[slot] = _clock + WHIFF;
         sfx('land_bad');
-        if (pid === 0) haptic([30]);
+        if (!isBotSlot(slot)) haptic([30]);
     }
 }
 
-// Is the bomb inside this player's half? P1 owns the bottom, P2 the top.
-function _inHalf(pid) {
-    if (!_bomb) return false;
-    return pid === 0 ? _bomb.y > _H / 2 : _bomb.y < _H / 2;
+function _detonate(loser) {
+    if (_phase !== 'live') return;
+    _phase = 'blast'; _phaseT = 0; _loser = loser;
+    _wins[1 - loser]++;
+    sfx('boom'); haptic('heavy');
+    _shake = 0.5;
+    if (_stage?.gl) {
+        const at = _mesh.g.position.clone();
+        _fx.burst(at, 0xff9a3c, 1.1, 0.4);
+        _fx.burst(at, 0xffe9a8, 0.6, 0.25);
+        _fx.puff(at, 0x3a3a3a, 10, 1.2, 2.2);
+        _fx.confetti(at, [0x1b1b1f, 0xff9a3c, 0xffd166], 24, 4);
+        _mesh.g.visible = false; _mesh.shadow.visible = false;
+    }
+    _figs[loser].anim?.play('hit', { restart: true });
+    _figs[1 - loser].anim?.play('raise', { restart: true });
+    _hud.say('BOOM!', `${seat(loser).name} WAS HOLDING IT · ${_wins[0]} – ${_wins[1]}`, BLAST * 1000, _t, '#ff9a3c');
 }
 
-function _detonate(loserId) {
-    if (_phase === 'blast' || _done) return;
-    _phase = 'blast';
-    _loser = loserId;
-    _wins[1 - loserId]++;
-    _blastAt = { x: _W / 2, y: _bomb ? _bomb.y : _H / 2, t: 0 };
-    _burst(_blastAt.x, _blastAt.y, 46, '#ff9a3c');
-    _burst(_blastAt.x, _blastAt.y, 26, '#ffe9a8');
-    _shake = 15;
-    sfx('mg_lose'); haptic('heavy');
-    _say(`💥 P${loserId + 1} IS HOLDING IT! ${_wins[0]}–${_wins[1]}`);
-
-    _after(() => {
-        if (_done) return;
-        if (_wins[0] >= WIN_ROUNDS || _wins[1] >= WIN_ROUNDS) {
-            _finish(_wins[0] > _wins[1] ? 0 : 1);
-            return;
-        }
-        _round++;
-        _blastAt = null; _parts = [];
-        _serve();
-    }, BLAST_MS);
+// ── Bot (§5): wait until the bomb is really on its side, then return it with a
+// margin against the time it HAS — so a fast bomb squeezes it as it squeezes a
+// player. Sometimes it panics and swings at thin air first. ─────────────────
+function _botStep(slot) {
+    if (_phase !== 'live' || !_bomb || _bomb.hang > 0 || _clock < _lock[slot]) return;
+    if (!_inHalf(slot)) { _botNext = null; return; }
+    const toward = slot === 0 ? _bomb.vz > 0 : _bomb.vz < 0;
+    const ttl = toward ? (WALL - Math.abs(_bomb.z)) / Math.abs(_bomb.vz) : 9;
+    if (_botNext == null) {
+        const margin = 0.09 + (1 - _botSkill) * 0.26 + Math.random() * 0.12;
+        _botNext = _clock + Math.max(0, ttl - margin);
+        if (Math.random() < 0.26 - _botSkill * 0.24) _swingAtNothing(slot);
+    }
+    if (_clock >= _botNext) { _swing(slot); _botNext = null; }
 }
+function _swingAtNothing(slot) { _lock[slot] = _clock + WHIFF; _figs[slot].anim?.play('shove', { restart: true }); sfx('land_bad'); }
 
-function _say(t) {
-    const neu = document.getElementById('mg-neutral');
-    if (neu) neu.textContent = t;
-}
-
-// ── Bot (§5) ────────────────────────────────────────────────────────────────
-//
-// The bot waits for the bomb to be genuinely in its half and then returns it
-// after a skill-scaled delay measured against how long it HAS — so a fast bomb
-// squeezes it exactly as it squeezes a player, and hard is late-and-precise
-// rather than instant.
-function _botStep() {
-    if (_phase !== 'live' || !_bomb || !_isBot) return;
-    const now = performance.now();
-    if (now < _lock[1]) return;
-
-    if (!_inHalf(1)) { _botNext = 0; return; }
-
-    // Time until the bomb hits the bot's wall, in ms.
-    const dist = Math.max(0, _bomb.y - WALL_PAD);
-    const ttl  = _bomb.vy < 0 ? (dist / Math.abs(_bomb.vy)) * 1000 : 9999;
-
-    if (!_botNext) {
-        // Leave a margin that shrinks with skill; easy cuts it far too fine and
-        // sometimes leaves it too late entirely.
-        const margin = 90 + (1 - _botSkill) * 260 + Math.random() * 120;
-        _botNext = now + Math.max(0, ttl - margin);
-        // A skill-scaled chance of panicking and swinging at thin air first.
-        if (Math.random() < (0.26 - _botSkill * 0.24)) _swing(1);
-    }
-    if (now >= _botNext) { _swing(1); _botNext = 0; }
-}
-
-// ── Particles ───────────────────────────────────────────────────────────────
-function _burst(x, y, n, color) {
-    for (let i = 0; i < n; i++) {
-        const a = Math.random() * Math.PI * 2;
-        const s = 70 + Math.random() * 420;
-        _parts.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s,
-                      life: 0.42 + Math.random() * 0.55, age: 0,
-                      r: 2 + Math.random() * 5, color });
-    }
-}
-
-// ── Loop (R1) ───────────────────────────────────────────────────────────────
-function _tick(now) {
-    if (!state.mgActive || _done) return;
-    _af = requestAnimationFrame(_tick);
-    const dt = _last === 0 ? 1 / 60 : Math.min((now - _last) / 1000, 0.1);
-    _last = now;
-    _elapsed += dt;
-
-    if (_phase === 'live' && _bomb) {
-        // While it hangs on the line the fuse still burns, but the bomb doesn't
-        // move and nobody owns it — that beat is what makes the serve readable.
-        if (_bomb.hang > 0) _bomb.hang -= dt;
-        else _bomb.y += _bomb.vy * dt;
-        _bomb.fuse -= dt;
-
-        // Sparks stream off the fuse the whole time it is lit.
-        if (Math.random() < 0.85) {
-            _sparks.push({ x: _W / 2 + (Math.random() - 0.5) * 10, y: _bomb.y - 26,
-                           vx: (Math.random() - 0.5) * 90, vy: -30 - Math.random() * 90,
-                           life: 0.30, age: 0 });
-        }
-
-        if (_bomb.fuse <= 0) {
-            _detonate(_bomb.y > _H / 2 ? 0 : 1);
-        } else if (_bomb.y >= _H - WALL_PAD) {
-            _detonate(0);
-        } else if (_bomb.y <= WALL_PAD) {
-            _detonate(1);
-        }
-        _botStep();
-    }
-
-    for (let i = 0; i < 2; i++) if (_flash[i] > 0) _flash[i] = Math.max(0, _flash[i] - dt * 4.2);
-    if (_shake > 0) _shake = Math.max(0, _shake - dt * 44);
-    if (_blastAt) _blastAt.t += dt;
-
-    _stepParts(_parts, dt, 620);
-    _stepParts(_sparks, dt, 240);
-
-    if (_elapsed >= MATCH_TIME && _phase !== 'blast') {
-        // Out of time mid-rally: the round count decides it, and a level score
-        // is an honest draw.
-        _finish(_wins[0] === _wins[1] ? -1 : (_wins[0] > _wins[1] ? 0 : 1));
-        return;
-    }
-    _draw();
-}
-
-function _stepParts(arr, dt, gravity) {
-    for (let i = arr.length - 1; i >= 0; i--) {
-        const p = arr[i];
-        p.age += dt;
-        if (p.age >= p.life) { arr.splice(i, 1); continue; }
-        p.x += p.vx * dt; p.y += p.vy * dt; p.vy += gravity * dt * 0.35;
-    }
-}
-
-// ── Draw ────────────────────────────────────────────────────────────────────
-function _draw() {
-    const ctx = _ctx;
-    ctx.clearRect(0, 0, _W, _H);
-    ctx.save();
-    if (_shake > 0) ctx.translate((Math.random() - 0.5) * _shake, (Math.random() - 0.5) * _shake);
-
-    // Blast wash behind everything, so the explosion lights the whole arena.
-    if (_blastAt) {
-        const p = Math.min(1, _blastAt.t / 0.42);
-        ctx.fillStyle = `rgba(255,150,60,${0.34 * (1 - p)})`;
-        ctx.fillRect(-40, -40, _W + 80, _H + 80);
-    }
-
-    _wall(0); _wall(1);
-
-    // Fuse sparks
-    for (const s of _sparks) {
-        const a = 1 - s.age / s.life;
-        ctx.fillStyle = `rgba(255,${180 + Math.floor(60 * a)},90,${a})`;
-        ctx.fillRect(s.x - 1.5, s.y - 1.5, 3, 3);
-    }
-
-    if (_phase === 'live' && _bomb) _drawBomb();
-
-    // Explosion particles
-    for (const p of _parts) {
-        const a = 1 - p.age / p.life;
-        ctx.globalAlpha = a;
-        ctx.fillStyle = p.color;
-        ctx.beginPath(); ctx.arc(p.x, p.y, p.r * (0.4 + a * 0.9), 0, Math.PI * 2); ctx.fill();
-    }
-    ctx.globalAlpha = 1;
-
-    if (_blastAt) {
-        const p = Math.min(1, _blastAt.t / 0.5);
-        ctx.strokeStyle = `rgba(255,220,150,${1 - p})`;
-        ctx.lineWidth = 8 * (1 - p) + 1;
-        ctx.beginPath(); ctx.arc(_blastAt.x, _blastAt.y, 18 + p * 210, 0, Math.PI * 2); ctx.stroke();
-    }
-
-    ctx.restore();
-    _hud(0);
-    ctx.save(); ctx.translate(_W, _H); ctx.rotate(Math.PI); _hud(1); ctx.restore();
-    ctx.strokeStyle = 'rgba(255,255,255,.10)'; ctx.lineWidth = 2;
-    ctx.setLineDash([9, 9]);
-    ctx.beginPath(); ctx.moveTo(0, _H / 2); ctx.lineTo(_W, _H / 2); ctx.stroke();
-    ctx.setLineDash([]);
-}
-
-// The wall you are defending. It glows when the bomb is coming at you, which is
-// the "it's yours now" signal — position and brightness, not colour alone (§4).
-function _wall(pid) {
-    const ctx = _ctx;
-    const y = pid === 0 ? _H - WALL_PAD : WALL_PAD;
-    const mine = _inHalf(pid) && _phase === 'live';
-    const heat = mine ? 0.55 + Math.sin(performance.now() / 90) * 0.35 : 0.16;
-    const color = pid === 0 ? '255,90,90' : '90,155,255';
-    ctx.fillStyle = `rgba(${color},${heat})`;
-    ctx.fillRect(0, y - 5, _W, 10);
-    ctx.fillStyle = `rgba(${color},${heat * 0.30})`;
-    ctx.fillRect(0, pid === 0 ? y : y - 34, _W, 34);
-    // Swing flash across the whole half so a return is unmistakable.
-    if (_flash[pid] > 0) {
-        ctx.fillStyle = `rgba(255,235,180,${0.20 * _flash[pid]})`;
-        ctx.fillRect(0, pid === 0 ? _H / 2 : 0, _W, _H / 2);
-    }
-}
-
-function _drawBomb() {
-    const ctx = _ctx;
-    const x = _W / 2, y = _bomb.y;
-    const burn = 1 - _bomb.fuse / _bomb.fuseMax;             // 0 fresh → 1 spent
-    const pulse = 1 + Math.sin(performance.now() / (150 - burn * 105)) * (0.06 + burn * 0.14);
-    const r = 21 * pulse;
-
-    // Motion trail
-    ctx.globalAlpha = 0.20;
-    for (let k = 1; k <= 4; k++) {
-        ctx.fillStyle = '#1b1b22';
-        ctx.beginPath();
-        ctx.arc(x, y - Math.sign(_bomb.vy) * k * 13, r * (1 - k * 0.16), 0, Math.PI * 2);
-        ctx.fill();
-    }
-    ctx.globalAlpha = 1;
-
-    // Casing
-    const g = ctx.createRadialGradient(x - 7, y - 8, 2, x, y, r);
-    g.addColorStop(0, '#5c5c68'); g.addColorStop(1, '#16161c');
-    ctx.fillStyle = g;
-    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
-    // Danger ring reddens as the fuse burns down — a second, redundant channel
-    // for the same information the fuse length already gives.
-    ctx.strokeStyle = `rgba(255,${Math.round(200 - burn * 190)},60,${0.5 + burn * 0.5})`;
-    ctx.lineWidth = 3; ctx.stroke();
-    ctx.fillStyle = 'rgba(255,255,255,.28)';
-    ctx.beginPath(); ctx.ellipse(x - 7, y - 8, 5, 3.4, -0.5, 0, Math.PI * 2); ctx.fill();
-
-    // Cap and fuse — the fuse visibly shortens, which is the whole clock.
-    ctx.fillStyle = '#3b3b45';
-    ctx.fillRect(x - 6, y - r - 7, 12, 8);
-    const len = 26 * (1 - burn) + 4;
-    ctx.strokeStyle = '#c9b28a'; ctx.lineWidth = 3.4; ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.moveTo(x, y - r - 6);
-    ctx.quadraticCurveTo(x + 13, y - r - 6 - len * 0.6, x + 5, y - r - 6 - len);
-    ctx.stroke();
-    // Burning tip
-    const tipX = x + 5, tipY = y - r - 6 - len;
-    const fg = ctx.createRadialGradient(tipX, tipY, 0, tipX, tipY, 11);
-    fg.addColorStop(0, '#fff6cf'); fg.addColorStop(0.5, '#ffb545'); fg.addColorStop(1, 'rgba(255,120,0,0)');
-    ctx.fillStyle = fg;
-    ctx.beginPath(); ctx.arc(tipX, tipY, 11, 0, Math.PI * 2); ctx.fill();
-}
-
-function _hud(pid) {
-    const ctx = _ctx;
-    const locked = performance.now() < _lock[pid];
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-
-    // Round pips: won rounds as filled squares, so the score is countable at a
-    // glance and doesn't depend on reading a number upside down.
-    for (let i = 0; i < WIN_ROUNDS; i++) {
-        const bx = _W / 2 - 27 + i * 22;
-        ctx.fillStyle = i < _wins[pid] ? (pid === 0 ? '#ff5a5a' : '#5a9bff') : 'rgba(255,255,255,.18)';
-        _sq(ctx, bx, _H - 90, 14);
-    }
-
-    ctx.font = '900 17px "Bebas Neue", sans-serif';
-    if (locked) {
-        ctx.fillStyle = '#ef4444';
-        ctx.fillText('WHIFFED — WAIT', _W / 2, _H - 64);
-    } else if (_inHalf(pid) && _phase === 'live') {
-        ctx.fillStyle = '#ffd166';
-        ctx.fillText('TAP! IT\'S YOURS', _W / 2, _H - 64);
-    } else {
-        ctx.fillStyle = 'rgba(255,255,255,.34)';
-        ctx.fillText(_phase === 'live' ? 'THEIR SIDE' : 'STAND BY', _W / 2, _H - 64);
-    }
-}
-
-function _sq(ctx, cx, cy, s) {
-    ctx.fillRect(cx - s / 2, cy - s / 2, s, s);
-}
-
-// ── End (R6) ────────────────────────────────────────────────────────────────
-function _finish(winnerId) {
+// ── The loop ─────────────────────────────────────────────────────────────────
+function _frame(dt) {
     if (_done) return;
-    _done = true;
-    state.mgActive = false;
-    _say(winnerId < 0 ? `TIME — ${_wins[0]}–${_wins[1]}, DRAW!`
-                      : `P${winnerId + 1} WINS ${Math.max(..._wins)}–${Math.min(..._wins)}!`);
-    sfx(winnerId < 0 ? 'land_bad' : 'mg_win');
-    _after(() => { _destroy(); _onWin(winnerId); }, 1300);
+    _t += dt; _phaseT += dt;
+    _hud.tick(_t);
+    if (_phase === 'live' || _phase === 'blast') _clock += dt;
+    if (_phase === 'live' && _bomb && !_frozen) {
+        if (_bomb.hang > 0) _bomb.hang -= dt;
+        else _bomb.z += _bomb.vz * dt;
+        _bomb.fuse -= dt;
+        if (_bomb.fuse <= 0) _detonate(_bomb.z > 0 ? 0 : 1);
+        else if (_bomb.z >= WALL) _detonate(0);
+        else if (_bomb.z <= -WALL) _detonate(1);
+        [0, 1].forEach(slot => { if (isBotSlot(slot)) _botStep(slot); });
+    } else if (_phase === 'blast' && _phaseT >= BLAST) {
+        if (_wins[0] >= WIN_ROUNDS || _wins[1] >= WIN_ROUNDS) _end(_wins[0] > _wins[1] ? 0 : 1);
+        else { _round++; _serve(); }
+    }
+    if (_phase !== 'over' && _clock >= MATCH_TIME && _phase !== 'blast') _end(_wins[0] === _wins[1] ? -1 : _wins[0] > _wins[1] ? 0 : 1);
+    _draw(dt);
+    _fx?.update(dt);
+    const dirOwns = !!_dir && _dir.update(dt);
+    if (_done) return;
+    if (!dirOwns && _stage?.gl && _phase !== 'over') {
+        const c = overheadCam(_stage, W, D, 3), cam = _stage.camera;
+        _shake = Math.max(0, _shake - dt);
+        const j = _shake * 0.5;
+        cam.position.set(c.pos[0] + (Math.random() - 0.5) * j, c.pos[1] + (Math.random() - 0.5) * j, c.pos[2] + (Math.random() - 0.5) * j);
+        cam.lookAt(...c.look);
+    }
+    _renderHud();
 }
 
-// ── Cleanup (R3) ────────────────────────────────────────────────────────────
-function _destroy() {
-    _done = true;
-    _timers.forEach(clearTimeout); _timers.length = 0;
-    _cleanups.forEach(f => { try { f(); } catch (e) {} }); _cleanups.length = 0;
-    if (_af) { cancelAnimationFrame(_af); _af = null; }
-    _ctx = null; _canvas = null;
-    if (_overlay) { _overlay.remove(); _overlay = null; }
-    _bomb = null; _parts = []; _sparks = []; _blastAt = null;
-    _last = 0; _elapsed = 0; _W = 0; _H = 0;
+function _draw(dt) {
+    if (!_mesh || !_bomb) return;
+    const z = _bomb.z, k = Math.min(1, Math.abs(z) / WALL);
+    const y = 1.0 + 1.5 * (1 - k * k);                     // a lob: high over the line, hand-height at each end
+    _mesh.g.position.set(0, y, z);
+    _mesh.g.rotation.x += _bomb.vz * dt * (_bomb.hang > 0 ? 0 : 1.2);
+    const left = Math.max(0, _bomb.fuse / _bomb.fuseMax);
+    _mesh.fuse.scale.y = 0.05 + 0.55 * left;
+    // The spark rides the end of the fuse, and flickers faster as it gets short.
+    const tip = new THREE.Vector3(0, 0.38, 0).add(new THREE.Vector3(Math.sin(0.35), Math.cos(0.35), 0).multiplyScalar(_mesh.fuse.scale.y));
+    _mesh.spark.position.copy(tip);
+    const fl = 0.7 + Math.random() * 0.6 * (1.2 - left);
+    _mesh.spark.scale.setScalar(fl);
+    _mesh.spark.material.color.setHex(left < 0.3 ? 0xff4d2d : 0xffd166);
+    _mesh.glow.position.copy(tip); _mesh.glow.intensity = 0.6 + fl * 0.5;
+    _mesh.shadow.position.set(0, 0.03, z);
+    _mesh.shadow.material.color.setHex(left < 0.3 ? 0xff4d2d : left < 0.6 ? 0xff9a3c : 0xffd166);
+    _halves.forEach((h, slot) => { h.material.opacity = _phase === 'live' && _inHalf(slot) ? 0.3 + Math.sin(_t * 12) * 0.08 : 0.1; });
 }
+
+function _renderHud() {
+    if (!_hud) return;
+    [0, 1].forEach(slot => {
+        _hud.line(slot, `💣 ROUND ${_round + 1} · ${_wins[slot]}–${_wins[1 - slot]} · FIRST TO ${WIN_ROUNDS}`);
+        if (seat(slot).bot) return;
+        const mine = _phase === 'live' && _bomb && _bomb.hang <= 0 && _inHalf(slot);
+        _hud.hint(slot, _clock < _lock[slot] ? 'WHIFF!' : mine ? 'IT\'S YOURS — TAP!' : _round === 0 ? 'TAP WHEN IT\'S ON YOUR SIDE' : '');
+    });
+    const el = document.getElementById('mg-neutral');
+    if (el && _phase === 'live') el.textContent = `${seat(0).name} ${_wins[0]} – ${_wins[1]} ${seat(1).name}`;
+}
+
+function _end(w) {
+    if (_phase === 'over') return;
+    _phase = 'over';
+    _hud.say('');
+    if (_mesh) { _mesh.g.visible = false; _mesh.shadow.visible = false; }
+    _dir.close({
+        winner: w, figs: _figs.filter(f => f.rig).map(f => ({ slot: f.slot, rig: f.rig, anim: f.anim })),
+        sub: w < 0 ? `LEVEL AT ${_wins[0]} – ${_wins[1]}` : `${_wins[w]} – ${_wins[1 - w]}`,
+        onDone: () => _finish(w),
+    });
+    const el = document.getElementById('mg-neutral');
+    if (el) el.textContent = w < 0 ? 'DRAW!' : `${seat(w).name} WINS!`;
+}
+
+// ── Probe hooks ──────────────────────────────────────────────────────────────
+export function _debugState() {
+    return { phase: _phase, round: _round, wins: [..._wins], clock: +_clock.toFixed(2), loser: _loser,
+             lock: _lock.map(l => +Math.max(0, l - _clock).toFixed(2)),
+             bomb: _bomb ? { z: +_bomb.z.toFixed(2), vz: +_bomb.vz.toFixed(2), fuse: +_bomb.fuse.toFixed(2), hang: +_bomb.hang.toFixed(2), rallies: _bomb.rallies } : null,
+             gl: !!_stage?.gl, turned: !!_stage?.turned };
+}
+/** Probes: stop the bomb and its fuse where they are. */
+export function _debugFreeze(on) { _frozen = !!on; }
+/** Probes: put the bomb at z moving at vz, with `fuse` seconds left. */
+export function _debugBomb(z, vz, fuse) { if (_bomb) Object.assign(_bomb, { z, vz, hang: 0, ...(fuse != null ? { fuse } : {}) }); }
