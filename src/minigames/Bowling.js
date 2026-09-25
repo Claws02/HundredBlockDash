@@ -34,6 +34,8 @@ const PIN_R = 0.12, PIN_H = 0.62, BALL_R = 0.21;
 const VMIN = 6.2, VMAX = 13.5;       // launch; a rolling ball keeps ~5/7 of it
 const HOOK = 2.6;                      // lateral accel at full spin, after the skid
 const AIM_MAX = 0.12;                  // rad either side
+const SLIDE = 1.8;                     // lane units/s the ball slides while you line up
+const OFFSET_MAX = HALF - BALL_R - 0.06;
 const SHOT_CLOCK = 9;
 const SETTLE = 1.4;
 const FIG_SCALE = 0.95;
@@ -71,7 +73,7 @@ export function start(isBot, onWin, botSkill = 0.55) {
     }
     _lanes = [0, 1].map(_buildLane);
     _figs = [0, 1].map(_buildFig);
-    [0, 1].forEach(slot => _hud.hint(slot, seat(slot).bot ? '' : 'FLICK UP TO BOWL · CURVE IT TO HOOK'));
+    [0, 1].forEach(slot => _hud.hint(slot, seat(slot).bot ? '' : 'DRAG SIDEWAYS TO LINE UP · FLICK UP TO BOWL'));
 
     _dir.open({
         place: 'BACK ALLEY · THE NEON LANES', title: 'BOWLING',
@@ -194,7 +196,7 @@ function _makePin(x, z) {
 
 function _buildLane(i) {
     const L = { i, pins: [], ball: null, sub: 'wait', subT: 0, clock: 0, frame: 0, rolls: [], frames: [], path: [], bot: { wait: 0 },
-                gutter: false, hook: 0, released: 0, bonus: 0, lastDown: 0, msg: '' };
+                gutter: false, hook: 0, released: 0, bonus: 0, lastDown: 0, msg: '', offset: 0 };
     _rack(L, true);
     // The ball.
     const b = { body: null, mesh: null };
@@ -215,7 +217,8 @@ function _placeBall(L) {
     const b = L.ball.body;
     L.gutter = false; L.hook = 0;
     if (!b) return;
-    b.position.set(LANE_X[L.i], BALL_R + 0.01, -DIR[L.i] * (FOUL - 0.4));
+    // Where the bowler last lined up: a player keeps their spot ball to ball.
+    b.position.set(LANE_X[L.i] + L.offset, BALL_R + 0.01, -DIR[L.i] * (FOUL - 0.4));
     b.velocity.set(0, 0, 0); b.angularVelocity.set(0, 0, 0);
     b.sleep && b.wakeUp && b.wakeUp();
 }
@@ -242,24 +245,32 @@ function _isDown(p) {
 }
 
 // ── Bowling a ball ───────────────────────────────────────────────────────────
+// Everything is read in the PLAYER's own frame first — right is their right,
+// forward is toward their pins — and only then turned into the world. P2
+// holds the phone from the far end and looks down the lane the other way, so
+// their right is the world's −x. Mixing the two frames is what sent P2's balls
+// the opposite way to the flick.
+const _rightX = slot => (slot === 0 ? 1 : -1);             // the world x of a player's right
+const _playerXY = (slot, x, y) => (slot === 0 ? [x, -y] : [-x, y]);   // stage → (right, forward)
+
 function _release(slot, r) {
     const L = _lanes[slot];
     if (!L || L.sub !== 'aim' || isBotSlot(slot) || !r.moved) return;
-    // Flick direction in world terms, from each player's own end.
-    const lat = slot === 0 ? r.dx : -r.dx, fwd = slot === 0 ? -r.dy : r.dy;
-    if (fwd < 0.2) return;                                   // not toward the pins
+    const [lat, fwd] = _playerXY(slot, r.dx, r.dy);
+    if (fwd < 0.2) return;                                   // a sideways drag lines up; only a flick bowls
     const pxLen = Math.hypot(r.dx, r.dy) * 140;
     const pace = Math.max(0, Math.min(1, (pxLen / Math.max(0.06, r.held) - 250) / 1100));
-    // Curve: how far the path bowed off the straight line, and which way.
-    let spin = 0;
-    const path = L.path;
+    // Curve: how far the path bowed off the straight line from start to
+    // release, toward the player's right (+) or left (−).
+    let bow = 0;
+    const path = L.path.map(([x, y]) => _playerXY(slot, x, y));
     if (path.length > 3) {
-        const [ex, ey] = [r.dx, r.dy], len = Math.hypot(ex, ey) || 1;
-        let best = 0;
-        path.forEach(([x, y]) => { const d = (x * ey - y * ex) / len; if (Math.abs(d) > Math.abs(best)) best = d; });
-        spin = Math.max(-1, Math.min(1, best / 0.25)) * (slot === 0 ? 1 : -1);
+        const len = Math.hypot(lat, fwd) || 1;
+        path.forEach(([x, y]) => { const d = (x * fwd - y * lat) / len; if (Math.abs(d) > Math.abs(bow)) bow = d; });
     }
-    _bowl(L, Math.atan2(lat, fwd), pace, spin);
+    const spin = Math.max(-1, Math.min(1, bow / 0.25));
+    // Where you flick is where it goes, and a curve to your right hooks it to your right.
+    _bowl(L, Math.atan2(lat, fwd) * _rightX(slot), pace, spin * _rightX(slot));
 }
 
 function _bowl(L, aim, pace, spin) {
@@ -267,7 +278,7 @@ function _bowl(L, aim, pace, spin) {
     const v = VMIN + (VMAX - VMIN) * pace;
     const b = L.ball.body;
     if (b) b.velocity.set(Math.sin(a) * v, 0, DIR[L.i] * Math.cos(a) * v);
-    L.hook = -spin;                  // a curve to the right bows left: the ball hooks back across
+    L.hook = spin;                   // world x: the way the ball swings once the skid is over
     L.sub = 'roll'; L.subT = 0; L.released = v;
     sfx('slam'); haptic([15]);
     _figs[L.i]?.anim?.play('shove', { restart: true });
@@ -361,7 +372,16 @@ function _frame(dt) {
             if (L.sub === 'aim') {
                 L.clock += dt;
                 const s = _in.seat(L.i);
-                if (s.down) L.path.push([s.dx, s.dy]);
+                if (s.down) {
+                    L.path.push([s.dx, s.dy]);
+                    // Held sideways (not up the lane): slide the ball across to line up.
+                    const [lat, fwd] = _playerXY(L.i, s.dx, s.dy);
+                    if (Math.abs(fwd) < 0.35 && Math.abs(lat) > 0.15 && L.ball.body) {
+                        L.offset = Math.max(-OFFSET_MAX, Math.min(OFFSET_MAX, L.offset + lat * _rightX(L.i) * SLIDE * dt));
+                        L.ball.body.position.x = LANE_X[L.i] + L.offset;
+                        L.ball.body.velocity.set(0, 0, 0);
+                    }
+                }
                 if (isBotSlot(L.i)) { L.bot.wait -= dt; if (L.bot.wait <= 0) _botBowl(L); }
                 else if (L.clock >= SHOT_CLOCK) { L.msg = 'TIME · FOUL'; _afterBall(L, 0); }
             } else if (L.sub === 'roll') {
@@ -438,7 +458,7 @@ function _renderHud() {
         const clock = L.sub === 'aim' && !isBotSlot(slot) ? ` · ${Math.max(0, Math.ceil(SHOT_CLOCK - L.clock))}s` : '';
         _hud.line(slot, L.sub === 'done' ? `🎳 DONE · ${_score(L.rolls)} · THEM ${_score(them.rolls)}`
             : `🎳 FRAME ${fr}/${FRAMES} · BALL ${ballN}${clock} · ${_score(L.rolls)} – ${_score(them.rolls)}`);
-        _hud.hint(slot, L.msg && L.sub !== 'roll' ? L.msg : (L.frame === 0 && L.rolls.length === 0 && !seat(slot).bot ? 'FLICK UP TO BOWL · CURVE IT TO HOOK' : ''));
+        _hud.hint(slot, L.msg && L.sub !== 'roll' ? L.msg : (L.frame === 0 && L.rolls.length === 0 && !seat(slot).bot ? 'DRAG SIDEWAYS TO LINE UP · FLICK UP TO BOWL' : ''));
     });
     const el = document.getElementById('mg-neutral');
     if (el && _phase === 'play') el.textContent = `${seat(0).name} ${_score(_lanes[0].rolls)} – ${_score(_lanes[1].rolls)} ${seat(1).name}`;
