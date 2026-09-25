@@ -54,6 +54,7 @@ const MG_MODULES = {
     kartgp: () => import('./KartGrandPrix.js'),
     redlight: () => import('./RedLightGreenLight.js'),
     tag: () => import('./TagYoureIt.js'),
+    balloontoss: () => import('./WaterBalloonToss.js'),
 };
 
 // The single place that knows which file a game lives in. Exported so the QA
