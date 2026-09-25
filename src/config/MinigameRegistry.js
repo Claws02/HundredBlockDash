@@ -48,6 +48,7 @@ export const MG_TYPES = [
     'musicalchairs',
     'bumpercars',
     'kartgp',
+    'redlight',
 ];
 
 export const MG_INFO = {
@@ -88,6 +89,7 @@ export const MG_INFO = {
     musicalchairs: { icon: '🪑', title: 'MUSICAL CHAIRS', desc: 'Lay the phone flat between you. Your characters and three park-goers walk round the chairs while the band plays, with one chair fewer than walkers. When the music STOPS, the lanterns go out and SIT! goes up: DRAG on your half to run for a free chair. Whoever is left standing is out. Watch for fake-outs: running while the music is still playing freezes you. The first player out loses!' },
     bumpercars: { icon: '🚗', title: 'BUMPER CARS', desc: 'Lay the phone flat between you. Your characters drive bumper cars round a rink at the fair in the park. DRAG on your half to drive (they slide!) and TAP for a boost, which takes three seconds to recharge. The rail round the rink is live: hit it hard and you are ZAPPED, and your rival scores. Shove them into it without going in yourself. First to 3 zaps, or the most when the bell rings, wins!' },
     kartgp: { icon: '🏁', title: 'GO-KART GRAND PRIX', desc: 'Lay the phone flat between you. The screen splits, and each half is your own camera behind your own kart on the park circuit. The kart drives itself: DRAG left and right on your half to steer. Steer hard through a corner to DRIFT, and straighten up for a turbo. Drive through the ? boxes and TAP to use what you get: a 🍄 boost or a 🍌 banana to drop behind you. There is a shortcut across the south hairpin, but the grass is slow. First to finish 3 laps wins!' },
+    redlight: { icon: '🚦', title: 'RED LIGHT, GREEN LIGHT', desc: 'Lay the phone flat between you. A giant traffic light stands in the middle of the park, and you each race toward it from your own end. HOLD on your half to run and let go to stop. Green means go. Amber means it is about to turn red, unless it flips back to green. Anyone still moving on red is caught and sent back to the start, and you slide a little when you stop, so do not leave it late. First to the light wins!' },
 };
 
 // ============================================================
@@ -222,6 +224,7 @@ export const MG_NET = {
     musicalchairs: 'local',
     bumpercars: 'local',
     kartgp: 'local',
+    redlight: 'local',
 };
 
 // The parallel games whose SCORE is also a coin haul.
@@ -322,6 +325,7 @@ export const MG_SHAPE = {
     musicalchairs: 'arena',
     bumpercars: 'arena',
     kartgp: 'arena',
+    redlight: 'arena',
 };
 
 // Modifiers laid over a shape: the seats do not have the same job (ASYM), or
@@ -375,6 +379,7 @@ export const MG_ORIENTATION_MAP = {
     musicalchairs: 'faceoff',
     bumpercars: 'faceoff',
     kartgp: 'faceoff',
+    redlight: 'faceoff',
 };
 
 export const FALLBACK_TRIVIA = [
@@ -560,6 +565,7 @@ export const MG_PROFILE = {
     musicalchairs: { genre: 'reflex', control: 'thumb', wire: 'snapshot', seats: [2, 2], live: false },
     bumpercars: { genre: 'push', control: 'thumb', wire: 'snapshot', seats: [2, 2], live: false },
     kartgp: { genre: 'race', control: 'thumb', wire: 'snapshot', seats: [2, 2], live: false },
+    redlight: { genre: 'nerve', control: 'thumb', wire: 'snapshot', seats: [2, 2], live: false },
 };
 
 // The order the wire tiers come in, cheapest first. Used by the READINESS sort:
