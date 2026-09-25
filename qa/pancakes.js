@@ -36,13 +36,20 @@ require('./stageprobe').run('pancakes', async ({ page, ok, launch, state, shot, 
     await G('_debugDropAt', 0, 1.4);
     await settle(2000);
     s = await state();
-    ok('well off the plate, it falls to the counter and does not count', s.players[0].drops === 2 && s.players[0].count === 1, JSON.stringify(s.players[0]));
+    ok('well off the plate, it falls to the floor and does not count', s.players[0].drops === 2 && s.players[0].count === 1 && s.lowest < 0.3, `${JSON.stringify(s.players[0])} lowest y ${s.lowest}`);
 
     for (let i = 0; i < 5; i++) { await G('_debugDropAt', 0, (Math.random() - 0.5) * 0.08); await settle(900); }
     await settle(800);
     s = await state();
     await shot('stack');
-    ok('dropped centred, they stack', s.players[0].count === 6, `count ${s.players[0].count} top ${s.players[0].top}`);
+    ok('dropped centred, they stack, and the score is the height plate to top', s.players[0].count === 6 && Math.abs(s.players[0].height - 6 * 0.13) < 0.08, `count ${s.players[0].count} height ${s.players[0].height}`);
+
+    // No jolt: the camera doesn't jump up when a pancake is dropped.
+    let base = (await state()).camY, peak = base;
+    await G('_debugDropAt', 0, 0);
+    for (let i = 0; i < 20; i++) { peak = Math.max(peak, (await state()).camY); await settle(40); }
+    ok('dropping a pancake does not jolt the camera up', peak - base < 0.12, `camera y ${base} peaked at ${peak}`);
+    await settle(700);
 
     // A lean: each pancake a little further out than the last. Each one on its
     // own would sit (it overlaps the one below), but the stack's weight ends
@@ -57,7 +64,7 @@ require('./stageprobe').run('pancakes', async ({ page, ok, launch, state, shot, 
     await G('_debugFreeze', false);
     await G('_debugClock', 39.5);
     const r0 = await waitResult(15000, async () => { const st = await state(); if (st && st.phase === 'over') await shot('verdict'); });
-    ok('time up: most on the plate wins', !!r0 && r0.winner === 0, r0 ? `winner ${r0.winner}` : 'no result');
+    ok('time up: the taller stack wins', !!r0 && r0.winner === 0, r0 ? `winner ${r0.winner}` : 'no result');
 
     await launch({ bot: true, skill: 0.85 });
     let mid = false;
