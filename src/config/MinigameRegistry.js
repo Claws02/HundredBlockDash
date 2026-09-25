@@ -52,6 +52,7 @@ export const MG_TYPES = [
     'sackrace',
     'snowball',
     'pancakes',
+    'shellgame',
 ];
 
 export const MG_INFO = {
@@ -96,6 +97,7 @@ export const MG_INFO = {
     sackrace: { icon: '🥔', title: 'SACK RACE', desc: 'Two lanes across the hay meadow. TAP to hop — and it is a RHYTHM: a ring over your head closes in as you land, and a tap as it turns green chains the next hop, longer and higher. Tap late and you shuffle from scratch; tap twice in the air and you faceplant. Only a chain of two or more clears a hay bale. FIRST TO THE FLAG!' },
     snowball: { icon: '☃️', title: 'SNOWBALL FIGHT', desc: 'A half of the winter yard each, with two snow walls. DRAG to run, FLICK to throw — flick further to throw further — and STAND STILL to crouch and pack snow (three snowballs at most). Crouched behind a wall you\'re safe from a straight throw — to get somebody hiding, come round the side. Three hits and you\'re out!' },
     pancakes: { icon: '🥞', title: 'PANCAKE STACK', desc: 'Turn the phone sideways: a plate each at the diner counter. A pancake slides back and forth over your plate — TAP to drop it. The ring under it goes green when you\'re lined up. They\'re real pancakes: drop one off-centre and the stack leans, lean far enough and it topples. Each one that lands makes the next slide faster. Most pancakes on your plate after 40 seconds wins!' },
+    shellgame: { icon: '🥤', title: 'SHELL GAME', desc: 'Three brass cups, one pea. A cup lifts to show you the pea, then Madame Fortuna shuffles. When she stops, tap LEFT, MIDDLE or RIGHT on your half — as YOU see the table from your end. Picks stay secret until you\'ve both locked in. Five rounds, each shuffle longer and faster. Most right picks wins!' },
 };
 
 // ============================================================
@@ -161,6 +163,7 @@ export const MG_WATCHDOG_MS = {
     lightcycles: 240000,   // best of 3, each round ends on a crash
     penalty:     240000,   // no shot clock — the taker shoots when ready
     minigolf:    240000,   // three holes in turns: ~2 min is a normal round
+    shellgame:   150000,   // five shuffles and a pick clock each, plus sudden death
 };
 
 // ============================================================
@@ -236,6 +239,7 @@ export const MG_NET = {
     sackrace: 'local',
     snowball: 'local',
     pancakes: 'local',
+    shellgame: 'local',
 };
 
 // The parallel games whose SCORE is also a coin haul.
@@ -340,6 +344,7 @@ export const MG_SHAPE = {
     sackrace: 'arena',
     snowball: 'arena',
     pancakes: 'arena',
+    shellgame: 'arena',
 };
 
 // Modifiers laid over a shape: the seats do not have the same job (ASYM), or
@@ -397,6 +402,7 @@ export const MG_ORIENTATION_MAP = {
     sackrace: 'sideon',
     snowball: 'faceoff',
     pancakes: 'sideon',
+    shellgame: 'faceoff',
 };
 
 export const FALLBACK_TRIVIA = [
@@ -586,6 +592,7 @@ export const MG_PROFILE = {
     sackrace: { genre: 'race', control: 'tap', wire: 'snapshot', seats: [2, 2], live: false },
     snowball: { genre: 'aim', control: 'thumb', wire: 'snapshot', seats: [2, 2], live: false },
     pancakes: { genre: 'aim', control: 'tap', wire: 'snapshot', seats: [2, 2], live: false },
+    shellgame: { genre: 'brain', control: 'tap', wire: 'snapshot', seats: [2, 2], live: false },
 };
 
 // The order the wire tiers come in, cheapest first. Used by the READINESS sort:
