@@ -50,6 +50,7 @@ export const MG_TYPES = [
     'minigolf',
     'bowling',
     'sackrace',
+    'snowball',
 ];
 
 export const MG_INFO = {
@@ -92,6 +93,7 @@ export const MG_INFO = {
     minigolf: { icon: '⛳', title: 'MINI GOLF', desc: 'Turn the phone sideways and sit side by side for three holes of crazy golf in the park. You take turns: DRAG BACK on your half and LET GO to putt, and the further you pull, the harder you hit. Hole 1: get through the windmill between its sails. Hole 2: hit the loop hard enough to make it round. Hole 3: cross the pond on the bridge, because water costs a stroke. You can knock each other\'s ball. Fewest strokes wins!' },
     bowling: { icon: '🎳', title: 'BOWLING', desc: 'Lay the phone flat between you. Two neon lanes run side by side, one each, and the screen splits so each half is your own view down your lane. FLICK up your half toward the pins to bowl: a faster flick rolls a faster ball, and a curve in your flick puts hook on it. Watch the gutters! Two frames each, with proper strikes and spares, and a strike or spare in the last frame earns bonus balls. Most pins wins!' },
     sackrace: { icon: '🥔', title: 'SACK RACE', desc: 'Two lanes across the hay meadow. TAP to hop — and it is a RHYTHM: a ring over your head closes in as you land, and a tap as it turns green chains the next hop, longer and higher. Tap late and you shuffle from scratch; tap twice in the air and you faceplant. Only a chain of two or more clears a hay bale. FIRST TO THE FLAG!' },
+    snowball: { icon: '☃️', title: 'SNOWBALL FIGHT', desc: 'A half of the winter yard each, with two snow walls. DRAG to run, FLICK to throw — flick further to throw further — and STAND STILL to crouch and pack snow (three snowballs at most). Crouched behind a wall you\'re safe from a straight throw — to get somebody hiding, come round the side. Three hits and you\'re out!' },
 };
 
 // ============================================================
@@ -230,6 +232,7 @@ export const MG_NET = {
     minigolf: 'local',
     bowling: 'local',
     sackrace: 'local',
+    snowball: 'local',
 };
 
 // The parallel games whose SCORE is also a coin haul.
@@ -332,6 +335,7 @@ export const MG_SHAPE = {
     minigolf: 'arena',
     bowling: 'arena',
     sackrace: 'arena',
+    snowball: 'arena',
 };
 
 // Modifiers laid over a shape: the seats do not have the same job (ASYM), or
@@ -387,6 +391,7 @@ export const MG_ORIENTATION_MAP = {
     minigolf: 'sideon',
     bowling: 'faceoff',
     sackrace: 'sideon',
+    snowball: 'faceoff',
 };
 
 export const FALLBACK_TRIVIA = [
@@ -574,6 +579,7 @@ export const MG_PROFILE = {
     minigolf: { genre: 'aim', control: 'thumb', wire: 'snapshot', seats: [2, 2], live: false },
     bowling: { genre: 'aim', control: 'thumb', wire: 'snapshot', seats: [2, 2], live: false },
     sackrace: { genre: 'race', control: 'tap', wire: 'snapshot', seats: [2, 2], live: false },
+    snowball: { genre: 'aim', control: 'thumb', wire: 'snapshot', seats: [2, 2], live: false },
 };
 
 // The order the wire tiers come in, cheapest first. Used by the READINESS sort:
