@@ -33,7 +33,7 @@ const ok = (n, c, d) => (c ? pass : fail).push(n + (d ? ` — ${d}` : ''));
 // list is where that gets noticed.
 const EXPECT = {
     sortrush:     [true,  'any',    true ],
-    speedboat:    [true,  'any',    false],
+    speedboat:    [false, null,     true ],
     snapstrike:   [true,  'any',    true ],
     steadyhand:   [true,  'tablet', true ],
     rhythmforge: [false, null,     false],
@@ -74,9 +74,9 @@ const EXPECT = {
 
 // The headline counts from the plan. If a property changes and one of these
 // moves, the plan is out of date and should be updated deliberately.
-const EXPECT_PHONE_MANY = 5;    // LIVE games — converted to N slots
-const EXPECT_TABLET_MANY = 10;   // ...plus the `roomy` games, which need the extra room
-const EXPECT_ONLINE = 30;       // possible across devices
+const EXPECT_PHONE_MANY = 4;    // LIVE games — converted to N slots
+const EXPECT_TABLET_MANY = 9;    // ...plus the `roomy` games, which need the extra room
+const EXPECT_ONLINE = 31;       // possible across devices
 const EXPECT_ONLINE_NOW = 5;    // running across devices today
 
 function asModule(file) {

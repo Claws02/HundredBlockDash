@@ -1,693 +1,435 @@
 // ============================================================
-// SPEED BOAT — one river, everybody on it, a camera each.
-// For TWO, THREE OR FOUR on one screen.
+// SPEED BOAT — one river, two boats, a chase camera each.
+// (3D rebuild of the 2D original, kept in archived/SpeedBoat.js.)
 //
-// The river is SHARED: one course, one set of rocks, and boats
-// that shove each other when they touch. What is partitioned is
-// the VIEW — each seat's zone is a camera locked to its own boat,
-// so four people race the same water without four playfields.
+// Face-off hold, SPLIT SCREEN: each half is that player's own chase camera,
+// the far half rolled 180° so it reads the right way up from its own end.
+// The river is SHARED: one course, one set of rocks, and boats that shove
+// each other when they touch.
 //
-// Two things in one thumb:
-//   DRAG sideways to steer across the river.
+//   DRAG ⬅➡ on your half to steer across the river.
 //   TAP to change gear — SLOW, CRUISE, FLAT OUT, and round again.
 //
-// And the whole game is in the tension between them. Flat out
-// finishes the course in about fifteen seconds and is the fastest
-// anything can go. It is also the gear in which the next line of
-// rocks arrives before you can get across to the gap in it, and a
-// hit at speed costs more than a hit at a crawl. Cruise takes a
-// third longer and gets hit a quarter as often, which on the
-// numbers below comes out ahead — so the thing a new player learns
-// is that the throttle is a decision and not a direction.
-//
-// That is only true of an AVERAGE player. Somebody reading two
-// lines of rocks ahead can hold flat out through a stretch they
-// are already lined up for, and they will win. The gear is meant
-// to be worth thinking about, not to have one right answer.
-//
-// Built on src/minigames/_template.js — see docs/MINIGAME_STANDARD.md.
+// The game is the tension between the two. Flat out finishes the course in
+// about fifteen seconds; it is also the gear in which the next line of rocks
+// arrives before you can steer across to the gate in it, and a hit at speed
+// costs more than a hit at a crawl. The throttle is a decision, not a
+// direction. Each gate is marked with a red and a green flag.
 // ============================================================
 
 import { state } from '../core/GameState.js';
 import { sfx, haptic } from '../engine/AudioManager.js';
-import { registerMinigameCleanup, slotCount, isBotSlot, seatFor } from './MinigameManager.js';
-import { zonesFor } from '../config/MinigameLayout.js';
+import { registerMinigameCleanup, isBotSlot } from './MinigameManager.js';
+import { createStage } from '../engine/Stage.js';
+import { createDirector } from '../engine/StageDirector.js';
+import { seat, faceoffHud, touch, effects } from '../engine/StageKit.js';
 
-// ── Tunables ─────────────────────────────────────────────────────────────────
-//
-// The world's unit of length is ONE RIVER WIDTH, across and along, so every
-// number below is a fraction or a multiple of the thing on screen it describes.
-const COURSE      = 30;     // river widths from the line to the flag
-const GEARS       = [0.90, 1.40, 2.00];   // widths per second
-const GEAR_NAME   = ['SLOW', 'CRUISE', 'FLAT OUT'];
-// COURSE / top gear = 15 s, which is the brief: the fastest a clean run can be.
-const STEER       = 0.50;   // widths per second across the river
-const ROW_GAP     = 1.15;   // widths between lines of rocks
-// The hole in a line of rocks, and how many of them there are. Two players race
-// for one hole, which is the fight the game is about. Three or four cannot: a
-// hole is not quite two boats wide, so a single one turns every row into a
-// four-way shunt and the race becomes about who got there first rather than
-// about the river. Above two seats each row gets two holes, narrower to keep the
-// crossing honest, and the choice of WHICH hole is the new decision that
-// replaces the queue.
-// Two boats abreast need 0.26 of a river width, so a hole at two seats is 0.30:
-// wide enough that both can go through it TOGETHER if they are level. At 0.24 it
-// was not, and two boats aiming at the one hole simply jammed in front of it,
-// shunting each other and going nowhere. A contested hole should be a race for
-// the better line through it, not a door only one boat fits.
-const GAP_W       = 0.30;   // width of a hole, at two seats
-const GAP_W_MANY  = 0.26;   // ...and at three or four, where there are two
-const GAP_MIN     = 0.14;   // a hole never hugs a bank, so there is always a
-const GAP_MAX     = 0.86;   // way through from either side
-// A hit stops you dead for this long, and it costs more the faster you were
-// going. Without the speed term the top gear simply wins: it takes more hits but
-// each one is the same price, and more speed beats more hits. Paying for the
-// impact is what makes cruise the percentage play.
-const HIT_BASE    = 0.70;   // s
-const HIT_SPEED   = 1.30;   // s more, at full gear
-const BUMP_PUSH   = 0.55;   // widths/s of shove when two boats touch
-const BUMP_COST   = 0.35;   // s of stall for both of them
-const BOAT_W      = 0.13;   // widths — the hull, for hit tests
-const ROCK_R      = 0.075;  // widths
-// How much of the river ahead a zone shows. Held constant in WORLD units rather
-// than derived from the zone's shape: a two-player zone is wide and short and a
-// four-player zone is narrow and tall, and if the visible distance came out of
-// the pixels, the same gear would give two players different amounts of warning.
-// The picture is stretched instead, which nobody racing notices and which keeps
-// the game the same game on every seat count.
-const VIEW_D      = 1.95;   // widths of river visible in a zone
-const BOAT_Y      = 0.74;   // where your own boat sits down the zone
-const MATCH_TIME  = 52;     // s hard ceiling; settles on distance
-const FINISH_GRACE = 2600;  // ms the race runs on after the first boat lands
+// ── Tuning. The sim runs in RIVER WIDTHS (u across 0–1, d along), as the 2D
+// game did; RW turns a width into world units for drawing. ──────────────────
+const RW = 9;
+const COURSE = 30;                      // widths from the line to the flag
+const GEARS = [0.90, 1.40, 2.00];       // widths per second
+const GEAR_NAME = ['SLOW', 'CRUISE', 'FLAT OUT'];
+const STEER = 0.80;                     // widths/s across at full deflection
+const BOT_STEER = 0.55;                 // ...and a bot's, which is always full
+const ROW_GAP = 1.15;                   // widths between lines of rocks
+const GAP_W = 0.30;                     // a gate: wide enough for two, level
+const GAP_MIN = 0.14, GAP_MAX = 0.86;
+const HIT_BASE = 0.70, HIT_SPEED = 1.30;
+const BUMP_PUSH = 0.55, BUMP_COST = 0.35;
+const BOAT_W = 0.13, ROCK_R = 0.075;
+const MATCH_TIME = 52;
+const READY_TIME = 3.2;
+const FIG_SCALE = 0.5;
 
-// ── Module state ──────────────────────────────────────────────────────────────
-let _done = false, _onWin = null, _isBot = false, _botSkill = 0.55;
-let _overlay = null, _canvas = null, _ctx = null, _dpr = 1;
-let _af = null, _last = 0, _elapsed = 0;
-let _W = 0, _H = 0;
+// ── Module state ─────────────────────────────────────────────────────────────
+let _done = false, _onWin = null, _botSkill = 0.55;
+let _overlay = null, _stage = null, _dir = null, _hud = null, _in = null, _fx = null;
+let _boats = [], _rows = [], _cams = [], _botAim = [0.5, 0.5];
+let _phase = 'intro', _phaseT = 0, _t = 0, _clock = 0, _winner = -1, _count = 0, _endAt = 0;
 
-let _n = 2;                 // slots, not seats
-let _boats = [];            // { u, d, gear, stall, finished, hits, wake }
-let _rows = [];             // { d, gaps } — a line of rocks with holes in it
-let _gapW = GAP_W;          // this match's hole width, set from the seat count
-let _zones = [];
-let _drag = new Map();      // pointerId → { pid, x0, y0, u0, moved }
-let _banner = '';
-let _firstHome = 0;         // performance.now() when somebody crossed
-let _botAim = [];
+const X = u => (0.5 - u) * RW;          // P1 looks up +z, so their right is −x
+const Z = d => d * RW;
 
-const _cleanups = [];
-const _timers   = [];
-function _after(fn, ms) {
-    const id = setTimeout(() => { _timers.splice(_timers.indexOf(id), 1); fn(); }, ms);
-    _timers.push(id);
-    return id;
-}
-
-// ── Lifecycle ───────────────────────────────────────────────────────────────
 export function start(isBot, onWin, botSkill = 0.55) {
     if (!state.mgActive) return;
-    _done = false; _onWin = onWin; _isBot = isBot; _botSkill = botSkill;
-    _n = Math.max(2, Math.min(4, slotCount()));
-    _last = 0; _elapsed = 0; _banner = ''; _firstHome = 0;
-    _drag = new Map();
+    _done = false; _onWin = onWin; _botSkill = botSkill;
+    _phase = 'intro'; _phaseT = 0; _t = 0; _clock = 0; _winner = -1; _count = 0; _endAt = 0;
+    _botAim = [0.5, 0.5];
+    registerMinigameCleanup(_destroy);           // R3
+
+    const mg = document.getElementById('minigame-layer');
+    _overlay = document.createElement('div');    // R2
+    _overlay.style.cssText = 'position:absolute;inset:0;overflow:hidden;background:#9fd4f5;z-index:5;';
+    mg.appendChild(_overlay);
+    _stage = createStage(_overlay, { hold: 'faceoff', fov: 45, background: 0x9fd4f5 });
+    _hud = faceoffHud(_stage);
+    _in = touch(_stage, { split: 'y', stick: 60, onTap: slot => _shift(slot) });
+    _fx = effects(_stage);
+    _dir = createDirector(_stage);
     _buildRiver();
-    // Spread across the start line so nobody begins inside anybody else.
-    _boats = Array.from({ length: _n }, (_, i) => ({
-        u: (i + 1) / (_n + 1), d: 0, gear: 1, stall: 0, bumpAt: 0, wall: null,
-        finished: 0, hits: 0, wake: 0,
-    }));
-    _botAim = new Array(_n).fill(0.5);
-    registerMinigameCleanup(_destroy);
-    _build();
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-        if (_done) return;
-        _resize();
-        _af = requestAnimationFrame(_tick);
-    }));
+    if (_stage.gl) {
+        _buildScene();
+        _cams = [0, 1].map(slot => {
+            const c = new THREE.PerspectiveCamera(58, 1, 0.1, 160);
+            c.up.set(0, slot === 0 ? 1 : -1, 0);  // the far half reads from its own end
+            return c;
+        });
+    }
+    _boats = [0, 1].map(_buildBoat);
+    [0, 1].forEach(slot => _hud.hint(slot, seat(slot).bot ? '' : 'DRAG ⬅➡ TO STEER · TAP TO CHANGE GEAR'));
+
+    _dir.open({
+        place: 'THE RIVER · WHITEWATER RUN', title: 'SPEED BOAT',
+        sub: 'SHOOT THE GATES · FIRST TO THE FLAG',
+        from: { pos: [14, 22, -10], look: [0, 0, 30] },
+        to: { pos: [0, 4.2, -7.5], look: [0, 0.5, 10] },
+        onDone: () => { if (!_done) _enter('ready'); },
+    });
+    _stage.start(_frame);
 }
 
-// ── The river ────────────────────────────────────────────────────────────────
-//
-// Lines of rocks with a hole in each, and the hole moves between lines. That is
-// the whole course: there is nothing to memorise and nothing to learn about a
-// particular stretch, only the distance from where you are to where the next
-// hole is, measured against the time your gear leaves you to get there.
+function _destroy() {
+    _done = true;
+    if (_stage) { _stage.views = null; _stage.dispose(); _stage = null; }
+    if (_overlay) { _overlay.remove(); _overlay = null; }
+    _boats = []; _rows = []; _cams = []; _dir = null; _hud = null; _in = null; _fx = null;
+}
+function _finish(w) { if (_done) return; _destroy(); _onWin?.(w); }
+
+// ── The river: lines of rocks with one gate in each, and the gate moves. ──────
 function _buildRiver() {
     _rows = [];
-    _gapW = _n > 2 ? GAP_W_MANY : GAP_W;
-    const holes = _n > 2 ? 2 : 1;
-    const span = GAP_MAX - GAP_MIN;
-    // The first two widths are clear, so nobody is thrown into a wall of rock
-    // before the boat has moved.
-    for (let d = 2.4; d < COURSE - 1.2; d += ROW_GAP) {
-        const gaps = [];
-        if (holes === 1) {
-            gaps.push(GAP_MIN + Math.random() * span);
-        } else {
-            // One hole in each half of the river, so the two are never so close
-            // together that they read as one wide one.
-            gaps.push(GAP_MIN + Math.random() * (span * 0.38));
-            gaps.push(GAP_MIN + span * 0.62 + Math.random() * (span * 0.38));
-        }
-        _rows.push({ d, gaps });
-    }
+    for (let d = 2.4; d < COURSE - 1.2; d += ROW_GAP) _rows.push({ d, gap: GAP_MIN + Math.random() * (GAP_MAX - GAP_MIN) });
 }
+/** The whole HULL has to fit through the gate. */
+const _blocked = (r, u) => Math.abs(u - r.gap) > GAP_W / 2 - BOAT_W / 2;
 
-/**
- * True when a boat at lateral `u` would be in the rocks of row `r`.
- *
- * The whole HULL has to fit inside a hole, which is why the boat's half-width is
- * subtracted from the hole's rather than added to it. Added, the test passed any
- * boat that merely overlapped the hole at all — a window nearly half the river
- * wide, against a hole drawn a third that size. Boats sailed straight through
- * the rocks they were drawn hitting, nobody was ever slowed down, and the race
- * came down to the tie-break in the bump rule.
- */
-function _blocked(r, u) {
-    return !r.gaps.some(g => Math.abs(u - g) <= _gapW / 2 - BOAT_W / 2);
-}
+function _buildScene() {
+    const scene = _stage.scene;
+    const len = Z(COURSE) + 60;
+    scene.fog = new THREE.Fog(0x9fd4f5, 38, 95);
+    scene.add(new THREE.HemisphereLight(0xdff3ff, 0x3f6b2a, 0.8));
+    const sun = new THREE.DirectionalLight(0xffffff, 0.75); sun.position.set(-6, 14, 6); scene.add(sun);
+    const add = (geo, mat, x, y, z) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); _stage.add(m); return m; };
 
-/** The hole in `r` that a boat at `u` is closest to. */
-function _nearestGap(r, u) {
-    let best = r.gaps[0], bd = Infinity;
-    for (const g of r.gaps) {
-        const d = Math.abs(g - u);
-        if (d < bd) { bd = d; best = g; }
-    }
-    return best;
-}
-
-// ── DOM ───────────────────────────────────────────────────────────────────────
-function _build() {
-    const mg = document.getElementById('minigame-layer');
-    if (_overlay) { _overlay.remove(); _overlay = null; }
-
-    _overlay = document.createElement('div');
-    _overlay.style.cssText =
-        'position:absolute;inset:0;overflow:hidden;background:#08131f;touch-action:none;';
-
-    _canvas = document.createElement('canvas');
-    _canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;';
-    _overlay.appendChild(_canvas);
-    _ctx = _canvas.getContext('2d');
-
-    // A press that travels is a steer; a press that does not is a gear change.
-    // Both live in the same thumb because there is only one thumb — a quarter of
-    // a phone does not have room for a wheel and a lever.
-    const down = e => {
-        if (_done) return;
-        e.preventDefault();
-        const r = _overlay.getBoundingClientRect();
-        const x = e.clientX - r.left, y = e.clientY - r.top;
-        const pid = _zoneAt(x, y);
-        if (pid < 0 || isBotSlot(pid)) return;
-        _drag.set(e.pointerId, { pid, x0: x, y0: y, u0: _boats[pid].u, moved: false });
-    };
-    const move = e => {
-        const g = _drag.get(e.pointerId);
-        if (!g || _done) return;
-        e.preventDefault();
-        const r = _overlay.getBoundingClientRect();
-        const x = e.clientX - r.left, y = e.clientY - r.top;
-        if (Math.hypot(x - g.x0, y - g.y0) > 9) g.moved = true;
-        const z = _zones[g.pid];
-        if (!z) return;
-        // A far seat holds the table upside down, so their sideways runs the
-        // other way.
-        const dx = (x - g.x0) / z.rect.w * (z.rot === 180 ? -1 : 1);
-        _boats[g.pid].u = Math.max(BOAT_W / 2, Math.min(1 - BOAT_W / 2, g.u0 + dx));
-    };
-    const up = e => {
-        const g = _drag.get(e.pointerId);
-        if (!g) return;
-        _drag.delete(e.pointerId);
-        if (_done || g.moved) return;
-        const b = _boats[g.pid];
-        b.gear = (b.gear + 1) % GEARS.length;
-        sfx('tick'); haptic([10]);
-    };
-    _overlay.addEventListener('pointerdown', down);
-    _overlay.addEventListener('pointermove', move);
-    _overlay.addEventListener('pointerup', up);
-    _overlay.addEventListener('pointercancel', up);
-    _cleanups.push(() => _overlay.removeEventListener('pointerdown', down));
-    _cleanups.push(() => _overlay.removeEventListener('pointermove', move));
-    _cleanups.push(() => _overlay.removeEventListener('pointerup', up));
-    _cleanups.push(() => _overlay.removeEventListener('pointercancel', up));
-
-    const onResize = () => _resize();
-    window.addEventListener('resize', onResize);
-    _cleanups.push(() => window.removeEventListener('resize', onResize));
-
-    mg.appendChild(_overlay);
-    document.getElementById('mg-neutral').textContent = 'DRAG TO STEER · TAP TO CHANGE GEAR';
-}
-
-function _resize() {
-    if (!_canvas) return;
-    _dpr = Math.min(window.devicePixelRatio || 1, 2);
-    _W = _overlay.clientWidth; _H = _overlay.clientHeight;
-    _canvas.width  = Math.round(_W * _dpr);
-    _canvas.height = Math.round(_H * _dpr);
-    _ctx.setTransform(_dpr, 0, 0, _dpr, 0, 0);
-    _zones = zonesFor(_n, _W, _H);
-}
-
-function _zoneAt(x, y) {
-    for (let i = 0; i < _zones.length; i++) {
-        const r = _zones[i].rect;
-        if (x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h) return i;
-    }
-    let best = -1, bestD = Infinity;
-    _zones.forEach((z, i) => {
-        const cy = z.rect.y + z.rect.h / 2;
-        const d = Math.abs(y - cy) + (x < z.rect.x || x > z.rect.x + z.rect.w ? 1e4 : 0);
-        if (d < bestD) { bestD = d; best = i; }
+    // Water, banks, and white streaks on the water so speed is felt.
+    const water = add(new THREE.PlaneGeometry(RW + 3, len), new THREE.MeshStandardMaterial({ color: 0x2f8fd8, roughness: 0.25, metalness: 0.15 }), 0, 0, len / 2 - 20);
+    water.rotation.x = -Math.PI / 2;
+    const grass = new THREE.MeshStandardMaterial({ color: 0x5fae45, roughness: 0.95 });
+    const sand = new THREE.MeshStandardMaterial({ color: 0xe4cf94, roughness: 1 });
+    [-1, 1].forEach(s => {
+        add(new THREE.BoxGeometry(30, 0.8, len), grass, s * (RW / 2 + 1.5 + 15), 0.3, len / 2 - 20);
+        add(new THREE.BoxGeometry(1.6, 0.35, len), sand, s * (RW / 2 + 0.7), 0.08, len / 2 - 20);
     });
-    return best;
-}
+    const streak = new THREE.InstancedMesh(new THREE.BoxGeometry(0.08, 0.01, 1.3), new THREE.MeshBasicMaterial({ color: 0xcfeaff, transparent: true, opacity: 0.55 }), 220);
+    const m4 = new THREE.Matrix4();
+    for (let i = 0; i < 220; i++) { m4.makeTranslation((Math.random() - 0.5) * RW, 0.02, -15 + Math.random() * (len - 10)); streak.setMatrixAt(i, m4); }
+    _stage.add(streak);
 
-// ── Loop ──────────────────────────────────────────────────────────────────────
-function _tick() {
-    if (!state.mgActive || _done) return;
-    _af = requestAnimationFrame(_tick);
-
-    const now = performance.now();
-    const dt  = _last === 0 ? 1 / 60 : Math.min((now - _last) / 1000, 0.1);
-    _last = now; _elapsed += dt;
-
-    for (let pid = 0; pid < _n; pid++) {
-        if (isBotSlot(pid)) _botDrive(pid, dt);
-        _run(pid, dt);
+    // Trees along both banks.
+    const nT = Math.floor(len / 7) * 2;
+    const leaf = new THREE.InstancedMesh(new THREE.ConeGeometry(1.3, 3.2, 7), new THREE.MeshStandardMaterial({ color: 0x2f7d3a, roughness: 0.9 }), nT);
+    const trunk = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.2, 0.25, 1.2, 6), new THREE.MeshStandardMaterial({ color: 0x6b4423 }), nT);
+    const q = new THREE.Quaternion(), sc = new THREE.Vector3(), p = new THREE.Vector3();
+    for (let i = 0; i < nT; i++) {
+        const side = i % 2 ? 1 : -1, z = -15 + Math.floor(i / 2) * 7 + Math.random() * 3;
+        const x = side * (RW / 2 + 3 + Math.random() * 6), k = 0.8 + Math.random() * 0.6;
+        sc.set(k, k, k);
+        m4.compose(p.set(x, 0.7 + 0.6 * k, z), q, sc); trunk.setMatrixAt(i, m4);
+        m4.compose(p.set(x, 0.7 + 2.6 * k, z), q, sc); leaf.setMatrixAt(i, m4);
     }
-    _bumps(dt);
+    _stage.add(leaf); _stage.add(trunk);
 
-    if (_firstHome && now - _firstHome > FINISH_GRACE) _settleOnDistance();
-    else if (_boats.every(b => b.finished))            _settleOnDistance();
-    else if (_elapsed >= MATCH_TIME)                   _settleOnDistance();
+    // The rocks: every row filled edge to edge but for its gate, which is
+    // flagged red on its left (as P1 sees it) and green on its right.
+    const perRow = [];
+    _rows.forEach(r => {
+        const lo = r.gap - GAP_W / 2, hi = r.gap + GAP_W / 2, list = [];
+        for (let u = lo - ROCK_R * 0.9; u > -0.05; u -= ROCK_R * 1.35) list.push(u);
+        for (let u = hi + ROCK_R * 0.9; u < 1.05; u += ROCK_R * 1.35) list.push(u);
+        perRow.push(list);
+    });
+    const nR = perRow.reduce((a, l) => a + l.length, 0);
+    const rocks = new THREE.InstancedMesh(new THREE.DodecahedronGeometry(ROCK_R * RW, 0), new THREE.MeshStandardMaterial({ color: 0x7d7f86, roughness: 0.9, flatShading: true }), nR);
+    let n = 0;
+    _rows.forEach((r, i) => perRow[i].forEach(u => {
+        const k = 0.85 + Math.random() * 0.35;
+        q.setFromEuler(new THREE.Euler(Math.random() * 3, Math.random() * 3, Math.random() * 3));
+        m4.compose(p.set(X(u), 0.15, Z(r.d) + (Math.random() - 0.5) * 0.5), q, sc.set(k, k * 0.8, k));
+        rocks.setMatrixAt(n++, m4);
+    }));
+    _stage.add(rocks);
+    q.identity();
+    const pole = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.07, 0.07, 2.2, 6), new THREE.MeshStandardMaterial({ color: 0xffffff }), _rows.length * 2);
+    const flags = [0xef4444, 0x22c55e].map(c => new THREE.InstancedMesh(new THREE.BoxGeometry(0.7, 0.45, 0.04), new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: 0.35 }), _rows.length));
+    _rows.forEach((r, i) => [-1, 1].forEach((s, j) => {
+        const x = X(r.gap - s * GAP_W / 2), z = Z(r.d);
+        m4.compose(p.set(x, 1.1, z), q, sc.set(1, 1, 1)); pole.setMatrixAt(i * 2 + j, m4);
+        m4.compose(p.set(x - s * 0.38, 1.95, z), q, sc); flags[j].setMatrixAt(i, m4);
+    }));
+    _stage.add(pole); flags.forEach(f => _stage.add(f));
 
-    _draw();
+    // Start line, and a chequered arch at the flag.
+    const line = add(new THREE.PlaneGeometry(RW, 0.35), new THREE.MeshBasicMaterial({ color: 0xffffff }), 0, 0.03, 0.9);
+    line.rotation.x = -Math.PI / 2;
+    const cv = document.createElement('canvas'); cv.width = 128; cv.height = 16;
+    const cx = cv.getContext('2d');
+    for (let i = 0; i < 16; i++) for (let j = 0; j < 2; j++) { cx.fillStyle = (i + j) % 2 ? '#111' : '#fff'; cx.fillRect(i * 8, j * 8, 8, 8); }
+    const tex = new THREE.CanvasTexture(cv);
+    const post = new THREE.MeshStandardMaterial({ color: 0xdddddd });
+    [-1, 1].forEach(s => add(new THREE.CylinderGeometry(0.22, 0.22, 5, 8), post, s * (RW / 2 + 0.4), 2.5, Z(COURSE)));
+    add(new THREE.BoxGeometry(RW + 1.2, 0.9, 0.12), new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide }), 0, 4.6, Z(COURSE));
+    const fin = add(new THREE.PlaneGeometry(RW, 0.6), new THREE.MeshBasicMaterial({ map: tex }), 0, 0.03, Z(COURSE));
+    fin.rotation.x = -Math.PI / 2;
 }
 
-function _run(pid, dt) {
-    const b = _boats[pid];
+// ── Boats ────────────────────────────────────────────────────────────────────
+function _buildBoat(slot) {
+    const b = { slot, u: slot === 0 ? 0.36 : 0.64, d: 0, gear: 1, stall: 0, bumpAt: 0, wall: null,
+                finished: 0, hits: 0, wakeT: 0, yaw: 0 };
+    if (!_stage.gl) return b;
+    const g = new THREE.Group();
+    const hullM = new THREE.MeshStandardMaterial({ color: seat(slot).color, roughness: 0.35, metalness: 0.2 });
+    const white = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.4 });
+    const dark = new THREE.MeshStandardMaterial({ color: 0x1f2328, roughness: 0.7 });
+    const W = BOAT_W * RW;                               // hull width, as the hit test sees it
+    const hull = new THREE.Mesh(new THREE.BoxGeometry(W, 0.4, 1.7), hullM); hull.position.set(0, 0.2, -0.2); g.add(hull);
+    const bowShape = new THREE.Shape([new THREE.Vector2(-W / 2, 0), new THREE.Vector2(W / 2, 0), new THREE.Vector2(0, 0.9)]);
+    const bow = new THREE.Mesh(new THREE.ExtrudeGeometry(bowShape, { depth: 0.4, bevelEnabled: false }), hullM);
+    bow.rotation.x = Math.PI / 2; bow.position.set(0, 0.4, 0.65); g.add(bow);
+    const stripe = new THREE.Mesh(new THREE.BoxGeometry(W + 0.02, 0.08, 1.7), white); stripe.position.set(0, 0.3, -0.2); g.add(stripe);
+    const glass = new THREE.Mesh(new THREE.BoxGeometry(W * 0.8, 0.3, 0.06), new THREE.MeshStandardMaterial({ color: 0xbfe6ff, transparent: true, opacity: 0.6 }));
+    glass.position.set(0, 0.55, 0.45); glass.rotation.x = -0.4; g.add(glass);
+    const motor = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.6, 0.3), dark); motor.position.set(0, 0.35, -1.15); g.add(motor);
+    _stage.add(g);
+    const ch = _stage.character(slot);
+    ch.rig.root.scale.setScalar(FIG_SCALE);
+    ch.rig.root.position.set(0, 0.35, -0.35);
+    g.add(ch.rig.root);
+    ch.anim.play('ready');
+    // Foam rings for the wake, recycled.
+    const foamGeo = new THREE.RingGeometry(0.28, 0.5, 16);
+    const foam = Array.from({ length: 10 }, () => {
+        const m = new THREE.Mesh(foamGeo, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false }));
+        m.rotation.x = -Math.PI / 2; m.visible = false; _stage.add(m); return m;
+    });
+    Object.assign(b, { g, rig: ch.rig, anim: ch.anim, foam, foamI: 0 });
+    return b;
+}
+
+function _shift(slot) {
+    const b = _boats[slot];
+    if (!b || _phase !== 'race' || b.finished) return;
+    b.gear = (b.gear + 1) % GEARS.length;
+    sfx(b.gear === 2 ? 'boost' : 'tick'); haptic([10]);
+}
+
+// ── The loop ─────────────────────────────────────────────────────────────────
+function _enter(phase) {
+    _phase = phase; _phaseT = 0;
+    if (phase === 'ready') {
+        if (_stage?.gl) _stage.views = [0, 1].map(slot => ({ camera: _cams[slot], rect: slot === 0 ? [0, 0, 1, 0.5] : [0, 0.5, 1, 0.5] }));
+        _count = 3;
+        _hud.say('3', '', 900, _t, '#ff4f4f'); sfx('countdown');
+    } else if (phase === 'race') { _hud.say('GO!', '', 700, _t, '#4ade80'); sfx('go'); haptic([40]); }
+}
+
+function _frame(dt) {
+    if (_done) return;
+    _t += dt; _phaseT += dt;
+    _hud.tick(_t);
+    if (_phase === 'ready') {
+        const n = 3 - Math.floor(_phaseT / (READY_TIME / 3));
+        if (n !== _count && n > 0) { _count = n; _hud.say(String(n), '', 900, _t, n === 1 ? '#4ade80' : n === 2 ? '#facc15' : '#ff4f4f'); sfx('countdown'); }
+        if (_phaseT >= READY_TIME) _enter('race');
+    }
+    if (_phase === 'race') {
+        _clock += dt;
+        _boats.forEach(b => {
+            if (isBotSlot(b.slot)) _botDrive(b, dt);
+            else if (!b.finished) {
+                const s = _in.seat(b.slot);
+                b.u = Math.max(BOAT_W / 2, Math.min(1 - BOAT_W / 2, b.u + s.dx * STEER * dt));
+                b.yaw = -s.dx * 0.35;
+            }
+            _run(b, dt);
+        });
+        _bumps(dt);
+        if (_endAt && _clock >= _endAt) _end();
+        else if (_boats.every(b => b.finished) || (_clock >= MATCH_TIME && _winner < 0)) {
+            if (_winner < 0) _winner = _boats[0].d > _boats[1].d ? 0 : _boats[1].d > _boats[0].d ? 1 : -1;
+            _end();
+        }
+    }
+    _boats.forEach(b => _draw(b, dt));
+    _fx?.update(dt);
+    const dirOwns = !!_dir && _dir.update(dt);
+    if (_done) return;
+    _renderHud();
+}
+
+function _run(b, dt) {
     if (b.finished) return;
-
-    if (b.stall > 0) { b.stall = Math.max(0, b.stall - dt); b.wake = 0; return; }
-
-    // PINNED. A boat that hit a line of rocks is stopped against it and stays
-    // there until it has steered its hull over a hole — you do not reverse out
-    // of a rock, you slide along it looking for the way through.
-    //
-    // Without this the boat was placed just short of the row and then simply
-    // drove into it again on the next frame, faster than it could possibly
-    // steer clear: the hit repeated forever and no boat ever finished the
-    // course. Holding the pin makes the real cost of a hit the thing it should
-    // be — the stall, plus however long it takes to find the gap — and steering
-    // is what gets you out, which is the input the game already has.
+    if (b.stall > 0) { b.stall = Math.max(0, b.stall - dt); return; }
+    // Pinned against a line of rocks until the hull is over the gate: you do
+    // not reverse out of a rock, you slide along it looking for the way through.
     if (b.wall) {
-        if (_blocked(b.wall, b.u)) { b.d = b.wall.d - ROCK_R; b.wake = 0; return; }
+        if (_blocked(b.wall, b.u)) { b.d = b.wall.d - ROCK_R; return; }
         b.wall = null;
     }
-
-    const v = GEARS[b.gear];
-    const before = b.d;
+    const v = GEARS[b.gear], before = b.d;
     b.d += v * dt;
-    b.wake = v;
-
-    // Rocks. Tested per row crossed rather than per frame, so a boat can never
-    // step over a line of them however long the frame was.
     for (const r of _rows) {
         if (r.d <= before || r.d > b.d) continue;
         if (_blocked(r, b.u)) {
-            b.d = r.d - ROCK_R;                       // stopped against it
+            b.d = r.d - ROCK_R;
             b.wall = r;
             b.stall = HIT_BASE + HIT_SPEED * (v / GEARS[GEARS.length - 1]);
-            b.gear = 0;                               // and knocked out of gear
+            b.gear = 0;
             b.hits++;
             sfx('land_bad');
-            if (!isBotSlot(pid)) haptic([50, 40, 50]);
+            if (!isBotSlot(b.slot)) haptic([50, 40, 50]);
+            if (_stage?.gl) { _fx.burst(new THREE.Vector3(X(b.u), 0.5, Z(b.d) + 0.9), 0xffffff, 0.5, 0.3); _fx.puff(new THREE.Vector3(X(b.u), 0.4, Z(b.d) + 0.8), 0xe6f6ff, 5, 0.7, 1.4); }
+            b.anim?.play('hit');
             break;
         }
     }
-
     if (b.d >= COURSE) {
         b.d = COURSE;
-        b.finished = _elapsed;
-        if (!_firstHome) {
-            _firstHome = performance.now();
-            _banner = `${_nameOf(pid)} TAKES IT`;
-            sfx('mg_win');
+        b.finished = _clock;
+        if (_winner < 0) {
+            _winner = b.slot; _endAt = _clock + 1.6;
+            sfx('mg_win'); _hud.say('FINISH!', seat(b.slot).name, 1500, _t, seat(b.slot).css);
         }
     }
 }
 
-// Hulls that overlap shove each other apart and both lose a beat. This is the
-// only way one boat can act on another, and it is the reason the river is shared
-// rather than four copies of the same water.
+// Hulls that overlap shove each other apart; the one BEHIND pays the stall,
+// and both pay when they are dead level.
 function _bumps(dt) {
-    for (let a = 0; a < _n; a++) {
-        for (let b = a + 1; b < _n; b++) {
-            const A = _boats[a], B = _boats[b];
-            if (A.finished || B.finished) continue;
-            if (Math.abs(A.d - B.d) > BOAT_W * 1.9) continue;   // hull length
-            const du = A.u - B.u;
-            if (Math.abs(du) > BOAT_W) continue;
-            const s = du === 0 ? (a < b ? -1 : 1) : Math.sign(du);
-            A.u = Math.max(BOAT_W / 2, Math.min(1 - BOAT_W / 2, A.u + s * BUMP_PUSH * dt));
-            B.u = Math.max(BOAT_W / 2, Math.min(1 - BOAT_W / 2, B.u - s * BUMP_PUSH * dt));
-            // The stall goes to whoever is BEHIND, not to both. Stalling both
-            // meant two boats going for the same hole deadlocked in front of it,
-            // each one's stall holding it there for the next collision — and it
-            // is also just wrong: the boat that got there first is the one that
-            // gets through. The follower pays for the contact it caused.
-            // Level boats both pay. Handing the stall to "whoever is behind"
-            // when the two are dead level meant handing it to the higher slot
-            // every time, because that is how the comparison falls out on a
-            // tie — and slot 0 then led forever. A length is a real lead; a
-            // thousandth of one is not.
-            const now = performance.now();
-            const level = Math.abs(A.d - B.d) < BOAT_W * 0.5;
-            const pays = level ? [A, B] : [A.d < B.d ? A : B];
-            let hit = false;
-            for (const p of pays) {
-                if (p.stall > 0 || now - (p.bumpAt || 0) <= 500) continue;
-                p.stall = BUMP_COST;
-                p.bumpAt = now;
-                hit = true;
-            }
-            if (hit) sfx('dice_land');
-        }
-    }
+    const [A, B] = _boats;
+    if (!A || !B || A.finished || B.finished) return;
+    if (Math.abs(A.d - B.d) > BOAT_W * 1.9) return;
+    const du = A.u - B.u;
+    if (Math.abs(du) > BOAT_W) return;
+    const s = du === 0 ? -1 : Math.sign(du);
+    A.u = Math.max(BOAT_W / 2, Math.min(1 - BOAT_W / 2, A.u + s * BUMP_PUSH * dt));
+    B.u = Math.max(BOAT_W / 2, Math.min(1 - BOAT_W / 2, B.u - s * BUMP_PUSH * dt));
+    const level = Math.abs(A.d - B.d) < BOAT_W * 0.5;
+    let hit = false;
+    (level ? [A, B] : [A.d < B.d ? A : B]).forEach(p => {
+        if (p.stall > 0 || _t - p.bumpAt <= 0.5) return;
+        p.stall = BUMP_COST; p.bumpAt = _t; hit = true;
+    });
+    if (hit) sfx('dice_land');
 }
 
-// ── Bot (§5) ──────────────────────────────────────────────────────────────────
-//
-// It plays the same two decisions a person does, badly in the same ways. It aims
-// for the hole in the next line it can still reach, and it picks a gear from
-// whether it is going to reach it — which is the reasoning the game is trying to
-// teach, so a bot that did anything else would be teaching the wrong thing.
-function _botDrive(pid, dt) {
-    const b = _boats[pid];
+// ── Bot (§5): aim for the next gate, and pick the fastest gear that still
+// leaves time to get across to it. A weak bot overestimates that time. ──────
+function _botDrive(b, dt) {
     if (b.finished) return;
-    // Note it steers while stalled and while pinned. A boat sitting against the
-    // rocks that could not turn its wheel would sit there forever, and a person
-    // holding the screen can steer whenever they like.
-
     const next = b.wall || _rows.find(r => r.d > b.d + ROCK_R);
     if (!next) { b.gear = GEARS.length - 1; return; }
-
-    const gap = _nearestGap(next, b.u);
-    // How far off a hole's centre a HULL can sit and still get through. Every
-    // aim below is clamped inside it, which matters more than it looks: a target
-    // outside this window does not free the boat, so a boat pinned against the
-    // rocks steering at one would sit there for the rest of the race. Nothing
-    // the bot aims at may be somewhere that cannot work.
-    const tol = Math.max(0.01, _gapW / 2 - BOAT_W / 2);
-
-    let aim;
-    if (b.wall) {
-        // Already on the rocks. Finding the hole is the one moment not to be
-        // sloppy about it — the error below exists to make the bot MISS
-        // sometimes, not to make it stuck.
-        aim = gap;
-    } else {
-        // A racing line, not the middle of the hole: every boat aiming at the
-        // exact centre of the same hole is every boat in the same place, and
-        // half a hull off centre, one each way, is how two of them fit through
-        // it abreast. The error is re-rolled per row rather than per frame — a
-        // bot whose aim jitters every frame is a bot that never commits.
-        const err  = (1 - _botSkill) * 0.16 * (Math.random() + Math.random() - 1);
-        const side = (pid % 2 ? 1 : -1) * BOAT_W / 2;
-        aim = gap + side + err;
+    const tol = Math.max(0.01, GAP_W / 2 - BOAT_W / 2);
+    if (b.wall) _botAim[b.slot] = next.gap;
+    else if (b.aimRow !== next) {
+        b.aimRow = next;
+        const err = (1 - _botSkill) * 0.16 * (Math.random() + Math.random() - 1);
+        _botAim[b.slot] = next.gap + (b.slot ? 1 : -1) * BOAT_W / 2 + err;
     }
-    aim = Math.max(gap - tol * 0.92, Math.min(gap + tol * 0.92, aim));
-    _botAim[pid] = Math.max(BOAT_W / 2, Math.min(1 - BOAT_W / 2, aim));
-
-    const need = Math.abs(_botAim[pid] - b.u);
-    // The fastest gear that still leaves time to get across. A weak bot
-    // overestimates how much time it has, which is exactly the mistake the game
-    // is built to punish.
+    const aim = Math.max(next.gap - tol * 0.92, Math.min(next.gap + tol * 0.92, _botAim[b.slot]));
+    const need = Math.abs(aim - b.u);
     const slack = 1 + (1 - _botSkill) * 0.55;
     let want = 0;
     for (let g = GEARS.length - 1; g >= 0; g--) {
-        const t = (next.d - b.d) / GEARS[g];
-        if (STEER * t * slack >= need) { want = g; break; }
+        if (BOT_STEER * ((next.d - b.d) / GEARS[g]) * slack >= need) { want = g; break; }
     }
     b.gear = want;
-
-    const step = STEER * dt;
-    const dv = _botAim[pid] - b.u;
+    const step = BOT_STEER * dt, dv = aim - b.u;
     b.u += Math.max(-step, Math.min(step, dv));
+    b.yaw = Math.max(-0.35, Math.min(0.35, -Math.sign(dv) * Math.min(1, Math.abs(dv) * 20) * 0.35));
 }
 
-// ── End ───────────────────────────────────────────────────────────────────────
-function _nameOf(pid) {
-    const p = state.players[seatFor(pid)];
-    return (p && p.name ? p.name : `P${pid + 1}`).toUpperCase();
-}
-
-/** One number per boat, bigger is better: finishers first, by their time. */
-function _standings() {
-    return _boats.map(b => (b.finished ? 1e6 - b.finished * 100 : b.d));
-}
-
-function _settleOnDistance() {
-    if (_done) return;
-    const sc = _standings();
-    const top = Math.max(...sc);
-    const tied = sc.reduce((a, v, i) => (v === top ? [...a, i] : a), []);
-    _settle(tied.length === 1 ? tied[0] : -1, sc);
-}
-
-function _settle(winnerId, sc) {
-    if (_done) return;
-    _done = true;
-    state.mgActive = false;
-    _banner = winnerId < 0 ? 'DEAD HEAT!' : `${_nameOf(winnerId)} WINS!`;
-    const neu = document.getElementById('mg-neutral');
-    if (neu) neu.textContent = _banner;
-    sfx(winnerId < 0 ? 'land_bad' : 'mg_win'); haptic('heavy');
-    _after(() => { _destroy(); _onWin(winnerId, null, sc.slice(0, _n)); }, 1400);
-}
-
-// ── Draw ──────────────────────────────────────────────────────────────────────
-const SLOT_ACCENT = ['#ff5a5a', '#5a9bff', '#5fd68a', '#ffd45f'];
-
-function _draw() {
-    const ctx = _ctx;
-    ctx.clearRect(0, 0, _W, _H);
-    if (!_zones.length) _zones = zonesFor(_n, _W, _H);
-
-    _zones.forEach((z, pid) => {
-        const r = z.rect;
-        ctx.save();
-        ctx.beginPath(); ctx.rect(r.x, r.y, r.w, r.h); ctx.clip();
-        if (z.rot === 180) { ctx.translate(r.x + r.w, r.y + r.h); ctx.rotate(Math.PI); }
-        else               { ctx.translate(r.x, r.y); }
-        _camera(pid, r.w, r.h);
-        ctx.restore();
+// ── Drawing ──────────────────────────────────────────────────────────────────
+function _draw(b, dt) {
+    if (!b.g) return;
+    const x = X(b.u), z = Z(b.d);
+    const moving = _phase === 'race' && !b.finished && b.stall <= 0 && !b.wall;
+    const v = moving ? GEARS[b.gear] : 0;
+    b.g.position.set(x, 0.05 + Math.sin(_t * 7 + b.slot) * 0.04 * (1 + v), z);
+    b.g.rotation.set(-0.05 * v - (b.stall > 0 ? Math.sin(b.stall * 20) * 0.08 : 0), b.yaw, -b.yaw * 0.4);
+    if (!moving) b.yaw *= Math.pow(0.02, dt);
+    if (b.anim && b.stall <= 0 && b.anim.state === 'hit') b.anim.play(b.finished ? 'victory' : 'ready');
+    if (b.finished && b.anim && b.anim.state !== 'victory') b.anim.play('victory');
+    // Wake: white puffs off the stern, more of them the faster you go.
+    b.wakeT -= dt;
+    if (v > 0 && b.wakeT <= 0) {
+        b.wakeT = 0.16 - v * 0.04;
+        const f = b.foam[b.foamI++ % b.foam.length];
+        f.position.set(x + (Math.random() - 0.5) * 0.3, 0.04, z - 1.35);
+        f.userData.t = 0; f.visible = true;
+    }
+    b.foam.forEach(f => {
+        if (!f.visible) return;
+        const t = (f.userData.t += dt), life = 0.9;
+        if (t >= life) { f.visible = false; return; }
+        f.scale.setScalar(0.35 + t * 1.6);
+        f.material.opacity = 0.75 * (1 - t / life);
     });
-
-    // Zone edges, so four cameras of the same river do not read as one picture.
-    ctx.strokeStyle = 'rgba(255,255,255,.10)'; ctx.lineWidth = 1;
-    _zones.forEach(z => ctx.strokeRect(z.rect.x + 0.5, z.rect.y + 0.5, z.rect.w - 1, z.rect.h - 1));
-}
-
-/** One seat's camera: the shared river, from its own boat's shoulder. */
-function _camera(pid, zw, zh) {
-    const ctx = _ctx;
-    const me = _boats[pid];
-    const accent = SLOT_ACCENT[pid] || '#ffffff';
-    const pxU = zw;                 // px per width, across
-    const pxD = zh / VIEW_D;        // px per width, along
-    const eye = me.d;               // world distance at the boat
-    const by  = zh * BOAT_Y;
-    // World distance → y in the zone. Ahead of you is up.
-    const Y = d => by - (d - eye) * pxD;
-
-    // Water, and banks that are visibly moving so speed is felt and not only
-    // read off a label.
-    ctx.fillStyle = '#0d2438';
-    ctx.fillRect(0, 0, zw, zh);
-    ctx.strokeStyle = 'rgba(120,190,235,.10)'; ctx.lineWidth = 1;
-    ctx.beginPath();
-    const first = Math.floor((eye - VIEW_D) / 0.25) * 0.25;
-    for (let d = first; d < eye + VIEW_D; d += 0.25) {
-        const y = Y(d);
-        ctx.moveTo(0, y); ctx.lineTo(zw, y);
-    }
-    ctx.stroke();
-
-    // Banks
-    ctx.fillStyle = '#123024';
-    ctx.fillRect(0, 0, zw * 0.045, zh);
-    ctx.fillRect(zw * 0.955, 0, zw * 0.045, zh);
-
-    // The finish, once it is in view.
-    if (COURSE < eye + VIEW_D) {
-        const y = Y(COURSE);
-        ctx.fillStyle = '#f8fafc';
-        for (let k = 0; k < 8; k++) {
-            ctx.fillStyle = k % 2 ? '#f8fafc' : '#0f172a';
-            ctx.fillRect(k * zw / 8, y - 5, zw / 8, 10);
-        }
-    }
-
-    // Rocks, only the rows in view. A row is drawn as the rock BETWEEN its
-    // holes, so however many holes it has the picture comes out of the same
-    // numbers the collision test uses.
-    for (const r of _rows) {
-        if (r.d < eye - 0.4 || r.d > eye + VIEW_D) continue;
-        const y = Y(r.d);
-        const holes = r.gaps.map(g => [(g - _gapW / 2) * pxU, (g + _gapW / 2) * pxU])
-                            .sort((a, b) => a[0] - b[0]);
-        ctx.fillStyle = '#3b4a5c';
-        let x = 0;
-        for (const [h0, h1] of holes) { _rocks(ctx, x, h0, y, r.d + x, pxU, pxD); x = h1; }
-        _rocks(ctx, x, zw, y, r.d + x, pxU, pxD);
-        // The holes, marked — at speed a gap in a dark line is not something
-        // anybody finds in time.
-        ctx.strokeStyle = 'rgba(120,230,180,.55)'; ctx.lineWidth = 2;
-        ctx.beginPath();
-        for (const [h0, h1] of holes) { ctx.moveTo(h0 + 2, y); ctx.lineTo(h1 - 2, y); }
-        ctx.stroke();
-    }
-
-    // Every boat in view, yours brightest.
-    for (let i = 0; i < _n; i++) {
-        const b = _boats[i];
-        if (b.d < eye - 0.5 || b.d > eye + VIEW_D) continue;
-        _boat(ctx, b, i, b.u * pxU, Y(b.d), pxU, pxD, i === pid);
-    }
-
-    _hud(pid, zw, zh, accent);
-}
-
-// ACROSS the river is measured in pxU and ALONG it in pxD, and the two are not
-// the same number — a zone shows a fixed distance of river however wide it is,
-// so the picture is stretched. Anything with size in both directions has to be
-// drawn with the right scale in each or it comes out looking like a boulder.
-function _rocks(ctx, x0, x1, y, seed, pxU, pxD) {
-    if (x1 - x0 < 2) return;
-    const rx = ROCK_R * pxU, ry = ROCK_R * pxD;
-    const step = rx * 1.7;
-    let k = 0;
-    for (let x = x0 + rx * 0.6; x < x1 - rx * 0.2; x += step, k++) {
-        // A fixed wobble per rock from its position, so rocks do not shimmer as
-        // the camera moves past them.
-        const w = Math.sin((seed * 37 + k) * 12.9898) * ry * 0.28;
-        ctx.beginPath();
-        ctx.ellipse(x, y + w, rx * 0.9, ry * 0.72, 0, 0, Math.PI * 2);
-        ctx.fill();
+    const cam = _cams[b.slot];
+    if (cam) {
+        const want = new THREE.Vector3(x * 0.55, 4.2, z - 7.5);
+        if (!cam.userData.init) { cam.position.copy(want); cam.userData.init = true; }
+        cam.position.lerp(want, Math.min(1, dt * 5));
+        cam.lookAt(x * 0.6, 0.4, cam.position.z + 17);
+        const fov = 56 + (b.stall > 0 ? 0 : v * 5);
+        if (Math.abs(cam.fov - fov) > 0.1) { cam.fov += (fov - cam.fov) * Math.min(1, dt * 3); cam.updateProjectionMatrix(); }
     }
 }
 
-function _boat(ctx, b, i, x, y, pxU, pxD, mine) {
-    const w = BOAT_W * pxU, l = BOAT_W * 1.9 * pxD;
-    ctx.save();
-    ctx.translate(x, y);
-    // Wake, scaled by how fast this boat is actually going.
-    if (b.wake > 0) {
-        ctx.globalAlpha = 0.30;
-        ctx.fillStyle = '#bfe6ff';
-        ctx.beginPath();
-        ctx.moveTo(-w * 0.4, l * 0.4);
-        ctx.lineTo(0, l * 0.4 + b.wake * pxD * 0.16);
-        ctx.lineTo(w * 0.4, l * 0.4);
-        ctx.closePath(); ctx.fill();
-        ctx.globalAlpha = 1;
-    }
-    ctx.fillStyle = mine ? (SLOT_ACCENT[i] || '#fff') : 'rgba(255,255,255,.42)';
-    ctx.beginPath();
-    ctx.moveTo(0, -l * 0.6);
-    ctx.lineTo(w * 0.5, l * 0.2);
-    ctx.lineTo(w * 0.3, l * 0.4);
-    ctx.lineTo(-w * 0.3, l * 0.4);
-    ctx.lineTo(-w * 0.5, l * 0.2);
-    ctx.closePath(); ctx.fill();
-    if (mine) {
-        ctx.strokeStyle = 'rgba(255,255,255,.75)'; ctx.lineWidth = 2; ctx.stroke();
-    }
-    if (b.stall > 0) {
-        ctx.strokeStyle = '#ef4444'; ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.ellipse(0, 0, w * 0.85 + Math.sin(performance.now() / 60) * 2,
-                    l * 0.75 + Math.sin(performance.now() / 60) * 2, 0, 0, Math.PI * 2);
-        ctx.stroke();
-    }
-    ctx.restore();
+function _renderHud() {
+    if (!_hud) return;
+    const lead = _boats[0].d === _boats[1].d ? -1 : _boats[0].d > _boats[1].d ? 0 : 1;
+    [0, 1].forEach(slot => {
+        const b = _boats[slot];
+        if (!b) return;
+        const pos = lead < 0 || lead === slot ? '1ST' : '2ND';
+        const gearTxt = b.stall > 0 || b.wall ? '💥 ON THE ROCKS' : `⚙ ${GEAR_NAME[b.gear]}`;
+        _hud.line(slot, b.finished ? `🏁 FINISHED · ${_winner === slot ? '1ST' : '2ND'}`
+            : `🚤 ${gearTxt} · ${Math.round(b.d / COURSE * 100)}% · ${pos}`);
+        if (_clock > 7) _hud.hint(slot, b.wall && !isBotSlot(slot) ? 'STEER FOR THE FLAGS!' : '');
+    });
+    const el = document.getElementById('mg-neutral');
+    if (el && _phase === 'race') el.textContent = `${seat(0).name} ${Math.round(_boats[0].d / COURSE * 100)}% – ${Math.round(_boats[1].d / COURSE * 100)}% ${seat(1).name}`;
 }
 
-/**
- * The strip along the outer edge of a seat's camera: what gear it is in, where
- * it is in the field, and where everybody is on the course.
- *
- * The ladder is the part that matters. Four people looking at four different
- * cameras cannot see each other's boats, so without it the race would be four
- * solitaires that happen to share a screen — and knowing you are second by half
- * a length is most of the reason to take the risk.
- */
-function _hud(pid, zw, zh, accent) {
-    const ctx = _ctx;
-    const me = _boats[pid];
-    const sc = _standings();
-    const place = 1 + sc.filter(v => v > sc[pid]).length;
-    const small = zw < 300;
-
-    ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
-    ctx.font = `900 ${small ? 16 : 20}px "Bebas Neue", sans-serif`;
-    ctx.fillStyle = me.stall > 0 ? '#ef4444' : accent;
-    ctx.fillText(me.stall > 0 ? 'HIT!' : GEAR_NAME[me.gear], 12, zh - 30);
-
-    ctx.textAlign = 'right';
-    ctx.fillStyle = accent;
-    ctx.fillText(`${place}${['ST', 'ND', 'RD', 'TH'][Math.min(place - 1, 3)]}`, zw - 12, zh - 30);
-
-    // The ladder: the whole course as a line, with a pip per boat on it.
-    const lw = zw - 24, lx = 12, ly = zh - 16;
-    ctx.fillStyle = 'rgba(255,255,255,.12)';
-    _rrect(ctx, lx, ly, lw, 6, 3); ctx.fill();
-    for (let i = 0; i < _n; i++) {
-        const b = _boats[i];
-        const px = lx + lw * Math.min(1, b.d / COURSE);
-        ctx.beginPath();
-        ctx.arc(px, ly + 3, i === pid ? 5.5 : 4, 0, Math.PI * 2);
-        ctx.fillStyle = SLOT_ACCENT[i] || '#fff';
-        ctx.globalAlpha = i === pid ? 1 : 0.65;
-        ctx.fill();
-        ctx.globalAlpha = 1;
-    }
-
-    if (_banner) {
-        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.font = `900 ${small ? 20 : 26}px "Bebas Neue", sans-serif`;
-        const tw = ctx.measureText(_banner).width + 26;
-        ctx.fillStyle = 'rgba(0,0,0,.62)';
-        _rrect(ctx, zw / 2 - tw / 2, zh * 0.34 - 18, tw, 36, 9); ctx.fill();
-        ctx.fillStyle = '#ffffff';
-        ctx.fillText(_banner, zw / 2, zh * 0.34);
-    }
+function _end() {
+    if (_phase === 'over') return;
+    _phase = 'over';
+    _hud.say('');
+    const w = _winner;
+    if (_stage) _stage.views = null;               // the director's shots are full-frame
+    _dir.close({
+        winner: w, figs: _boats.filter(b => b.rig).map(b => ({ slot: b.slot, rig: b.rig, anim: b.anim })),
+        sub: w < 0 ? 'A DEAD HEAT' : 'FIRST TO THE FLAG',
+        closeUp: (f, p) => ({ pos: [p.x + 3.5, p.y + 3.2, p.z + (f.slot === 0 ? -1 : 1) * 5.5], look: [p.x, p.y + 0.5, p.z] }),
+        onDone: () => _finish(w),
+    });
+    const el = document.getElementById('mg-neutral');
+    if (el) el.textContent = w < 0 ? 'DRAW!' : `${seat(w).name} WINS!`;
 }
 
-function _rrect(ctx, x, y, w, h, r) {
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.arcTo(x + w, y, x + w, y + h, r);
-    ctx.arcTo(x + w, y + h, x, y + h, r);
-    ctx.arcTo(x, y + h, x, y, r);
-    ctx.arcTo(x, y, x + w, y, r);
-    ctx.closePath();
+// ── Probe hooks ──────────────────────────────────────────────────────────────
+export function _debugState() {
+    return { phase: _phase, clock: +_clock.toFixed(2), winner: _winner, rows: _rows.length,
+             boats: _boats.map(b => {
+                 const next = b.wall || _rows.find(r => r.d > b.d + ROCK_R);
+                 return { u: +b.u.toFixed(3), d: +b.d.toFixed(2), gear: b.gear, stall: +b.stall.toFixed(2), pinned: !!b.wall,
+                          hits: b.hits, finished: b.finished, next: next ? { d: +next.d.toFixed(2), gap: +next.gap.toFixed(3) } : null };
+             }),
+             views: _stage?.views ? _stage.views.length : 0, gl: !!_stage?.gl, turned: !!_stage?.turned };
 }
-
-// ── Cleanup ───────────────────────────────────────────────────────────────────
-function _destroy() {
-    _done = true;
-    _timers.forEach(clearTimeout); _timers.length = 0;
-    _cleanups.forEach(f => { try { f(); } catch (e) {} }); _cleanups.length = 0;
-    if (_af) { cancelAnimationFrame(_af); _af = null; }
-    _ctx = null; _canvas = null;
-    if (_overlay) { _overlay.remove(); _overlay = null; }
-    _last = 0; _boats = []; _rows = []; _zones = []; _drag = new Map();
-}
+/** Probes: put a boat at (u, d), clear of any rocks it was pinned on. */
+export function _debugPlace(slot, u, d) { const b = _boats[slot]; if (b) Object.assign(b, { u, d, wall: null, stall: 0 }); }
+export function _debugGear(slot, g) { if (_boats[slot]) _boats[slot].gear = g; }
