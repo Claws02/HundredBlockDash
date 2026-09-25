@@ -38,6 +38,15 @@ require('./stageprobe').run('speedboat', async ({ page, ok, launch, state, shot,
     s = await state();
     await page.mouse.up();
     ok('a drag right steers P1 right', s.boats[0].u > 0.5, `u 0.4 → ${s.boats[0].u}`);
+    // P2 holds the phone from the far end: their right is the stage's LEFT.
+    // Both boats face downriver, so P2's right is the same way as P1's: u grows.
+    await page.evaluate(() => { window.__G._debugPlace(1, 0.6, 1.0); window.__G._debugGear(1, 0); });
+    await page.mouse.move(206, 150); await page.mouse.down();
+    await page.mouse.move(146, 150, { steps: 3 });
+    await page.waitForTimeout(500);
+    s = await state();
+    await page.mouse.up();
+    ok('a drag to P2\'s right (stage left) steers P2 to their right', s.boats[1].u > 0.7, `u 0.6 → ${s.boats[1].u}`);
     await shot('steer');
 
     // Into the rocks at speed.

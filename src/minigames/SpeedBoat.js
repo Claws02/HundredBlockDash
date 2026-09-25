@@ -249,9 +249,10 @@ function _frame(dt) {
         _boats.forEach(b => {
             if (isBotSlot(b.slot)) _botDrive(b, dt);
             else if (!b.finished) {
-                const s = _in.seat(b.slot);
-                b.u = Math.max(BOAT_W / 2, Math.min(1 - BOAT_W / 2, b.u + s.dx * STEER * dt));
-                b.yaw = -s.dx * 0.35;
+                // The far half is rolled 180°, so P2's right is the stage's left.
+                const dx = (b.slot === 0 ? 1 : -1) * _in.seat(b.slot).dx;
+                b.u = Math.max(BOAT_W / 2, Math.min(1 - BOAT_W / 2, b.u + dx * STEER * dt));
+                b.yaw = -dx * 0.35;
             }
             _run(b, dt);
         });
