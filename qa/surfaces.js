@@ -32,14 +32,11 @@ const ok = (n, c, d) => (c ? pass : fail).push(n + (d ? ` — ${d}` : ''));
 // here, because four people cannot play it. Converting one flips it, and this
 // list is where that gets noticed.
 const EXPECT = {
-    quickdraw:    [true,  'any',    true ],
     sortrush:     [true,  'any',    true ],
-    framematch:   [true,  'any',    true ],
     speedboat:    [true,  'any',    false],
     snapstrike:   [true,  'any',    true ],
     steadyhand:   [true,  'tablet', true ],
     rhythmforge: [false, null,     false],
-    freeze:       [false, null,     true ],
     lootcatch:    [true,  'tablet', true ],
     treeclimb:    [true,  'tablet', true ],
     tankclash:   [false, null,     true ],   // dual controls, but great online
@@ -50,7 +47,6 @@ const EXPECT = {
     lightcycles:  [true,  'any',    true ],
     puck:        [false, null,     false],
     bombpass:    [false, null,     false],
-    grandprix:    [true,  'any',    true ],
     memorymatch: [false, null,     false],
     fourinarow:  [false, null,     false],
     gridrecall:   [true,  'tablet', true ],
@@ -65,13 +61,22 @@ const EXPECT = {
     rooftop:     [false, null,     true ],
     blockparty:  [false, null,     true ],
     riftdive:    [false, null,     true ],
+    balloonpump: [false, null,     true ],   // 3D stage game
+    musicalchairs: [false, null,     true ],   // 3D stage game
+    bumpercars:  [false, null,     true ],   // 3D stage game
+    kartgp:      [false, null,     true ],   // 3D stage game
+    redlight:    [false, null,     true ],   // 3D stage game
+    tag:         [false, null,     true ],   // 3D stage game
+    balloontoss: [false, null,     true ],   // 3D stage game
+    minigolf:    [false, null,     true ],   // 3D stage game
+    bowling:     [false, null,     true ],   // 3D stage game
 };
 
 // The headline counts from the plan. If a property changes and one of these
 // moves, the plan is out of date and should be updated deliberately.
-const EXPECT_PHONE_MANY = 8;    // LIVE games — converted to N slots
-const EXPECT_TABLET_MANY = 13;   // ...plus the `roomy` games, which need the extra room
-const EXPECT_ONLINE = 25;       // possible across devices
+const EXPECT_PHONE_MANY = 5;    // LIVE games — converted to N slots
+const EXPECT_TABLET_MANY = 10;   // ...plus the `roomy` games, which need the extra room
+const EXPECT_ONLINE = 30;       // possible across devices
 const EXPECT_ONLINE_NOW = 5;    // running across devices today
 
 function asModule(file) {

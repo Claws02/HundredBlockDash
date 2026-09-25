@@ -250,19 +250,7 @@ async function waitResult(page, budgetMs, tickFn) {
            !!r && r.ms / 1000 <= 65, r ? `${(r.ms / 1000).toFixed(1)}s` : '—');
     }
 
-    // ══════════ GRAND PRIX — a bot can drive at all ══════════
-    // The N-seat conversion left `_botPlan = null` after the per-seat arrays
-    // were built, so every frame a bot was stepped threw and nothing was ever
-    // drawn. The arcade never runs a bot, so only a bot match finds it.
-    {
-        const before = errors.length;
-        await launch(page, 'grandprix', 0.55);
-        const r = await waitResult(page, 75000, null);
-        ok('grandprix: a bot match throws nothing', errors.length === before,
-           [...new Set(errors.slice(before))].slice(0, 2).join(' | '));
-        ok('grandprix: the bot finishes the race against an idle P1',
-           !!r && r.winner === 1, r ? `winner=${r.winner} in ${(r.ms / 1000).toFixed(1)}s` : 'timed out');
-    }
+    // (Grand Prix was archived: Go-Kart Grand Prix replaces it — qa/kartgp.js.)
 
     ok('no console/page errors', errors.length === 0, [...new Set(errors)].slice(0, 4).join(' | '));
     fs.writeFileSync(path.join(__dirname, 'result-newgames.json'),
