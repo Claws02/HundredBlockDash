@@ -12,8 +12,8 @@
 //   TAP to use your item: 🍄 a boost, or 🍌 a banana dropped behind you.
 //
 // The shortcut: a narrow paved path cuts straight across the south hairpin.
-// The grass either side of it (and everywhere off the track) is slow.
-// First to finish three laps wins.
+// Tyre walls line the track and the path: hit one head-on and you back off it.
+// Laps count through checkpoints in order. First to finish three laps wins.
 // ============================================================
 
 import { state } from '../core/GameState.js';
@@ -25,12 +25,19 @@ import { seat, faceoffHud, touch, effects } from '../engine/StageKit.js';
 
 // ── The circuit: a stadium. Straights along z at x = ±SX, hairpins of radius
 // TR round (0, ±SZ). s = 0 is the start line, halfway up the east straight. ──
-const SX = 10, SZ = 15, TR = 10;
-const TRACK_W = 7, PATH_W = 2.8;
+const SX = 14, SZ = 22, TR = 14;
+const TRACK_W = 8, PATH_W = 3.2;
 const L = 4 * SZ + 2 * Math.PI * TR;          // lap length
 const N = 360;                                 // centreline samples
 const LAPS = 3;
-const MAX_TIME = 100;                          // s: a safety bell, then by position
+const MAX_TIME = 130;                          // s: a safety bell, then by position
+// Laps count through these, in order, and then the line — so no loop that
+// skips part of the circuit can be a lap. The third sits on the east
+// straight AFTER the shortcut rejoins, so the shortcut still counts.
+const CHECKPOINTS = [SZ + Math.PI * TR * 0.5, 2 * SZ + Math.PI * TR, 3 * SZ + 2 * Math.PI * TR + SZ * 0.4];
+const CP_WIN = 5;
+const REVERSE = 0.7, REVERSE_V = 3.5;          // backing off a wall
+const BUMP = 5.5;                              // shove between karts
 
 // ── Karts ────────────────────────────────────────────────────────────────────
 const VMAX = 13, ACCEL = 8, GRASS = 0.5;
@@ -72,9 +79,11 @@ function _nearest(x, z) {
     return { s: (best / N) * L, d: Math.sqrt(bd) };
 }
 function _surface(x, z) {
-    if (_nearest(x, z).d < TRACK_W / 2) return 1;
-    if (_segDist(x, z, CUT_A, CUT_B) < PATH_W / 2) return 1;
-    return GRASS;
+    return _drivable(x, z) ? 1 : GRASS;
+}
+/** On the track or the shortcut path. Everywhere else is behind a tyre wall. */
+function _drivable(x, z) {
+    return _nearest(x, z).d < TRACK_W / 2 - R * 0.6 || _segDist(x, z, CUT_A, CUT_B) < PATH_W / 2 - R * 0.6;
 }
 
 export function start(isBot, onWin, botSkill = 0.55) {
@@ -167,6 +176,27 @@ function _buildCircuit() {
         });
     }
     kerb.receiveShadow = true; _stage.add(kerb);
+    // Tyre walls down both edges of the track and both sides of the shortcut:
+    // the infield (and the fountain in it) is out of bounds.
+    const spots = [];
+    const edge = TRACK_W / 2 + 0.55;
+    for (let i = 0, n = Math.round(L / 1.05); i < n; i++) {
+        const p = _at((i / n) * L);
+        [1, -1].forEach(side => {
+            const x = p.x + p.hz * side * edge, z = p.z - p.hx * side * edge;
+            if (_segDist(x, z, CUT_A, CUT_B) < PATH_W / 2 + 0.6) return;        // the shortcut's mouths
+            if (_nearest(x, z).d < edge - 0.3) return;                          // tight inside of a hairpin
+            spots.push([x, z]);
+        });
+    }
+    for (let x = -SX + edge + 0.6; x <= SX - edge - 0.6; x += 1.05) [-1, 1].forEach(k => spots.push([x, -SZ + k * (PATH_W / 2 + 0.55)]));
+    const tyres = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.42, 0.42, 0.62, 12), new THREE.MeshStandardMaterial({ roughness: 0.85 }), spots.length);
+    spots.forEach(([x, z], i) => {
+        mm.compose(new THREE.Vector3(x, 0.31, z), q.identity(), new THREE.Vector3(1, 1, 1));
+        tyres.setMatrixAt(i, mm);
+        tyres.setColorAt(i, col.setHex(i % 6 < 3 ? 0x222428 : 0xd83a3a));
+    });
+    tyres.castShadow = true; _stage.add(tyres);
     const path = new THREE.Mesh(new THREE.PlaneGeometry(2 * SX, PATH_W), new THREE.MeshStandardMaterial({ color: 0xcdbf9f, roughness: 0.9 }));
     path.rotation.x = -Math.PI / 2; path.position.set(0, 0.025, -SZ); path.receiveShadow = true; _stage.add(path);
     // The start line: a checker across the east straight.
@@ -240,7 +270,7 @@ function _buildKart(slot) {
     const p = _at(-2.5 - slot * 0.4);
     const off = slot === 0 ? 1.6 : -1.6;               // P1 on the outside of the grid
     const k = { slot, x: p.x + off, z: p.z, h: 0, v: 0, steer: 0, drift: 0, driftDir: 0, boost: 0, spin: 0,
-                item: null, lap: 0, s: 0, half: false, done: false, finishT: 0, bananaImmune: 0 };
+                item: null, lap: 0, s: 0, cp: 0, rev: 0, bx: 0, bz: 0, done: false, finishT: 0, bananaImmune: 0 };
     k.s = _nearest(k.x, k.z).s;
     if (!_stage.gl) return k;
     const colr = seat(slot).color;
@@ -297,9 +327,18 @@ function _botSteer(k, dt) {
     const toCut = sInto - k.s;
     if (toCut > -1 && toCut < 6 && !b.decided) { b.decided = true; b.cut = Math.random() < 0.15 + _botSkill * 0.8; }
     if (toCut > 12 || toCut < -40) b.decided = false;
-    if (b.cut && k.s > sInto - 3 && k.s < sInto + Math.PI * TR) target = { x: CUT_B.x, z: CUT_B.z };
+    // The shortcut is walled on both sides now, so it is driven like a road:
+    // first to its mouth at the end of the west straight, then along it.
+    const onPath = _segDist(k.x, k.z, CUT_A, CUT_B) < PATH_W / 2 && k.x > CUT_A.x + 1.5;
+    if (b.cut && !b.cutting && toCut < 9 && toCut > -2) b.cutting = true;
+    if (b.cutting) {
+        if (onPath || Math.hypot(k.x - (CUT_A.x + 1.8), k.z - CUT_A.z) < 2.2) target = { x: Math.min(CUT_B.x + 2, k.x + 8), z: CUT_B.z };
+        else target = { x: CUT_A.x + 1.8, z: CUT_A.z };
+        if (k.x > CUT_B.x - 1.5 || toCut < -2 - Math.PI * TR) { b.cutting = false; b.cut = false; }
+    }
     const want = Math.atan2(target.x - k.x, target.z - k.z);
     let d = want - k.h; d = Math.atan2(Math.sin(d), Math.cos(d));
+    k.aimErr = Math.abs(d);
     // Items: boost on a straight; a banana when the rival is close behind.
     b.wait -= dt;
     if (k.item && b.wait <= 0) {
@@ -339,10 +378,16 @@ function _frame(dt) {
         // Kart on kart.
         const [a, b] = _karts, dx = b.x - a.x, dz = b.z - a.z, d = Math.hypot(dx, dz);
         if (d < R * 2 && d > 1e-4) {
+            // Karts bounce off each other: a shove apart that scales with how
+            // hard they met, and hardly any lost speed.
             const nx = dx / d, nz = dz / d, over = R * 2 - d;
-            a.x -= nx * over / 2; a.z -= nz * over / 2; b.x += nx * over / 2; b.z += nz * over / 2;
-            a.v *= 0.93; b.v *= 0.93;
-            if (over > 0.25) sfx('slam');
+            if (_drivable(a.x - nx * over / 2, a.z - nz * over / 2)) { a.x -= nx * over / 2; a.z -= nz * over / 2; }
+            if (_drivable(b.x + nx * over / 2, b.z + nz * over / 2)) { b.x += nx * over / 2; b.z += nz * over / 2; }
+            const va = { x: Math.sin(a.h) * a.v, z: Math.cos(a.h) * a.v }, vb = { x: Math.sin(b.h) * b.v, z: Math.cos(b.h) * b.v };
+            const closing = Math.max(0, (va.x - vb.x) * nx + (va.z - vb.z) * nz);
+            const j = BUMP + closing * 0.6;
+            if (a.bx * nx + a.bz * nz > -j * 0.5) { a.bx -= nx * j; a.bz -= nz * j; b.bx += nx * j; b.bz += nz * j; sfx('slam'); }
+            a.v *= 0.98; b.v *= 0.98;
         }
         if (_endAt && _clock >= _endAt) _end();
         else if (_clock >= MAX_TIME && _winner < 0) { _winner = _progress(a) >= _progress(b) ? 0 : 1; _end(); }
@@ -411,13 +456,28 @@ function _fadeTrees(dt) {
 function _drive(k, dt) {
     k.bananaImmune = Math.max(0, k.bananaImmune - dt);
     if (k.done) { k.v *= Math.pow(0.4, dt); _move(k, dt); return; }
+    if (k.rev > 0) {
+        // Backing off a wall: roll back, swinging the nose round to face up
+        // the track, then drive on.
+        k.rev = Math.max(0, k.rev - dt);
+        k.v = k.rev > 0 ? -REVERSE_V : 0;
+        const p = _at(k.s);
+        let d = Math.atan2(p.hx, p.hz) - k.h; d = Math.atan2(Math.sin(d), Math.cos(d));
+        k.h += Math.max(-2.4 * dt, Math.min(2.4 * dt, d));
+        k.drift = 0; k.driftDir = 0; k.steer = 0;
+        _move(k, dt);
+        _laps(k);
+        return;
+    }
     let steer = 0;
     if (k.spin > 0) k.spin = Math.max(0, k.spin - dt);
     else if (isBotSlot(k.slot)) steer = _botSteer(k, dt);
     else { const s = _in.seat(k.slot); steer = (k.slot === 0 ? 1 : -1) * s.dx; }
     k.steer = steer;
     const surf = _surface(k.x, k.z);
-    const vmax = VMAX * surf * (k.boost > 0 ? BOOST_MUL : 1) * (isBotSlot(k.slot) ? 0.86 + 0.12 * _botSkill : 1);
+    // A bot brakes for a sharp turn — the walls leave no grass to run wide on.
+    const brake = isBotSlot(k.slot) ? 1 - 0.55 * Math.min(1, (k.aimErr || 0) / 1.1) : 1;
+    const vmax = VMAX * surf * brake * (k.boost > 0 ? BOOST_MUL : 1) * (isBotSlot(k.slot) ? 0.86 + 0.12 * _botSkill : 1);
     k.boost = Math.max(0, k.boost - dt);
     if (k.spin > 0) k.v *= Math.pow(0.15, dt);
     else k.v += Math.max(-ACCEL * 2, Math.min(ACCEL, (vmax - k.v) * 2)) * dt;
@@ -451,12 +511,16 @@ function _drive(k, dt) {
         sfx('slam'); haptic([50]);
         if (k.anim) k.anim.flinch?.();
     }
-    // Laps: the half-way checkpoint on the west straight, then the line.
+    _laps(k);
+}
+
+// Laps: every checkpoint in order, then the line.
+function _laps(k) {
     const prev = k.s;
     k.s = _nearest(k.x, k.z).s;
-    if (k.s > L * 0.4 && k.s < L * 0.62) k.half = true;
-    if (prev > L * 0.8 && k.s < L * 0.2 && k.half) {
-        k.lap++; k.half = false;
+    if (k.cp < CHECKPOINTS.length && Math.abs(k.s - CHECKPOINTS[k.cp]) < CP_WIN) k.cp++;
+    if (prev > L * 0.8 && k.s < L * 0.2 && k.cp >= CHECKPOINTS.length) {
+        k.lap++; k.cp = 0;
         if (k.lap >= LAPS) {
             k.done = true; k.finishT = _clock;
             if (_winner < 0) { _winner = k.slot; _endAt = _clock + 1.6; sfx('mg_win'); _hud.say('FINISH!', seat(k.slot).name, 1500, _t, seat(k.slot).css); }
@@ -468,15 +532,23 @@ function _drive(k, dt) {
 }
 
 function _move(k, dt) {
-    k.x += Math.sin(k.h) * k.v * dt;
-    k.z += Math.cos(k.h) * k.v * dt;
-    // The world's edge: a soft fence.
-    const lx = SX + TRACK_W / 2 + 6, lz = SZ + TR + TRACK_W / 2 + 6;
-    if (Math.abs(k.x) > lx) { k.x = Math.sign(k.x) * lx; k.v *= 0.5; }
-    if (Math.abs(k.z) > lz) { k.z = Math.sign(k.z) * lz; k.v *= 0.5; }
-    // The fountain.
-    const fx = k.x, fz = k.z - 2, fd = Math.hypot(fx, fz);
-    if (fd < 3.2 + R * 0.6) { k.x = fx / fd * (3.2 + R * 0.6); k.z = 2 + fz / fd * (3.2 + R * 0.6); k.v *= 0.6; }
+    const dx = (Math.sin(k.h) * k.v + k.bx) * dt, dz = (Math.cos(k.h) * k.v + k.bz) * dt;
+    // A shove from another kart dies away in a fraction of a second.
+    const decay = Math.pow(0.004, dt); k.bx *= decay; k.bz *= decay;
+    if (_drivable(k.x + dx, k.z + dz)) { k.x += dx; k.z += dz; return; }
+    // A tyre wall. A glancing hit slides along it; a head-on one stops you,
+    // and you back off it (see _drive) rather than sit pinned to it.
+    // Only a real share of the move counts as sliding: a head-on hit has
+    // almost none along the wall, and treating it as a slide left the kart
+    // pinned there, never backing off.
+    const len = Math.hypot(dx, dz) || 1;
+    if (Math.abs(dx) > len * 0.35 && _drivable(k.x + dx, k.z)) { k.x += dx; k.v *= Math.pow(0.3, dt); return; }
+    if (Math.abs(dz) > len * 0.35 && _drivable(k.x, k.z + dz)) { k.z += dz; k.v *= Math.pow(0.3, dt); return; }
+    k.bx = k.bz = 0;
+    if (k.rev <= 0 && !k.done) {
+        k.rev = REVERSE; k.drift = 0; k.boost = 0;
+        sfx('slam'); if (!isBotSlot(k.slot)) haptic([40]);
+    }
 }
 
 function _renderHud() {
@@ -514,7 +586,7 @@ function _end() {
 export function _debugState() {
     return { phase: _phase, clock: +_clock.toFixed(2), winner: _winner, L: +L.toFixed(1),
              karts: _karts.map(k => ({ x: +k.x.toFixed(2), z: +k.z.toFixed(2), h: +k.h.toFixed(2), v: +k.v.toFixed(2), s: +k.s.toFixed(1),
-                                        lap: k.lap, half: k.half, item: k.item, drift: +k.drift.toFixed(2), boost: +k.boost.toFixed(2), spin: +k.spin.toFixed(2),
+                                        lap: k.lap, cp: k.cp, rev: +k.rev.toFixed(2), item: k.item, drift: +k.drift.toFixed(2), boost: +k.boost.toFixed(2), spin: +k.spin.toFixed(2),
                                         surf: _surface(k.x, k.z), done: k.done })),
              views: _stage?.views ? _stage.views.length : 0, gl: !!_stage?.gl, turned: !!_stage?.turned };
 }
@@ -522,4 +594,4 @@ export function _debugState() {
 export function _debugPlace(slot, x, z, h = 0, v = 0) { const k = _karts[slot]; if (k) Object.assign(k, { x, z, h, v, spin: 0 }); }
 /** Probes: give a kart an item, or set its lap count. */
 export function _debugItem(slot, item) { if (_karts[slot]) _karts[slot].item = item; }
-export function _debugLap(slot, lap, half = true) { if (_karts[slot]) Object.assign(_karts[slot], { lap, half }); }
+export function _debugLap(slot, lap, half = true) { if (_karts[slot]) Object.assign(_karts[slot], { lap, cp: half ? CHECKPOINTS.length : 0 }); }

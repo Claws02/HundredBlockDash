@@ -164,6 +164,7 @@ export const MG_WATCHDOG_MS = {
     penalty:     240000,   // no shot clock — the taker shoots when ready
     minigolf:    240000,   // three holes in turns: ~2 min is a normal round
     shellgame:   150000,   // five shuffles and a pick clock each, plus sudden death
+    kartgp:      180000,   // three laps of the big circuit, with a 130 s bell of its own
 };
 
 // ============================================================
