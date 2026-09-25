@@ -2,10 +2,10 @@
 // MINI GOLF — crazy golf in the park, both of you at once.
 // (Scaffolded from _template3d.js; see docs/MINIGAME_3D_PLAYBOOK.md.)
 //
-// Face-off hold, SPLIT SCREEN. Each of you plays your OWN copy of the same
-// hole, at the same time, with a camera behind your own tee looking down the
-// hole at the flag. No turns and no waiting: putt again as soon as your ball
-// stops.
+// Face-off hold, SPLIT SCREEN over ONE shared course: you both play the same
+// hole at the same time, each half showing it from your own end. No turns and
+// no waiting: putt again as soon as your ball stops. The balls knock into
+// each other — a ball waiting to be putted too, which costs its owner nothing.
 //
 //   DRAG BACK on your half and LET GO: a slingshot. The further you pull, the
 //   harder the putt; the dotted line shows where it's going.
@@ -27,7 +27,10 @@ import { seat, faceoffHud, touch, effects } from '../engine/StageKit.js';
 
 // ── Tuning ───────────────────────────────────────────────────────────────────
 const HX = 8.6, HZ = 3.2;              // a hole: x from the tee end (−) to the cup end (+), z across
-const OFF = [9, -9];                   // world z of each player's copy of the hole
+// One course, shared: both balls are on it at once and can knock each other.
+// (Kept as a per-player offset so the drawing code reads the same either way.)
+const OFF = [0, 0];
+const TEE_Z = [0.35, -0.35];           // side by side on the tee
 const BR = 0.2;                        // ball radius
 const MAXV = 11;                       // a full pull
 const DECEL = 1.3, DRAG = 0.55;        // rolling friction: constant + per unit speed
@@ -165,7 +168,7 @@ function _buildFig(slot) {
     if (_stage.gl) {
         const c = _stage.character(slot);
         c.rig.root.scale.setScalar(FIG_SCALE);
-        c.rig.root.position.set(-HX + 0.6, 0, OFF[slot] + HZ + 1.3);
+        c.rig.root.position.set(-HX + 0.6, 0, (slot === 0 ? 1 : -1) * (HZ + 1.3));
         c.anim.face(Math.PI / 2, true);
         c.anim.play('ready');
         Object.assign(f, { rig: c.rig, anim: c.anim });
@@ -265,6 +268,7 @@ function _buildCopy(h, off) {
         sand.rotation.x = -Math.PI / 2; sand.position.set(s.x, 0.106, s.z); g.add(sand);
     });
     if (h.mover) {
+        copy.moverDef = h.mover;
         copy.mover = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.45, h.mover.len), new THREE.MeshStandardMaterial({ color: 0x7c3aed, emissive: 0x3b0764, emissiveIntensity: 0.4 }));
         copy.mover.position.set(h.mover.x, 0.33, 0); copy.mover.castShadow = true; g.add(copy.mover);
     }
@@ -339,8 +343,8 @@ function _nextHole() {
     _hole++;
     if (_hole >= _holes.length) { _end(); return; }
     const h = _holes[_hole];
-    if (_stage?.gl) { _clearCopies(); _copies = OFF.map(off => _buildCopy(h, off)); }
-    _balls.forEach(b => Object.assign(b, { x: h.tee[0], z: h.tee[1], vx: 0, vz: 0, holed: false, loop: null, looped: false, state: 'aim', clock: 0, idle: 0 }));
+    if (_stage?.gl) { _clearCopies(); _copies = [_buildCopy(h, 0)]; }
+    _balls.forEach(b => Object.assign(b, { x: h.tee[0], z: h.tee[1] + TEE_Z[b.slot], vx: 0, vz: 0, holed: false, loop: null, looped: false, state: 'aim', clock: 0, idle: 0 }));
     _strokes.forEach(s => s.push(0));
     _times.forEach(s => s.push(0));
     _bot.forEach(b => { b.wait = 1.8 + Math.random() * 0.8; });
@@ -489,6 +493,22 @@ function _frame(dt) {
                 }
             }
         });
+        // Ball on ball: an even trade of speed along the line between them. A
+        // ball waiting to be putted can be knocked away — no stroke for that.
+        const [p, q] = _balls;
+        if (!p.holed && !q.holed && !p.loop && !q.loop) {
+            const dx = q.x - p.x, dz = q.z - p.z, d = Math.hypot(dx, dz);
+            if (d < BR * 2 && d > 1e-5) {
+                const nx = dx / d, nz = dz / d, over = BR * 2 - d;
+                p.x -= nx * over / 2; p.z -= nz * over / 2; q.x += nx * over / 2; q.z += nz * over / 2;
+                const rel = (p.vx - q.vx) * nx + (p.vz - q.vz) * nz;
+                if (rel > 0) {
+                    p.vx -= rel * nx; p.vz -= rel * nz; q.vx += rel * nx; q.vz += rel * nz;
+                    sfx('land_good');
+                    [p, q].forEach(b => { if (b.state === 'aim' && Math.hypot(b.vx, b.vz) > STOP_V) { b.state = 'roll'; b.knocked = true; if (_aims[b.slot]) _aims[b.slot].visible = false; } });
+                }
+            }
+        }
         if (_balls.every(b => b.state === 'done')) {
             _sub = 'tally'; _subT = 0;
             const s = _strokes.map(x => x[_hole]), tm = _times.map(x => x[_hole]);
@@ -508,7 +528,8 @@ function _frame(dt) {
     _copies.forEach(c => {
         if (c.sails) c.sails.rotation.z = _sailAngle(_t) - Math.PI / 2;
         if (c.gate) c.gate.visible = _gapShut(_t);
-        if (c.mover) c.mover.position.z = _moverZ(h.mover, _t);
+        // The copy's own mover: on the frame a new hole is built, `h` is still the last one.
+        if (c.mover) c.mover.position.z = _moverZ(c.moverDef, _t);
     });
     // Each camera: behind its own tee, looking down the hole at the flag.
     _cams.forEach((cam, slot) => {
