@@ -37,6 +37,9 @@ const HEIGHT = s => Math.min(0.95, 0.32 + 0.1 * s);
 const WOBBLE_T = 1.1;                    // s an early tap is remembered for
 const PLANT_T = 1.3;                     // s face down in the grass
 const BUMP_T = 0.4;                      // s of stagger after hitting a bale
+// Knocked back this far in front of the bale: room for two hops of run-up,
+// so a chain started from here clears it on the third (0.95 + 1.10 < 2.25).
+const KNOCK_BACK = 2.25;
 const MATCH_TIME = 45;
 const READY_TIME = 2.4;
 const FIG_SCALE = 0.85;
@@ -44,7 +47,7 @@ const FIG_SCALE = 0.85;
 // ── Module state ─────────────────────────────────────────────────────────────
 let _done = false, _onWin = null, _botSkill = 0.55;
 let _overlay = null, _stage = null, _dir = null, _hud = null, _in = null, _fx = null;
-let _r = [], _phase = 'intro', _phaseT = 0, _t = 0, _clock = 0, _winner = -1, _endAt = 0, _count = 0, _frozen = false;
+let _look = null, _r = [], _phase = 'intro', _phaseT = 0, _t = 0, _clock = 0, _winner = -1, _endAt = 0, _count = 0, _frozen = false;
 
 export function start(isBot, onWin, botSkill = 0.55) {
     if (!state.mgActive) return;
@@ -63,6 +66,7 @@ export function start(isBot, onWin, botSkill = 0.55) {
     _dir = createDirector(_stage);
     if (_stage.gl) _buildMeadow();
     _r = [0, 1].map(_buildRacer);
+    _look = _stage.gl ? new THREE.Vector3(..._cam().look) : null;
     [0, 1].forEach(slot => _hud.hint(slot, seat(slot).bot ? '' : 'TAP IN RHYTHM TO HOP'));
 
     _dir.open({
@@ -84,9 +88,10 @@ function _destroy() {
 function _finish(w) { if (_done) return; _destroy(); _onWin?.(w); }
 
 // The camera sits side-on over the middle of the pack, and pulls back as the
-// two racers spread so both stay in frame.
+// two racers spread so both stay in frame. It follows where the racers ARE
+// (mid-hop), not where they will land, which jumped a whole hop at a time.
 function _cam() {
-    const xs = _r.length ? _r.map(r => r.x) : [START_X, START_X];
+    const xs = _r.length ? _r.map(r => (r.drawX != null ? r.drawX : r.x)) : [START_X, START_X];
     const mid = (xs[0] + xs[1]) / 2, spread = Math.abs(xs[0] - xs[1]);
     const cx = Math.max(START_X + 5, Math.min(FINISH_X - 4, mid + 1.5));
     const back = 10.5 + Math.min(10, spread * 0.55);
@@ -210,7 +215,7 @@ function _launch(r, onBeat) {
     for (const bx of BALES) {
         const front = bx - BALE_W / 2 - 0.3;
         if (front <= r.x || front > x1) continue;
-        if (H < BALE_H) { blocked = bx; x1 = front - 0.35; }              // bounces off the bale
+        if (H < BALE_H) { blocked = bx; x1 = front - KNOCK_BACK; }        // bounces off the bale, well back
         else if (x1 < bx + BALE_W / 2 + 0.35) x1 = bx + BALE_W / 2 + 0.4; // clears it, lands past it
         break;
     }
@@ -231,7 +236,8 @@ function _land(r) {
         return;
     }
     if (h.blocked != null) {
-        r.bump = BUMP_T; r.streak = Math.min(r.streak, 1); r.x = h.x1 - 0.2;
+        // Start the approach again: back from the bale, chain at zero.
+        r.bump = BUMP_T; r.streak = 0;
         sfx('dice_land'); if (!isBotSlot(r.slot)) haptic([30]);
         if (_stage?.gl) _fx.puff(new THREE.Vector3(h.blocked - 0.5, 0.5, LANE_Z[r.slot]), 0xe8c15a, 5, 0.4, 0.6);
         r.anim?.play('hit', { restart: true });
@@ -309,8 +315,12 @@ function _frame(dt) {
     if (_done) return;
     if (!dirOwns && _stage?.gl && _phase !== 'over') {
         const c = _cam(), cam = _stage.camera;
-        cam.position.lerp(new THREE.Vector3(...c.pos), Math.min(1, dt * 2.5));
-        cam.lookAt(...c.look);
+        // Smoothed position AND aim: easing the position but snapping the
+        // look-at was the other half of the jump.
+        cam.position.lerp(new THREE.Vector3(...c.pos), Math.min(1, dt * 1.6));
+        if (!_look) _look = new THREE.Vector3(...c.look);
+        _look.lerp(new THREE.Vector3(...c.look), Math.min(1, dt * 1.6));
+        cam.lookAt(_look);
     }
     _renderHud();
 }
@@ -332,6 +342,7 @@ function _draw(r, dt) {
         const since = _t - r.landedAt;
         sq = since < 0.12 ? 1 - Math.sin(since / 0.12 * Math.PI) * 0.18 : 1;
     }
+    r.drawX = x;
     r.g.position.set(x, y, LANE_Z[r.slot]);
     r.g.scale.set(1 / Math.sqrt(sq), sq, 1 / Math.sqrt(sq));
     const tilt = r.plant > 0 ? -Math.min(1.35, (PLANT_T - r.plant) * 8) : r.wobble ? Math.sin(_t * 30) * 0.18 : 0;
@@ -391,7 +402,7 @@ export function _debugState() {
              racers: _r.map(r => ({ x: +r.x.toFixed(2), streak: r.streak, hops: r.hops, perfect: r.perfect, wobble: r.wobble,
                                     plant: +r.plant.toFixed(2), bump: +r.bump.toFixed(2), finished: r.finished,
                                     hop: r.hop ? { t: +r.hop.t.toFixed(3), T: r.hop.T, H: +r.hop.H.toFixed(2), x1: +r.hop.x1.toFixed(2), blocked: r.hop.blocked, queued: r.hop.queued, plant: r.hop.plant } : null })),
-             bales: BALES, finish: FINISH_X, gl: !!_stage?.gl, turned: !!_stage?.turned };
+             bales: BALES, finish: FINISH_X, camX: _stage?.camera ? +_stage.camera.position.x.toFixed(3) : 0, gl: !!_stage?.gl, turned: !!_stage?.turned };
 }
 /** Probes: freeze hops and the clock, so a real tap can be timed on a slow renderer. */
 export function _debugFreeze(on) { _frozen = !!on; }

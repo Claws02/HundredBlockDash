@@ -38,11 +38,11 @@ require('./stageprobe').run('sackrace', async ({ page, ok, launch, state, shot, 
     await G('_debugHopT', 0, 0.36);
     await tapP1();
     s = await state();
-    const queued = s.racers[0].hop && s.racers[0].hop.queued;
+    const queued = s.racers[0].hop && s.racers[0].hop.queued, streak0 = s.racers[0].streak;
     await shot('beat');
     await G('_debugFreeze', false);
-    s = await waitFor(st => st.racers[0].streak === 1 && !!st.racers[0].hop);
-    ok('a tap as the ring closes chains the next hop', queued && s.racers[0].streak === 1, `queued ${queued} streak ${s.racers[0].streak}`);
+    s = await waitFor(st => st.racers[0].streak === streak0 + 1 && !!st.racers[0].hop);
+    ok('a tap as the ring closes chains the next hop', queued && s.racers[0].streak === streak0 + 1, `queued ${queued} streak ${streak0} → ${s.racers[0].streak}`);
 
     // Late: let it land and sit, then tap.
     await waitFor(st => !st.racers[0].hop);
@@ -77,6 +77,29 @@ require('./stageprobe').run('sackrace', async ({ page, ok, launch, state, shot, 
     await shot('bale');
     s = await waitFor(st => !st.racers[0].hop);
     ok('a chained hop clears it', s.racers[0].x > -8.5 && s.racers[0].streak === 2, `x ${s.racers[0].x} streak ${s.racers[0].streak}`);
+
+    // Knocked back far enough to recover: a shuffle, then two on the beat, clears it.
+    await G('_debugPlace', 0, -10.3, 0);
+    await G('_debugLaunch', 0, false);
+    s = await waitFor(st => st.racers[0].bump > 0);
+    const back = s.racers[0].x;
+    await waitFor(st => st.racers[0].bump === 0, 3000);
+    for (const beat of [false, true, true]) {
+        await G('_debugLaunch', 0, beat);
+        await waitFor(st => !st.racers[0].hop, 3000);
+    }
+    s = await state();
+    ok('knocked back two hops from the bale, and two on the beat clear it', back <= -11.9 && s.racers[0].x > -8.6, `bumped to ${back}, three hops later x ${s.racers[0].x}`);
+
+    // The camera glides: no frame-to-frame jump while the racers hop.
+    let prev = (await state()).camX, worst = 0;
+    await G('_debugPlace', 0, -16, 0);
+    for (let i = 0; i < 40; i++) {
+        if (i % 6 === 0) await G('_debugLaunch', 0, i > 0);
+        const c = (await state()).camX; worst = Math.max(worst, Math.abs(c - prev)); prev = c;
+        await page.waitForTimeout(40);
+    }
+    ok('the camera glides rather than jumps', worst < 0.35, `largest step between reads ${worst.toFixed(3)}`);
 
     await G('_debugPlace', 0, 17.3, 3);
     await G('_debugLaunch', 0, true);
