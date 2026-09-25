@@ -42,6 +42,39 @@ require('./stageprobe').run('bowling', async ({ page, ok, launch, state, shot, w
     ok('the ball is counted', s.lanes[0].rolls.length === 1, JSON.stringify(s.lanes[0].rolls));
     await forceEnd();
 
+    // Direction, from each player's own end. P1's right is world +x (lane at
+    // +1.45); P2 plays from the far end, so their right is world −x (lane at −1.45).
+    await launch();
+    await waitPhase('play', 30000);
+    await waitFor(st => st.lanes[0].sub === 'aim' && st.lanes[1].sub === 'aim');
+    // P2 lines up first: holding a drag to THEIR right (the stage's left) slides their ball that way.
+    await page.mouse.move(206, 150); await page.mouse.down();
+    await page.mouse.move(120, 150, { steps: 3 });
+    await page.waitForTimeout(500);
+    s = await state();
+    await page.mouse.up();
+    ok('dragging sideways lines the ball up, before any throw', s.lanes[1].sub === 'aim' && s.lanes[1].ball.x < -1.6, `P2 ball x ${s.lanes[1].ball.x} (lane −1.45)`);
+    const lined = s.lanes[1].ball.x;
+    await page.mouse.move(206, 800); await page.mouse.down(); await page.mouse.move(226, 740); await page.mouse.move(246, 680); await page.mouse.up();
+    await page.mouse.move(206, 92); await page.mouse.down(); await page.mouse.move(186, 152); await page.mouse.move(166, 212); await page.mouse.up();
+    await page.waitForTimeout(700);
+    s = await state();
+    ok('P1 flicks up-and-right: the ball goes to P1\'s right', s.lanes[0].ball.x > 1.6, `x ${s.lanes[0].ball.x}`);
+    ok('P2 flicks to their right: the ball goes to P2\'s right, from where they lined up', s.lanes[1].ball.x < lined - 0.1, `x ${lined} → ${s.lanes[1].ball.x}`);
+    await forceEnd();
+
+    // A curve: a flick straight up that bows to the right hooks to the right.
+    await launch();
+    await waitPhase('play', 30000);
+    await waitFor(st => st.lanes[0].sub === 'aim');
+    await page.mouse.move(206, 800); await page.mouse.down();
+    for (const [x, y] of [[222, 770], [230, 740], [226, 710], [206, 680]]) await page.mouse.move(x, y);
+    await page.mouse.up();
+    let far = 1.45;
+    for (let i = 0; i < 40; i++) { s = await state(); if (s.lanes[0].ball) far = s.lanes[0].ball.x; if (s.lanes[0].sub !== 'roll' && i > 3) break; await page.waitForTimeout(60); }
+    ok('a flick that curves to your right hooks the ball to your right', far > 1.6, `ball ends at x ${far} (lane 1.45)`);
+    await forceEnd();
+
     // A good ball, from code, into the pocket: real pins fall.
     await launch();
     await waitPhase('play', 30000);

@@ -23,7 +23,7 @@ import { seat, faceoffHud, effects, overheadCam } from '../engine/StageKit.js';
 const CUP_X = [-1.7, 0, 1.7];            // the three positions, P1's left to right
 const ROUNDS = 5, SUDDEN_MAX = 2;
 // Per round: swaps, and seconds per swap.
-const PLAN = r => ({ swaps: 4 + r * 2, dur: Math.max(0.22, 0.58 - r * 0.08) });
+const PLAN = r => ({ swaps: 5 + r * 2, dur: Math.max(0.14, 0.34 - r * 0.045) });
 const SHOW = 1.4, PICK_TIME = 5, REVEAL = 1.7;
 const FIG_SCALE = 1.05;
 
@@ -218,7 +218,7 @@ function _posIndex(i) {
 
 // ── Bot (§5): follows the pea, and loses it more often the faster it goes ───
 function _botPlan(slot) {
-    const speed = 1 - (_plan.dur - 0.22) / 0.36;          // 0 slow → 1 fastest
+    const speed = 1 - (_plan.dur - 0.14) / 0.2;           // 0 slow → 1 fastest
     const p = Math.max(0.3, Math.min(0.97, 0.55 + _botSkill * 0.45 - speed * (1 - _botSkill) * 0.6 - _plan.swaps * 0.01));
     const at = _posIndex(_under);
     const guess = Math.random() < p ? at : [0, 1, 2].filter(k => k !== at)[(Math.random() * 2) | 0];

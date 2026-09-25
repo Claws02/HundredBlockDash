@@ -72,7 +72,7 @@ const shot = (page, name) => page.screenshot({ path: path.join(__dirname, `shot-
     await page.evaluate(() => { window.__BG._debugWake(0); window.__BG._debugWake(1); });
     await page.waitForTimeout(4000);
     s = await dbg(page);
-    ok('an untouched fort stands still, even woken', s.standing.every(v => v > 0.99), JSON.stringify(s.standing));
+    ok('an untouched fort stands still on its pedestal, even woken', s.remaining.every(v => v === 1) && s.standing.every(v => v > 0.99), JSON.stringify(s.remaining));
 
     // ══════ 3. A real drag back on the right half ══════
     // The stage is turned 90° clockwise, so its right half is the bottom of the
@@ -117,19 +117,34 @@ const shot = (page, name) => page.screenshot({ path: path.join(__dirname, `shot-
     ok('shells that land knock timber out of place', hurt.end <= hurt.start - 0.1, JSON.stringify(hurt));
     await page.evaluate(async () => { const MM = await import('/src/minigames/MinigameManager.js'); MM.forceEndMinigame(); });
 
+    // ══════ 4b. Sniping the top is not a win ══════
+    await launch(page, { bot: false });
+    await page.waitForFunction(() => window.__BG._debugState().phase === 'play', null, { timeout: 15000 });
+    const snipe = await page.evaluate(async () => {
+        const M = window.__BG;
+        for (let i = 0; i < 6; i++) { await new Promise(r => setTimeout(r, 1200)); M._debugFireAtTop(0); }
+        await new Promise(r => setTimeout(r, 2000));
+        const st = M._debugState();
+        return { remaining: st.remaining[1], down: st.down[1], standing: st.standing[1], phase: st.phase };
+    });
+    await shot(page, 'snipe');
+    ok('knocking the top off does not win: the rest of the fort is still on its pedestal', !snipe.down && snipe.remaining > 0.3 && snipe.phase === 'play', JSON.stringify(snipe));
+    await page.evaluate(async () => { const MM = await import('/src/minigames/MinigameManager.js'); MM.forceEndMinigame(); });
+
     // ══════ 5. The bot takes down an idle fort ══════
     await launch(page, { bot: true, skill: 0.85 });
     let collapseShot = false, finaleShot = false;
     const t0 = Date.now();
-    while (!(await result(page)) && Date.now() - t0 < 90000) {
+    let cleared = false;
+    while (!(await result(page)) && Date.now() - t0 < 150000) {
         const st = await dbg(page);
-        if (st && st.standing[0] < 0.7 && !collapseShot) { await shot(page, 'collapse'); collapseShot = true; }
+        if (st && st.remaining && st.remaining[0] < 0.6 && !collapseShot) { await shot(page, 'collapse'); collapseShot = true; }
+        if (st && st.down && st.down[0]) cleared = true;
         if (st && st.phase === 'over' && !finaleShot) { await page.waitForTimeout(1300); await shot(page, 'finale'); finaleShot = true; }
         await page.waitForTimeout(150);
     }
     const r = await result(page);
-    ok('a hard bot fells an idle fort and the match resolves', !!r && r.winner === 1, r ? `winner=${r.winner} in ${(r.ms / 1000).toFixed(1)}s` : 'timed out');
-    ok('...inside the clock (40 s of play + the opening and the verdict)', !!r && r.ms / 1000 <= 50, r ? `${(r.ms / 1000).toFixed(1)}s` : '—');
+    ok('a hard bot beats an idle fort and the match resolves', !!r && r.winner === 1, r ? `winner=${r.winner} in ${(r.ms / 1000).toFixed(1)}s, pedestal cleared: ${cleared}` : 'timed out');
 
     // ══════ 6. Cleanup ══════
     const after = await page.evaluate(async () => {

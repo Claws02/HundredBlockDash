@@ -4,7 +4,7 @@
 //
 // Face-off hold, seen from above. A giant traffic light stands in the middle
 // of the lawn, a head facing each end. Each player's character races from
-// their own end toward it, with a park-goer running in each half for company.
+// their own end toward it.
 //
 //   HOLD on your half to run. Let go to stop.
 //
@@ -34,9 +34,7 @@ const SENT_BACK = 0.9;                  // s the walk of shame takes
 const MATCH_TIME = 60;
 const READY_TIME = 1.2;
 const LANE_X = [0.9, -0.9];             // players' lanes (P1, P2)
-const NPC_X = 2.6;
 const FIG_SCALE = 1.15;
-const NPC_TYPES = ['vendor', 'cabbie'];
 
 // ── Module state ─────────────────────────────────────────────────────────────
 let _done = false, _onWin = null, _botSkill = 0.55;
@@ -66,12 +64,10 @@ export function start(isBot, onWin, botSkill = 0.55) {
         _set = STAGE_SETS.ring(_stage, { w: W, d: D });
         _buildCourse();
     }
-    // Players (slots 0, 1), then a park-goer in each half.
+    // The seated players, and nobody else.
     _runners = [
         _buildRunner(0, 0, LANE_X[0], 1),
         _buildRunner(1, 1, LANE_X[1], -1),
-        _buildRunner(2, -1, NPC_X, 1),
-        _buildRunner(3, -1, -NPC_X, -1),
     ];
     _setLight('red', 99);
     [0, 1].forEach(slot => _hud.hint(slot, seat(slot).bot ? '' : 'HOLD TO RUN · FREEZE ON RED'));
@@ -136,8 +132,8 @@ function _buildCourse() {
 function _buildRunner(i, slot, x, side) {
     const r = { i, slot, human: slot >= 0, x, z: side * START, side, v: 0, back: 0, backFrom: 0, caught: 0, home: false };
     if (!_stage.gl) return r;
-    const c = slot >= 0 ? _stage.character(slot) : _stage.figure(NPC_TYPES[i - 2], i === 2 ? 0x9ca3af : 0xd6b98c);
-    c.rig.root.scale.setScalar(slot >= 0 ? FIG_SCALE : FIG_SCALE * 0.85);
+    const c = _stage.character(slot);
+    c.rig.root.scale.setScalar(FIG_SCALE);
     c.rig.root.position.set(r.x, 0, r.z);
     c.anim.face(side > 0 ? Math.PI : 0, true);
     Object.assign(r, { rig: c.rig, anim: c.anim });
@@ -172,8 +168,8 @@ function _tickLight(dt) {
 // ── Running ──────────────────────────────────────────────────────────────────
 function _wantsToRun(r, dt) {
     if (r.human && !isBotSlot(r.slot)) return !!_in.seat(r.slot).down;
-    // Bots and park-goers: run on green, react to amber after a delay (worse
-    // for park-goers and easy bots), and sometimes chance it.
+    // Bots: run on green, react to amber after a delay (worse
+    // for easy bots), and sometimes chance it.
     const skill = r.human ? _botSkill : 0.35;
     const b = r.human ? _bot[r.slot] : (r.bot || (r.bot = { react: 0, hold: false }));
     if (_light.state === 'green') { b.react = 0; b.greedy = Math.random() < (1 - skill) * 0.3; return true; }

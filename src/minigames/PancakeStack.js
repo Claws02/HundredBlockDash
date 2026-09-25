@@ -2,14 +2,15 @@
 // PANCAKE STACK — the all-night diner, a plate each, and real physics.
 // (Scaffolded from _template3d.js; see docs/MINIGAME_3D_PLAYBOOK.md.)
 //
-// Side-on hold, side by side. Each of you has a plate on the counter and a
+// Side-on hold, side by side. Each of you has a plate on its own pedestal
+// table (no wider than the plate: a spill goes to the floor) and a
 // pancake sliding back and forth above it.
 //
 //   TAP on your half to drop the pancake.
 //
 // The pancakes are real bodies: drop one off-centre and it overhangs, and a
 // stack that leans far enough topples. Every pancake that lands makes the
-// next one slide faster. Whoever has the most pancakes still on their plate
+// next one slide faster. Whoever has the TALLEST stack, plate to top,
 // when the 40 s are up wins.
 // ============================================================
 
@@ -36,12 +37,12 @@ const FIG_SCALE = 1.0;
 let _done = false, _onWin = null, _botSkill = 0.55;
 let _overlay = null, _stage = null, _dir = null, _hud = null, _in = null, _fx = null;
 let _world = null, _cakeMat = null, _geo = null, _mats = null;
-let _p = [], _phase = 'intro', _phaseT = 0, _t = 0, _clock = 0, _frozen = false;
+let _look = null, _p = [], _phase = 'intro', _phaseT = 0, _t = 0, _clock = 0, _frozen = false;
 
 export function start(isBot, onWin, botSkill = 0.55) {
     if (!state.mgActive) return;
     _done = false; _onWin = onWin; _botSkill = botSkill;
-    _phase = 'intro'; _phaseT = 0; _t = 0; _clock = 0; _frozen = false;
+    _phase = 'intro'; _phaseT = 0; _t = 0; _clock = 0; _frozen = false; _look = null;
     registerMinigameCleanup(_destroy);           // R3
 
     const mg = document.getElementById('minigame-layer');
@@ -99,10 +100,14 @@ function _buildWorld() {
     floor.addShape(new CANNON.Plane());
     floor.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
     w.addBody(floor);
-    const table = new CANNON.Body({ mass: 0, material: hard });
-    table.addShape(new CANNON.Box(new CANNON.Vec3(4.6, TABLE_Y / 2, 1.1)));
-    table.position.set(0, TABLE_Y / 2, 0);
-    w.addBody(table);
+    // A pedestal under each plate and nothing else: whatever misses the
+    // plate goes to the floor, where it can't prop a stack up.
+    PLATE_X.forEach(x => {
+        const post = new CANNON.Body({ mass: 0, material: hard });
+        post.addShape(new CANNON.Box(new CANNON.Vec3(0.12, TABLE_Y / 2, 0.12)));
+        post.position.set(x, TABLE_Y / 2, 0);
+        w.addBody(post);
+    });
     PLATE_X.forEach(x => {
         const plate = new CANNON.Body({ mass: 0, material: hard });
         plate.addShape(new CANNON.Box(new CANNON.Vec3(PLATE_R * 0.8, 0.04, PLATE_R * 0.8)));
@@ -131,21 +136,18 @@ function _buildDiner() {
     const sg = scv.getContext('2d'); sg.fillStyle = '#ff5fa2'; sg.shadowColor = '#ff5fa2'; sg.shadowBlur = 12;
     sg.font = 'bold 40px sans-serif'; sg.textAlign = 'center'; sg.textBaseline = 'middle'; sg.fillText('PANCAKES', 128, 34);
     add(new THREE.PlaneGeometry(3.6, 0.9), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(scv), transparent: true }), 3.2, 4.2, -3.0);
-    // The counter: chrome edge, a gingham top, stools in front.
-    const ccv = document.createElement('canvas'); ccv.width = ccv.height = 32;
-    const cg = ccv.getContext('2d'); cg.fillStyle = '#fff'; cg.fillRect(0, 0, 32, 32); cg.fillStyle = 'rgba(214,48,49,.55)'; cg.fillRect(0, 0, 16, 32); cg.fillRect(0, 0, 32, 16);
-    const ctex = new THREE.CanvasTexture(ccv); ctex.wrapS = ctex.wrapT = THREE.RepeatWrapping; ctex.repeat.set(12, 3);
-    const top = add(new THREE.BoxGeometry(9.2, 0.08, 2.2), new THREE.MeshStandardMaterial({ map: ctex, roughness: 0.7 }), 0, TABLE_Y - 0.04, 0); top.receiveShadow = true;
-    add(new THREE.BoxGeometry(9.0, TABLE_Y - 0.08, 2.0), new THREE.MeshStandardMaterial({ color: 0xd9d9df, metalness: 0.6, roughness: 0.3 }), 0, (TABLE_Y - 0.08) / 2, 0);
-    // Plates, and the syrup and butter between them.
+    // Two chrome pedestal tables, each topped by its plate.
+    const chrome = new THREE.MeshStandardMaterial({ color: 0xd9d9df, metalness: 0.7, roughness: 0.25 });
+    PLATE_X.forEach(x => {
+        add(new THREE.CylinderGeometry(0.1, 0.1, TABLE_Y, 12), chrome, x, TABLE_Y / 2, 0).castShadow = true;
+        add(new THREE.CylinderGeometry(0.5, 0.55, 0.06, 24), chrome, x, 0.03, 0);
+    });
+    // Plates.
     const china = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.25 });
     PLATE_X.forEach((x, slot) => {
         const p = add(new THREE.CylinderGeometry(PLATE_R, PLATE_R * 0.8, 0.08, 32), china, x, TABLE_Y + 0.04, 0); p.receiveShadow = true;
         const rim = add(new THREE.TorusGeometry(PLATE_R * 0.97, 0.03, 6, 32), new THREE.MeshStandardMaterial({ color: seat(slot).color }), x, TABLE_Y + 0.08, 0); rim.rotation.x = Math.PI / 2;
     });
-    add(new THREE.CylinderGeometry(0.14, 0.18, 0.55, 12), new THREE.MeshStandardMaterial({ color: 0x8b4513, transparent: true, opacity: 0.85, roughness: 0.2 }), -0.35, TABLE_Y + 0.28, -0.4);
-    add(new THREE.CylinderGeometry(0.07, 0.07, 0.12, 8), new THREE.MeshStandardMaterial({ color: 0xc0392b }), -0.35, TABLE_Y + 0.61, -0.4);
-    add(new THREE.BoxGeometry(0.3, 0.14, 0.2), new THREE.MeshStandardMaterial({ color: 0xffe28a, roughness: 0.5 }), 0.35, TABLE_Y + 0.07, -0.3);
     // Pancake look, shared: golden top, darker edge.
     _geo = { cake: new THREE.CylinderGeometry(R, R * 0.97, TH, 28), pat: new THREE.BoxGeometry(0.16, 0.06, 0.16) };
     _mats = [new THREE.MeshStandardMaterial({ color: 0xe0a458, roughness: 0.75 }), new THREE.MeshStandardMaterial({ color: 0xf2c27a, roughness: 0.75 }),
@@ -167,7 +169,7 @@ function _buildPlayer(slot) {
         // The cook behind each plate, watching the stack.
         const c = _stage.character(slot);
         c.rig.root.scale.setScalar(FIG_SCALE);
-        c.rig.root.position.set(PLATE_X[slot] + (slot === 0 ? 1.4 : -1.4), 0, -2.3);
+        c.rig.root.position.set(PLATE_X[slot] + (slot === 0 ? 1.9 : -1.9), 0, -2.8);
         c.anim.face(0, true);
         c.anim.play('ready');
         Object.assign(p, { rig: c.rig, anim: c.anim });
@@ -178,14 +180,17 @@ function _buildPlayer(slot) {
     return p;
 }
 
-/** The pancakes still on this player's plate. */
+/** The pancakes that make up this player's stack: landed, settled, flat, over the plate. */
 function _onPlate(p) {
     return p.cakes.filter(c => {
         const b = c.body;
         if (!b) return c.landed && !c.off;
+        // Still falling is not on the stack: counting it the moment it was
+        // dropped lifted the stack top (and the camera) by the drop height.
+        if (!c.landed || b.velocity.length() > 0.6) return false;
         // Lying flat, not slumped: a pancake tipped on its edge is a collapse.
         const q = b.quaternion, upY = 1 - 2 * (q.x * q.x + q.z * q.z);
-        return upY > 0.9 && b.position.y > PLATE_TOP + TH * 0.3 && Math.hypot(b.position.x - PLATE_X[p.slot], b.position.z) < PLATE_R + 0.35;
+        return upY > 0.9 && b.position.y > PLATE_TOP + TH * 0.3 && Math.hypot(b.position.x - PLATE_X[p.slot], b.position.z) < PLATE_R + 0.2;
     });
 }
 function _topY(p) {
@@ -193,6 +198,9 @@ function _topY(p) {
     return on.length ? Math.max(...on.map(c => c.body ? c.body.position.y : PLATE_TOP)) + TH / 2 : PLATE_TOP;
 }
 const _count = p => _onPlate(p).length;
+/** The score: height of the stack, plate to top, in world units. */
+const _height = p => Math.max(0, _topY(p) - PLATE_TOP);
+const _cm = h => `${(h * 10).toFixed(1)} cm`;       // one pancake ≈ 1.3 cm
 const _period = p => Math.max(PERIOD_MIN, PERIOD_0 - _count(p) * 0.09);
 const _heldX = p => PLATE_X[p.slot] + Math.sin(p.phase) * SWING;
 
@@ -263,8 +271,10 @@ function _frame(dt) {
     if (_done) return;
     if (!dirOwns && _stage?.gl && _phase !== 'over') {
         const c = _cam(), cam = _stage.camera;
-        cam.position.lerp(new THREE.Vector3(...c.pos), Math.min(1, dt * 2));
-        cam.lookAt(...c.look);
+        cam.position.lerp(new THREE.Vector3(...c.pos), Math.min(1, dt * 1.5));
+        if (!_look) _look = new THREE.Vector3(...c.look);
+        _look.lerp(new THREE.Vector3(...c.look), Math.min(1, dt * 1.5));
+        cam.lookAt(_look);
     }
     _renderHud();
 }
@@ -289,13 +299,13 @@ function _draw() {
 
 function _renderHud() {
     if (!_hud) return;
-    const n = _p.map(_count);
-    _hud.bar(`<span style="color:${seat(1).css}">${seat(1).name} 🥞 ${n[1]}</span>` +
+    const h = _p.map(_height);
+    _hud.bar(`<span style="color:${seat(1).css}">${seat(1).name} 📏 ${_cm(h[1])}</span>` +
         `<span>⏱ ${Math.max(0, Math.ceil(MATCH_TIME - _clock))}s</span>` +
-        `<span style="color:${seat(0).css}">${n[0]} 🥞 ${seat(0).name}</span>`);
+        `<span style="color:${seat(0).css}">${_cm(h[0])} 📏 ${seat(0).name}</span>`);
     if (_clock > 6) [0, 1].forEach(slot => _hud.hint(slot, ''));
     const el = document.getElementById('mg-neutral');
-    if (el && _phase === 'play') el.textContent = `${seat(0).name} ${n[0]} – ${n[1]} ${seat(1).name}`;
+    if (el && _phase === 'play') el.textContent = `${seat(0).name} ${_cm(h[0])} – ${_cm(h[1])} ${seat(1).name}`;
 }
 
 function _end() {
@@ -303,8 +313,9 @@ function _end() {
     _phase = 'over';
     _hud.say('');
     _p.forEach(p => { if (p.held && p.held.isObject3D) p.held.visible = false; if (p.aim) p.aim.visible = false; });
-    const n = _p.map(_count);
-    const w = n[0] > n[1] ? 0 : n[1] > n[0] ? 1 : -1;
+    // Tallest stack, plate to top. Within half a pancake is a dead heat.
+    const h = _p.map(_height);
+    const w = Math.abs(h[0] - h[1]) < TH / 2 ? -1 : h[0] > h[1] ? 0 : 1;
     // Syrup on the winner's stack.
     if (w >= 0 && _stage?.gl) {
         const top = _topY(_p[w]);
@@ -314,7 +325,7 @@ function _end() {
     }
     _dir.close({
         winner: w, figs: _p.filter(p => p.rig).map(p => ({ slot: p.slot, rig: p.rig, anim: p.anim })),
-        sub: w < 0 ? `${n[0]} PANCAKES EACH` : `${n[w]} PANCAKES TO ${n[1 - w]}`,
+        sub: w < 0 ? `BOTH ${_cm(h[0])} TALL` : `${_cm(h[w])} TO ${_cm(h[1 - w])}`,
         onDone: () => _finish(w),
     });
     const el = document.getElementById('mg-neutral');
@@ -324,8 +335,10 @@ function _end() {
 // ── Probe hooks ──────────────────────────────────────────────────────────────
 export function _debugState() {
     return { phase: _phase, clock: +_clock.toFixed(2),
-             players: _p.map(p => ({ count: _count(p), drops: p.drops, reload: +p.reload.toFixed(2), held: !!p.held,
+             players: _p.map(p => ({ count: _count(p), height: +_height(p).toFixed(3), drops: p.drops, reload: +p.reload.toFixed(2), held: !!p.held,
                                      heldX: +_heldX(p).toFixed(2), top: +_topY(p).toFixed(2) })),
+             camY: _stage?.camera ? +_stage.camera.position.y.toFixed(3) : 0,
+             lowest: Math.min(9, ..._p.flatMap(p => p.cakes.map(c => (c.body ? +c.body.position.y.toFixed(2) : 9)))),
              physics: !!_world, gl: !!_stage?.gl, turned: !!_stage?.turned };
 }
 /** Probes: freeze the dropper's swing and the clock. */
