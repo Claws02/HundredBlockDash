@@ -49,6 +49,7 @@ export const MG_TYPES = [
     'bumpercars',
     'kartgp',
     'redlight',
+    'tag',
 ];
 
 export const MG_INFO = {
@@ -90,6 +91,7 @@ export const MG_INFO = {
     bumpercars: { icon: '🚗', title: 'BUMPER CARS', desc: 'Lay the phone flat between you. Your characters drive bumper cars round a rink at the fair in the park. DRAG on your half to drive (they slide!) and TAP for a boost, which takes three seconds to recharge. The rail round the rink is live: hit it hard and you are ZAPPED, and your rival scores. Shove them into it without going in yourself. First to 3 zaps, or the most when the bell rings, wins!' },
     kartgp: { icon: '🏁', title: 'GO-KART GRAND PRIX', desc: 'Lay the phone flat between you. The screen splits, and each half is your own camera behind your own kart on the park circuit. The kart drives itself: DRAG left and right on your half to steer. Steer hard through a corner to DRIFT, and straighten up for a turbo. Drive through the ? boxes and TAP to use what you get: a 🍄 boost or a 🍌 banana to drop behind you. There is a shortcut across the south hairpin, but the grass is slow. First to finish 3 laps wins!' },
     redlight: { icon: '🚦', title: 'RED LIGHT, GREEN LIGHT', desc: 'Lay the phone flat between you. A giant traffic light stands in the middle of the park, and you each race toward it from your own end. HOLD on your half to run and let go to stop. Green means go. Amber means it is about to turn red, unless it flips back to green. Anyone still moving on red is caught and sent back to the start, and you slide a little when you stop, so do not leave it late. First to the light wins!' },
+    tag: { icon: '🏃', title: 'TAG, YOU\'RE IT!', desc: 'Lay the phone flat between you. The playground in the park: one of you is IT, with a yellow ring underfoot and a little extra speed. DRAG on your half to run. Touch the other player to pass it on, and they freeze for a moment while you get away. The slide and the tunnel walls block the way, the tunnel hides you, and the roundabout carries you round. Whoever is IT when the whistle blows loses!' },
 };
 
 // ============================================================
@@ -225,6 +227,7 @@ export const MG_NET = {
     bumpercars: 'local',
     kartgp: 'local',
     redlight: 'local',
+    tag: 'local',
 };
 
 // The parallel games whose SCORE is also a coin haul.
@@ -326,6 +329,7 @@ export const MG_SHAPE = {
     bumpercars: 'arena',
     kartgp: 'arena',
     redlight: 'arena',
+    tag: 'arena',
 };
 
 // Modifiers laid over a shape: the seats do not have the same job (ASYM), or
@@ -380,6 +384,7 @@ export const MG_ORIENTATION_MAP = {
     bumpercars: 'faceoff',
     kartgp: 'faceoff',
     redlight: 'faceoff',
+    tag: 'faceoff',
 };
 
 export const FALLBACK_TRIVIA = [
@@ -566,6 +571,7 @@ export const MG_PROFILE = {
     bumpercars: { genre: 'push', control: 'thumb', wire: 'snapshot', seats: [2, 2], live: false },
     kartgp: { genre: 'race', control: 'thumb', wire: 'snapshot', seats: [2, 2], live: false },
     redlight: { genre: 'nerve', control: 'thumb', wire: 'snapshot', seats: [2, 2], live: false },
+    tag: { genre: 'scramble', control: 'thumb', wire: 'snapshot', seats: [2, 2], live: false },
 };
 
 // The order the wire tiers come in, cheapest first. Used by the READINESS sort:

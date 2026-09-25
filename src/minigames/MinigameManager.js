@@ -53,6 +53,7 @@ const MG_MODULES = {
     bumpercars: () => import('./BumperCars.js'),
     kartgp: () => import('./KartGrandPrix.js'),
     redlight: () => import('./RedLightGreenLight.js'),
+    tag: () => import('./TagYoureIt.js'),
 };
 
 // The single place that knows which file a game lives in. Exported so the QA
