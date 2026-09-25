@@ -56,6 +56,7 @@ const MG_MODULES = {
     tag: () => import('./TagYoureIt.js'),
     balloontoss: () => import('./WaterBalloonToss.js'),
     minigolf: () => import('./MiniGolf.js'),
+    bowling: () => import('./Bowling.js'),
 };
 
 // The single place that knows which file a game lives in. Exported so the QA
