@@ -1099,7 +1099,7 @@ export function buildFaePond(stage, { w, d }) {
 // over the lawn. The lanterns are the set's one handle: lights(level) sets
 // their glow from 0 (off) to 1, which is how Musical Chairs shows the music
 // stopping to a player who has the sound off.
-export function buildRingPark(stage, { w = 12, d = 18 } = {}) {
+export function buildRingPark(stage, { w = 12, d = 18, lanterns = true } = {}) {
     const B = DISTRICT_BIOMES.ring;
     const scene = stage.scene;
     scene.background = new THREE.Color(_hex(B.bgBot));
@@ -1154,7 +1154,9 @@ export function buildRingPark(stage, { w = 12, d = 18 } = {}) {
 
     // Party lanterns: four poles at the lawn's corners, strings between them.
     const poleM = _mat(0x3a3f45, 0.5, 0.4);
-    const corners = [[-w / 2 - 0.9, -d / 2 - 0.9], [w / 2 + 0.9, -d / 2 - 0.9], [w / 2 + 0.9, d / 2 + 0.9], [-w / 2 - 0.9, d / 2 + 0.9]];
+    // A side-on camera stands where the near string would hang: those games
+    // pass lanterns: false.
+    const corners = lanterns ? [[-w / 2 - 0.9, -d / 2 - 0.9], [w / 2 + 0.9, -d / 2 - 0.9], [w / 2 + 0.9, d / 2 + 0.9], [-w / 2 - 0.9, d / 2 + 0.9]] : [];
     corners.forEach(([x, z]) => {
         const p = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 4.2, 8), poleM);
         p.position.set(x, 2.1, z); p.castShadow = true; scene.add(p);
