@@ -3,9 +3,10 @@
 // The second game on the shared 3D stage. Each player's own figure stands on
 // top of their fort beside a cannon. Drag BACK anywhere on your half — the
 // further you pull, the harder it fires, and the angle you pull at is the
-// angle it flies — then let go. Shells burst on whatever they hit. Knock
-// their fort down before they knock down yours: the moment the top of a fort
-// falls, the figure standing on it goes with it.
+// angle it flies — then let go. Shells burst on whatever they hit. Each fort
+// stands on a stone PEDESTAL, and to win you have to knock the whole of the
+// rival's fort off theirs: every leg, plank, crate and the top. Sniping the
+// top layer doesn't do it any more.
 //
 // Both cannons fire at once, on a reload. Nobody waits for a turn.
 //
@@ -20,11 +21,10 @@
 // THE HOLD
 //   SIDE-ON, like High Noon: P1's fort is on the right, P2's on the left.
 //
-// STRUCTURAL CEILING
-//   A fort is DOWN when its top block has fallen below 45% of its height,
-//   tilted past 60°, or left its footprint. Otherwise the clock settles it at
-//   MATCH_TIME on whose top block stands higher. Two forts falling within the
-//   same moment is a draw.
+// CLEARED
+//   A fort is DOWN when not one of its blocks is left on its pedestal. At
+//   MATCH_TIME the clock settles it on who has more of their fort still on
+//   their pedestal. Two forts cleared within the same moment is a draw.
 // ============================================================
 
 import { state } from '../core/GameState.js';
@@ -38,16 +38,16 @@ import { createDirector } from '../engine/StageDirector.js';
 const FORT_X      = 10;       // fort centres at ±FORT_X; P1 (+x) is the right
 const GRAVITY     = -18;
 const RELOAD      = 1.1;      // s between shots
-const MATCH_TIME  = 40;
-const POWDER_AT   = 26;       // bigger shells for the last stretch
+const MATCH_TIME  = 60;
+const POWDER_AT   = 40;       // bigger shells for the last stretch
+const PED_H = 1.3, PED_HW = 2.1;   // each fort's stone pedestal: height, half-width (just wider than the fort)
+const PUSH = 0.6;                  // a blast's extra shove in the shell's direction of travel
 const V_MIN = 7, V_MAX = 21;  // muzzle speed range, world units / s
 const PULL_PX     = 170;      // a full-power pull, in stage px
 const ELEV_MIN = 0.09, ELEV_MAX = 1.45;   // radians above the horizontal
 const SHELL_R     = 0.3;
 const BLAST_R     = 1.6;
 const BLAST_J     = 19;       // impulse at the centre of a blast
-const DOWN_FRAC   = 0.34;     // top block down to roughly the first storey
-const DOWN_TILT   = 0.5;      // cos(60°)
 const PREVIEW_T   = 0.36;     // s of trajectory shown while aiming
 
 // ── Module state ─────────────────────────────────────────────────────────────
@@ -189,7 +189,21 @@ function _buildFort(slot) {
     const fort = { slot, x: x0, dir, blocks: [], down: false, downAt: 0 };
     const POST = [0.45, 1.5, 1.1], PLANK = [2.9, 0.34, 1.3];
     const posts = [0x6b4a2c, 0x5d4126], planks = [0x9a7548, 0x8a6239];
-    let y = 0;
+    // The pedestal: static stone, and the fort is built on top of it.
+    if (_world) {
+        const ped = new CANNON.Body({ mass: 0, material: _woodMat });
+        ped.addShape(new CANNON.Box(new CANNON.Vec3(PED_HW, PED_H / 2, 1.0)));
+        ped.position.set(x0, PED_H / 2, 0);
+        _world.addBody(ped);
+    }
+    if (_stage.gl) {
+        const rock = new THREE.MeshStandardMaterial({ color: 0x9a8570, roughness: 1 });
+        const p = new THREE.Mesh(new THREE.BoxGeometry(PED_HW * 2, PED_H, 2.0), rock);
+        p.position.set(x0, PED_H / 2, 0); p.castShadow = true; p.receiveShadow = true; _stage.add(p);
+        const cap = new THREE.Mesh(new THREE.BoxGeometry(PED_HW * 2 + 0.2, 0.12, 2.2), new THREE.MeshStandardMaterial({ color: 0x7d6a55, roughness: 1 }));
+        cap.position.set(x0, PED_H - 0.04, 0); cap.receiveShadow = true; _stage.add(cap);
+    }
+    let y = PED_H;
     for (let layer = 0; layer < 3; layer++) {
         // Three legs a storey: one shot takes a leg, not the storey. Two
         // legs brought a fort down in three hits and four seconds.
@@ -202,7 +216,7 @@ function _buildFort(slot) {
         y += PLANK[1];
     }
     // Cover: a short stack of crates on the side facing the enemy.
-    for (let k = 0; k < 2; k++) _block(fort, 0.9, 0.9, 1.0, x0 + dir * 2.35, 0.45 + k * 0.9, 0xb08a58, 1.6);
+    for (let k = 0; k < 2; k++) _block(fort, 0.9, 0.9, 1.0, x0 + dir * 1.65, PED_H + 0.45 + k * 0.9, 0xb08a58, 1.6);
     // The top: the block the fort is judged by, with the figure and cannon on it.
     const TOP = [1.9, 0.5, 1.3];
     fort.top = _block(fort, ...TOP, x0, y + TOP[1] / 2, 0x7a5a36, 3.2);
@@ -390,13 +404,11 @@ function _botStep(dt) {
         b.nextAt -= dt;
         if (b.nextAt > 0 || _reload[slot] > 0) return;
         const enemy = _forts[1 - slot];
-        const live = enemy.blocks.filter(k => k.body || k.mesh);
-        // The technique: the upper legs. The footing is heavy timber and
-        // shrugs a shell off; the top storey's legs bring the roof down.
-        const legs = live.filter(k => k !== enemy.top && k.y0 > 2 && k.y0 < 5);
-        const pick = Math.random() < 0.35 + _botSkill * 0.45 && legs.length
-            ? legs[Math.floor(Math.random() * legs.length)]
-            : enemy.top;
+        // Whatever is still up on their pedestal, the lowest first: a clear
+        // pedestal is the win, so the footings matter as much as the roof.
+        const left = enemy.blocks.filter(k => _onPed(enemy, k)).sort((a, b) => (a.body?.position.y ?? a.y0) - (b.body?.position.y ?? b.y0));
+        if (!left.length) return;
+        const pick = Math.random() < 0.35 + _botSkill * 0.45 ? left[0] : left[Math.floor(Math.random() * left.length)];
         const shot = _solve(slot, pick, 0.03 + (1 - _botSkill) * 0.13, (1 - _botSkill) * 0.06);   // ~5% at hard, ~13% at easy
         if (shot) _fire(slot, shot.elev, shot.power);
         b.nextAt = 0.25 + Math.random() * 0.5 + (1 - _botSkill) * 1.3;
@@ -456,7 +468,8 @@ function _blast(s) {
             const fall = 1 - d / R;
             const n = Math.max(0.001, d);
             k.body.wakeUp();
-            k.body.applyImpulse(new CANNON.Vec3(dx / n * J * fall, (dy / n * 0.6 + 0.4) * J * fall, dz / n * J * fall * 0.3),
+            const along = s.slot != null ? _dirOf(s.slot) * J * PUSH * fall : 0;
+            k.body.applyImpulse(new CANNON.Vec3(dx / n * J * fall + along, (dy / n * 0.6 + 0.4) * J * fall, dz / n * J * fall * 0.3),
                                 k.body.position);
         }));
     }
@@ -513,13 +526,22 @@ function _integrity(f) {
     return home / f.blocks.length;
 }
 
+/** Is this block still up on its fort's pedestal? */
+function _onPed(f, k) {
+    const p = k.body ? k.body.position : { x: k.x0, y: k.y0 };
+    return p.y > PED_H - 0.1 && Math.abs(p.x - f.x) < PED_HW + 0.05;
+}
+/** The share of the fort still on its pedestal: 1 untouched, 0 cleared. */
+function _remaining(f) {
+    return f.blocks.length ? f.blocks.filter(k => _onPed(f, k)).length / f.blocks.length : 1;
+}
+
 function _checkDown(f) {
     if (f.down) return;
-    const t = _topOf(f);
-    if (t.y < f.topY0 * DOWN_FRAC || t.up < DOWN_TILT || Math.abs(t.x - f.x) > 3.2) {
+    if (_remaining(f) === 0) {
         f.down = true; f.downAt = _t;
         if (f.fig) f.fig.anim.play('hit', { restart: true });
-        _say(`${_name(f.slot)}'S FORT IS DOWN`, 1400);
+        _say(`${_name(f.slot)}'S PEDESTAL IS CLEAR`, 1400);
     }
 }
 
@@ -596,8 +618,8 @@ function _renderHud() {
     _hud.clock.textContent = _phase === 'play' ? `${Math.ceil(left)}` : '';
     [0, 1].forEach(slot => {
         const f = _forts[slot], bar = _hud.bars[slot];
-        bar.fill.style.width = `${Math.round((f.down ? 0 : Math.min(_standing(f), _integrity(f))) * 100)}%`;
-        bar.load.textContent = f.down ? 'FORT DOWN' : _reload[slot] > 0 ? 'LOADING…' : 'READY TO FIRE';
+        bar.fill.style.width = `${Math.round((f.down ? 0 : _remaining(f)) * 100)}%`;
+        bar.load.textContent = f.down ? 'PEDESTAL CLEAR' : _reload[slot] > 0 ? 'LOADING…' : 'READY TO FIRE';
     });
     const n = document.getElementById('mg-neutral');
     if (n) n.textContent = _phase === 'play' ? `${Math.ceil(left)}s` : 'BOOT HILL BARRAGE';
@@ -672,14 +694,9 @@ function _frame(dt) {
             // Give the other fort a breath to come down too, so a trade is a draw.
             if (_t - downs[0].downAt > 0.6) winner = 1 - downs[0].slot;
         } else if (_clock >= MATCH_TIME) {
-            // On the clock: the taller fort, and if they are level, the one
-            // with more of itself still standing.
-            const a = _standing(_forts[0]), b = _standing(_forts[1]);
-            if (Math.abs(a - b) >= 0.04) winner = a > b ? 0 : 1;
-            else {
-                const ia = _integrity(_forts[0]), ib = _integrity(_forts[1]);
-                winner = Math.abs(ia - ib) < 0.03 ? -1 : (ia > ib ? 0 : 1);
-            }
+            // On the clock: more of your fort still on your pedestal wins.
+            const a = _remaining(_forts[0]), b = _remaining(_forts[1]);
+            winner = Math.abs(a - b) < 0.01 ? -1 : (a > b ? 0 : 1);
         }
         if (winner !== null) _end(winner);
     }
@@ -734,6 +751,7 @@ export function _debugState() {
     return {
         phase: _phase, clock: +_clock.toFixed(2), shots: _shots.slice(), reload: _reload.slice(),
         standing: _forts.map(f => +_standing(f).toFixed(3)), down: _forts.map(f => f.down),
+        remaining: _forts.map(f => +_remaining(f).toFixed(3)),
         integrity: _forts.map(f => +_integrity(f).toFixed(3)),
         shells: _shells.length, gl: !!_stage?.gl, turned: !!_stage?.turned, physics: !!_world,
         powder: _powder, result: _result, quality: _stage?.quality ? { ..._stage.quality } : null,
@@ -751,7 +769,13 @@ export function _debugWake(slot) {
 /** Probes: fire a perfect shot from `slot` at the rival's upper legs. */
 export function _debugFireAt(slot) {
     const enemy = _forts[1 - slot];
-    const legs = enemy.blocks.filter(k => k !== enemy.top && k.y0 > 2 && k.y0 < 5);
-    const shot = _solve(slot, legs[Math.floor(Math.random() * legs.length)] || enemy.top, 0, 0);
+    const left = enemy.blocks.filter(k => _onPed(enemy, k));
+    const shot = _solve(slot, left[Math.floor(Math.random() * left.length)] || enemy.top, 0, 0);
+    return shot ? _fire(slot, shot.elev, shot.power) : false;
+}
+/** Probes: fire a perfect shot from `slot` at the rival's TOP block. */
+export function _debugFireAtTop(slot) {
+    const enemy = _forts[1 - slot];
+    const shot = _solve(slot, enemy.top, 0, 0);
     return shot ? _fire(slot, shot.elev, shot.power) : false;
 }
