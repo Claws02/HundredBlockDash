@@ -265,6 +265,7 @@ function _frame(dt) {
         if (_clock >= MATCH_TIME) _end();
     }
     if (_world) _world.step(1 / 60, dt, 6);
+    _p.forEach(p => p.cakes.forEach(c => _floorCheck(c, dt)));
     _draw();
     _fx?.update(dt);
     const dirOwns = !!_dir && _dir.update(dt);
@@ -277,6 +278,41 @@ function _frame(dt) {
         cam.lookAt(_look);
     }
     _renderHud();
+}
+
+// ── A pancake on the floor crumbles away (a moment to see it land first). ────
+const FLOOR_Y = 0.4, FLOOR_WAIT = 0.35, CRUMBLE = 0.7;
+function _floorCheck(c, dt) {
+    if (c.dying != null) {
+        c.dying += dt;
+        const k = Math.min(1, c.dying / CRUMBLE);
+        if (c.mesh) {
+            c.mesh.scale.set(1 + k * 0.5, Math.max(0.05, 1 - k), 1 + k * 0.5);
+            c.mesh.position.y = Math.max(0.01, c.y0 * (1 - k));
+            c.mesh.traverse(o => { if (o.isMesh) o.material.forEach(m => { m.opacity = 1 - k; }); });
+            if (k >= 1) {
+                c.mesh.traverse(o => { if (o.isMesh) o.material.forEach(m => m.dispose()); });
+                c.mesh.parent?.remove(c.mesh); c.mesh = null;
+            }
+        }
+        return;
+    }
+    const b = c.body;
+    if (!b || b.position.y > FLOOR_Y) { c.floorT = 0; return; }
+    c.floorT = (c.floorT || 0) + dt;
+    if (c.floorT < FLOOR_WAIT) return;
+    // Off the table for good: the body goes, the mesh crumbles to crumbs.
+    c.off = true; c.landed = true; c.dying = 0; c.y0 = b.position.y;
+    if (c.mesh) {
+        c.mesh.position.copy(b.position); c.mesh.quaternion.copy(b.quaternion);
+        c.mesh.traverse(o => { if (o.isMesh) o.material = o.material.map(m => { const n = m.clone(); n.transparent = true; return n; }); });
+    }
+    _world?.removeBody(b); c.body = null;
+    if (_stage?.gl) {
+        _fx?.puff(new THREE.Vector3(b.position.x, 0.1, b.position.z), 0xd9a55b, 7, 0.55, 0.45);
+        _fx?.puff(new THREE.Vector3(b.position.x, 0.05, b.position.z), 0xf5e6c8, 4, 0.4, 0.3);
+    }
+    sfx('dice_land');
 }
 
 function _draw() {
@@ -339,6 +375,9 @@ export function _debugState() {
                                      heldX: +_heldX(p).toFixed(2), top: +_topY(p).toFixed(2) })),
              camY: _stage?.camera ? +_stage.camera.position.y.toFixed(3) : 0,
              lowest: Math.min(9, ..._p.flatMap(p => p.cakes.map(c => (c.body ? +c.body.position.y.toFixed(2) : 9)))),
+             crumbled: _p.reduce((n, p) => n + p.cakes.filter(c => c.dying != null).length, 0),
+             floorLeft: _p.reduce((n, p) => n + p.cakes.filter(c => c.mesh && c.dying != null).length, 0),
+             onFloor: _p.reduce((n, p) => n + p.cakes.filter(c => c.body && c.body.position.y < FLOOR_Y).length, 0),
              physics: !!_world, gl: !!_stage?.gl, turned: !!_stage?.turned };
 }
 /** Probes: freeze the dropper's swing and the clock. */

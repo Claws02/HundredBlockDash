@@ -34,9 +34,17 @@ require('./stageprobe').run('pancakes', async ({ page, ok, launch, state, shot, 
     await G('_debugFreeze', true);
 
     await G('_debugDropAt', 0, 1.4);
-    await settle(2000);
+    let hitFloor = false, crumbling = false;
+    for (let i = 0; i < 60; i++) {
+        s = await state();
+        if (s.onFloor > 0) hitFloor = true;
+        if (s.crumbled > 0 && !crumbling) { crumbling = true; await page.waitForTimeout(150); await shot('crumble'); }
+        if (crumbling && s.floorLeft === 0) break;
+        await page.waitForTimeout(50);
+    }
     s = await state();
-    ok('well off the plate, it falls to the floor and does not count', s.players[0].drops === 2 && s.players[0].count === 1 && s.lowest < 0.3, `${JSON.stringify(s.players[0])} lowest y ${s.lowest}`);
+    ok('well off the plate, it falls to the floor and does not count', hitFloor && s.players[0].drops === 2 && s.players[0].count === 1, `${JSON.stringify(s.players[0])} hit floor ${hitFloor}`);
+    ok('…and on the floor it crumbles away: body and mesh gone', s.crumbled === 1 && s.floorLeft === 0 && s.onFloor === 0, `crumbled ${s.crumbled} left ${s.floorLeft} onFloor ${s.onFloor}`);
 
     for (let i = 0; i < 5; i++) { await G('_debugDropAt', 0, (Math.random() - 0.5) * 0.08); await settle(900); }
     await settle(800);
