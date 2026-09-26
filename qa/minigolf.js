@@ -1,7 +1,8 @@
 // ============================================================
-// MINI GOLF — split screen, both at once, holes from a pool of seven.
-//   1. Built in the face-off hold; split screen once play starts.
-//   2. Both players putt AT THE SAME TIME with real drags, on the one shared
+// MINI GOLF — one sideways view, both at once, holes from a pool of seven.
+//   1. Built in the side hold (turned in portrait); ONE view of the course.
+//   2. Both players putt AT THE SAME TIME with real drags, each on their own
+//      half of the screen (P1 right, P2 left in landscape), on the one shared
 //      course, and the ball goes away from the pull, down the hole.
 //   2b. The balls knock into each other — a waiting ball too, at no stroke.
 //   3. A slow ball over the cup drops in, and the time is recorded.
@@ -26,16 +27,18 @@ require('./stageprobe').run('minigolf', async ({ page, ok, launch, state, shot, 
     await page.waitForTimeout(900);
     await shot('intro');
     let s = await state();
-    ok('built in the face-off hold', s.gl && !s.turned);
+    ok('built in the side hold, turned sideways in portrait', s.gl && s.turned);
     s = await waitFor(st => st.sub === 'play' && st.hole === 0, 30000);
-    ok('split screen once play starts', s.views === 2, `views ${s.views}`);
+    ok('one view of the course for both', s.views === 1, `views ${s.views}`);
     await page.waitForTimeout(1700);
     await shot('tee');
 
-    // Both at once: P1 pulls down its half, P2 pulls up its half (back toward each of them).
+    // Both at once, each on their own half. Stage (lx, ly) sits at screen
+    // (412 - ly, lx): landscape "left" (back from the flag) is the glass's UP,
+    // P1's half the glass's bottom, P2's the top.
     const x0 = s.balls.map(b => b.x);
-    await page.mouse.move(206, 700); await page.mouse.down(); await page.mouse.move(210, 770, { steps: 3 }); await page.mouse.up();
-    await page.mouse.move(206, 190); await page.mouse.down(); await page.mouse.move(202, 120, { steps: 3 }); await page.mouse.up();
+    await page.mouse.move(206, 700); await page.mouse.down(); await page.mouse.move(210, 630, { steps: 3 }); await page.mouse.up();
+    await page.mouse.move(206, 300); await page.mouse.down(); await page.mouse.move(202, 230, { steps: 3 }); await page.mouse.up();
     await page.waitForTimeout(300);
     s = await state();
     await shot('both');
