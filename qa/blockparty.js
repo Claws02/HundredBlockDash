@@ -8,6 +8,10 @@
 //   4. On the beat is PERFECT, 0.12 s off is GOOD, 0.3 s off or the wrong move
 //      is a MISS, and no move at all is a MISS.
 //   5. A phrase with no misses pays the FULL COMBO bonus.
+//   5b. Every move is called out big over the player's own half (★ PERFECT /
+//      ✓ GOOD / ✗ WRONG MOVE, with the right move), and marked on its card.
+//   5c. Over a whole game, every move the DJ has danced is up on its card,
+//      on every frame, in every phrase.
 //   6. A hard bot beats an idle player; nothing leaks; no errors.
 //
 // usage: node blockparty.js          (screenshots: qa/shot-blockparty-*.png)
@@ -83,10 +87,15 @@ require('./stageprobe').run('blockparty', async ({ page, ok, launch, state, shot
         G._debugMove(0, m[2], b0 + 2 + 0.3 * k);      // 0.3 s late
         G._debugMove(0, wrong(m[3]), b0 + 3);         // on the beat, wrong move
         const after = G._debugState();
-        return { resp: after.resp[0], pts: after.score[0] - before };
+        return { resp: after.resp[0], pts: after.score[0] - before, pop: after.pops[0] };
     });
     ok('on the beat PERFECT, 0.12 s GOOD, 0.3 s MISS, wrong move MISS',
         got.resp.join() === 'perfect,good,miss,miss' && got.pts === 5, `${got.resp.join()} → +${got.pts}`);
+    ok('each move is called out big over your half: a wrong one says so', /^✗ WRONG MOVE/.test(got.pop), `pop "${got.pop}"`);
+    await page.waitForTimeout(100);
+    await shot('feedback');
+    const marks = await page.evaluate(() => [...document.querySelectorAll('#minigame-layer div')].filter(d => /^[★✓✗]$/.test(d.textContent)).map(d => d.textContent).join(''));
+    ok('…and each card is marked ★ / ✓ / ✗ for that player', marks.includes('★') && marks.includes('✓') && marks.includes('✗'), `marks ${marks}`);
     s = await waitFor(st => st.phrase === 0 && st.part === 'tally');
     ok('no move at all is a miss', s.resp[1].length > 0 && s.resp[1].every(j => j === 'miss'), `P2 ${s.resp[1].join()}`);
 
@@ -104,10 +113,28 @@ require('./stageprobe').run('blockparty', async ({ page, ok, launch, state, shot
 
     await launch({ bot: true, skill: 0.85 });
     let verdict = false;
+    const gaps = []; let samples = 0;
+    // Watch the cards from inside the page, every frame, for the whole game.
+    await page.evaluate(() => {
+        window.__cardGaps = []; window.__cardSamples = 0;
+        const tick = () => {
+            const st = window.__G && window.__G._debugState && window.__G._debugState();
+            if (!st || st.phase === 'over') return;
+            if (st.part === 'call' || (st.part === 'resp' && !st.hide)) {
+                window.__cardSamples++;
+                const need = st.part === 'call' ? st.idx + 1 : st.moves.length;
+                for (let j = 0; j < need; j++) if (!st.shown[j]) { window.__cardGaps.push(`${st.phrase}:${st.part}${st.idx} card ${j}`); break; }
+            }
+            requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+    });
     const r = await waitResult(110000, async () => {
         const st = await state();
         if (st && st.phase === 'over' && !verdict) { verdict = true; await page.waitForTimeout(1300); await shot('verdict'); }
     });
+    const cg = await page.evaluate(() => ({ gaps: window.__cardGaps.slice(0, 5), n: window.__cardGaps.length, samples: window.__cardSamples }));
+    ok('every move the DJ has danced is up on its card, every frame, all game', cg.samples > 200 && cg.n === 0, `${cg.samples} frames sampled, ${cg.n} gaps ${JSON.stringify(cg.gaps)}`);
     ok('a hard bot beats an idle player', !!r && r.winner === 1, r ? `winner=${r.winner} in ${(r.ms / 1000).toFixed(1)}s` : 'timed out');
     await cleanup();
 });
