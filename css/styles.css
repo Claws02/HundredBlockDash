@@ -58,6 +58,8 @@ body { background: transparent; }
     padding: 15px; overflow-y: auto; touch-action: pan-y;
 }
 #char-select { display: none; }
+/* Tabletop: Player 2 picks from the far side of the phone, so their step is turned to face them. */
+#char-select.cs-flipped { transform: rotate(180deg); }
 
 .screen-content {
     display: flex; flex-direction: column; align-items: center; justify-content: center;

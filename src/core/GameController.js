@@ -157,6 +157,9 @@ function _paintCharSelectStep(idx) {
         botBtn.textContent = `🤖 LET A BOT PLAY ${slot.name.toUpperCase()}`;
     }
     _paintCharPortraits(idx);
+    // Tabletop: the phone lies flat between two people facing each other, so
+    // Player 2's pick is turned a half turn to face them, as their board turns do.
+    document.getElementById('char-select').classList.toggle('cs-flipped', state.playStyle === 'tabletop' && idx === 1);
     const taken = new Set(state.charSelections.slice(0, idx));
     document.querySelectorAll('#char-select [data-char]').forEach(c => {
         c.classList.toggle('taken', taken.has(c.dataset.char));
@@ -229,6 +232,7 @@ function _advanceCharSelect(idx) {
 
 export function goToMapSelect() {
     document.getElementById('char-select').style.display = 'none';
+    document.getElementById('char-select').classList.remove('cs-flipped');
     document.getElementById('map-select').style.display  = 'flex';
     _populateMapSelectScreen();
 }
