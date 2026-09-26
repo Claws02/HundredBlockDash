@@ -42,6 +42,7 @@ require('./stageprobe').run('riftdive', async ({ page, ok, launch, state, shot, 
 
     // A ring and a shard, from just above each.
     const C = await page.evaluate(() => window.__G._debugCourse());
+    ok('the shaft is sparse: fewer shards than rings', C.shards.length < C.rings.length * 0.7 && C.shards.length >= 4, `${C.shards.length} shards, ${C.rings.length} rings`);
     const ring = C.rings.find(r => r[1] < -60 && !C.shards.some(q => Math.abs(q[1] - r[1]) < 4 && Math.hypot(q[0] - r[0], q[2] - r[2]) < 2.5));
     // Read the frame the ring is counted: a shard further down would zero the boost.
     const thru = await page.evaluate(r => new Promise(res => {

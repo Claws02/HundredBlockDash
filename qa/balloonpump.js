@@ -2,7 +2,8 @@
 // BALLOON PUMP — the Promenade balloon stall, side-on hold.
 //   1. Built, and turned sideways in portrait.
 //   2. Holding P1's half pumps P1's balloon; letting go stops it.
-//   3. Pumping past the limit pops it; a popped balloon scores 0.
+//   3. Pumping past the limit pops it; a popped balloon scores 0, the pop ends
+//      the round at once, and the other balloon banks its size and wins it.
 //   4. At the whistle an unpopped balloon scores its size.
 //   5. Near the limit the balloon strains (the tell).
 //   6. A hard bot beats an idle player; nothing leaks; no errors.
@@ -37,18 +38,18 @@ require('./stageprobe').run('balloonpump', async ({ page, ok, launch, state, sho
     ok('P2 (not a bot, not touched) did not pump', b.size[1] === 0);
 
     // The tell, then the pop.
-    await page.evaluate(() => { window.__G._debugLimit(60); window.__G._debugSize(0, 50); });
+    await page.evaluate(() => { window.__G._debugLimit(60); window.__G._debugSize(0, 50); window.__G._debugSize(1, 30); });
     await page.waitForTimeout(250);
     await shot('strain');
     await page.mouse.move(206, 700); await page.mouse.down();
     s = await waitFor(st => st.popped[0] || st.sub !== 'pump', 8000);
     await page.mouse.up();
     ok('pumping past the limit pops it', s.popped[0], `size ${s.size[0]} limit ${s.limit}`);
-    await page.waitForTimeout(200);
+    ok('the pop ends the round on the spot', s.sub === 'tally', `sub ${s.sub}`);
+    ok('a popped balloon scores nothing; the other banks its size and wins the round',
+       s.score[0] === 0 && s.score[1] === 30 && s.roundWin === 1, `score ${s.score} roundWin ${s.roundWin}`);
+    await page.waitForTimeout(300);
     await shot('pop');
-    const before = s.score[0];
-    s = await waitFor(st => st.sub === 'tally', 15000);
-    ok('a popped balloon scores nothing', s.score[0] === before, `${before} → ${s.score[0]}`);
     await forceEnd();
 
     // Scoring an unpopped balloon.

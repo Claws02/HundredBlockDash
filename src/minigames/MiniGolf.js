@@ -2,13 +2,15 @@
 // MINI GOLF — crazy golf in the park, both of you at once.
 // (Scaffolded from _template3d.js; see docs/MINIGAME_3D_PLAYBOOK.md.)
 //
-// Face-off hold, SPLIT SCREEN over ONE shared course: you both play the same
-// hole at the same time, each half showing it from your own end. No turns and
-// no waiting: putt again as soon as your ball stops. The balls knock into
-// each other — a ball waiting to be putted too, which costs its owner nothing.
+// Side-on hold, ONE view of ONE shared course: the phone lies sideways between
+// you, the whole hole across the screen, tee on the left and flag on the
+// right. You both play it at the same time. No turns and no waiting: putt
+// again as soon as your ball stops. The balls knock into each other — a ball
+// waiting to be putted too, which costs its owner nothing.
 //
-//   DRAG BACK on your half and LET GO: a slingshot. The further you pull, the
-//   harder the putt; the dotted line shows where it's going.
+//   DRAG BACK anywhere on YOUR HALF of the screen (P1 the right half, P2 the
+//   left) and LET GO: a slingshot. The ball goes the opposite way to your
+//   pull, the further the harder; the dotted line shows where it's going.
 //
 // Three holes, picked at random from seven:
 //   THE WINDMILL · THE LOOP · THE FOUNTAIN BRIDGE · PINBALL · THE DOGLEG ·
@@ -23,7 +25,7 @@ import { registerMinigameCleanup, isBotSlot } from './MinigameManager.js';
 import { createStage } from '../engine/Stage.js';
 import { STAGE_SETS } from '../engine/StageSets.js';
 import { createDirector } from '../engine/StageDirector.js';
-import { seat, faceoffHud, touch, effects } from '../engine/StageKit.js';
+import { seat, sideHud, touch, effects } from '../engine/StageKit.js';
 
 // ── Tuning ───────────────────────────────────────────────────────────────────
 const HX = 8.6, HZ = 3.2;              // a hole: x from the tee end (−) to the cup end (+), z across
@@ -97,7 +99,7 @@ function _dynamic(h, t) {
 // ── Module state ─────────────────────────────────────────────────────────────
 let _done = false, _onWin = null, _botSkill = 0.55;
 let _overlay = null, _stage = null, _set = null, _dir = null, _hud = null, _in = null, _fx = null;
-let _holes = [], _hole = -1, _balls = [], _strokes = [[], []], _times = [[], []], _copies = [], _aims = [], _cams = [], _figs = [], _bot = [];
+let _holes = [], _hole = -1, _balls = [], _strokes = [[], []], _times = [[], []], _copies = [], _aims = [], _figs = [], _bot = [];
 let _phase = 'intro', _sub = '', _subT = 0, _t = 0, _holeT = 0;
 
 export function start(isBot, onWin, botSkill = 0.55) {
@@ -113,32 +115,26 @@ export function start(isBot, onWin, botSkill = 0.55) {
     _overlay = document.createElement('div');    // R2
     _overlay.style.cssText = 'position:absolute;inset:0;overflow:hidden;background:#a9d4f2;z-index:5;';
     mg.appendChild(_overlay);
-    _stage = createStage(_overlay, { hold: 'faceoff', fov: 50, background: 0xa9d4f2 });
-    _hud = faceoffHud(_stage);
-    _in = touch(_stage, { split: 'y', stick: 90, onRelease: (slot, r) => _release(slot, r) });
+    _stage = createStage(_overlay, { hold: 'side', fov: 40, background: 0xa9d4f2 });
+    _hud = sideHud(_stage, { padWidth: 250 });
+    _in = touch(_stage, { split: 'x', stick: 90, onRelease: (slot, r) => _release(slot, r) });
     _fx = effects(_stage);
     _dir = createDirector(_stage);
     if (_stage.gl) {
         _set = STAGE_SETS.ring(_stage, { w: HX * 2 + 4, d: 34, lanterns: false });
-        _cams = [0, 1].map(slot => {
-            const c = new THREE.PerspectiveCamera(50, 1, 0.1, 120);
-            c.up.set(0, slot === 0 ? 1 : -1, 0);  // the far half reads from its own end
-            return c;
-        });
         _aims = [0, 1].map(_buildAim);
     }
     _balls = [0, 1].map(_buildBall);
     _figs = [0, 1].map(_buildFig);
-    [0, 1].forEach(slot => _hud.hint(slot, seat(slot).bot ? '' : 'DRAG BACK · LET GO TO PUTT'));
+    [0, 1].forEach(slot => _hud.hint(slot, seat(slot).bot ? '' : 'DRAG BACK ON YOUR HALF · LET GO TO PUTT'));
 
     _dir.open({
         place: 'CITY RING ROAD · THE CRAZY GOLF', title: 'MINI GOLF',
         sub: `${_holes.length} HOLES · BOTH AT ONCE · FEWEST STROKES`,
         from: { pos: [14, 12, 0], look: [0, 0, 0] },
-        to: { pos: [-HX - 5, 10, OFF[0]], look: [2, 0, OFF[0]] },
+        to: _playCam(),
         onDone: () => {
             if (_done) return;
-            if (_stage?.gl) _stage.views = [0, 1].map(slot => ({ camera: _cams[slot], rect: slot === 0 ? [0, 0, 1, 0.5] : [0, 0.5, 1, 0.5] }));
             _phase = 'play'; _nextHole();
         },
     });
@@ -149,9 +145,13 @@ function _destroy() {
     _done = true;
     if (_stage) { _stage.views = null; _stage.dispose(); _stage = null; }
     if (_overlay) { _overlay.remove(); _overlay = null; }
-    _balls = []; _figs = []; _copies = []; _aims = []; _cams = []; _set = null; _dir = null; _hud = null; _in = null; _fx = null;
+    _balls = []; _figs = []; _copies = []; _aims = []; _set = null; _dir = null; _hud = null; _in = null; _fx = null;
 }
 function _finish(w) { if (_done) return; _destroy(); _onWin?.(w); }
+
+// The whole hole across the landscape screen, from the players' side, tilted
+// just enough to read the windmill and the loop as things standing up.
+function _playCam() { return { pos: [0, 12.2, 4.4], look: [0, 0, 0.35] }; }
 
 // ── Building ─────────────────────────────────────────────────────────────────
 function _buildBall(slot) {
@@ -163,13 +163,14 @@ function _buildBall(slot) {
     return b;
 }
 function _buildFig(slot) {
-    // Each player stands beside their own tee, out of their camera's way.
+    // Each player stands off the far rail on their own side of the screen
+    // (P1 right, P2 left), looking across the green at the players.
     const f = { slot };
     if (_stage.gl) {
         const c = _stage.character(slot);
         c.rig.root.scale.setScalar(FIG_SCALE);
-        c.rig.root.position.set(-HX + 0.6, 0, (slot === 0 ? 1 : -1) * (HZ + 1.3));
-        c.anim.face(Math.PI / 2, true);
+        c.rig.root.position.set(slot === 0 ? HX - 2.2 : -HX + 2.2, 0, -HZ - 1.0);
+        c.anim.face(0, true);
         c.anim.play('ready');
         Object.assign(f, { rig: c.rig, anim: c.anim });
     }
@@ -355,18 +356,19 @@ function _nextHole() {
 const _totals = () => _strokes.map(s => s.reduce((a, b) => a + b, 0));
 const _timeTotals = () => _times.map(s => s.reduce((a, b) => a + b, 0));
 
-// A player's drag, read in their own frame: right is their right, forward is
-// down the hole (+x); both copies' "right" is +z in the hole's frame.
-const _playerXY = (slot, x, y) => (slot === 0 ? [x, -y] : [-x, y]);
+// One view for both, looking across the hole from the players' side: screen
+// right is the hole's +x (toward the flag) and screen down is +z (toward you).
+// So a drag reads straight into the hole's frame, the same for both players.
+const _dragXZ = (x, y) => [x, y];
 
 function _release(slot, r) {
     const b = _balls[slot];
     if (_phase !== 'play' || !b || b.state !== 'aim' || isBotSlot(slot) || !r.moved) return;
     const p = Math.min(1, Math.hypot(r.dx, r.dy));
     if (p < 0.08) return;
-    const [lat, fwd] = _playerXY(slot, r.dx, r.dy), n = Math.hypot(lat, fwd) || 1;
+    const [dx, dz] = _dragXZ(r.dx, r.dy), n = Math.hypot(dx, dz) || 1;
     // A slingshot: the ball goes the opposite way to the pull.
-    _shoot(slot, -fwd / n, -lat / n, p);
+    _shoot(slot, -dx / n, -dz / n, p);
 }
 
 function _shoot(slot, dx, dz, power) {
@@ -447,10 +449,10 @@ function _frame(dt) {
                 } else {
                     const s = _in.seat(b.slot), aim = _aims[b.slot];
                     if (aim && s.down && s.moved) {
-                        const [lat, fwd] = _playerXY(b.slot, s.dx, s.dy), m = Math.min(1, Math.hypot(s.dx, s.dy));
+                        const [dx, dz] = _dragXZ(s.dx, s.dy), m = Math.min(1, Math.hypot(s.dx, s.dy));
                         aim.visible = true;
                         aim.position.set(b.x, 0.24, b.z + OFF[b.slot]);
-                        aim.rotation.y = -Math.atan2(-lat, -fwd);
+                        aim.rotation.y = -Math.atan2(-dz, -dx);
                         aim.children.forEach((d, i) => { d.position.x = 0.35 + i * 0.32 * (0.4 + m * 1.6); d.material.color.setHex(m > 0.85 ? 0xff6b6b : 0xffffff); });
                     } else if (aim) aim.visible = false;
                     // Less time to dawdle once the other ball is in; and twice out
@@ -531,17 +533,16 @@ function _frame(dt) {
         // The copy's own mover: on the frame a new hole is built, `h` is still the last one.
         if (c.mover) c.mover.position.z = _moverZ(c.moverDef, _t);
     });
-    // Each camera: behind its own tee, looking down the hole at the flag.
-    _cams.forEach((cam, slot) => {
-        // Steep enough that the tee sits clear of the HUD strip at the near edge
-        // and the flag near the far one.
-        cam.position.set(-5.5, 24.5, OFF[slot]);
-        cam.lookAt(-2.6, 0, OFF[slot]);
-    });
     _set?.update?.(dt, _t);
     _fx?.update(dt);
     const dirOwns = !!_dir && _dir.update(dt);
     if (_done) return;
+    if (!dirOwns && _stage?.gl && _phase === 'play') {
+        const c = _playCam();
+        _stage.camera.position.fromArray(c.pos);
+        _stage.camera.lookAt(...c.look);
+        _stage.camera.userData.look = c.look;
+    }
     _renderHud();
 }
 
@@ -549,13 +550,18 @@ function _renderHud() {
     if (!_hud || _hole < 0) return;
     const tot = _totals();
     const hl = Math.min(_hole, _holes.length - 1);
+    _hud.bar(`<span style="color:${seat(1).css}">${seat(1).name} ${tot[1]}</span>` +
+        `<span style="font-size:15px;opacity:.85">⛳ ${hl + 1}/${_holes.length} ${_holes[hl].name} · PAR ${_holes[hl].par}</span>` +
+        `<span style="color:${seat(0).css}">${tot[0]} ${seat(0).name}</span>`);
     [0, 1].forEach(slot => {
         const b = _balls[slot];
+        if (seat(slot).bot) return;
         const now = _strokes[slot][hl] || 0;
         const lim = _balls[1 - slot].state === 'done' ? 6 : SHOT_CLOCK;
-        const clock = b.state === 'aim' && !isBotSlot(slot) && b.clock > lim - 4 ? ` · ${Math.max(0, Math.ceil(lim - b.clock))}s` : '';
-        _hud.line(slot, `⛳ ${hl + 1}/${_holes.length} ${_holes[hl].name} · ${b.state === 'done' ? 'IN' : `STROKE ${now + (b.state === 'aim' ? 1 : 0)}`} · TOTAL ${tot[slot]}–${tot[1 - slot]}${clock}`);
-        if (!seat(slot).bot) _hud.hint(slot, b.state === 'done' && _sub === 'play' ? 'IN! WAITING FOR THE OTHER BALL…' : _hole === 0 && now === 0 ? 'DRAG BACK · LET GO TO PUTT' : '');
+        const clock = b.state === 'aim' && b.clock > lim - 4 ? ` · ${Math.max(0, Math.ceil(lim - b.clock))}s` : '';
+        _hud.hint(slot, b.state === 'done' && _sub === 'play' ? 'IN! WAITING FOR THE OTHER BALL…'
+            : _hole === 0 && now === 0 ? 'DRAG BACK ON YOUR HALF · LET GO TO PUTT'
+            : `STROKE ${now + (b.state === 'aim' ? 1 : 0)}${clock}`);
     });
     const el = document.getElementById('mg-neutral');
     if (el && _phase === 'play') el.textContent = `HOLE ${hl + 1} · ${seat(0).name} ${tot[0]} – ${tot[1]} ${seat(1).name}`;
@@ -568,7 +574,6 @@ function _end() {
     const tot = _totals(), tt = _timeTotals();
     // Fewest strokes; level on strokes, the faster total time.
     const w = tot[0] !== tot[1] ? (tot[0] < tot[1] ? 0 : 1) : Math.abs(tt[0] - tt[1]) < 0.05 ? -1 : tt[0] < tt[1] ? 0 : 1;
-    if (_stage) _stage.views = null;
     _aims.forEach(a => { a.visible = false; });
     _dir.close({
         winner: w, figs: _figs.filter(f => f.rig).map(f => ({ slot: f.slot, rig: f.rig, anim: f.anim })),
@@ -584,7 +589,7 @@ let _forceHoles = null;
 export function _debugState() {
     return { phase: _phase, sub: _sub, hole: _hole, holes: _holes.map(h => h.key), strokes: _strokes.map(s => [...s]), times: _times.map(s => s.map(t => +t.toFixed(2))),
              balls: _balls.map(b => ({ x: +b.x.toFixed(2), z: +b.z.toFixed(2), v: +Math.hypot(b.vx, b.vz).toFixed(2), state: b.state, holed: b.holed, loop: !!b.loop })),
-             views: _stage?.views ? _stage.views.length : 0, gl: !!_stage?.gl, turned: !!_stage?.turned };
+             views: _stage?.views ? _stage.views.length : 1, gl: !!_stage?.gl, turned: !!_stage?.turned };
 }
 export function _debugBall(slot, x, z) { const b = _balls[slot]; if (b) Object.assign(b, { x, z, vx: 0, vz: 0, state: 'aim', clock: 0 }); }
 export function _debugShoot(slot, dx, dz, p) { const b = _balls[slot]; if (b) b.state = 'aim'; _shoot(slot, dx, dz, p); }

@@ -8,8 +8,10 @@
 //   HOLD on your half to pump. Let go to stop.
 //
 // When the whistle goes, a balloon still in one piece scores its size. A
-// balloon pumped past its limit pops and scores nothing. Both balloons in a
-// round share the same hidden limit, so the round is about who dares closer.
+// balloon pumped past its limit pops and scores nothing, and the pop ends the
+// round on the spot: the other balloon banks what it has and wins the round.
+// Both balloons in a round share the same hidden limit, so the round is about
+// who dares closer.
 //
 // The tell: near its limit a balloon starts to strain. It wobbles, stretches
 // and squeaks, harder the closer it gets, so reading it is the skill.
@@ -27,8 +29,8 @@ import { seat, sideHud, touch, effects } from '../engine/StageKit.js';
 // ── Tuning ───────────────────────────────────────────────────────────────────
 const ROUNDS = 5;
 const LEAD = 1.3;                  // s of "ROUND n" before pumping counts
-const PUMP_TIME = 5.5;             // s of pumping per round
-const TALLY = 1.9;                 // s to show the round's result
+const PUMP_TIME = 8;               // s of pumping per round
+const TALLY = 2.4;                 // s to show the round's result
 const RATE = 21;                   // size per second while pumping (0–100 scale)
 const LIMIT_MIN = 52, LIMIT_MAX = 97;
 const STRAIN = 16;                 // the tell starts this far below the limit
@@ -40,12 +42,12 @@ const R0 = 0.16, R1 = 1.12;        // balloon radius at size 0 and 100
 let _done = false, _onWin = null, _botSkill = 0.55;
 let _overlay = null, _stage = null, _set = null, _dir = null, _hud = null, _in = null, _fx = null;
 let _figs = [], _score = [0, 0], _bot = [];
-let _phase = 'intro', _sub = '', _subT = 0, _t = 0, _round = 0, _limit = 70, _squeakT = [0, 0];
+let _phase = 'intro', _sub = '', _subT = 0, _t = 0, _round = 0, _limit = 70, _squeakT = [0, 0], _roundWin = -1;
 
 export function start(isBot, onWin, botSkill = 0.55) {
     if (!state.mgActive) return;
     _done = false; _onWin = onWin; _botSkill = botSkill;
-    _phase = 'intro'; _sub = ''; _subT = 0; _t = 0; _round = 0; _score = [0, 0];
+    _phase = 'intro'; _sub = ''; _subT = 0; _t = 0; _round = 0; _score = [0, 0]; _roundWin = -1;
     _bot = [0, 1].map(() => ({ target: 60 }));
     registerMinigameCleanup(_destroy);           // R3
 
@@ -194,7 +196,8 @@ function _pop(f) {
     _placeBalloon(f);
 }
 
-function _tally() {
+function _tally(popper = null) {
+    if (_sub === 'tally') return;
     _sub = 'tally'; _subT = 0;
     sfx('whistle');
     const mult = _round === ROUNDS ? 2 : 1;
@@ -205,8 +208,18 @@ function _tally() {
         if (!f.popped) { f.banked = true; f.bankT = 0; f.anim?.play(f.size > 0 ? 'raise' : 'ready'); }
     });
     const [a, b] = pts;
-    const msg = a === b ? (a === 0 ? 'BOTH POPPED!' : 'DEAD EVEN') : `${seat(a > b ? 0 : 1).name} +${Math.max(a, b)}`;
-    _hud.say(msg, `LIMIT WAS ${Math.round(_limit)}`, TALLY * 1000, _t, a === b ? '#ffffff' : seat(a > b ? 0 : 1).css);
+    const w = a === b ? -1 : (a > b ? 0 : 1);
+    let msg, sub;
+    if (popper) {
+        // A pop ends the round: the survivor takes it.
+        msg = `💥 ${seat(popper.slot).name} POPPED!`;
+        sub = w < 0 ? `ROUND DRAWN · LIMIT WAS ${Math.round(_limit)}` : `${seat(w).name} WINS THE ROUND +${pts[w]}`;
+    } else {
+        msg = w < 0 ? (a === 0 ? 'NO SCORE' : 'DEAD EVEN') : `${seat(w).name} WINS THE ROUND`;
+        sub = w < 0 ? `LIMIT WAS ${Math.round(_limit)}` : `+${pts[w]} · LIMIT WAS ${Math.round(_limit)}`;
+    }
+    _roundWin = w;
+    _hud.say(msg, sub, TALLY * 1000, _t, w < 0 ? '#ffffff' : seat(w).css);
 }
 
 // ── The loop ─────────────────────────────────────────────────────────────────
@@ -219,20 +232,22 @@ function _frame(dt) {
         if (_sub === 'lead' && _subT >= LEAD) { _sub = 'pump'; _subT = 0; sfx('go'); }
         else if (_sub === 'pump') {
             const left = PUMP_TIME - _subT;
+            let popper = null;
             _figs.forEach(f => {
-                if (f.popped) return;
+                if (f.popped || popper) return;
                 const want = isBotSlot(f.slot) ? _botWants(f) : !!_in.seat(f.slot).down;
                 f.pumping = want;
                 if (want) {
                     f.size += RATE * dt;
-                    if (f.size >= _limit) { _pop(f); return; }
+                    if (f.size >= _limit) { _pop(f); popper = f; return; }
                     const near = Math.max(0, f.size - (_limit - STRAIN)) / STRAIN;
                     _squeakT[f.slot] -= dt;
                     if (near > 0.15 && _squeakT[f.slot] <= 0) { sfx('seq_lit'); haptic([6]); _squeakT[f.slot] = 0.5 - near * 0.35; }
                 }
             });
             if (left < 3 && Math.ceil(left) !== Math.ceil(left + dt)) sfx('countdown');
-            if (left <= 0) _tally();
+            if (popper) _tally(popper);
+            else if (left <= 0) _tally();
         } else if (_sub === 'tally' && _subT >= TALLY) _nextRound();
     }
 
@@ -296,7 +311,7 @@ function _end() {
 // ── Probe hooks ──────────────────────────────────────────────────────────────
 export function _debugState() {
     return { phase: _phase, sub: _sub, round: _round, limit: +_limit.toFixed(1), score: [..._score],
-             size: _figs.map(f => +f.size.toFixed(1)), popped: _figs.map(f => f.popped), pumping: _figs.map(f => f.pumping),
+             size: _figs.map(f => +f.size.toFixed(1)), popped: _figs.map(f => f.popped), roundWin: _roundWin, pumping: _figs.map(f => f.pumping),
              gl: !!_stage?.gl, turned: !!_stage?.turned };
 }
 /** Probes: fix this round's limit, and set a balloon's size. */

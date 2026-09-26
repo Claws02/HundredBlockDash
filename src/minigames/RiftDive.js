@@ -32,6 +32,7 @@ const FALL       = 17, BOOST = 9, BOOST_DECAY = 1.1, MAX_FALL = 32;
 const STEER      = 8.5, ACCEL = 22;
 const RING_EVERY = 11, RING_R = 1.45;
 const SHARD_R    = 0.95, BODY_R = 0.45;
+const SHARD_CHANCE = [0.4, 0.6];             // chance of one shard between two rings (top half, bottom half)
 const STUN_T     = 0.75, STUN_K = 0.35;
 const BUMP_V     = 6.5;
 const READY_TIME = 1.4;
@@ -95,8 +96,8 @@ function _finish(w) { if (_done) return; _destroy(); _onWin?.(w); }
 
 // ── The course ───────────────────────────────────────────────────────────────
 // A ring every RING_EVERY units, wandering but never more than a steer away
-// from the last; a shard or two between each pair, some of them right on the
-// line from one ring to the next.
+// from the last; now and then a shard between a pair (more often deeper down),
+// sometimes right on the line from one ring to the next.
 function _layCourse() {
     _rings = []; _shards = [];
     let px = 0, pz = 0, id = 0;
@@ -113,11 +114,12 @@ function _layCourse() {
         }
         _rings.push(ring);
         // Shards between this ring and the next.
-        const n = 1 + (Math.random() < 0.5 ? 1 : 0) + (y < -DEPTH / 2 && Math.random() < 0.4 ? 1 : 0);
+        // Sparse: most gaps have none, the deeper half a few more.
+        const n = Math.random() < (y < -DEPTH / 2 ? SHARD_CHANCE[1] : SHARD_CHANCE[0]) ? 1 : 0;
         for (let k = 0; k < n; k++) {
             const sy = y - RING_EVERY * (0.3 + Math.random() * 0.45);
             let sx, sz;
-            if (k === 0 && Math.random() < 0.6) {       // on the line, a little off it
+            if (Math.random() < 0.35) {       // on the line, a little off it
                 sx = x + (Math.random() - 0.5) * 1.6; sz = z + (Math.random() - 0.5) * 1.6;
             } else {
                 const b = Math.random() * Math.PI * 2, rr = Math.random() * 5;

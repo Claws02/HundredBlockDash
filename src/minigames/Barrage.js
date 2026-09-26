@@ -1,12 +1,15 @@
 // Boot Hill Barrage — two forts across a dry wash, and a cannon on each.
 //
 // The second game on the shared 3D stage. Each player's own figure stands on
-// top of their fort beside a cannon. Drag BACK anywhere on your half — the
+// a rock CLIFF behind their fort, beside a cannon that fires over it. The
+// cliff is bedrock: it can't be knocked down, so both players can shoot to
+// the end, however much of their own fort is gone. Drag BACK anywhere on your half — the
 // further you pull, the harder it fires, and the angle you pull at is the
 // angle it flies — then let go. Shells burst on whatever they hit. Each fort
 // stands on a stone PEDESTAL, and to win you have to knock the whole of the
 // rival's fort off theirs: every leg, plank, crate and the top. Sniping the
-// top layer doesn't do it any more.
+// top layer doesn't do it any more. The pedestals stand tall, so timber falls
+// clear of them, and whatever hits the ground breaks up and crumbles away.
 //
 // Both cannons fire at once, on a reload. Nobody waits for a turn.
 //
@@ -35,13 +38,15 @@ import { STAGE_SETS } from '../engine/StageSets.js';
 import { createDirector } from '../engine/StageDirector.js';
 
 // ── Tuning ───────────────────────────────────────────────────────────────────
-const FORT_X      = 10;       // fort centres at ±FORT_X; P1 (+x) is the right
+const FORT_X      = 8.5;      // fort centres at ±FORT_X; P1 (+x) is the right
 const GRAVITY     = -18;
 const RELOAD      = 1.1;      // s between shots
 const MATCH_TIME  = 60;
 const POWDER_AT   = 40;       // bigger shells for the last stretch
-const PED_H = 1.3, PED_HW = 2.1;   // each fort's stone pedestal: height, half-width (just wider than the fort)
-const PUSH = 0.6;                  // a blast's extra shove in the shell's direction of travel
+const PED_H = 3.0, PED_HW = 2.1;   // each fort's stone pedestal: height, half-width (just wider than the fort)
+const CLIFF_DX = 6.7, CLIFF_HW = 1.5, CLIFF_H = 10.6;   // the gunner's cliff: behind the fort (a clear drop between), above its top
+const BREAK_WAIT = 0.2, BREAK_T = 1.1;                 // s on the ground before timber breaks up; s to crumble
+const PUSH = 0.75;                 // a blast's extra shove in the shell's direction of travel
 const V_MIN = 7, V_MAX = 21;  // muzzle speed range, world units / s
 const PULL_PX     = 170;      // a full-power pull, in stage px
 const ELEV_MIN = 0.09, ELEV_MAX = 1.45;   // radians above the horizontal
@@ -108,7 +113,7 @@ export function start(isBot, onWin, botSkill = 0.55) {
         place: 'BOOT HILL BADLANDS · HIGH NOON', title: 'BOOT HILL BARRAGE',
         sub: 'KNOCK THEIR FORT DOWN FIRST',
         from: { pos: [0, 16, 40], look: [0, 3, -20] },
-        to:   { pos: [0, 5.2, 21], look: [0, 4.2, 0] },
+        to:   { pos: [0, 7.4, 30.5], look: [0, 6.0, 0] },
         onDone: () => { if (!_done) { _phase = 'play'; _say('FIRE!', 900); } },
     });
     _stage.start(_frame);
@@ -140,7 +145,9 @@ function _buildWorld() {
     const groundMat = new CANNON.Material('ground');
     w.addContactMaterial(new CANNON.ContactMaterial(_woodMat, _woodMat, { friction: 0.6, restitution: 0.02 }));
     w.addContactMaterial(new CANNON.ContactMaterial(_woodMat, groundMat, { friction: 0.7, restitution: 0.02 }));
-    const ground = new CANNON.Body({ mass: 0, material: groundMat });
+    // Masks are explicit throughout: this cannon.js build defaults a body's
+    // mask to 1, and the forts and shells use groups 2, 4 and 8.
+    const ground = new CANNON.Body({ mass: 0, material: groundMat, collisionFilterMask: -1 });
     ground.addShape(new CANNON.Plane());
     ground.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
     w.addBody(ground);
@@ -156,6 +163,8 @@ function _block(fort, w, h, d, x, y, color, mass) {
         body = new CANNON.Body({ mass, material: _woodMat, linearDamping: 0.05, angularDamping: 0.12 });
         body.addShape(new CANNON.Box(new CANNON.Vec3(w / 2, h / 2, d / 2)));
         body.position.set(x, y, 0);
+        body.collisionFilterGroup = fort.group;    // a fort's own shells fly through it (see _fire)
+        body.collisionFilterMask = -1;             // (this cannon.js defaults the mask to 1)
         body.allowSleep = true;
         body.sleepSpeedLimit = 0.25;
         body.sleepTimeLimit = 0.4;
@@ -179,19 +188,46 @@ function _block(fort, w, h, d, x, y, color, mass) {
         }
         _stage.add(mesh);
     }
-    const b = { body, mesh, x0: x, y0: y };
+    const b = { body, mesh, x0: x, y0: y, rest: Math.max(w, h) / 2 + 0.15, groundT: 0, gone: false };
     fort.blocks.push(b);
     return b;
 }
 
 function _buildFort(slot) {
     const x0 = _xOf(slot), dir = _dirOf(slot);
-    const fort = { slot, x: x0, dir, blocks: [], down: false, downAt: 0 };
+    const fort = { slot, x: x0, dir, blocks: [], down: false, downAt: 0, group: slot === 0 ? 2 : 4 };
+    const cx = x0 - dir * CLIFF_DX;             // the cliff, behind the fort
+    fort.cliffX = cx;
+    if (_world) {
+        const cliff = new CANNON.Body({ mass: 0, material: _woodMat, collisionFilterMask: -1 });
+        cliff.addShape(new CANNON.Box(new CANNON.Vec3(CLIFF_HW, CLIFF_H / 2, 1.4)));
+        cliff.position.set(cx, CLIFF_H / 2, 0);
+        _world.addBody(cliff);
+    }
+    if (_stage.gl) {
+        // Bedrock: stacked, stepped slabs of red rock, wider at the foot.
+        const rockA = new THREE.MeshStandardMaterial({ color: 0xa4643e, roughness: 1 });
+        const rockB = new THREE.MeshStandardMaterial({ color: 0x8e5534, roughness: 1 });
+        const bands = 5;
+        for (let i = 0; i < bands; i++) {
+            const h = CLIFF_H / bands, grow = (bands - 1 - i) * 0.22;
+            const m = new THREE.Mesh(new THREE.BoxGeometry(CLIFF_HW * 2 + grow, h + 0.02, 2.8 + grow * 0.6), i % 2 ? rockA : rockB);
+            m.position.set(cx - dir * grow * 0.3, h * i + h / 2, -0.1);
+            m.castShadow = true; m.receiveShadow = true;
+            _stage.add(m);
+        }
+        const lip = new THREE.Mesh(new THREE.BoxGeometry(CLIFF_HW * 2 + 0.2, 0.16, 3.0), new THREE.MeshStandardMaterial({ color: 0x6f4128, roughness: 1 }));
+        lip.position.set(cx, CLIFF_H - 0.06, -0.1); lip.receiveShadow = true;
+        _stage.add(lip);
+        fort.perch = new THREE.Group();
+        fort.perch.position.set(cx, CLIFF_H, 0);
+        _stage.add(fort.perch);
+    }
     const POST = [0.45, 1.5, 1.1], PLANK = [2.9, 0.34, 1.3];
     const posts = [0x6b4a2c, 0x5d4126], planks = [0x9a7548, 0x8a6239];
     // The pedestal: static stone, and the fort is built on top of it.
     if (_world) {
-        const ped = new CANNON.Body({ mass: 0, material: _woodMat });
+        const ped = new CANNON.Body({ mass: 0, material: _woodMat, collisionFilterMask: -1 });
         ped.addShape(new CANNON.Box(new CANNON.Vec3(PED_HW, PED_H / 2, 1.0)));
         ped.position.set(x0, PED_H / 2, 0);
         _world.addBody(ped);
@@ -223,7 +259,7 @@ function _buildFort(slot) {
     fort.topY0 = y + TOP[1] / 2;
 
     if (_stage.gl) {
-        const top = fort.top.mesh;
+        const top = fort.top.mesh, perch = fort.perch;
         // The cannon: carriage, wheels, and a barrel on an elevation pivot.
         const cannon = new THREE.Group();
         const iron = new THREE.MeshStandardMaterial({ color: 0x2e3238, roughness: 0.4, metalness: 0.8 });
@@ -245,8 +281,8 @@ function _buildFort(slot) {
         cannon.traverse(o => { if (o.isMesh) o.castShadow = true; });
         // +x in the cannon's frame points at the enemy.
         cannon.rotation.y = dir > 0 ? 0 : Math.PI;
-        cannon.position.set(dir * 0.25, 0.25, 0);
-        top.add(cannon);
+        cannon.position.set(dir * 0.55, 0, 0);
+        perch.add(cannon);
         fort.cannon = { group: cannon, pivot, muzzle };
 
         // The flag, in the player's colour, at the back of the top block.
@@ -262,9 +298,9 @@ function _buildFort(slot) {
         // The figure, standing behind its cannon, turned three-quarters to us.
         const c = _stage.character(slot);
         _stage.scene.remove(c.rig.root);
-        top.add(c.rig.root);
-        c.rig.root.scale.setScalar(0.72);
-        c.rig.root.position.set(-dir * 0.5, 0.25, 0.1);
+        perch.add(c.rig.root);
+        c.rig.root.scale.setScalar(0.8);
+        c.rig.root.position.set(-dir * 0.45, 0, 0.1);
         c.anim.face(dir > 0 ? Math.PI / 2 - 0.75 : -Math.PI / 2 + 0.75, true);
         c.anim.play('idle');
         fort.fig = c;
@@ -299,8 +335,7 @@ function _muzzleState(slot, elev, power) {
         f.cannon.group.updateMatrixWorld(true);
         p = f.cannon.muzzle.getWorldPosition(new THREE.Vector3());
     } else {
-        const top = f.top.body ? f.top.body.position : { x: f.x, y: f.topY0 };
-        p = { x: top.x + f.dir * 1.4, y: top.y + 0.7, z: 0 };
+        p = { x: f.cliffX + f.dir * 1.75, y: CLIFF_H + 0.42, z: 0 };
     }
     const v = V_MIN + power * (V_MAX - V_MIN);
     return { p, vx: f.dir * Math.cos(elev) * v, vy: Math.sin(elev) * v };
@@ -337,6 +372,9 @@ function _fire(slot, elev, power) {
         body.position.set(m.p.x, m.p.y, 0);
         body.velocity.set(m.vx, m.vy, 0);
         body.allowSleep = false;
+        // Fired from behind its own fort: flies through it, hits everything else.
+        body.collisionFilterGroup = 8;
+        body.collisionFilterMask = 1 | _forts[1 - slot].group;
         _world.addBody(body);
     }
     if (_stage.gl) {
@@ -461,7 +499,7 @@ function _blast(s) {
     const R = s.big ? BLAST_R * 1.3 : BLAST_R, J = s.big ? BLAST_J * 1.4 : BLAST_J;
     if (_world) {
         _forts.forEach(f => f.blocks.forEach(k => {
-            if (!k.body) return;
+            if (!k.body || k.gone) return;
             const dx = k.body.position.x - pos.x, dy = k.body.position.y - pos.y, dz = k.body.position.z - pos.z;
             const d = Math.hypot(dx, dy, dz);
             if (d > R) return;
@@ -498,8 +536,39 @@ function _blast(s) {
     }
 }
 
+// Timber that hits the ground splits into chunks that tumble, shrink and fade.
+function _breakUp(k) {
+    k.gone = true;
+    const at = k.body.position.clone ? new THREE.Vector3(k.body.position.x, k.body.position.y, k.body.position.z) : null;
+    if (_world) _world.removeBody(k.body);
+    if (!_stage?.gl || !k.mesh || !at) return;
+    k.mesh.visible = false;
+    const geo = k.mesh.geometry.parameters, col = k.mesh.material.color.getHex();
+    const n = 6;
+    for (let i = 0; i < n; i++) {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(geo.width * 0.42, geo.height * 0.42, geo.depth * 0.42),
+            new THREE.MeshStandardMaterial({ color: col, roughness: 1, transparent: true }));
+        m.position.set(at.x + (Math.random() - 0.5) * geo.width * 0.6, at.y + (Math.random() - 0.3) * geo.height * 0.5, (Math.random() - 0.5) * 0.6);
+        m.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3);
+        m.castShadow = true;
+        const v = new THREE.Vector3((Math.random() - 0.5) * 4, 1.5 + Math.random() * 3, (Math.random() - 0.5) * 2.5);
+        _addFx(m, BREAK_T, (o, t, dt) => {
+            v.y += GRAVITY * dt;
+            o.position.addScaledVector(v, dt);
+            if (o.position.y < 0.12) { o.position.y = 0.12; v.multiplyScalar(0.4); v.y = Math.abs(v.y) * 0.3; }
+            o.rotation.x += dt * 5; o.rotation.z += dt * 4;
+            const k2 = Math.max(0, (t - BREAK_T * 0.45) / (BREAK_T * 0.55));
+            o.scale.setScalar(1 - k2 * 0.85);
+            o.material.opacity = 1 - k2;
+        });
+    }
+    _smoke(new THREE.Vector3(at.x, 0.3, 0), 5, 0xc9b48f, 0.9, 0.7);
+    sfx('dice_land');
+}
+
 // ── Fort state ───────────────────────────────────────────────────────────────
 function _topOf(f) {
+    if (f.top.gone) return { y: 0, up: 0, x: f.x };
     if (!f.top.body) return { y: f.topY0, up: 1, x: f.x };
     const b = f.top.body;
     const q = b.quaternion;
@@ -520,6 +589,7 @@ function _integrity(f) {
     if (!f.blocks[0]?.body) return 1;
     let home = 0;
     f.blocks.forEach(k => {
+        if (k.gone) return;
         const p = k.body.position;
         if (Math.hypot(p.x - k.x0, p.y - k.y0) < 0.35) home++;
     });
@@ -528,6 +598,7 @@ function _integrity(f) {
 
 /** Is this block still up on its fort's pedestal? */
 function _onPed(f, k) {
+    if (k.gone) return false;
     const p = k.body ? k.body.position : { x: k.x0, y: k.y0 };
     return p.y > PED_H - 0.1 && Math.abs(p.x - f.x) < PED_HW + 0.05;
 }
@@ -656,9 +727,14 @@ function _frame(dt) {
         }
     }
 
-    // Blocks: meshes follow bodies.
+    // Blocks: meshes follow bodies; timber down on the ground breaks up.
     _forts.forEach(f => f.blocks.forEach(k => {
-        if (k.body && k.mesh) { k.mesh.position.copy(k.body.position); k.mesh.quaternion.copy(k.body.quaternion); }
+        if (k.gone || !k.body) return;
+        if (k.mesh) { k.mesh.position.copy(k.body.position); k.mesh.quaternion.copy(k.body.quaternion); }
+        if (_phase !== 'intro' && k.body.position.y < k.rest && Math.abs(k.body.position.x - f.x) > PED_HW - 0.2) {
+            k.groundT += dt;
+            if (k.groundT >= BREAK_WAIT) _breakUp(k);
+        } else k.groundT = 0;
     }));
 
     // Cannon recoil, flag flutter, the aim preview.
@@ -666,7 +742,7 @@ function _frame(dt) {
         if (f.cannon) {
             const g = f.cannon.group;
             g.userData.kick = Math.max(0, (g.userData.kick || 0) - dt * 4);
-            g.position.x = f.dir * (0.25 - 0.2 * g.userData.kick);
+            g.position.x = f.dir * (0.55 - 0.2 * g.userData.kick);
         }
         if (f.flag) f.flag.rotation.y = Math.sin(_t * 6 + slot) * 0.25;
         const dots = _preview[slot];
@@ -718,14 +794,14 @@ function _frame(dt) {
     if (_done) return;
     if (!_dirOwns && _stage?.gl) {
         const cam = _stage.camera;
-        cam.position.set(0, 5.2, 21);
+        cam.position.set(0, 7.4, 30.5);
         if (_shake > 0) {
             cam.position.x += (Math.random() - 0.5) * _shake;
             cam.position.y += (Math.random() - 0.5) * _shake;
             _shake = Math.max(0, _shake - dt * 1.4);
         }
-        cam.lookAt(0, 4.2, 0);
-        cam.userData.look = [0, 4.2, 0];
+        cam.lookAt(0, 6.0, 0);
+        cam.userData.look = [0, 6.0, 0];
     }
     _renderHud();
 }
@@ -753,6 +829,12 @@ export function _debugState() {
         standing: _forts.map(f => +_standing(f).toFixed(3)), down: _forts.map(f => f.down),
         remaining: _forts.map(f => +_remaining(f).toFixed(3)),
         integrity: _forts.map(f => +_integrity(f).toFixed(3)),
+        broken: _forts.map(f => f.blocks.filter(k => k.gone).length),
+        onGround: _forts.map(f => f.blocks.filter(k => !k.gone && k.body && k.body.position.y < k.rest).length),
+        leftOn: _forts.map(f => f.blocks.filter(k => _onPed(f, k)).map(k => [+(k.body.position.x - f.x).toFixed(2), +k.body.position.y.toFixed(2), k.mesh ? k.mesh.geometry.parameters.width : 0])),
+        groundMax: +Math.max(0, ..._forts.flatMap(f => f.blocks.filter(k => !k.gone).map(k => k.groundT))).toFixed(2),
+        cliffTop: CLIFF_H, towerTop: _forts.map(f => +((f.top.body ? f.top.body.position.y : f.topY0) + 0.25).toFixed(2)),
+        muzzle: _forts.length < 2 ? [] : [0, 1].map(sl => { const m = _muzzleState(sl, _aim[sl]?.elev ?? 0.7, 1); return [+m.p.x.toFixed(2), +m.p.y.toFixed(2)]; }),
         shells: _shells.length, gl: !!_stage?.gl, turned: !!_stage?.turned, physics: !!_world,
         powder: _powder, result: _result, quality: _stage?.quality ? { ..._stage.quality } : null,
     };

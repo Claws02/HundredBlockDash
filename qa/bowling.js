@@ -5,7 +5,13 @@
 //   3. A real flick up P1's half sends the ball down the lane.
 //   4. A good ball into the rack knocks real pins down, and they are counted.
 //   5. A ball off the edge goes in the gutter and scores nothing.
-//   6. A hard bot beats an idle player; nothing leaks; no errors.
+//   6. The curve is spin: a swipe that turns off to your right hooks the ball
+//      to your LEFT, and the other way round (read from the raw finger path).
+//   7. No shot clock: an untouched ball just waits.
+//   8. Frames are played together: a lane that finishes a frame waits for the
+//      other, so both players bowl both frames; level after two frames, a
+//      tie-break frame decides it.
+//   9. A hard bot beats a player who only rolls gutters; nothing leaks; no errors.
 // usage: node bowling.js          (screenshots: qa/shot-bowling-*.png)
 // ============================================================
 require('./stageprobe').run('bowling', async ({ page, ok, launch, state, shot, waitPhase, forceEnd, waitResult, cleanup }) => {
@@ -63,17 +69,61 @@ require('./stageprobe').run('bowling', async ({ page, ok, launch, state, shot, w
     ok('P2 flicks to their right: the ball goes to P2\'s right, from where they lined up', s.lanes[1].ball.x < lined - 0.1, `x ${lined} → ${s.lanes[1].ball.x}`);
     await forceEnd();
 
-    // A curve: a flick straight up that bows to the right hooks to the right.
+    // A curve is spin: the swipe's chord is straight up the lane, and only the
+    // bend decides the hook. Turning off to the right at the end → hooks LEFT.
+    const curve = async pts => {
+        await launch();
+        await waitPhase('play', 30000);
+        await waitFor(st => st.lanes[0].sub === 'aim');
+        await page.mouse.move(206, 800); await page.mouse.down();
+        for (const [x, y] of pts) await page.mouse.move(x, y);
+        await page.mouse.up();
+        let far = 1.45, st;
+        for (let i = 0; i < 60; i++) { st = await state(); if (st.lanes[0].ball) far = st.lanes[0].ball.x; if (st.lanes[0].sub !== 'roll' && i > 3) break; await page.waitForTimeout(60); }
+        await forceEnd();
+        return far;
+    };
+    const turnRight = await curve([[206, 780], [206, 760], [206, 740], [206, 720], [210, 705], [220, 694], [236, 686]]);
+    ok('a swipe that turns off to your right hooks the ball to your LEFT', turnRight < 1.3, `ball ends at x ${turnRight} (lane 1.45, P1's left is −x)`);
+    const turnLeft = await curve([[206, 780], [206, 760], [206, 740], [206, 720], [202, 705], [192, 694], [176, 686]]);
+    ok('…and one that turns off to your left hooks it to your RIGHT', turnLeft > 1.6, `ball ends at x ${turnLeft}`);
+
+    // No shot clock: leave P1's ball alone well past the old 9 s limit.
     await launch();
     await waitPhase('play', 30000);
     await waitFor(st => st.lanes[0].sub === 'aim');
-    await page.mouse.move(206, 800); await page.mouse.down();
-    for (const [x, y] of [[222, 770], [230, 740], [226, 710], [206, 680]]) await page.mouse.move(x, y);
-    await page.mouse.up();
-    let far = 1.45;
-    for (let i = 0; i < 40; i++) { s = await state(); if (s.lanes[0].ball) far = s.lanes[0].ball.x; if (s.lanes[0].sub !== 'roll' && i > 3) break; await page.waitForTimeout(60); }
-    ok('a flick that curves to your right hooks the ball to your right', far > 1.6, `ball ends at x ${far} (lane 1.45)`);
+    await page.waitForTimeout(11000);
+    s = await state();
+    ok('no shot clock: an untouched ball just waits', s.lanes[0].sub === 'aim' && s.lanes[0].rolls.length === 0, `${s.lanes[0].sub} rolls ${JSON.stringify(s.lanes[0].rolls)}`);
     await forceEnd();
+
+    // Both players bowl both frames, then a tie-break when level.
+    await launch();
+    await waitPhase('play', 30000);
+    const bowlOut = async (slot, n, aim = 0.12) => {
+        for (let k = 0; k < n; k++) {
+            const st = await waitFor(x => x.lanes[slot].sub === 'aim' || x.lanes[slot].sub === 'wait', 30000);
+            if (st.lanes[slot].sub !== 'aim') return;
+            const len = st.lanes[slot].rolls.length + st.lanes[slot].tb.length;
+            await G('_debugBowl', slot, aim, 0.6, 0);
+            await waitFor(x => x.lanes[slot].rolls.length + x.lanes[slot].tb.length > len, 30000);
+        }
+    };
+    await bowlOut(0, 2);                                     // P1 finishes frame 1…
+    s = await waitFor(st => st.lanes[0].sub === 'wait', 5000);
+    ok('a lane that finishes a frame waits for the other lane', s.lanes[0].sub === 'wait' && s.frameNo === 0 && s.lanes[1].sub === 'aim', `P1 ${s.lanes[0].sub} P2 ${s.lanes[1].sub} frame ${s.frameNo}`);
+    await shot('waiting');
+    await bowlOut(1, 2);                                     // …then P2 does, and frame 2 starts for both
+    s = await waitFor(st => st.frameNo === 1 && st.lanes.every(L => L.sub === 'aim'), 8000);
+    ok('then frame 2 starts for BOTH players', s.frameNo === 1 && s.lanes.every(L => L.sub === 'aim'), `frame ${s.frameNo} ${s.lanes.map(L => L.sub)}`);
+    await bowlOut(1, 2); await bowlOut(0, 2);                // all gutters: level on 0
+    s = await waitFor(st => st.frameNo === 2 && st.lanes.every(L => L.sub === 'aim'), 8000);
+    await page.waitForTimeout(300);
+    await shot('tiebreak');
+    ok('both bowled two frames; level, so a tie-break frame', s.frameNo === 2 && s.lanes.every(L => L.rolls.length === 4) && s.phase === 'play', `frame ${s.frameNo} rolls ${s.lanes.map(L => L.rolls.length)} phase ${s.phase}`);
+    await bowlOut(0, 2, 0.011); await bowlOut(1, 2);
+    const rt = await waitResult(20000);
+    ok('the tie-break frame decides it', !!rt && rt.winner === 0, rt ? `winner ${rt.winner}` : 'no result');
 
     // A good ball, from code, into the pocket: real pins fall.
     await launch();
@@ -83,7 +133,8 @@ require('./stageprobe').run('bowling', async ({ page, ok, launch, state, shot, w
     s = await waitFor(st => st.lanes[0].rolls.length >= 1, 30000);
     ok('a good ball into the rack knocks real pins down', s.lanes[0].rolls[0] >= 6, `down ${s.lanes[0].rolls[0]} · ${s.lanes[0].msg}`);
     await shot('strike');
-    // A ball aimed off the edge: gutter.
+    // A ball aimed off the edge: gutter. (A strike ends P1's frame, so P2 finishes theirs first.)
+    await bowlOut(1, 2);
     s = await waitFor(st => st.lanes[0].sub === 'aim');
     const before = s.lanes[0].rolls.length;
     await G('_debugBowl', 0, 0.12, 0.6, 0);
@@ -95,8 +146,9 @@ require('./stageprobe').run('bowling', async ({ page, ok, launch, state, shot, w
     let verdict = false;
     const r = await waitResult(300000, async () => {
         const st = await state();
+        if (st && st.phase === 'play' && st.lanes[0].sub === 'aim') await G('_debugBowl', 0, 0.12, 0.6, 0);
         if (st && st.phase === 'over' && !verdict) { verdict = true; await page.waitForTimeout(1300); await shot('verdict'); }
     });
-    ok('a hard bot beats an idle player', !!r && r.winner === 1, r ? `winner=${r.winner} in ${(r.ms / 1000).toFixed(1)}s` : 'timed out');
+    ok('a hard bot beats a player who only rolls gutters', !!r && r.winner === 1, r ? `winner=${r.winner} in ${(r.ms / 1000).toFixed(1)}s` : 'timed out');
     await cleanup();
 });
