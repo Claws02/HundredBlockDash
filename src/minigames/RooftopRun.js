@@ -5,9 +5,11 @@
 // rooftop vents to hurdle and neon signs hung low enough to take your head
 // off. Same course for both, side by side, first to the finish banner.
 //
-//   TOP of your half      JUMP — hold it for a higher, longer one.
-//   BOTTOM of your half   SLIDE — under the signs. Slide into the runner in
-//                         front of you and you take their legs out.
+//   SWIPE UP      JUMP — keep your finger down for a higher, longer one.
+//   SWIPE DOWN    SLIDE — under the signs (keep it down to slide further).
+//                 Slide into the runner in front of you and you take their
+//                 legs out.
+// Each hurdle carries a yellow ▲ JUMP board and each low sign a cyan ▼ SLIDE.
 //
 // Miss a gap and you drop to the street and climb back up on the far roof, a
 // second and a half behind. First to two races.
@@ -37,7 +39,7 @@ const COYOTE     = 0.12;        // s after running off an edge that a jump still
 const FALL_WAIT  = 1.0;         // s in the street before climbing back up
 const BODY_H     = 1.45, SLIDE_H = 0.7;
 const SIGN_LOW   = 1.2, SIGN_HIGH = 1.9;                   // above the roof
-const ZONE       = 0.55;        // the jump / slide split, as a share of the height
+const SWIPE      = 0.4;         // share of the stick a finger must travel to count as a swipe
 const ROUND_CAP  = 28;
 const WIN_ROUNDS = 2, MAX_ROUNDS = 3, READY_TIME = 1.3, RESULT_TIME = 2.0;
 const FIG_SCALE  = 0.82;
@@ -65,13 +67,15 @@ export function start(isBot, onWin, botSkill = 0.55) {
     mg.appendChild(_overlay);
     _stage = createStage(_overlay, { hold: 'side', fov: 36, background: 0x150e1e });
     _hud = sideHud(_stage, { padWidth: 240 });
-    _in = touch(_stage, { split: 'x', floating: false, onDown: _onDown });
+    _in = touch(_stage, { split: 'x', stick: 50, tapPx: 10, onDown: _onDown,
+                          // A flick can start and end between two frames: catch it here.
+                          onRelease: (slot, r) => { const s = _in.seat(slot); if (!s.zone && r.moved) _swipe(slot, r.dx, r.dy); } });
     _fx = effects(_stage);
     _dir = createDirector(_stage);
     if (_stage.gl) _set = STAGE_SETS.ba(_stage);
     _figs = [0, 1].map(_buildFig);
     _buildZones();
-    [0, 1].forEach(slot => _hud.hint(slot, seat(slot).bot ? '' : 'TOP: JUMP (HOLD) · BOTTOM: SLIDE'));
+    [0, 1].forEach(slot => _hud.hint(slot, seat(slot).bot ? '' : 'SWIPE ▲ JUMP (HOLD = HIGHER) · SWIPE ▼ SLIDE'));
 
     _newCourse();
     _resetRound();
@@ -209,9 +213,12 @@ function _stumble(f, t, why) {
     if (_stage?.gl) _fx.burst(new THREE.Vector3(f.x + 0.4, f.y + 0.8, f.z), why === 'trip' ? seat(1 - f.slot).color : 0xffd27a, 0.35, 0.22);
 }
 
-function _onDown(slot) {
+function _onDown(slot) { _in.seat(slot).zone = null; }
+// Up or down, once per touch: the first clear vertical swipe decides it.
+function _swipe(slot, dx, dy) {
     const s = _in.seat(slot);
-    s.zone = s.ay < _stage.height * ZONE ? 'jump' : 'slide';
+    if (s.zone || Math.abs(dy) < SWIPE || Math.abs(dy) < Math.abs(dx) * 0.8) return;
+    s.zone = dy < 0 ? 'jump' : 'slide';
     if (s.zone === 'jump') _jump(slot); else _slide(slot);
 }
 
@@ -356,7 +363,11 @@ function _frame(dt) {
 
     if (_phase === 'play') {
         _clock += dt;
-        [0, 1].forEach(slot => { if (isBotSlot(slot)) _botStep(slot, dt); });
+        [0, 1].forEach(slot => {
+            if (isBotSlot(slot)) return _botStep(slot, dt);
+            const s = _in.seat(slot);
+            if (s.down && !s.zone) _swipe(slot, s.dx, s.dy);
+        });
         _figs.forEach(f => _step(f, dt));
         // Slide tackles.
         _figs.forEach(f => {
@@ -433,13 +444,11 @@ function _buildZones() {
         if (seat(slot).bot) return null;
         const z = document.createElement('div');
         z.style.cssText = `position:absolute;top:0;bottom:0;width:50%;${slot === 0 ? 'right:0;' : 'left:0;'}pointer-events:none;`;
-        const line = document.createElement('div');
-        line.style.cssText = `position:absolute;left:8%;right:8%;top:${ZONE * 100}%;border-top:2px dashed rgba(255,255,255,.18);`;
+        const lab = 'position:absolute;left:0;right:0;text-align:center;font-size:14px;letter-spacing:3px;color:rgba(255,255,255,.4);';
         const up = document.createElement('div'), dn = document.createElement('div');
-        const lab = 'position:absolute;left:0;right:0;text-align:center;font-size:13px;letter-spacing:3px;color:rgba(255,255,255,.35);';
-        up.style.cssText = lab + `top:calc(${ZONE * 100}% - 22px);`; up.textContent = '▲ JUMP';
-        dn.style.cssText = lab + `top:calc(${ZONE * 100}% + 6px);`; dn.textContent = '▼ SLIDE';
-        z.append(line, up, dn);
+        up.style.cssText = lab + 'top:22%;'; up.textContent = '⇧ SWIPE UP · JUMP';
+        dn.style.cssText = lab + 'top:66%;'; dn.textContent = '⇩ SWIPE DOWN · SLIDE';
+        z.append(up, dn);
         root.appendChild(z);
         return z;
     });
@@ -493,6 +502,20 @@ export function _debugState() {
         finish: _course?.finish ?? 0, hazards: _hazards.map(h => ({ kind: h.kind, x: +h.x.toFixed(2), end: +h.end.toFixed(2), up: +(h.up ?? 0).toFixed(2) })),
         gl: !!_stage?.gl, turned: !!_stage?.turned,
     };
+}
+/** Probes: each sign's bar, drawn (lowest lit tube in the scene at its x) against judged (o.bottom). */
+export function _debugSignBars() {
+    if (!_stage?.gl || !_course) return [];
+    const tubes = [];
+    _stage.scene.traverse(m => {
+        if (m.isMesh && m.geometry?.parameters?.height === 0.12 && m.geometry.parameters.depth === 4.3) {
+            const v = new THREE.Vector3(); m.getWorldPosition(v); tubes.push(v);
+        }
+    });
+    return _course.obstacles.filter(o => o.kind === 'sign').map(o => {
+        const mine = tubes.filter(v => Math.abs(v.x - o.x) < 0.05).map(v => v.y);
+        return { x: +o.x.toFixed(2), roof: +o.y.toFixed(2), judged: +o.bottom.toFixed(2), mesh: mine.length ? +Math.min(...mine).toFixed(2) : null };
+    });
 }
 /** Probes: stand a runner somewhere on the course (on the roof under x). */
 export function _debugPlace(slot, x) {

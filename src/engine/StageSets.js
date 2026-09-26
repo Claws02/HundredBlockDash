@@ -1341,6 +1341,12 @@ export function buildRooftops(stage) {
                 fan.rotation.x = Math.PI / 2; fan.position.set(0, o.h / 2, 1.82); g.add(fan);
                 const stripe = new THREE.Mesh(new THREE.BoxGeometry(o.w + 0.02, 0.08, 3.62), new THREE.MeshBasicMaterial({ color: 0xfacc15 }));
                 stripe.position.y = o.h - 0.1; g.add(stripe);
+                // What to do about it, on a little board off the far end.
+                const tag = textPlane('▲ JUMP ▲', { w: 1.8, h: 0.58, bg: '#1a1406', fg: '#facc15', border: '#facc15' });
+                tag.material.emissive = new THREE.Color(0xffffff); tag.material.emissiveMap = tag.material.map; tag.material.emissiveIntensity = 1;
+                tag.position.set(0, o.h + 0.65, -2.1); g.add(tag);
+                const stem = new THREE.Mesh(new THREE.BoxGeometry(0.08, o.h + 0.4, 0.08), metal);
+                stem.position.set(0, (o.h + 0.4) / 2, -2.1); g.add(stem);
                 g.position.set(o.x, o.y, 0);
                 group.add(g);
                 steam.push({ at: new THREE.Vector3(o.x, o.y + o.h, 0), ph: _rand(i) * 3 });
@@ -1348,22 +1354,30 @@ export function buildRooftops(stage) {
                 const col = neon[(i + 2) % neon.length];
                 const css = '#' + col.toString(16).padStart(6, '0');
                 const g = new THREE.Group();
-                const hgt = o.top - o.bottom, mid = o.bottom + hgt / 2;
+                // o.bottom / o.top are world heights; the group sits on the roof, so
+                // everything in it is measured from the roof (adding the roof twice
+                // floated the bar on high roofs and sank it into low ones).
+                const bot = o.bottom - o.y, topY = o.top - o.y;
+                const hgt = topY - bot, mid = bot + hgt / 2;
                 // The hazard is the bar across both lanes: a lit slab with a
                 // bright tube along its underside, the edge a runner meets.
                 const slab = new THREE.Mesh(new THREE.BoxGeometry(0.5, hgt, 4.2), _mat(0x1c0f22, 0.6, 0, { emissive: col, emissiveIntensity: 0.25 }));
                 slab.position.y = mid; g.add(slab);
                 const tube = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.12, 4.3), new THREE.MeshBasicMaterial({ color: col }));
-                tube.position.y = o.bottom; g.add(tube);
-                const tube2 = tube.clone(); tube2.position.y = o.top; g.add(tube2);
+                tube.position.y = bot; g.add(tube);
+                const tube2 = tube.clone(); tube2.position.y = topY; g.add(tube2);
                 // Its name, facing the camera, standing up off the FAR end —
                 // on the near end it hid the near runner going under it.
                 const board = textPlane(WORDS[(i * 3) % WORDS.length], { w: 1.9, h: 0.7, bg: '#140a18', fg: css, border: css });
                 board.material.emissive = new THREE.Color(0xffffff); board.material.emissiveMap = board.material.map; board.material.emissiveIntensity = 1;
-                board.position.set(0, o.top + 0.45, -2.1); g.add(board);
+                board.position.set(0, topY + 0.45, -2.1); g.add(board);
+                // What to do about it, hung under the bar's far end.
+                const tag = textPlane('▼ SLIDE ▼', { w: 1.8, h: 0.58, bg: '#061a1a', fg: '#22d3ee', border: '#22d3ee' });
+                tag.material.emissive = new THREE.Color(0xffffff); tag.material.emissiveMap = tag.material.map; tag.material.emissiveIntensity = 1;
+                tag.position.set(0, bot - 0.42, -2.25); g.add(tag);
                 [-2.2, 2.2].forEach(z => {
-                    const post = new THREE.Mesh(new THREE.BoxGeometry(0.14, o.top + 0.3, 0.14), metal);
-                    post.position.set(0, (o.top + 0.3) / 2, z); g.add(post);
+                    const post = new THREE.Mesh(new THREE.BoxGeometry(0.14, topY + 0.3, 0.14), metal);
+                    post.position.set(0, (topY + 0.3) / 2, z); g.add(post);
                 });
                 g.position.set(o.x, o.y, 0);
                 group.add(g);
