@@ -299,6 +299,134 @@ export function mgMusic(mode) {
     } catch (e) {}
 }
 
+// ============================================================
+// BEAT TRACK — a backing track a minigame is judged against (Block Party).
+// ============================================================
+// The game's beat has to BE the beat you hear, so the track owns the clock:
+// the minigame hands over a tempo map (beat → bpm from that beat on), notes
+// are scheduled a little ahead on the audio clock, and beatAt() answers "what
+// beat is coming out of the speaker at this moment" — the audio clock's own
+// output timestamp, so the speaker's latency is already inside it. A touch is
+// timed from its own event timestamp through the same mapping.
+//
+// Drums go through the effects bus (they are the gameplay beat, so they follow
+// the effects volume, not the music slider); the bass and chords go through
+// the music bus.
+let _bt = null;   // { map:[{b,bpm,t}], sched, nextB, accent, bass }
+const BT_CHORDS = [[57, 'min'], [53, 'maj'], [48, 'maj'], [55, 'maj']];   // Am F C G, a bar each
+
+function _btTimeAt(b) {
+    const m = _bt.map;
+    let k = 0; while (k + 1 < m.length && m[k + 1].b <= b) k++;
+    return m[k].t + (b - m[k].b) * 60 / m[k].bpm;
+}
+function _btBeatAtTime(t) {
+    const m = _bt.map;
+    let k = 0; while (k + 1 < m.length && m[k + 1].t <= t) k++;
+    return m[k].b + (t - m[k].t) * m[k].bpm / 60;
+}
+// The audio-clock time now playing out of the speaker.
+function _audibleNow(perfNow = performance.now()) {
+    const ctx = _ctx;
+    if (ctx.getOutputTimestamp) {
+        const ts = ctx.getOutputTimestamp();
+        if (ts && ts.performanceTime > 0) return ts.contextTime + (perfNow - ts.performanceTime) / 1000;
+    }
+    const lat = (ctx.outputLatency || 0) + (ctx.baseLatency || 0);
+    return ctx.currentTime - lat - (performance.now() - perfNow) / 1000;
+}
+function _snare(t, vol) {
+    const ctx = _ctx, len = Math.floor(ctx.sampleRate * 0.16);
+    const buf = ctx.createBuffer(1, len, ctx.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2);
+    const src = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+    f.type = 'bandpass'; f.frequency.value = 1800; f.Q.value = 0.7;
+    src.buffer = buf; g.gain.value = vol;
+    src.connect(f); f.connect(g); g.connect(_out());
+    src.start(t);
+    _voice(190, 'triangle', vol * 0.5, t, 0.002, 0.09, _out());
+}
+function _kick(t, vol) {
+    const ctx = _ctx, o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(140, t); o.frequency.exponentialRampToValueAtTime(45, t + 0.12);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.28);
+    o.connect(g); g.connect(_out()); o.start(t); o.stop(t + 0.3);
+}
+function _btSchedule() {
+    if (!_bt || !_ctx || _ctx.state !== 'running') return;
+    const ahead = _ctx.currentTime + 0.3;
+    const dest = _musicOut();
+    // Sixteenths, from wherever the last call left off.
+    for (;;) {
+        const b = _bt.nextB, t = _btTimeAt(b);
+        if (t > ahead) break;
+        _bt.nextB = Math.round((b + 0.25) * 4) / 4;
+        if (t < _ctx.currentTime - 0.02) continue;             // behind after a stall: skip, don't burst
+        const beat = Math.floor(b + 1e-6), sub = Math.round((b - beat) * 4);   // 0..3
+        const bpm = _bt.map.filter(s => s.b <= b).pop().bpm;
+        const spb = 60 / bpm;
+        const part = _bt.accent ? _bt.accent(beat) : 'play';
+        if (part === 'off') continue;
+        const bar = Math.floor(beat / 4), inBar = ((beat % 4) + 4) % 4;
+        const [root, q] = BT_CHORDS[((bar % 4) + 4) % 4];
+        const tones = QUAL[q].map(x => root + x);
+        if (sub === 0) {
+            _kick(t, 0.9);
+            _bt.kicks = (_bt.kicks || 0) + 1;
+            _bt.kickErr = Math.max(_bt.kickErr || 0, Math.abs(_btBeatAtTime(t) - Math.round(_btBeatAtTime(t))));                                                       // four on the floor
+            if (inBar === 1 || inBar === 3) _snare(t, 0.32);                    // backbeat
+            if (part === 'call') _voice(1568, 'square', 0.05, t, 0.002, 0.07, _out());   // the DJ's count
+            if (part === 'lead') _voice(988, 'square', 0.05, t, 0.002, 0.06, _out());
+            if (inBar === 0) tones.forEach(n => _voice(_N(n + 12), 'sawtooth', 0.028, t, 0.01, spb * 0.9, dest));
+        }
+        if (sub === 2) {
+            _hat(t, 0.05, _out());
+            if (inBar === 1) tones.forEach(n => _voice(_N(n + 12), 'sawtooth', 0.022, t, 0.01, spb * 0.45, dest));   // the "and" of 2
+        }
+        if (sub % 2 === 0) _voice(_N(root - 12 + (sub === 2 && inBar === 3 ? 7 : 0)), 'triangle', 0.2, t, 0.005, spb * 0.42, dest);   // bass on the eighths
+    }
+}
+export const beatTrack = {
+    /**
+     * Start (or restart) the track so that `anchorBeat` is playing out of the
+     * speaker right now. `tempo` is [{ b, bpm }] (beat → bpm from there on),
+     * `accent(beat)` says what that beat is ('lead' | 'call' | 'play' | 'off').
+     * Returns false when there is no running audio clock to follow.
+     */
+    start(tempo, anchorBeat, accent) {
+        try {
+            const ctx = getCtx(); _musicOut();
+            if (ctx.state !== 'running') { this.stop(); return false; }
+            const now = _audibleNow();
+            const map = tempo.map(x => ({ ...x })).sort((a, b) => a.b - b.b);
+            // Anchor: the segment holding anchorBeat passes through (now, anchorBeat).
+            let k = 0; while (k + 1 < map.length && map[k + 1].b <= anchorBeat) k++;
+            map[k].t = now - (anchorBeat - map[k].b) * 60 / map[k].bpm;
+            for (let i = k - 1; i >= 0; i--) map[i].t = map[i + 1].t - (map[i + 1].b - map[i].b) * 60 / map[i].bpm;
+            for (let i = k + 1; i < map.length; i++) map[i].t = map[i - 1].t + (map[i].b - map[i - 1].b) * 60 / map[i - 1].bpm;
+            // (A note scheduled for context time T is heard when the output
+            // timestamp reaches T, so the map lives on the context clock as is;
+            // beats between what is audible and currentTime are already too late
+            // to schedule and are skipped.)
+            this.stop();
+            _bt = { map, nextB: Math.ceil(anchorBeat * 4) / 4, accent };
+            _bt.sched = setInterval(_btSchedule, 40);
+            _btSchedule();
+            return true;
+        } catch (e) { return false; }
+    },
+    /** The beat audible at performance-clock time `perfT` (default now), or null. */
+    beatAt(perfT) {
+        if (!_bt || !_ctx || _ctx.state !== 'running') return null;
+        return _btBeatAtTime(_audibleNow(perfT ?? performance.now()));
+    },
+    running() { return !!_bt && !!_ctx && _ctx.state === 'running'; },
+    /** Probes: kicks scheduled so far, and the worst distance of one from a whole beat. */
+    stats() { return _bt ? { kicks: _bt.kicks || 0, kickErr: _bt.kickErr || 0 } : null; },
+    stop() { if (_bt) { clearInterval(_bt.sched); _bt = null; } },
+};
+
 // Hidden app: no music in somebody's pocket.
 try {
     document.addEventListener('visibilitychange', () => {

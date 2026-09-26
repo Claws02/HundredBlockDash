@@ -8,8 +8,16 @@
 //   SWIPE UP      raise the roof        SWIPE LEFT / RIGHT   point that way
 //   SWIPE DOWN    drop                  TAP                  clap
 //
-// On the beat is PERFECT, near it is GOOD, anything else — or the wrong move —
-// is a MISS. A whole phrase without a miss is a FULL COMBO. The phrases get
+// THE BEAT is a real backing track (four on the floor, a backbeat, bass and
+// chords; a high blip counts the DJ's moves in), scheduled on the audio clock,
+// and the game's beat is read FROM that clock — what is coming out of the
+// speaker — so what you hear is exactly what you're judged against. A touch
+// is timed by its own event timestamp through the same clock.
+//
+// Each move is matched to the nearest beat you haven't danced yet (preferring
+// one it's right for): within 0.1 s is PERFECT, within 0.3 s GOOD, later or
+// earlier than that but still nearer that beat than the next is OK; the wrong
+// move is a MISS. A whole phrase without a miss is a FULL COMBO. The phrases get
 // longer and faster, and the last two are danced from memory: the cue cards
 // go dark once the DJ is done. Most points after the last phrase wins.
 //
@@ -19,7 +27,7 @@
 // ============================================================
 
 import { state } from '../core/GameState.js';
-import { sfx, haptic } from '../engine/AudioManager.js';
+import { sfx, haptic, beatTrack } from '../engine/AudioManager.js';
 import { registerMinigameCleanup, isBotSlot } from './MinigameManager.js';
 import { createStage } from '../engine/Stage.js';
 import { STAGE_SETS } from '../engine/StageSets.js';
@@ -37,8 +45,9 @@ const PHRASES = [
 ];
 const LEAD_IN   = 2;            // beats before the DJ starts
 const TALLY     = 1;            // beats after the last response
-const PERFECT   = 0.075, GOOD = 0.16;     // s either side of the beat
-const PTS       = { perfect: 3, good: 2, miss: 0 };
+const PERFECT   = 0.10, GOOD = 0.30;     // s either side of the beat
+const REACH     = 0.75;                  // beats either side a move can still claim a beat
+const PTS       = { perfect: 3, good: 2, ok: 1, miss: 0 };
 const COMBO_PTS = 2;
 const TAP_PX    = 16;
 const FIG_SCALE = 1.05;
@@ -46,13 +55,14 @@ const X         = [1.9, -1.9];  // P1 on the right
 
 const MOVES = ['raise', 'drop', 'pointL', 'pointR', 'clap'];
 const GLYPH = { raise: '⬆', drop: '⬇', pointL: '⬅', pointR: '➡', clap: '👏' };
-const JUDGE_CSS = { perfect: '#ffd12d', good: '#34f5a0', miss: '#ff4f6a' };
+const JUDGE_CSS = { perfect: '#ffd12d', good: '#34f5a0', ok: '#a3e635', miss: '#ff4f6a' };
 
 // ── Module state ─────────────────────────────────────────────────────────────
 let _done = false, _onWin = null, _botSkill = 0.55;
 let _overlay = null, _stage = null, _set = null, _dir = null, _hud = null, _in = null, _fx = null;
 let _figs = [], _dj = null, _bot = [];
 let _plan = [], _ph = -1, _S = 0;              // phrase index and its start beat
+let _starts = [], _tempo = [], _frameT = 0;                 // every phrase's start beat; the tempo map the track plays
 let _beat = 0, _bpm = 96, _lastBeat = -1;
 let _score = [0, 0], _resp = [[], []], _clean = [true, true], _danced = [0, 0];
 let _phase = 'intro', _t = 0, _stageOf = '';
@@ -86,6 +96,12 @@ export function start(isBot, onWin, botSkill = 0.55) {
                           onTap: slot => _input(slot, 'clap', _in.seat(slot).downBeat ?? _beat),
                           // A flick can start and end between two frames: catch it here.
                           onRelease: (slot, r) => { const s = _in.seat(slot); if (r.moved && !s.swiped) { s.swiped = true; _swiped(slot, r.dx, r.dy, s.downBeat); } } });
+    // A finger's beat is when it came down, from the event's own timestamp
+    // (registered after touch(), so it overrides the frame-time guess there).
+    _stage.listen('pointerdown', e => {
+        const slot = [0, 1].find(k => _in.seat(k).pid === e.pointerId);
+        if (slot != null) _in.seat(slot).downBeat = _beatAtEvent(e);
+    });
     _fx = effects(_stage);
     _dir = createDirector(_stage);
     if (_stage.gl) {
@@ -128,13 +144,14 @@ export function start(isBot, onWin, botSkill = 0.55) {
         sub: 'COPY THE DJ',
         from: { pos: [9, 7, 16], look: [0, 1.5, -3] },
         to: _playCam(),
-        onDone: () => { if (!_done) { _phase = 'dance'; _nextPhrase(); } },
+        onDone: () => { if (!_done) { _phase = 'dance'; _startMusic(); _nextPhrase(); } },
     });
     _stage.start(_frame);
 }
 
 function _destroy() {
     _done = true;
+    beatTrack.stop();
     if (_stage) { _stage.dispose(); _stage = null; }
     if (_overlay) { _overlay.remove(); _overlay = null; }
     _figs = []; _dj = null; _set = null; _dir = null; _hud = null; _in = null; _fx = null; _cards = null; _pops = []; _rings = [];
@@ -148,7 +165,7 @@ function _nextPhrase() {
     _ph++;
     if (_ph >= _plan.length) { _end(); return; }
     const p = _plan[_ph];
-    _S = _ph === 0 ? _beat : _S + LEAD_IN + _plan[_ph - 1].n * 2 + TALLY;
+    _S = _starts[_ph];
     _bpm = p.bpm;
     _resp = [0, 1].map(() => p.moves.map(() => null));
     _clean = [true, true]; _danced = [0, 0];
@@ -157,6 +174,32 @@ function _nextPhrase() {
     _hud.say(p.hide ? 'FROM MEMORY!' : `PHRASE ${_ph + 1}`, p.hide ? 'THE CARDS GO DARK' : 'WATCH THE DJ', LEAD_IN * 60 / _bpm * 1000, _t, p.hide ? '#ff4fa3' : '#ffd12d');
     _figs.forEach(f => f.anim?.play('groove', { rate: _bpm / 60 }));
     _dj?.anim.play('groove', { rate: _bpm / 60 });
+}
+
+// The whole routine's timing, laid out before the first beat: each phrase's
+// start and tempo. The backing track plays this map, and the game reads its
+// beat back off the track.
+function _startMusic() {
+    _starts = []; let b = 0;
+    _plan.forEach(p => { _starts.push(b); b += LEAD_IN + p.n * 2 + TALLY; });
+    _starts.push(b);                                   // the end
+    _tempo = _plan.map((p, i) => ({ b: _starts[i], bpm: p.bpm })).concat([{ b, bpm: _plan[_plan.length - 1].bpm }]);
+    _beat = 0; _lastBeat = -1;
+    if (!_hold) beatTrack.start(_tempo, 0, _accent);
+}
+function _bpmAt(b) { let bpm = _plan[0]?.bpm ?? 96; _tempo.forEach(s => { if (s.b <= b) bpm = s.bpm; }); return bpm; }
+// What a beat is, for the track: counted in, the DJ's call, the dance, or after the end.
+function _accent(beat) {
+    const i = _starts.findIndex((st, k) => k + 1 < _starts.length && beat >= st && beat < _starts[k + 1]);
+    if (i < 0) return 'off';
+    const local = beat - _starts[i], p = _plan[i];
+    return local < LEAD_IN ? 'lead' : local < LEAD_IN + p.n ? 'call' : 'play';
+}
+// The beat at a touch, from its own timestamp on the audio clock.
+function _beatAtEvent(e) {
+    if (_hold) return _beat;
+    const b = beatTrack.beatAt(e?.timeStamp);
+    return b ?? _beat;
 }
 
 // Where the music is inside the current phrase.
@@ -178,13 +221,24 @@ function _input(slot, move, at) {
     f.anim?.play(move, { restart: true });
     f.poseUntil = _beat + 0.45;
     const p = _plan[_ph];
-    const i = Math.round(at - _respBeat(0));
-    _lastIn = { at: +at.toFixed(2), i, b0: +_respBeat(0).toFixed(2), part: _where().part };
-    if (i < 0 || i >= p.n || _resp[slot][i]) return;
-    const off = Math.abs(at - _respBeat(i)) * 60 / _bpm;
+    // The beat this move is for: of the beats this player hasn't danced yet and
+    // is within reach of, the one the move is RIGHT for, nearest first; failing
+    // that, the nearest. So a correct move a little early or late still lands
+    // on its own beat instead of being read as a wrong move on the next.
+    let i = -1, bestD = Infinity, bestOk = false;
+    for (let k = 0; k < p.n; k++) {
+        if (_resp[slot][k]) continue;
+        const d = Math.abs(at - _respBeat(k));
+        if (d > REACH) continue;
+        const okMove = p.moves[k] === move;
+        if ((okMove && !bestOk) || (okMove === bestOk && d < bestD)) { i = k; bestD = d; bestOk = okMove; }
+    }
+    _lastIn = { at: +at.toFixed(3), i, b0: +_respBeat(0).toFixed(2), part: _where().part, move };
+    if (i < 0) return;
+    const off = bestD * 60 / _bpm;
     _danced[slot]++;
-    const j = move !== p.moves[i] ? 'miss' : off <= PERFECT ? 'perfect' : off <= GOOD ? 'good' : 'miss';
-    const why = move !== p.moves[i] ? 'WRONG MOVE' : j === 'miss' ? (at < _respBeat(i) ? 'TOO EARLY' : 'TOO LATE') : '';
+    const j = !bestOk ? 'miss' : off <= PERFECT ? 'perfect' : off <= GOOD ? 'good' : 'ok';
+    const why = !bestOk ? 'WRONG MOVE' : j === 'ok' ? (at < _respBeat(i) ? 'EARLY' : 'LATE') : '';
     _judge(slot, i, j, why);
 }
 
@@ -230,21 +284,22 @@ function _frame(dt) {
     if (_done) return;
     _t += dt;
     _hud.tick(_t);
-    if (!_hold) _beat += dt * _bpm / 60;
+    if (!_hold) {
+        _frameT = performance.now();
+        const ab = _phase === 'dance' ? beatTrack.beatAt(_frameT) : null;
+        _beat = ab != null ? Math.max(_beat, ab) : _beat + dt * (_tempo.length ? _bpmAt(_beat) : _bpm) / 60;
+    }
 
     if (_phase === 'dance' && _ph >= 0) {
         const p = _plan[_ph], w = _where();
         const b = Math.floor(_beat - _S + 1e-6);
         if (b !== _lastBeat) {
             _lastBeat = b;
-            // The beat, every beat.
-            sfx(b % 2 === 0 ? 'kick' : 'hat');
-            if (w.part === 'lead') sfx('countdown');
+            // (The beat itself is the backing track, on the audio clock.)
             if (w.part === 'call') {
                 const m = p.moves[w.i];
                 _dj?.anim.play(m, { restart: true });
                 if (_dj) _dj.poseUntil = _beat + 0.55;
-                sfx('seq_lit');
                 _revealCard(w.i);
             }
             if (w.part === 'resp' && w.i === 0) {
@@ -256,7 +311,6 @@ function _frame(dt) {
                 // The new phrase's first beat is this one: count it in now, once.
                 _nextPhrase();
                 _lastBeat = 0;
-                if (_phase === 'dance') sfx('countdown');
             }
         }
         if (_phase === 'dance') {
@@ -282,7 +336,7 @@ function _frame(dt) {
             if (_ph < _plan.length) {
                 const pp = _plan[_ph];
                 for (let i = 0; i < pp.n; i++) {
-                    if (_beat < _respBeat(i) + 0.5) break;
+                    if (_beat < _respBeat(i) + REACH) break;
                     [0, 1].forEach(slot => { if (!_resp[slot][i]) _judge(slot, i, 'miss', 'NO MOVE'); });
                 }
             }
@@ -387,7 +441,7 @@ function _darkCards() { _cards?.list.forEach(k => { k.shown = true; k.g.textCont
 function _highlight(i) {
     _cards?.list.forEach((k, j) => { k.c.style.borderColor = j === i ? '#34f5a0' : 'rgba(255,255,255,.25)'; });
 }
-const MARK = { perfect: ['★', '#eab308'], good: ['✓', '#16a34a'], miss: ['✗', '#dc2626'] };
+const MARK = { perfect: ['★', '#eab308'], good: ['✓', '#16a34a'], ok: ['✓', '#65a30d'], miss: ['✗', '#dc2626'] };
 function _paintDots() {
     _cards?.list.forEach((k, i) => [0, 1].forEach(slot => {
         const j = _resp[slot][i], e = k.dot[slot];
@@ -418,9 +472,9 @@ function _buildPops() {
 function _pop(slot, j, why, sub) {
     const e = _pops[slot];
     if (!e) return;
-    e.text = j === 'miss' ? `✗ ${why || 'MISS'}` : j === 'perfect' ? '★ PERFECT!' : '✓ GOOD';
+    e.text = j === 'miss' ? `✗ ${why || 'MISS'}` : j === 'perfect' ? '★ PERFECT!' : j === 'ok' ? `✓ OK · ${why}` : '✓ GOOD';
     e.big.textContent = e.text;
-    e.big.style.color = j === 'miss' ? '#ff4f6a' : j === 'perfect' ? '#ffd12d' : '#34f5a0';
+    e.big.style.color = JUDGE_CSS[j];
     e.sub.textContent = sub || '';
     e.box.style.opacity = '1';
     e.box.style.transform = 'translate(-50%,-50%) scale(1.08)';
@@ -438,6 +492,7 @@ function _renderHud() {
 
 function _end() {
     _phase = 'over';
+    beatTrack.stop();
     _hud.say('');
     if (_cards) _cards.row.style.display = 'none';
     const w = _score[0] > _score[1] ? 0 : _score[1] > _score[0] ? 1 : -1;
@@ -467,6 +522,17 @@ export function _debugState() {
     };
 }
 /** Probes: stop the music clock where it is (a slow renderer cannot swipe in time). */
-export function _debugHold(on) { _hold = !!on; }
+export function _debugHold(on) {
+    _hold = !!on;
+    if (_hold) beatTrack.stop();
+    else if (_phase === 'dance' && _tempo.length) beatTrack.start(_tempo, _beat, _accent);
+}
+/** Probes: set a phrase's moves (before its call). */
+export function _debugMoves(ph, moves) { if (_plan[ph]) _plan[ph].moves = moves.slice(0, _plan[ph].n).concat(_plan[ph].moves.slice(moves.length)); }
+/** Probes: is the beat coming off the audio track, and where is it. */
+export function _debugTrack() {
+    const a = beatTrack.beatAt(_frameT);
+    return { running: beatTrack.running(), audio: a == null ? null : +a.toFixed(4), beat: +_beat.toFixed(4), ...(beatTrack.stats() || {}) };
+}
 /** Probes: dance a move for a seat now (or at beat `at`). */
 export function _debugMove(slot, move, at) { _input(slot, move, at ?? _beat); }
