@@ -36,7 +36,8 @@ const HOOK = 2.6;                      // lateral accel at full spin, after the 
 const AIM_MAX = 0.12;                  // rad either side
 const SLIDE = 1.8;                     // lane units/s the ball slides while you line up
 const OFFSET_MAX = HALF - BALL_R - 0.06;
-const SHOT_CLOCK = 9;
+const TIEBREAKS = 3;                   // tie-break frames at most, then it's a draw
+const CURVE_FULL = 0.6;                // rad of swipe turn for full spin
 const SETTLE = 1.4;
 const FIG_SCALE = 0.95;
 
@@ -44,12 +45,12 @@ const FIG_SCALE = 0.95;
 let _done = false, _onWin = null, _botSkill = 0.55;
 let _overlay = null, _stage = null, _dir = null, _hud = null, _in = null, _fx = null;
 let _world = null, _pinMat = null, _lanes = [], _cams = [], _figs = [];
-let _phase = 'intro', _phaseT = 0, _t = 0;
+let _phase = 'intro', _phaseT = 0, _t = 0, _frameNo = 0;
 
 export function start(isBot, onWin, botSkill = 0.55) {
     if (!state.mgActive) return;
     _done = false; _onWin = onWin; _botSkill = botSkill;
-    _phase = 'intro'; _phaseT = 0; _t = 0;
+    _phase = 'intro'; _phaseT = 0; _t = 0; _frameNo = 0;
     registerMinigameCleanup(_destroy);           // R3
 
     const mg = document.getElementById('minigame-layer');
@@ -60,6 +61,17 @@ export function start(isBot, onWin, botSkill = 0.55) {
     _hud = faceoffHud(_stage, { bg: 'rgba(20,10,36,.78)' });
     _in = touch(_stage, { split: 'y', stick: 140, onDown: slot => { _lanes[slot] && (_lanes[slot].path = []); },
                           onRelease: (slot, r) => _release(slot, r) });
+    // The raw finger path (the stick above clamps and drags its anchor, which
+    // flattens the shape of a curved swipe): stage px and time, per slot.
+    const rawAt = e => { const s = [0, 1].find(k => _in.seat(k).pid === e.pointerId); return s; };
+    const rawPush = e => {
+        const slot = rawAt(e);
+        if (slot == null || !_lanes[slot]) return;
+        const p = _stage.toLocal(e.clientX, e.clientY);
+        _lanes[slot].path.push([p.x, p.y, performance.now()]);
+    };
+    _stage.listen('pointerdown', rawPush);
+    _stage.listen('pointermove', rawPush);
     _fx = effects(_stage);
     _dir = createDirector(_stage);
     _world = typeof CANNON !== 'undefined' ? _buildWorld() : null;
@@ -195,7 +207,7 @@ function _makePin(x, z) {
 }
 
 function _buildLane(i) {
-    const L = { i, pins: [], ball: null, sub: 'wait', subT: 0, clock: 0, frame: 0, rolls: [], frames: [], path: [], bot: { wait: 0 },
+    const L = { i, pins: [], ball: null, sub: 'wait', subT: 0, clock: 0, frame: 0, rolls: [], tb: [], frames: [], path: [], bot: { wait: 0 },
                 gutter: false, hook: 0, released: 0, bonus: 0, lastDown: 0, msg: '', offset: 0 };
     _rack(L, true);
     // The ball.
@@ -256,21 +268,33 @@ const _playerXY = (slot, x, y) => (slot === 0 ? [x, -y] : [-x, y]);   // stage �
 function _release(slot, r) {
     const L = _lanes[slot];
     if (!L || L.sub !== 'aim' || isBotSlot(slot) || !r.moved) return;
-    const [lat, fwd] = _playerXY(slot, r.dx, r.dy);
-    if (fwd < 0.2) return;                                   // a sideways drag lines up; only a flick bowls
-    const pxLen = Math.hypot(r.dx, r.dy) * 140;
-    const pace = Math.max(0, Math.min(1, (pxLen / Math.max(0.06, r.held) - 250) / 1100));
-    // Curve: how far the path bowed off the straight line from start to
-    // release, toward the player's right (+) or left (−).
-    let bow = 0;
-    const path = L.path.map(([x, y]) => _playerXY(slot, x, y));
-    if (path.length > 3) {
-        const len = Math.hypot(lat, fwd) || 1;
-        path.forEach(([x, y]) => { const d = (x * fwd - y * lat) / len; if (Math.abs(d) > Math.abs(bow)) bow = d; });
-    }
-    const spin = Math.max(-1, Math.min(1, bow / 0.25));
-    // Where you flick is where it goes, and a curve to your right hooks it to your right.
+    const path = L.path.map(([x, y, t]) => [..._playerXY(slot, x, y), t]);   // (right, forward) px, ms
+    L.path = [];
+    if (path.length < 2) return;
+    const a = path[0], z = path[path.length - 1];
+    const lat = z[0] - a[0], fwd = z[1] - a[1];
+    if (fwd < 30 || fwd < Math.abs(lat) * 0.5) return;       // a sideways drag lines up; only a flick up the lane bowls
+    // Pace from the last stretch of the swipe (the flick, not the wind-up).
+    const tail = path.filter(q => q[2] >= z[2] - 120);
+    const t0 = tail[0], dist = Math.hypot(z[0] - t0[0], z[1] - t0[1]), dt = Math.max(0.03, (z[2] - t0[2]) / 1000);
+    const pace = Math.max(0, Math.min(1, (dist / dt - 300) / 1500));
+    // Spin from how the swipe TURNED: its heading at the start against its
+    // heading at the end. A swipe that bends to your right puts spin on the
+    // ball that hooks it to your LEFT (and the other way round).
+    const spin = _curveSpin(path);
     _bowl(L, Math.atan2(lat, fwd) * _rightX(slot), pace, spin * _rightX(slot));
+}
+/** Spin (−1 left … +1 right, the bowler's frame) from a swipe path of (right, forward, t). */
+function _curveSpin(path) {
+    const n = path.length;
+    if (n < 4) return 0;
+    const at = f => path[Math.min(n - 1, Math.max(0, Math.round(f * (n - 1))))];
+    const [p0, p1, p2, p3] = [at(0), at(0.35), at(0.65), at(1)];
+    const ix = p1[0] - p0[0], iy = p1[1] - p0[1], fx = p3[0] - p2[0], fy = p3[1] - p2[1];
+    if (Math.hypot(ix, iy) < 8 || Math.hypot(fx, fy) < 8) return 0;
+    const turnRight = -Math.atan2(ix * fy - iy * fx, ix * fx + iy * fy);   // + when the swipe bends right
+    if (Math.abs(turnRight) < 0.1) return 0;
+    return -Math.max(-1, Math.min(1, turnRight / CURVE_FULL));             // bends right → hooks left
 }
 
 function _bowl(L, aim, pace, spin) {
@@ -295,12 +319,15 @@ function _score(rolls) {
     }
     return s;
 }
-// After a ball: what comes next on this lane.
+// After a ball: what comes next on this lane. A finished frame waits for the
+// other lane to finish the same frame, so both players always bowl every frame
+// (and a tie-break frame) together.
 function _afterBall(L, down) {
-    L.rolls.push(down);
+    const tb = _frameNo >= FRAMES;
+    (tb ? L.tb : L.rolls).push(down);
     const inFrame = L.frameRolls = (L.frameRolls || []);
     inFrame.push(down);
-    const last = L.frame === FRAMES - 1;
+    const last = !tb && _frameNo === FRAMES - 1;
     const tot = inFrame.slice(0, 2).reduce((a, b) => a + b, 0);
     let msg = down === 0 ? 'GUTTER' : `${down}`;
     if (inFrame.length === 1 && down === 10) msg = 'STRIKE!';
@@ -309,7 +336,7 @@ function _afterBall(L, down) {
     if (msg === 'STRIKE!' || msg === 'SPARE!') { sfx('mg_win'); haptic([30, 20, 30]); if (_stage?.gl) _fx.confetti(new THREE.Vector3(LANE_X[L.i], 0.6, DIR[L.i] * HEAD), [seat(L.i).color, 0xff4fd8, 0x22d3ee], 22, 2.5); }
     else sfx(down >= 7 ? 'land_good' : 'land_bad');
     if (!last) {
-        if (down === 10 || inFrame.length === 2) return _nextFrame(L);
+        if (down === 10 || inFrame.length === 2) return _frameDone(L);
         _rack(L, false); return _nextBall(L);
     }
     // The last frame: a strike or a spare earns more balls (three at most),
@@ -320,14 +347,32 @@ function _afterBall(L, down) {
         if (f[0] === 10) { _rack(L, f[1] === 10); return _nextBall(L); }
         if (f[0] + f[1] === 10) { _rack(L, true); return _nextBall(L); }
     }
-    return _laneDone(L);
+    return _frameDone(L);
 }
-function _nextFrame(L) {
-    L.frame++; L.frameRolls = [];
-    if (L.frame >= FRAMES) return _laneDone(L);
-    _rack(L, true);
-    _nextBall(L);
+function _frameDone(L) {
+    L.sub = 'wait'; L.subT = 0; L.frameRolls = [];
+    L.frame = _frameNo + 1;
 }
+// Both lanes have finished this frame: the next one, a tie-break, or the end.
+function _advance() {
+    _frameNo++;
+    const s = _lanes.map(_total);
+    if (_frameNo < FRAMES) {
+        _lanes.forEach(L => { _rack(L, true); _nextBall(L); });
+        _hud.say(_frameNo === FRAMES - 1 ? 'FINAL FRAME' : `FRAME ${_frameNo + 1}`, `${s[0]} – ${s[1]}`, 1300, _t, '#ff4fd8');
+        sfx('go');
+    } else if (s[0] === s[1] && _frameNo < FRAMES + TIEBREAKS) {
+        _lanes.forEach(L => { _rack(L, true); _nextBall(L); });
+        _hud.say('TIE-BREAK FRAME', `LEVEL ON ${s[0]} · MOST PINS TAKES IT`, 1800, _t, '#facc15');
+        sfx('go');
+    } else {
+        _lanes.forEach(_laneDone);
+        _end();
+    }
+}
+// The card, plus any tie-break frames (their pins, straight).
+const _tbPins = L => L.tb.reduce((a, b) => a + b, 0);
+const _total = L => _score(L.rolls) + _tbPins(L);
 function _nextBall(L) { _placeBall(L); L.sub = 'aim'; L.subT = 0; L.clock = 0; L.bot.wait = 0.9 + Math.random() * 0.8; L.path = []; }
 function _laneDone(L) {
     L.sub = 'done'; L.subT = 0;
@@ -355,6 +400,7 @@ function _enter(phase) {
     _phase = phase; _phaseT = 0;
     if (phase === 'play') {
         if (_stage?.gl) _stage.views = [0, 1].map(slot => ({ camera: _cams[slot], rect: slot === 0 ? [0, 0, 1, 0.5] : [0, 0.5, 1, 0.5] }));
+        _frameNo = 0;
         _lanes.forEach(L => _nextBall(L));
         _hud.say('FRAME 1', 'FLICK UP TO BOWL', 1300, _t, '#ff4fd8');
         sfx('go');
@@ -373,7 +419,6 @@ function _frame(dt) {
                 L.clock += dt;
                 const s = _in.seat(L.i);
                 if (s.down) {
-                    L.path.push([s.dx, s.dy]);
                     // Held sideways (not up the lane): slide the ball across to line up.
                     const [lat, fwd] = _playerXY(L.i, s.dx, s.dy);
                     if (Math.abs(fwd) < 0.35 && Math.abs(lat) > 0.15 && L.ball.body) {
@@ -383,7 +428,6 @@ function _frame(dt) {
                     }
                 }
                 if (isBotSlot(L.i)) { L.bot.wait -= dt; if (L.bot.wait <= 0) _botBowl(L); }
-                else if (L.clock >= SHOT_CLOCK) { L.msg = 'TIME · FOUL'; _afterBall(L, 0); }
             } else if (L.sub === 'roll') {
                 const b = L.ball.body;
                 if (b) {
@@ -406,7 +450,7 @@ function _frame(dt) {
             }
         });
         if (_world) _world.step(1 / 60, dt, 8);
-        if (_lanes.every(L => L.sub === 'done')) _end();
+        if (_phase === 'play' && _lanes.every(L => L.sub === 'wait')) _advance();
     }
 
     // Draw: pins and balls follow their bodies.
@@ -453,22 +497,24 @@ function _renderHud() {
     [0, 1].forEach(slot => {
         const L = _lanes[slot], them = _lanes[1 - slot];
         if (!L) return;
-        const fr = Math.min(FRAMES, L.frame + 1);
+        const tb = _frameNo >= FRAMES;
+        const fr = tb ? 'TIE-BREAK' : `FRAME ${Math.min(FRAMES, _frameNo + 1)}/${FRAMES}`;
         const ballN = (L.frameRolls || []).length + 1;
-        const clock = L.sub === 'aim' && !isBotSlot(slot) ? ` · ${Math.max(0, Math.ceil(SHOT_CLOCK - L.clock))}s` : '';
-        _hud.line(slot, L.sub === 'done' ? `🎳 DONE · ${_score(L.rolls)} · THEM ${_score(them.rolls)}`
-            : `🎳 FRAME ${fr}/${FRAMES} · BALL ${ballN}${clock} · ${_score(L.rolls)} – ${_score(them.rolls)}`);
-        _hud.hint(slot, L.msg && L.sub !== 'roll' ? L.msg : (L.frame === 0 && L.rolls.length === 0 && !seat(slot).bot ? 'DRAG SIDEWAYS TO LINE UP · FLICK UP TO BOWL' : ''));
+        const card = `${_total(L)} – ${_total(them)}`;
+        _hud.line(slot, L.sub === 'done' ? `🎳 DONE · ${_total(L)} · THEM ${_total(them)}`
+            : L.sub === 'wait' ? `🎳 ${fr} · ${card}` : `🎳 ${fr} · BALL ${ballN} · ${card}`);
+        const waitMsg = L.sub === 'wait' && _phase === 'play' ? `${L.msg ? L.msg + ' · ' : ''}WAITING FOR ${seat(1 - slot).name}` : '';
+        _hud.hint(slot, waitMsg || (L.msg && L.sub !== 'roll' ? L.msg : (_frameNo === 0 && L.rolls.length === 0 && !seat(slot).bot ? 'DRAG SIDEWAYS TO LINE UP · FLICK UP TO BOWL' : '')));
     });
     const el = document.getElementById('mg-neutral');
-    if (el && _phase === 'play') el.textContent = `${seat(0).name} ${_score(_lanes[0].rolls)} – ${_score(_lanes[1].rolls)} ${seat(1).name}`;
+    if (el && _phase === 'play') el.textContent = `${seat(0).name} ${_total(_lanes[0])} – ${_total(_lanes[1])} ${seat(1).name}`;
 }
 
 function _end() {
     if (_phase === 'over') return;
     _phase = 'over';
     _hud.say('');
-    const s = _lanes.map(L => _score(L.rolls));
+    const s = _lanes.map(_total);
     const w = s[0] > s[1] ? 0 : s[1] > s[0] ? 1 : -1;
     if (_stage) _stage.views = null;
     _dir.close({
@@ -484,10 +530,10 @@ function _end() {
 // ── Probe hooks ──────────────────────────────────────────────────────────────
 export function _debugState() {
     return { phase: _phase,
-             lanes: _lanes.map(L => ({ sub: L.sub, frame: L.frame, rolls: [...L.rolls], score: _score(L.rolls), msg: L.msg, gutter: L.gutter,
+             lanes: _lanes.map(L => ({ sub: L.sub, frame: L.frame, rolls: [...L.rolls], tb: [...L.tb], score: _score(L.rolls), total: _total(L), msg: L.msg, gutter: L.gutter,
                                        standing: L.pins.filter(p => !p.down && !_isDown(p)).length, pins: L.pins.length,
                                        ball: L.ball.body ? { x: +L.ball.body.position.x.toFixed(2), z: +L.ball.body.position.z.toFixed(2), v: +L.ball.body.velocity.length().toFixed(2) } : null })),
-             views: _stage?.views ? _stage.views.length : 0, gl: !!_stage?.gl, turned: !!_stage?.turned, physics: !!_world };
+             frameNo: _frameNo, views: _stage?.views ? _stage.views.length : 0, gl: !!_stage?.gl, turned: !!_stage?.turned, physics: !!_world };
 }
 /** Probes: bowl a ball straight from code (aim rad, pace 0–1, spin −1–1). */
 export function _debugBowl(slot, aim, pace, spin = 0) { const L = _lanes[slot]; if (L && L.sub === 'aim') _bowl(L, aim, pace, spin); }
