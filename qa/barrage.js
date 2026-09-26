@@ -1,8 +1,11 @@
 // ============================================================
 // BOOT HILL BARRAGE — the physics siege on the shared stage.
 //
-//   1. It builds the set, both forts as physics bodies, and both players'
-//      figures standing on them, turned sideways in a portrait viewport.
+//   1. It builds the set, both forts as physics bodies on tall pedestals, and
+//      both players' figures and cannons up on a cliff behind their own fort,
+//      higher than its top, turned sideways in a portrait viewport.
+//   1b. Your own shells fly clear through your own fort.
+//   5b. Timber that hits the ground breaks up and is gone.
 //   2. An untouched fort stands still: no settling, no creep, with nobody
 //      firing. (Stacks of boxes in a physics engine love to wander.)
 //   3. A real drag BACK on the turned right half aims P1's cannon, shows the
@@ -68,11 +71,20 @@ const shot = (page, name) => page.screenshot({ path: path.join(__dirname, `shot-
     await shot(page, 'intro');
     let s = await dbg(page);
     ok('stage + physics built, turned sideways', s && s.gl && s.physics && s.turned, JSON.stringify(s));
+    ok('each cannon sits on a cliff behind its fort, above the fort\'s top', s.muzzle[0][0] > 8.5 && s.muzzle[1][0] < -8.5 && s.muzzle.every(m => m[1] > Math.max(...s.towerTop) + 0.5),
+       `muzzles ${JSON.stringify(s.muzzle)} tower tops ${s.towerTop}`);
     await page.waitForFunction(() => window.__BG._debugState().phase === 'play', null, { timeout: 15000 });
     await page.evaluate(() => { window.__BG._debugWake(0); window.__BG._debugWake(1); });
     await page.waitForTimeout(4000);
     s = await dbg(page);
     ok('an untouched fort stands still on its pedestal, even woken', s.remaining.every(v => v === 1) && s.standing.every(v => v > 0.99), JSON.stringify(s.remaining));
+
+    // A low, slow shot from P1 straight into its own fort: it flies through.
+    await page.evaluate(() => window.__BG._debugFire(0, 60, 10));
+    await page.waitForTimeout(2500);
+    s = await dbg(page);
+    ok('your own shells fly through your own fort', s.integrity[0] === 1 && s.remaining[0] === 1, `P1 integrity ${s.integrity[0]}`);
+    await page.waitForTimeout(700);
 
     // ══════ 3. A real drag back on the right half ══════
     // The stage is turned 90° clockwise, so its right half is the bottom of the
@@ -107,11 +119,13 @@ const shot = (page, name) => page.screenshot({ path: path.join(__dirname, `shot-
         for (let i = 0; i < 10; i++) {
             // The bot's own ballistic solver with the error turned off.
             await new Promise(r => setTimeout(r, 1200));
+            if (M._debugState().phase !== 'play') break;
             M._debugFireAt(0);
             if (M._debugState().integrity[1] < start - 0.1) break;
         }
         await new Promise(r => setTimeout(r, 1500));
-        return { start, end: M._debugState().integrity[1], shots: M._debugState().shots[0] };
+        const st = M._debugState();
+        return { start, end: st.integrity ? st.integrity[1] : 0, shots: st.shots ? st.shots[0] : -1, phase: st.phase };
     });
     await shot(page, 'damage');
     ok('shells that land knock timber out of place', hurt.end <= hurt.start - 0.1, JSON.stringify(hurt));
@@ -135,15 +149,18 @@ const shot = (page, name) => page.screenshot({ path: path.join(__dirname, `shot-
     await launch(page, { bot: true, skill: 0.85 });
     let collapseShot = false, finaleShot = false;
     const t0 = Date.now();
-    let cleared = false;
+    let cleared = false, maxBroken = 0, lingering = 0;
     while (!(await result(page)) && Date.now() - t0 < 150000) {
         const st = await dbg(page);
         if (st && st.remaining && st.remaining[0] < 0.6 && !collapseShot) { await shot(page, 'collapse'); collapseShot = true; }
         if (st && st.down && st.down[0]) cleared = true;
+        if (st && st.broken) { maxBroken = Math.max(maxBroken, st.broken[0]); lingering = Math.max(lingering, st.groundMax); }
+        if (st && st.broken && st.broken[0] >= 3 && !collapseShot) { await shot(page, 'debris'); }
         if (st && st.phase === 'over' && !finaleShot) { await page.waitForTimeout(1300); await shot(page, 'finale'); finaleShot = true; }
         await page.waitForTimeout(150);
     }
     const r = await result(page);
+    ok('timber that hits the ground breaks up and is gone', maxBroken >= 2 && lingering < 0.5, `broken ${maxBroken}, longest any lay on the ground ${lingering}s`);
     ok('a hard bot beats an idle fort and the match resolves', !!r && r.winner === 1, r ? `winner=${r.winner} in ${(r.ms / 1000).toFixed(1)}s, pedestal cleared: ${cleared}` : 'timed out');
 
     // ══════ 6. Cleanup ══════
