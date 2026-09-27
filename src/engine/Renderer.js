@@ -10,6 +10,7 @@ import { sfx } from './AudioManager.js';   // set pieces cue their own sound
 import * as ActiveMap from '../config/ActiveMap.js';
 import * as Stars from '../core/Stars.js';
 import * as Settings from '../core/Settings.js';
+import * as CityKit from './CityKit.js';
 
 let scene, camera, renderer, clock;
 let boardGrp, diceGrp;
@@ -3011,6 +3012,11 @@ export function qaRenderFrom(pos, look) {
     return { calls: renderer.info.render.calls, triangles: renderer.info.render.triangles };
 }
 /** Last frame's draw calls and triangles, for QA and the diagnostics log. */
+/** One plot building on its own, for qa/modelsheet.js. Not added to the scene. */
+export function qaPlotBuilding(district, isHQ, x, z) {
+    const make = _PLOT_BUILDER[district];
+    return make ? make(new THREE.Vector3(x, 0, z), isHQ, 0) : null;
+}
 export function getRenderInfo() { return renderer ? { calls: renderer.info.render.calls, triangles: renderer.info.render.triangles, geometries: renderer.info.memory.geometries, shadows: renderer.shadowMap.enabled, pixelRatio: renderer.getPixelRatio() } : null; }
 
 function _optimiseStatic(root) {
@@ -3180,25 +3186,7 @@ function _initCityMaterials() {
         benchMetal: new THREE.MeshStandardMaterial({ color: 0x555555, metalness: 0.7, roughness: 0.4 }),
         lampPole:   new THREE.MeshStandardMaterial({ color: 0x888888, metalness: 0.8, roughness: 0.3 }),
         lampGlow:   new THREE.MeshStandardMaterial({ color: 0xffffcc, emissive: 0xffff44, emissiveIntensity: 1.0 }),
-        // Financial
-        finGlass:   new THREE.MeshPhysicalMaterial({ color: 0x5588cc, emissive: 0x113366, emissiveIntensity: 0.08, metalness: 0.75, roughness: 0.08, transparent: true, opacity: 0.88 }),
-        finFrame:   new THREE.MeshStandardMaterial({ color: 0xdde8ee, roughness: 0.5, metalness: 0.6 }),
-        // Back Alley
-        baBrick:    new THREE.MeshStandardMaterial({ color: 0x7a3020, roughness: 0.92 }),
-        baBrickAlt: new THREE.MeshStandardMaterial({ color: 0x5a2010, roughness: 0.95 }),
-        baMetal:    new THREE.MeshStandardMaterial({ color: 0x404040, roughness: 0.6, metalness: 0.5 }),
-        // Shopping
-        shopColors: [0xcc3388, 0x33aa55, 0x3377dd, 0xdd7700, 0x9933bb].map(c =>
-            new THREE.MeshStandardMaterial({ color: c, roughness: 0.55 })),
-        shopWindow: new THREE.MeshPhysicalMaterial({ color: 0xaaddff, transparent: true, opacity: 0.55, roughness: 0.05, metalness: 0.2 }),
-        shopSign:   new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.4 }),
-        // Industrial
-        indWall:    new THREE.MeshStandardMaterial({ color: 0x9a8840, roughness: 0.88 }),
-        indMetal:   new THREE.MeshStandardMaterial({ color: 0x556060, roughness: 0.5, metalness: 0.65 }),
-        indDoor:    new THREE.MeshStandardMaterial({ color: 0x444444, roughness: 0.8 }),
-        // Ring road civic
-        civicStone: new THREE.MeshStandardMaterial({ color: 0xccbba8, roughness: 0.82 }),
-        civicAccent:new THREE.MeshStandardMaterial({ color: 0x8a6a40, roughness: 0.7 }),
+        // The plot buildings' own colours live in CityKit.js, in their vertices.
     };
 }
 
@@ -3595,241 +3583,9 @@ function _mkLampPost(pos) {
 
 // ---- District buildings ----
 
-function _mkSkyscraper(pos, isHQ) {
-    const grp = new THREE.Group();
-    grp.position.copy(pos);
-    const s = Math.abs(Math.round(pos.x * 7 + pos.z * 13)) % 100;
-    const h  = isHQ ? 32 : 15 + (s % 8) * 2;
-    const w  = isHQ ? 7  : 4 + (s % 3);
-    const d  = isHQ ? 7  : 4 + ((s + 2) % 3);
-
-    const tower = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), _CM.finGlass);
-    tower.position.y = h / 2; tower.castShadow = true; grp.add(tower);
-
-    // Setback crown
-    const crown = new THREE.Mesh(new THREE.BoxGeometry(w * 0.62, h * 0.28, d * 0.62), _CM.finGlass);
-    crown.position.y = h + h * 0.14; grp.add(crown);
-
-    // Spire
-    const spire = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.16, h * (isHQ ? 0.28 : 0.2), 6), _CM.finFrame);
-    spire.position.y = h * (isHQ ? 1.46 : 1.38); grp.add(spire);
-
-    // Horizontal window bands (frame strips)
-    const bandCount = Math.floor(h / 3);
-    const bandMat = new THREE.MeshStandardMaterial({ color: 0xaaccee, emissive: 0x223366, emissiveIntensity: 0.12, metalness: 0.8, roughness: 0.1 });
-    for (let b = 1; b < bandCount; b++) {
-        const band = new THREE.Mesh(new THREE.BoxGeometry(w + 0.05, 0.12, d + 0.05), bandMat);
-        band.position.y = b * 3; grp.add(band);
-    }
-
-    // LIT WINDOWS. Without these the Financial District is a dark canyon: the
-    // towers are tall, they stand on both sides of a narrow road, and there is
-    // no global illumination to bounce anything back down. A grid of emissive
-    // panes is what makes a stylised glass tower read as an office tower rather
-    // than as a black slab, and it is the only light the district gets at street
-    // level from its own buildings.
-    const lit  = new THREE.MeshBasicMaterial({ color: 0xffe9b0 });
-    const cool = new THREE.MeshBasicMaterial({ color: 0x9fd8ff });
-    const cols = Math.max(2, Math.round(w / 1.5));
-    for (let b = 1; b < bandCount; b++) {
-        for (let c = 0; c < cols; c++) {
-            const r = _seeded(s * 3 + b * 11 + c * 7);
-            if (r > 0.62) continue;                 // most panes are dark
-            const pane = new THREE.Mesh(new THREE.PlaneGeometry(w / cols * 0.55, 1.5),
-                                        r > 0.34 ? cool : lit);
-            pane.position.set(-w / 2 + (c + 0.5) * (w / cols), b * 3 - 1.4, d / 2 + 0.03);
-            grp.add(pane);
-            // And the same on the back face, so a tower reads from both sides.
-            const back = pane.clone();
-            back.position.z = -d / 2 - 0.03; back.rotation.y = Math.PI;
-            grp.add(back);
-        }
-    }
-    // A red aircraft light on the taller ones.
-    if (h > 22) {
-        const lampMat = new THREE.MeshBasicMaterial({ color: 0xff3b30 });
-        const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.32, 8, 6), lampMat);
-        lamp.position.y = h * (isHQ ? 1.62 : 1.5); grp.add(lamp);
-        _cityLive.push({ kind: 'beacon', mat: lampMat, seed: s });
-    }
-
-    return grp;
-}
-
-// Lit-window grid shared by the brick and factory builders. A district lit only
-// from above reads as a set; windows are what make it read as a place with
-// people in it.
-function _addLitWindows(grp, w, h, d, seed, warm = 0xffd07a, chance = 0.45) {
-    const lit = new THREE.MeshBasicMaterial({ color: warm });
-    const dark = new THREE.MeshBasicMaterial({ color: 0x141821 });
-    const cols = Math.max(2, Math.round(w / 1.8));
-    const rows = Math.max(1, Math.floor(h / 3));
-    for (let r = 0; r < rows; r++) {
-        for (let c = 0; c < cols; c++) {
-            const on = _seeded(seed * 5 + r * 13 + c * 3) < chance;
-            const pane = new THREE.Mesh(new THREE.PlaneGeometry(w / cols * 0.5, 1.2),
-                                        on ? lit : dark);
-            pane.position.set(-w / 2 + (c + 0.5) * (w / cols), 2.0 + r * 3, d / 2 + 0.04);
-            grp.add(pane);
-        }
-    }
-}
-
-function _mkBrickBuilding(pos, isHQ) {
-    const grp = new THREE.Group();
-    grp.position.copy(pos);
-    const s = Math.abs(Math.round(pos.x * 5 + pos.z * 11)) % 100;
-    const h = isHQ ? 14 : 6 + (s % 6);
-    const w = isHQ ? 9  : 5 + (s % 4);
-    const d = isHQ ? 7  : 4 + (s % 3);
-
-    const main = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), s % 2 === 0 ? _CM.baBrick : _CM.baBrickAlt);
-    main.position.y = h / 2; main.castShadow = true; grp.add(main);
-
-    // Flat roof parapet
-    const parapet = new THREE.Mesh(new THREE.BoxGeometry(w + 0.5, 0.5, d + 0.5), _CM.baBrickAlt);
-    parapet.position.y = h + 0.25; grp.add(parapet);
-
-    // Water tower (~every other)
-    if (s % 2 === 0 || isHQ) {
-        const tkMat = new THREE.MeshStandardMaterial({ color: 0x5a3010, roughness: 0.9 });
-        const tk = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.9, 1.8, 8), tkMat);
-        tk.position.y = h + 2.3; grp.add(tk);
-        const tkRoof = new THREE.Mesh(new THREE.ConeGeometry(1.05, 0.9, 8), _CM.baMetal);
-        tkRoof.position.y = h + 3.65; grp.add(tkRoof);
-        const legGeo = new THREE.CylinderGeometry(0.07, 0.07, 1.8, 4);
-        for (let i = 0; i < 4; i++) {
-            const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
-            const leg = new THREE.Mesh(legGeo, _CM.baMetal);
-            leg.position.set(Math.cos(a) * 0.7, h + 1.3, Math.sin(a) * 0.7); grp.add(leg);
-        }
-    }
-
-    // Fire escape (side ladder)
-    if (s % 3 === 0) {
-        const escGrp = new THREE.Group();
-        escGrp.position.set(w / 2 + 0.06, 0, 0);
-        const rGeo = new THREE.BoxGeometry(0.07, h - 0.5, 0.07);
-        [[-0.55, h/2, 0],[0.55, h/2, 0]].forEach(([x,y,z]) => {
-            const r = new THREE.Mesh(rGeo, _CM.baMetal); r.position.set(x,y,z); escGrp.add(r);
-        });
-        for (let rr = 1; rr < h - 0.5; rr += 1.1) {
-            const rung = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.07, 1.1), _CM.baMetal);
-            rung.position.set(0, rr, 0); escGrp.add(rung);
-        }
-        grp.add(escGrp);
-    }
-
-    _addLitWindows(grp, w, h, d, Math.abs(Math.round(pos.x * 5 + pos.z * 11)) % 100, 0xffc46a, 0.4);
-
-    return grp;
-}
-
-function _mkShopBuilding(pos, colorIdx, isHQ) {
-    const grp = new THREE.Group();
-    grp.position.copy(pos);
-    const s = Math.abs(Math.round(pos.x * 3 + pos.z * 9)) % 100;
-    const ci  = colorIdx !== undefined ? colorIdx : s % _CM.shopColors.length;
-    const mat = _CM.shopColors[ci];
-    const h = isHQ ? 12 : 5 + (s % 5);
-    const w = isHQ ? 10 : 6 + (s % 4);
-    const d = isHQ ? 6  : 4 + (s % 2);
-
-    const main = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
-    main.position.y = h / 2; main.castShadow = true; grp.add(main);
-
-    // Display window
-    const win = new THREE.Mesh(new THREE.BoxGeometry(w * 0.68, h * 0.44, 0.13), _CM.shopWindow);
-    win.position.set(0, h * 0.3, d / 2 + 0.07); grp.add(win);
-
-    // Awning
-    const awningMat = new THREE.MeshStandardMaterial({ color: mat.color, roughness: 0.55, emissive: mat.color, emissiveIntensity: 0.18 });
-    const awning = new THREE.Mesh(new THREE.BoxGeometry(w + 0.6, 0.14, 1.8), awningMat);
-    awning.rotation.x = -0.28; awning.position.set(0, h * 0.56, d / 2 + 0.8); grp.add(awning);
-
-    // Sign
-    const sign = new THREE.Mesh(new THREE.BoxGeometry(w * 0.55, 0.75, 0.12), _CM.shopSign);
-    sign.position.set(0, h * 0.76, d / 2 + 0.07); grp.add(sign);
-
-    // Dome for mall HQ
-    if (isHQ) {
-        const domeMat = new THREE.MeshPhysicalMaterial({ color: 0xaaddff, transparent: true, opacity: 0.5, roughness: 0.05, metalness: 0.3 });
-        const dome = new THREE.Mesh(new THREE.SphereGeometry(3.5, 16, 8, 0, Math.PI*2, 0, Math.PI/2), domeMat);
-        dome.position.set(0, h, 0); grp.add(dome);
-    }
-
-    return grp;
-}
-
-function _mkFactory(pos, isHQ) {
-    const grp = new THREE.Group();
-    grp.position.copy(pos);
-    const s = Math.abs(Math.round(pos.x * 11 + pos.z * 7)) % 100;
-    const h = isHQ ? 10 : 6 + (s % 5);
-    const w = isHQ ? 14 : 8 + (s % 6);
-    const d = isHQ ? 8  : 6 + (s % 3);
-
-    // Main warehouse body
-    const main = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), _CM.indWall);
-    main.position.y = h / 2; main.castShadow = true; grp.add(main);
-
-    // Corrugated roof (slight triangular ridge)
-    const roofGeo = new THREE.CylinderGeometry(0, w * 0.52, h * 0.2, 3);
-    const roof = new THREE.Mesh(roofGeo, _CM.indMetal);
-    roof.position.y = h + h * 0.1; roof.rotation.y = Math.PI / 6; grp.add(roof);
-
-    // Smokestacks
-    const numStacks = isHQ ? 3 : 1 + (s % 2);
-    for (let i = 0; i < numStacks; i++) {
-        const sx = (i - (numStacks - 1) / 2) * 2.8;
-        const sh = h * (isHQ ? 0.9 : 0.75);
-        const stack = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.5, sh, 8), _CM.indMetal);
-        stack.position.set(sx, h + sh / 2, 0); stack.castShadow = true; grp.add(stack);
-        // Smoke cap ring
-        const capMat = new THREE.MeshStandardMaterial({ color: 0x998888, transparent: true, opacity: 0.5 });
-        const cap = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.18, 6, 12), capMat);
-        cap.position.set(sx, h + sh, 0); cap.rotation.x = Math.PI / 2; grp.add(cap);
-    }
-
-    // Loading dock
-    const door = new THREE.Mesh(new THREE.BoxGeometry(2.8, 3.2, 0.14), _CM.indDoor);
-    door.position.set(0, 1.6, d / 2 + 0.08); grp.add(door);
-    // Door frame
-    const frameMat = new THREE.MeshStandardMaterial({ color: 0xfbbf24, roughness: 0.6 });
-    const frameH = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.22, 0.14), frameMat);
-    frameH.position.set(0, 3.3, d / 2 + 0.09); grp.add(frameH);
-
-    return grp;
-}
-
-function _mkCivicBuilding(pos) {
-    const grp = new THREE.Group();
-    grp.position.copy(pos);
-    const s = Math.abs(Math.round(pos.x * 7 + pos.z * 3)) % 100;
-
-    // 1-in-4 chance: tree instead of building
-    if (s % 4 === 0) { return _mkTree(pos); }
-
-    const h = 8 + (s % 6);
-    const w = 5 + (s % 3);
-    const d = 5 + (s % 2);
-
-    const main = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), _CM.civicStone);
-    main.position.y = h / 2; main.castShadow = true; grp.add(main);
-
-    // Columns on front face
-    const pilGeo = new THREE.CylinderGeometry(0.19, 0.22, h * 0.72, 8);
-    for (let p = -1; p <= 1; p++) {
-        const pil = new THREE.Mesh(pilGeo, _CM.civicAccent);
-        pil.position.set(p * (w / 3.2), h * 0.36, d / 2 + 0.25); grp.add(pil);
-    }
-
-    // Pediment
-    const ped = new THREE.Mesh(new THREE.CylinderGeometry(0, w * 0.52, h * 0.22, 3), _CM.civicStone);
-    ped.position.y = h + h * 0.11; ped.rotation.y = Math.PI / 6; grp.add(ped);
-
-    return grp;
-}
+// The five plot buildings are modelled in CityKit.js: bevelled, vertex-
+// coloured, three draw calls each however much detail they carry.
+const _kitLive = e => _cityLive.push(e);
 
 // ============================================================
 // NOTHING STANDS BETWEEN YOU AND YOUR PIECE
@@ -3952,6 +3708,13 @@ function _canOcclude(mesh, radius) {
         n.material = Array.isArray(n.material) ? next : next[0];
     });
     mesh.userData.occMats = owned;
+    // Anything that animates one of those materials (a blinking beacon, a
+    // neon tube) must animate the clone the mesh now draws with. It used to
+    // keep the original, so the skyscrapers' aircraft lights never blinked.
+    if (seen.size) _cityLive.forEach(e => {
+        if (e.mat && seen.has(e.mat)) e.mat = seen.get(e.mat);
+        if (Array.isArray(e.parts)) e.parts = e.parts.map(x => (x && x.isMaterial && seen.has(x)) ? seen.get(x) : x);
+    });
     return mesh;
 }
 
@@ -4070,11 +3833,11 @@ function _footprintHalf(district, isHQ) {
 // nothing beside the road, which is a legitimate answer and used to be an
 // unreachable `default: return`.
 const _PLOT_BUILDER = {
-    fin:  (pos, isHQ) => _mkSkyscraper(pos, isHQ),
-    ba:   (pos, isHQ) => _mkBrickBuilding(pos, isHQ),
-    shop: (pos, isHQ) => _mkShopBuilding(pos, undefined, isHQ),
-    ind:  (pos, isHQ) => _mkFactory(pos, isHQ),
-    ring: (pos)       => _mkCivicBuilding(pos),
+    fin:  (pos, isHQ) => CityKit.tower(pos, isHQ, { live: _kitLive }),
+    ba:   (pos, isHQ) => CityKit.walkup(pos, isHQ),
+    shop: (pos, isHQ) => CityKit.shopfront(pos, undefined, isHQ),
+    ind:  (pos, isHQ) => CityKit.works(pos, isHQ),
+    ring: (pos)       => CityKit.civic(pos) || _mkTree(pos),   // one plot in four is a tree
     // ---- Star Territory ----
     hub:   (pos, _h, seed) => _mkFalseFront(pos, seed),
     rail:  (pos, _h, seed) => _mkRailShed(pos, seed),
@@ -6489,5 +6252,5 @@ export const PROP_KIT = {
     faeDecor:    seed => _mkFaeDecor(seed),
     // The floating shard (r < 0.55) registers itself; a stage gets the spire.
     voidSpire:   seed => { let s = seed; while (_sr(s) < 0.55) s += 0.37; return _mkVoidDecor(s); },
-    shopFront:   (pos, colorIdx) => _mkShopBuilding(pos, colorIdx, false),
+    shopFront:   (pos, colorIdx) => CityKit.shopfront(pos, colorIdx, false),
 };
