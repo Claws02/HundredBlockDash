@@ -5,8 +5,11 @@
 //   2. The DJ dances the call, one move per beat.
 //   3. Real swipes on P1's half dance the move they point at (up, down, left,
 //      right in the landscape view) and are judged in the response.
-//   4. On the beat is PERFECT, 0.12 s off is GOOD, 0.3 s off or the wrong move
-//      is a MISS, and no move at all is a MISS.
+//   0. The beat comes off a real backing track on the audio clock: the game's
+//      beat IS the track's audible beat.
+//   4. On the beat is PERFECT, 0.12 s off is GOOD, a correct move 0.4 s late
+//      is OK (and still lands on its OWN beat, not as a wrong move on the
+//      next); the wrong move is a MISS, and no move at all is a MISS.
 //   5. A phrase with no misses pays the FULL COMBO bonus.
 //   5b. Every move is called out big over the player's own half (★ PERFECT /
 //      ✓ GOOD / ✗ WRONG MOVE, with the right move), and marked on its card.
@@ -37,6 +40,18 @@ require('./stageprobe').run('blockparty', async ({ page, ok, launch, state, shot
     await shot('intro');
     let s = await state();
     ok('the party is built, turned sideways in portrait', s.gl && s.turned);
+    await waitFor(st => st.part === 'lead' || st.part === 'call');
+    // Sampled in one go from inside the page: the game's beat against the track's.
+    const tr = await page.evaluate(() => new Promise(res => {
+        const out = []; let n = 0;
+        const tick = () => { const t = window.__G._debugTrack(); out.push(t); if (++n < 40) requestAnimationFrame(tick); else res(out); };
+        tick();
+    }));
+    const drift = Math.max(...tr.map(t => t.audio == null ? 9 : Math.abs(t.audio - t.beat)));
+    ok('the beat comes off a backing track on the audio clock, and the game\'s beat is the track\'s', tr.every(t => t.running) && drift < 0.08,
+       `running ${tr.every(t => t.running)} · worst gap ${drift.toFixed(3)} beats over ${tr.length} frames`);
+    const last = tr[tr.length - 1];
+    ok('…and every kick drum is scheduled exactly on a whole beat of that clock', last.kicks > 2 && last.kickErr < 0.001, `${last.kicks} kicks, worst ${last.kickErr} beats off`);
 
     // Phrase 1: the call, then real swipes.
     s = await waitFor(st => st.part === 'call');
@@ -76,6 +91,8 @@ require('./stageprobe').run('blockparty', async ({ page, ok, launch, state, shot
     // Judgments, danced at exact musical positions from inside the page and
     // read back while the phrase is still up.
     await launch();
+    await waitFor(st => st.phrase === 0 && st.part === 'lead', 30000);
+    await page.evaluate(() => window.__G._debugMoves(0, ['raise', 'drop', 'pointL', 'pointR']));
     s = await waitFor(st => st.phrase === 0 && st.part === 'resp', 30000);
     const got = await page.evaluate(() => {
         const G = window.__G, st = G._debugState();
@@ -84,13 +101,13 @@ require('./stageprobe').run('blockparty', async ({ page, ok, launch, state, shot
         const before = st.score[0];
         G._debugMove(0, m[0], b0);                    // on the beat
         G._debugMove(0, m[1], b0 + 1 + 0.12 * k);     // 0.12 s late
-        G._debugMove(0, m[2], b0 + 2 + 0.3 * k);      // 0.3 s late
+        G._debugMove(0, m[2], b0 + 2 + 0.4 * k);      // 0.4 s late — nearer beat 4 than beat 3, but right only for beat 3
         G._debugMove(0, wrong(m[3]), b0 + 3);         // on the beat, wrong move
         const after = G._debugState();
         return { resp: after.resp[0], pts: after.score[0] - before, pop: after.pops[0] };
     });
-    ok('on the beat PERFECT, 0.12 s GOOD, 0.3 s MISS, wrong move MISS',
-        got.resp.join() === 'perfect,good,miss,miss' && got.pts === 5, `${got.resp.join()} → +${got.pts}`);
+    ok('on the beat PERFECT, 0.12 s GOOD, a right move 0.4 s late OK on its own beat, wrong move MISS',
+        got.resp.join() === 'perfect,good,ok,miss' && got.pts === 6, `${got.resp.join()} → +${got.pts}`);
     ok('each move is called out big over your half: a wrong one says so', /^✗ WRONG MOVE/.test(got.pop), `pop "${got.pop}"`);
     await page.waitForTimeout(100);
     await shot('feedback');

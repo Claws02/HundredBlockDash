@@ -125,7 +125,7 @@ const shot = (page, name) => page.screenshot({ path: path.join(__dirname, `shot-
         }
         await new Promise(r => setTimeout(r, 1500));
         const st = M._debugState();
-        return { start, end: st.integrity ? st.integrity[1] : 0, shots: st.shots ? st.shots[0] : -1, phase: st.phase };
+        return { start, end: st.integrity ? st.integrity[1] : 0, shots: st.shots ? st.shots[0] : -1, phase: st.phase, hits: M._debugBlasts().map(b => b.hit).join(' ') };
     });
     await shot(page, 'damage');
     ok('shells that land knock timber out of place', hurt.end <= hurt.start - 0.1, JSON.stringify(hurt));
@@ -142,7 +142,45 @@ const shot = (page, name) => page.screenshot({ path: path.join(__dirname, `shot-
         return { remaining: st.remaining[1], down: st.down[1], standing: st.standing[1], phase: st.phase };
     });
     await shot(page, 'snipe');
-    ok('knocking the top off does not win: the rest of the fort is still on its pedestal', !snipe.down && snipe.remaining > 0.3 && snipe.phase === 'play', JSON.stringify(snipe));
+    ok('knocking the top off does not win: the fort is still standing on its pedestal', !snipe.down && snipe.remaining > 0.1 && snipe.phase === 'play', JSON.stringify(snipe));
+    await page.evaluate(async () => { const MM = await import('/src/minigames/MinigameManager.js'); MM.forceEndMinigame(); });
+
+    // ══════ 4c. A shell bursting right on top of a piece still moves it ══════
+    await launch(page, { bot: false });
+    await page.waitForFunction(() => window.__BG._debugState().phase === 'play', null, { timeout: 15000 });
+    const onTop = await page.evaluate(async () => {
+        const M = window.__BG, out = [];
+        for (const i of [14, 13]) {                       // the top block, the upper crate
+            const a = M._debugBlock(1, i);
+            M._debugBlastOnTop(0, i);
+            await new Promise(r => setTimeout(r, 1500));
+            const b = M._debugBlock(1, i);
+            out.push({ i, moved: b.gone ? 99 : +Math.hypot(b.x - a.x, b.y - a.y).toFixed(2) });
+        }
+        return out;
+    });
+    await shot(page, 'ontop');
+    ok('a shell that bursts right on top of a piece still shoves it (never just into the pedestal)', onTop.every(o => o.moved > 0.25), JSON.stringify(onTop));
+    await page.evaluate(async () => { const MM = await import('/src/minigames/MinigameManager.js'); MM.forceEndMinigame(); });
+
+    // ══════ 4d. The last few pieces can be finished off ══════
+    await launch(page, { bot: false });
+    await page.waitForFunction(() => window.__BG._debugState().phase === 'play', null, { timeout: 15000 });
+    const endgame = await page.evaluate(async () => {
+        const M = window.__BG;
+        M._debugLeave(1, [0, 1, 2, 3]);                    // the three ground-floor legs and the plank on them
+        await new Promise(r => setTimeout(r, 1500));
+        const start = M._debugState().remaining[1];
+        let shots = 0;
+        for (let i = 0; i < 16 && M._debugState().phase === 'play' && !M._debugState().down[1]; i++) {
+            await new Promise(r => setTimeout(r, 1250));
+            if (M._debugFireAt(0)) shots++;
+        }
+        await new Promise(r => setTimeout(r, 1200));
+        const st = M._debugState();
+        return { start, shots, down: st.down ? st.down[1] : null, phase: st.phase, left: st.remaining ? st.remaining[1] : 0 };
+    });
+    ok('the last few pieces on a pedestal come off in a handful of good shots', (endgame.down || endgame.phase === 'over') && endgame.shots <= 10, JSON.stringify(endgame));
     await page.evaluate(async () => { const MM = await import('/src/minigames/MinigameManager.js'); MM.forceEndMinigame(); });
 
     // ══════ 5. The bot takes down an idle fort ══════
@@ -154,7 +192,7 @@ const shot = (page, name) => page.screenshot({ path: path.join(__dirname, `shot-
         const st = await dbg(page);
         if (st && st.remaining && st.remaining[0] < 0.6 && !collapseShot) { await shot(page, 'collapse'); collapseShot = true; }
         if (st && st.down && st.down[0]) cleared = true;
-        if (st && st.broken) { maxBroken = Math.max(maxBroken, st.broken[0]); lingering = Math.max(lingering, st.groundMax); }
+        if (st && st.broken && st.broken.length) { maxBroken = Math.max(maxBroken, st.broken[0]); lingering = Math.max(lingering, st.groundMax); }
         if (st && st.broken && st.broken[0] >= 3 && !collapseShot) { await shot(page, 'debris'); }
         if (st && st.phase === 'over' && !finaleShot) { await page.waitForTimeout(1300); await shot(page, 'finale'); finaleShot = true; }
         await page.waitForTimeout(150);

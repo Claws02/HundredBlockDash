@@ -46,7 +46,8 @@ const POWDER_AT   = 40;       // bigger shells for the last stretch
 const PED_H = 3.0, PED_HW = 2.1;   // each fort's stone pedestal: height, half-width (just wider than the fort)
 const CLIFF_DX = 6.7, CLIFF_HW = 1.5, CLIFF_H = 10.6;   // the gunner's cliff: behind the fort (a clear drop between), above its top
 const BREAK_WAIT = 0.2, BREAK_T = 1.1;                 // s on the ground before timber breaks up; s to crumble
-const PUSH = 0.75;                 // a blast's extra shove in the shell's direction of travel
+const PUSH = 0.75;
+const ENDGAME = 0.2, ENDGAME_J = 1.7;    // at or under this share left on the pedestal (the last 3), blasts hit this much harder
 const V_MIN = 7, V_MAX = 21;  // muzzle speed range, world units / s
 const PULL_PX     = 170;      // a full-power pull, in stage px
 const ELEV_MIN = 0.09, ELEV_MAX = 1.45;   // radians above the horizontal
@@ -78,7 +79,7 @@ let _preview = [];             // per slot: dot meshes
 export function start(isBot, onWin, botSkill = 0.55) {
     if (!state.mgActive) return;
     _done = false; _onWin = onWin; _botSkill = botSkill;
-    _forts = []; _shells = []; _fx = []; _preview = [];
+    _forts = []; _shells = []; _fx = []; _preview = []; _blastLog = [];
     _aim = [0, 1].map(() => ({ pid: null, ax: 0, ay: 0, elev: 0.7, power: 0, active: false }));
     _reload = [0.6, 0.6]; _shots = [0, 0];
     _phase = 'intro'; _t = 0; _clock = 0; _powder = false; _shake = 0; _result = null;
@@ -134,7 +135,7 @@ function _finish(winner) {
 }
 
 // ── Physics world ────────────────────────────────────────────────────────────
-let _woodMat = null;
+let _woodMat = null, _stoneMat = null;
 function _buildWorld() {
     const w = new CANNON.World();
     w.gravity.set(0, GRAVITY, 0);
@@ -143,6 +144,10 @@ function _buildWorld() {
     w.allowSleep = true;
     _woodMat = new CANNON.Material('wood');
     const groundMat = new CANNON.Material('ground');
+    // The pedestal's dressed stone: timber slides on it (on rough wood-on-wood
+    // grip, the last few pieces sat tight however they were hit).
+    _stoneMat = new CANNON.Material('stone');
+    w.addContactMaterial(new CANNON.ContactMaterial(_woodMat, _stoneMat, { friction: 0.4, restitution: 0.02 }));
     w.addContactMaterial(new CANNON.ContactMaterial(_woodMat, _woodMat, { friction: 0.6, restitution: 0.02 }));
     w.addContactMaterial(new CANNON.ContactMaterial(_woodMat, groundMat, { friction: 0.7, restitution: 0.02 }));
     // Masks are explicit throughout: this cannon.js build defaults a body's
@@ -188,7 +193,7 @@ function _block(fort, w, h, d, x, y, color, mass) {
         }
         _stage.add(mesh);
     }
-    const b = { body, mesh, x0: x, y0: y, rest: Math.max(w, h) / 2 + 0.15, groundT: 0, gone: false };
+    const b = { body, mesh, x0: x, y0: y, half: [w / 2, h / 2, d / 2], rest: Math.max(w, h) / 2 + 0.15, groundT: 0, gone: false };
     fort.blocks.push(b);
     return b;
 }
@@ -199,7 +204,7 @@ function _buildFort(slot) {
     const cx = x0 - dir * CLIFF_DX;             // the cliff, behind the fort
     fort.cliffX = cx;
     if (_world) {
-        const cliff = new CANNON.Body({ mass: 0, material: _woodMat, collisionFilterMask: -1 });
+        const cliff = new CANNON.Body({ mass: 0, material: _stoneMat, collisionFilterMask: -1 });
         cliff.addShape(new CANNON.Box(new CANNON.Vec3(CLIFF_HW, CLIFF_H / 2, 1.4)));
         cliff.position.set(cx, CLIFF_H / 2, 0);
         _world.addBody(cliff);
@@ -227,7 +232,7 @@ function _buildFort(slot) {
     const posts = [0x6b4a2c, 0x5d4126], planks = [0x9a7548, 0x8a6239];
     // The pedestal: static stone, and the fort is built on top of it.
     if (_world) {
-        const ped = new CANNON.Body({ mass: 0, material: _woodMat, collisionFilterMask: -1 });
+        const ped = new CANNON.Body({ mass: 0, material: _stoneMat, collisionFilterMask: -1 });
         ped.addShape(new CANNON.Box(new CANNON.Vec3(PED_HW, PED_H / 2, 1.0)));
         ped.position.set(x0, PED_H / 2, 0);
         _world.addBody(ped);
@@ -389,7 +394,7 @@ function _fire(slot, elev, power) {
         if (f.cannon) f.cannon.group.userData.kick = 1;
     }
     const s = { body, mesh, slot, age: 0, boom: false, x: m.p.x, y: m.p.y, vx: m.vx, vy: m.vy, big: _powder };
-    if (body) body.addEventListener('collide', () => { if (s.age > 0.06) s.boom = true; });
+    if (body) body.addEventListener('collide', e => { if (s.age > 0.06) { s.boom = true; if (!s.hit) s.hit = e.body; } });
     _shells.push(s);
     return true;
 }
@@ -494,22 +499,53 @@ function _smoke(at, n, color, spread, rise) {
     }
 }
 
+let _blastLog = [];
 function _blast(s) {
     const pos = s.body ? s.body.position : { x: s.x, y: s.y, z: 0 };
+    _blastLog.push({ x: +pos.x.toFixed(2), y: +pos.y.toFixed(2), hit: s.hit ? (s.hit.mass === 0 ? 'static' : _forts.findIndex(f => f.blocks.some(k => k.body === s.hit)) + ':' + _forts.flatMap(f => f.blocks).findIndex(k => k.body === s.hit) % 15) : 'none', age: +(s.age || 0).toFixed(2) });
+    if (_blastLog.length > 40) _blastLog.shift();
     const R = s.big ? BLAST_R * 1.3 : BLAST_R, J = s.big ? BLAST_J * 1.4 : BLAST_J;
     if (_world) {
-        _forts.forEach(f => f.blocks.forEach(k => {
-            if (!k.body || k.gone) return;
-            const dx = k.body.position.x - pos.x, dy = k.body.position.y - pos.y, dz = k.body.position.z - pos.z;
-            const d = Math.hypot(dx, dy, dz);
-            if (d > R) return;
-            const fall = 1 - d / R;
-            const n = Math.max(0.001, d);
-            k.body.wakeUp();
-            const along = s.slot != null ? _dirOf(s.slot) * J * PUSH * fall : 0;
-            k.body.applyImpulse(new CANNON.Vec3(dx / n * J * fall + along, (dy / n * 0.6 + 0.4) * J * fall, dz / n * J * fall * 0.3),
-                                k.body.position);
-        }));
+        const q = new CANNON.Quaternion(), rel = new CANNON.Vec3(), loc = new CANNON.Vec3(), near = new CANNON.Vec3();
+        const travel = s.slot != null ? _dirOf(s.slot) : Math.sign(s.vx || 1);
+        _forts.forEach(f => {
+            // The last few pieces on a pedestal take a harder shove: a fort
+            // down to its scraps should be finished off, not sniped for a minute.
+            const endgame = _remaining(f) <= ENDGAME ? ENDGAME_J : 1;
+            // The very last piece — usually a leg lying flat, all but under the
+            // shells — is reached by a blast from further off.
+            const lastOne = f.blocks.filter(k => _onPed(f, k)).length === 1;
+            const reach = lastOne ? R * 1.6 : R;
+            f.blocks.forEach(k => {
+                if (!k.body || k.gone) return;
+                const b = k.body;
+                // Distance from the blast to the block's nearest SURFACE, not its
+                // centre: a shell on the end of a long plank, or on top of a
+                // post, is right against it however far away its middle is.
+                rel.set(pos.x - b.position.x, pos.y - b.position.y, pos.z - b.position.z);
+                b.quaternion.conjugate(q); q.vmult(rel, loc);
+                loc.set(Math.max(-k.half[0], Math.min(k.half[0], loc.x)), Math.max(-k.half[1], Math.min(k.half[1], loc.y)), Math.max(-k.half[2], Math.min(k.half[2], loc.z)));
+                b.quaternion.vmult(loc, near); near.vadd(b.position, near);
+                const d = Math.hypot(pos.x - near.x, pos.y - near.y, pos.z - near.z);
+                const direct = s.hit === b;
+                if (d > reach && !direct) return;
+                // The piece hit takes it all; neighbours much less — except in the
+                // endgame, where a near miss on a last piece still counts.
+                const fall = direct ? 1 : endgame > 1 ? 1 - d / reach : Math.pow(1 - d / R, 2);
+                b.wakeUp();
+                // Sideways and up, never down: away from the blast across the
+                // pedestal (or along the shell's flight when it lands right on
+                // top), plus a lift so it doesn't just grind into the stone.
+                // Right on top of it, the blast has no sideways to give: then it
+                // goes OUT, toward the nearer edge of the pedestal (off is the goal).
+                const hx = b.position.x - pos.x, out = b.position.x - f.x;
+                const side = Math.abs(hx) > 0.35 ? Math.sign(hx) : Math.abs(out) > 0.2 ? Math.sign(out) : travel;
+                const jj = J * fall * endgame;
+                const imp = new CANNON.Vec3(side * jj * 0.55 + travel * jj * PUSH * 0.45, jj * 0.32, (b.position.z - pos.z) * jj * 0.15);
+                // At the point it was hit, so a blow high on a piece tips it over.
+                b.applyImpulse(imp, near);
+            });
+        });
     }
     sfx('boom');
     _shake = Math.max(_shake, s.big ? 0.55 : 0.4);
@@ -854,6 +890,21 @@ export function _debugFireAt(slot) {
     const left = enemy.blocks.filter(k => _onPed(enemy, k));
     const shot = _solve(slot, left[Math.floor(Math.random() * left.length)] || enemy.top, 0, 0);
     return shot ? _fire(slot, shot.elev, shot.power) : false;
+}
+/** Probes: a shell from `slot` bursting right ON TOP of block `i` of the rival fort; returns how far it moved after `ms`. */
+export function _debugBlastOnTop(slot, i) {
+    const f = _forts[1 - slot], k = f?.blocks[i];
+    if (!k?.body) return null;
+    const p = k.body.position, top = p.y + k.half[1] + SHELL_R;
+    _blast({ slot, body: { position: new CANNON.Vec3(p.x, top, p.z) }, hit: k.body, big: false, vx: 0 });
+    return { x: +p.x.toFixed(2), y: +p.y.toFixed(2) };
+}
+export function _debugBlock(slot, i) { const k = _forts[slot]?.blocks[i]; return k?.body ? { x: +k.body.position.x.toFixed(2), y: +k.body.position.y.toFixed(2), gone: k.gone, on: _onPed(_forts[slot], k) } : k ? { gone: k.gone, on: false } : null; }
+export function _debugBlasts() { return _blastLog.slice(); }
+/** Probes: clear a fort down to the listed blocks (the rest are dropped off the pedestal, gone). */
+export function _debugLeave(slot, keep) {
+    const f = _forts[slot];
+    f.blocks.forEach((k, i) => { if (!keep.includes(i) && !k.gone && k.body) _breakUp(k); });
 }
 /** Probes: fire a perfect shot from `slot` at the rival's TOP block. */
 export function _debugFireAtTop(slot) {
