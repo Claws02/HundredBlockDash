@@ -100,6 +100,8 @@ wrong causes were asserted in one session before anybody actually ran it.
 | `highnoon.js` | The 3D stage: the players' own figures in a turned landscape scene, the board paused underneath, the holster on the right half, a flinch, a win on the bell, the hold card, and nothing leaked on finish or force-end. Writes `shot-highnoon-*.png`. |
 | `mapmodules.js` | Map registry parity and the board's geometry as *properties*. |
 | `mapshot.js` | Photographs a board from three angles. Not an assertion — a way to look. |
+| `zfight.js` | Board ground flicker: every pair of overlapping flat surfaces with different looks that sit closer than the depth buffer can separate, on City Circuit and Hundred Block Dash, plus the camera's near plane. Fails on any pair. |
+| `boardmotion.js` | Board smoothness at the display rate (WebGL draw calls stubbed so the logic runs at 60 fps): token speed surges at hop boundaries and one-frame camera jumps in FOLLOW. Numbers, not pass/fail; compare two builds with `QA_BASE`. `SPIKES=1` prints the frames around each jump. |
 | `layout.js` | The layout laws as arithmetic — no browser, one second. That a phone holds at most two private playfields, and that `MG_SHAPE` and `MG_NET` agree. |
 
 ## Looking is a test
