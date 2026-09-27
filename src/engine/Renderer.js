@@ -309,6 +309,27 @@ function _buildHBDPath() {
 
 const GROUND_Y = -1.1;
 
+// The smallest height two overlapping flat surfaces may sit apart. The depth
+// buffer cannot order two surfaces closer than it can resolve, and what it can
+// resolve shrinks with distance: they then take turns winning pixel by pixel
+// and the ground shimmers as the camera moves. With the near plane _fitNear()
+// keeps, 3 cm is ten times what a 24-bit buffer resolves at 150 units.
+const GROUND_STEP = 0.03;
+
+// City Circuit's ground is a stack of flat layers. They were 5-10 mm apart,
+// and several different materials shared one height exactly, which is the
+// flicker on the roads and pavements. One rung per layer, bottom to top; a
+// layer may only overlap layers on other rungs.
+const CITY_GROUND = {
+    base:    -0.62,                        // the ground disc under the city
+    walk:    -0.62 + GROUND_STEP,          // sidewalks: park ring, spur and avenue bands, the park
+    pave:    -0.62 + GROUND_STEP * 2,      // district pavement, tinted per district
+    road:    -0.62 + GROUND_STEP * 3,      // asphalt: ring road, spurs, avenues, turning pads
+    surface: -0.62 + GROUND_STEP * 4,      // district slabs under the tiles; lane dashes
+    seam:    -0.62 + GROUND_STEP * 5,      // seams laid on the slabs
+    puddle:  -0.62 + GROUND_STEP * 6,      // Back Alley puddles
+};
+
 // Per-realm palette (ground, accent, glow) keyed by biome.key
 const HBD_REALM_STYLE = {
     woods: { ground: 0x1f5c1f, ground2: 0x14431a, accent: 0x4ade80 },
@@ -338,9 +359,9 @@ function _buildHBDScene() {
     _buildHBDBase();
 
     // 2) Per-realm layers: ground ribbon, ambient motes, accent light, landmark.
-    Object.entries(realmGroups).forEach(([key, idxs]) => {
+    Object.entries(realmGroups).forEach(([key, idxs], order) => {
         const ext = [idxs[0] - 1, ...idxs, idxs[idxs.length - 1] + 1].filter(i => i >= 0 && i <= cfg.finish);
-        _buildHBDRibbon(ext, key);
+        _buildHBDRibbon(ext, key, order);
         _buildRealmParticles(idxs, key);
         _buildRealmAccentLight(idxs, key);
         _buildRealmLandmark(idxs, key);
@@ -584,9 +605,14 @@ function _mkScatterProp(key, seed, R) {
 }
 
 // Build a flat tinted ground strip following the given block indices.
-function _buildHBDRibbon(indices, key) {
+// Each realm's strip is padded one block into its neighbours so there is no
+// seam, which puts two differently tinted strips over the same two blocks. At
+// the same height they fought for those pixels and flickered as the camera
+// moved (qa/zfight.js); each realm now sits one GROUND_STEP above the last.
+function _buildHBDRibbon(indices, key, order = 0) {
     const st = HBD_REALM_STYLE[key] || HBD_REALM_STYLE.woods;
     const HALF = 26;
+    const y = GROUND_Y + order * GROUND_STEP;
     const verts = [], idx = [];
     indices.forEach((blockI, k) => {
         const t = blockI / _hbdMax;
@@ -594,7 +620,7 @@ function _buildHBDRibbon(indices, key) {
         const n = _pathNormal(t);
         const L = p.clone().addScaledVector(n,  HALF);
         const R = p.clone().addScaledVector(n, -HALF);
-        verts.push(L.x, GROUND_Y, L.z, R.x, GROUND_Y, R.z);
+        verts.push(L.x, y, L.z, R.x, y, R.z);
         if (k > 0) {
             const a = (k - 1) * 2, b = a + 1, c = a + 2, d = a + 3;
             idx.push(a, b, c, b, d, c);
@@ -796,7 +822,7 @@ export function init(container) {
 
     const W = Math.max(window.innerWidth  || 300, 300);
     const H = Math.max(window.innerHeight || 500, 500);
-    camera = new THREE.PerspectiveCamera(_fovFor(W / H), W / H, 0.1, 1000);
+    camera = new THREE.PerspectiveCamera(_fovFor(W / H), W / H, NEAR_MIN, 1000);
     camera.position.set(0, isHBD ? 30 : 50, isHBD ? 40 : 60);
     camera.lookAt(0, 0, 0);
 
@@ -819,6 +845,11 @@ export function init(container) {
     sun.shadow.camera.left = sun.shadow.camera.bottom = isHBD ? -30 : -100;
     sun.shadow.camera.right = sun.shadow.camera.top = isHBD ? 30 : 100;
     sun.shadow.mapSize.width = sun.shadow.mapSize.height = 2048;
+    // Without a bias every lit surface shadows itself in stripes ("shadow
+    // acne"), which crawl as the adaptive resolution steps down. The minigame
+    // stage has always set one; the board never did.
+    sun.shadow.bias = -0.0006;
+    sun.shadow.normalBias = 0.04;
     scene.add(sun);
     const rimLight = new THREE.DirectionalLight(isHBD ? 0x4466ee : 0x88bbff, isHBD ? 0.36 : 0.5);
     rimLight.position.set(-25, 15, -35);
@@ -1871,6 +1902,11 @@ function _skyStars(hex) {
 export function animatePlayerHop(player, targetNodeId, onComplete, opts = {}) {
     const dest = getPos(targetNodeId).clone();
     dest.y = 0;
+    // Facing is eased over the start of the hop rather than snapped: lookAt()
+    // turned the token to its new heading in one frame, a visible twitch at
+    // every corner. Capture where it faces now, let the code below aim it as
+    // before, then hand the turn to the animation.
+    const faceFrom = player.mesh.quaternion.clone();
     if (typeof targetNodeId === 'number') {
         // HBD: use curve tangent for orientation
         if (boardCurve) {
@@ -1905,10 +1941,30 @@ export function animatePlayerHop(player, targetNodeId, onComplete, opts = {}) {
         const d = player.mesh.position.distanceTo(dest);
         dur = Math.max(0.28, Math.min(0.9, 0.28 + (d - 10) * 0.022));
     }
+    const faceTo = player.mesh.quaternion.clone();
+    player.mesh.quaternion.copy(faceFrom);
+    const turns = faceFrom.angleTo(faceTo) > 1e-3;
     activeAnims.push({
         obj: player.mesh.position, start: player.mesh.position.clone(), to: dest,
         dur, isHop: true, hopH: opts.hopH, onComplete,
+        onUpdate: turns ? p => {
+            const k = Math.min(1, p / HOP_TURN);
+            player.mesh.quaternion.slerpQuaternions(faceFrom, faceTo, k * k * (3 - 2 * k));
+        } : null,
     });
+}
+
+// The share of a hop spent turning to the new heading.
+const HOP_TURN = 0.45;
+
+// How far along the ground a hop is at progress p. It was an ease-out cubic,
+// which leaves at three times the hop's average speed and arrives at a dead
+// stop, so a six-space move was six surges, and the follow camera, chasing
+// the token, surged with it. Half linear, half smoothstep leaves and arrives
+// at half the average speed: consecutive hops meet at the same speed and a
+// move reads as a steady run of hops. The height arc is unchanged.
+function _hopEase(p) {
+    return p * 0.5 + p * p * (3 - 2 * p) * 0.5;
 }
 
 // ============================================================
@@ -2046,6 +2102,7 @@ export function playSwapCinematic(playerA, playerB, onDone) {
     const centre = new THREE.Vector3(_panBounds.cx, 0, _panBounds.cz);
     if (side.dot(centre.clone().sub(aStart).setY(0)) < 0) side.negate();
     const shot = (at, ease = 1) => {
+        if (state.cameraState !== 'CINEMATIC') return;   // handed back early: stop steering (see _flyoverOwns)
         const want = at.clone().addScaledVector(side, 21);
         want.y = at.y + 5.5;
         camera.position.lerp(want, ease);
@@ -2233,13 +2290,23 @@ export function skipFlyover() {
     return !!a;
 }
 
+// A flyover writes the camera every frame for its whole length, but play can
+// take the camera back before it ends (a continue tapped during the sweep, a
+// set piece). It then kept writing, and it and the follow camera took turns
+// setting the camera one frame each: a 30-90 unit jump every few frames until
+// the sweep ran out (qa/boardmotion.js). A flyover now owns the camera only
+// while cameraState is still the mode it started in.
+function _flyoverOwns(mode) { return state.cameraState === mode; }
+
 export function startFlyover(onComplete) {
+    const mode = state.cameraState;
     if (ActiveMap.isLinear()) {
         // Linear flyover: sweep along boardCurve
         const flyObj = { p: 0 };
         activeAnims.push({
             obj: flyObj, start: { p: 0 }, to: { p: 1.0 }, dur: (_reduceMotion() ? 0.35 : SCENE.FLYOVER_HBD / 1000), isFlyover: true,
             onUpdate: () => {
+                if (!_flyoverOwns(mode)) return;
                 const safeT   = Math.max(0.001, Math.min(flyObj.p, 0.999));
                 const pt      = boardCurve.getPoint(safeT);
                 const tangent = boardCurve.getTangent(safeT).normalize();
@@ -2257,6 +2324,7 @@ export function startFlyover(onComplete) {
             obj: flyObj, start: { angle: 0, height: 90, dist: 110 }, to: { angle: Math.PI * 1.5, height: 28, dist: 55 },
             dur: (_reduceMotion() ? 0.35 : SCENE.FLYOVER_CITY / 1000), isFlyover: true,
             onUpdate: () => {
+                if (!_flyoverOwns(mode)) return;
                 camera.position.set(
                     Math.cos(flyObj.angle) * flyObj.dist,
                     flyObj.height,
@@ -2285,9 +2353,11 @@ export function startPostMinigameFlyover(onComplete) {
         .map(p => p.pos));
     const rearT = Math.max(0.001, Math.min(rearPos / _hbdMax, 0.999));
     const flyObj = { p: 0.985 };
+    const mode = state.cameraState;
     activeAnims.push({
         obj: flyObj, start: { p: 0.985 }, to: { p: rearT }, dur: 3.5,
         onUpdate: () => {
+            if (!_flyoverOwns(mode)) return;
             const safeT   = Math.max(0.001, Math.min(flyObj.p, 0.999));
             const pt      = boardCurve.getPoint(safeT);
             const tangent = boardCurve.getTangent(safeT).normalize();
@@ -2297,7 +2367,9 @@ export function startPostMinigameFlyover(onComplete) {
                 camera.lookAt(pt.clone().addScaledVector(tangent, -40).setY(0));
             }
         },
-        onComplete,
+        // Hands the camera back only if nobody has taken it in the meantime:
+        // forcing FOLLOW over a set piece's CINEMATIC broke that shot.
+        onComplete: () => { if (_flyoverOwns(mode) && onComplete) onComplete(); },
     });
 }
 
@@ -2329,7 +2401,7 @@ const CAM = {
 const CAM_CUT = 40;
 let _camTransit = null;   // { t, dur, lift, fromPos, fromQuat } while crossing the city
 const _tmpNdc = new THREE.Vector3();
-let _offFrameT = 0;       // how long the active token has been out of the middle of the frame
+let _catchUp = 0;         // 0..1: how hard the follow camera is pulling to get the token back in frame
 
 // The camera's own heading, smoothed. This is the single biggest cause of the
 // touchiness: the old code recomputed the heading every frame as
@@ -2344,7 +2416,7 @@ let   _camFwdInit = false;
 const _tmpGround  = new THREE.Vector3();
 const _tmpHead    = new THREE.Vector3();
 
-export function resetCameraSmoothing() { _camFwdInit = false; _camTransit = null; }
+export function resetCameraSmoothing() { _camFwdInit = false; _camTransit = null; _catchUp = 0; }
 
 // Which way is this player facing, per the board itself?
 function _rawHeading(p) {
@@ -2648,7 +2720,7 @@ function startLoop() { requestAnimationFrame(_loop); }
 let _boardPaused = false;
 export function setBoardPaused(on) {
     _boardPaused = !!on;
-    if (!_boardPaused && clock) clock.getDelta();   // no dt jump on the way back
+    if (!_boardPaused) _lastFrameTs = 0;   // no dt jump on the way back
 }
 export function isBoardPaused() { return _boardPaused; }
 
@@ -2719,13 +2791,22 @@ function _watchContext(canvas) {
     canvas.addEventListener('webglcontextrestored', () => { /* the reload above is the recovery */ });
 }
 
-function _loop() {
+// Frame time comes from requestAnimationFrame's own timestamp, the moment the
+// display will show this frame, not from reading the clock whenever the
+// callback happens to run. The clock picked up however late the browser was in
+// calling back, so evenly spaced frames got unevenly sized steps: a token or
+// camera moving at constant speed judders by exactly that jitter, which is
+// most visible on 120 Hz iPhones.
+let _lastFrameTs = 0, _elapsed = 0;
+function _loop(ts) {
     requestAnimationFrame(_loop);
-    if (!clock || _boardPaused) return;
-    const raw  = clock.getDelta();
+    if (!clock || _boardPaused) { _lastFrameTs = 0; return; }
+    const raw  = _lastFrameTs && ts > _lastFrameTs ? (ts - _lastFrameTs) / 1000 : 1 / 60;
+    _lastFrameTs = ts || 0;
     _adaptResolution(raw);
     const dt   = _gamePaused ? 0 : Math.min(raw, 0.1);
-    const time = clock.getElapsedTime();
+    _elapsed  += raw;
+    const time = _elapsed;
 
     floatingIcons.forEach(f => {
         const grp = f.group || null;
@@ -2761,7 +2842,7 @@ function _loop() {
         const a = activeAnims[i];
         a.t = (a.t || 0) + dt;
         const p    = a.dur > 0 ? Math.min(a.t / a.dur, 1) : 1;
-        const ease = 1 - Math.pow(1 - p, 3);
+        const ease = a.isHop ? _hopEase(p) : 1 - Math.pow(1 - p, 3);
         if (a.obj && a.to) {
             if (a.obj.isVector3) {
                 a.obj.lerpVectors(a.start, a.to, ease);
@@ -2838,22 +2919,22 @@ function _loop() {
                 camera.quaternion.slerpQuaternions(tr.fromQuat, _camHelper.quaternion, e);
                 if (k >= 1) _camTransit = null;
             } else {
-                if (!isNaN(pos.x)) camera.position.lerp(pos, _damp(0.07, dt));
-                _camHelper.position.copy(camera.position);
-                _camHelper.lookAt(look);
-                camera.quaternion.slerp(_camHelper.quaternion, _damp(0.09, dt));
                 // The token must be in the shot. A landing once framed a bare
                 // ground plane and a tower with nobody in it (RELEASE_AUDIT
-                // C-06): if the active token has been outside the middle of the
-                // frame for a moment, fetch it with a short transit.
+                // C-06). The fix was a short eased transit to fetch it, but a
+                // transit starts from rest: the camera, already moving, stopped
+                // dead and then swung, the intermittent "lurch" qa/README.md
+                // describes. Instead the follow stiffens smoothly while the
+                // token is off-centre and relaxes once it is back, so the
+                // camera speeds up without ever changing speed in one frame.
                 _tmpNdc.copy(p.mesh.position).project(camera);
                 const outside = Math.abs(_tmpNdc.x) > 0.8 || _tmpNdc.y < -0.8 || _tmpNdc.y > 0.8 || _tmpNdc.z > 1;
-                _offFrameT = outside ? _offFrameT + dt : 0;
-                if (_offFrameT > 0.35 && dt > 0) {
-                    _offFrameT = 0;
-                    _camTransit = { t: 0, dur: _reduceMotion() ? 0.2 : 0.45, lift: 0,
-                                    fromPos: camera.position.clone(), fromQuat: camera.quaternion.clone() };
-                }
+                _catchUp = Math.max(0, Math.min(1, _catchUp + (outside ? dt / 0.35 : -dt / 0.6)));
+                const c = _catchUp * _catchUp * (3 - 2 * _catchUp);
+                if (!isNaN(pos.x)) camera.position.lerp(pos, _damp(0.07 + 0.13 * c, dt));
+                _camHelper.position.copy(camera.position);
+                _camHelper.lookAt(look);
+                camera.quaternion.slerp(_camHelper.quaternion, _damp(0.09 + 0.16 * c, dt));
             }
         }
     } else if (cs === 'MAP') {
@@ -2876,7 +2957,26 @@ function _loop() {
         camera.quaternion.slerp(_camHelper.quaternion, k);
     }
 
+    _fitNear();
     if (renderer && scene && camera) renderer.render(scene, camera);
+}
+
+// THE NEAR PLANE. Depth precision is spent almost entirely near the camera: a
+// 24-bit buffer with near = 0.1 can only tell apart surfaces about 1 cm apart
+// at 120 units, and the board is looked at from 30 to 500 units away. That was
+// the other half of the flickering ground. Nothing on the board is ever within
+// a few percent of the camera's height of the lens (the follow camera rides 22+
+// units up, set pieces keep 5+ units clear), so the near plane is pushed out to
+// 4% of that height: 0.9 in the follow shot, the 4-unit cap over the map. The
+// minigame stage has small sets and keeps its own 0.1.
+const NEAR_MIN = 0.5, NEAR_MAX = 4, NEAR_PER_HEIGHT = 0.04;
+function _fitNear() {
+    if (!camera) return;
+    const want = Math.max(NEAR_MIN, Math.min(NEAR_MAX, camera.position.y * NEAR_PER_HEIGHT));
+    // Only touch the projection when it moves by more than a few percent.
+    if (Math.abs(want - camera.near) / camera.near < 0.04) return;
+    camera.near = want;
+    camera.updateProjectionMatrix();
 }
 
 // ============================================================
@@ -3194,7 +3294,7 @@ function _dashesAlong(points) {
         const dash = new THREE.Mesh(new THREE.PlaneGeometry(0.25, 2.2), mat);
         dash.rotation.x = -Math.PI / 2;
         dash.rotation.z = -Math.atan2(b.z - a.z, b.x - a.x) + Math.PI / 2;
-        dash.position.set((a.x + b.x) / 2, -0.58, (a.z + b.z) / 2);
+        dash.position.set((a.x + b.x) / 2, CITY_GROUND.surface, (a.z + b.z) / 2);
         _cityEnvGroup.add(dash);
     }
 }
@@ -3312,24 +3412,24 @@ function _buildCityGround() {
     }
     const base = new THREE.Mesh(new THREE.CircleGeometry(130, 64), _CM.ground);
     base.rotation.x = -Math.PI / 2;
-    base.position.y = -0.62;
+    base.position.y = CITY_GROUND.base;
     base.receiveShadow = true;
     _cityEnvGroup.add(base);
 
     // Center park (grass)
     const park = new THREE.Mesh(new THREE.CircleGeometry(20, 32), _CM.grass);
     park.rotation.x = -Math.PI / 2;
-    park.position.y = -0.59;
+    park.position.y = CITY_GROUND.walk;
     _cityEnvGroup.add(park);
 
     // Sidewalk ring around park
     const sw1 = new THREE.Mesh(new THREE.RingGeometry(20, 24, 64), _CM.sidewalk);
-    sw1.rotation.x = -Math.PI / 2; sw1.position.y = -0.60;
+    sw1.rotation.x = -Math.PI / 2; sw1.position.y = CITY_GROUND.walk;
     _cityEnvGroup.add(sw1);
 
     // Road ring (ring road band)
     const road1 = new THREE.Mesh(new THREE.RingGeometry(24, 42, 64), _CM.asphalt);
-    road1.rotation.x = -Math.PI / 2; road1.position.y = -0.61;
+    road1.rotation.x = -Math.PI / 2; road1.position.y = CITY_GROUND.road;
     _cityEnvGroup.add(road1);
 
     // ---- The districts -------------------------------------------------
@@ -3347,7 +3447,7 @@ function _buildCityGround() {
     districtRuns().forEach(run => {
         const pts = lobeSamples(run, 56);
         const tint = _DISTRICT_GROUND[run.ids[0].split('_')[0]] || {};
-        _cityEnvGroup.add(_ribbon(pts, 23, tint.pave || _CM.sidewalk, -0.60));
+        _cityEnvGroup.add(_ribbon(pts, 23, tint.pave || _CM.sidewalk, CITY_GROUND.pave));
         // No asphalt or lane markings under a district: _buildDistrictSurfaces
         // lays a slab per tile on top of this, and a road nobody can see is
         // just triangles. The pavement is the part that shows, and its job is
@@ -3364,8 +3464,8 @@ function _buildCityGround() {
         [0, 1].forEach(end => {
             const outer = _lobeEnd(run, end);
             const inner = outer.clone().normalize().multiplyScalar(34);
-            _cityEnvGroup.add(_ribbon([inner, outer], 11, _CM.sidewalk, -0.60));
-            _cityEnvGroup.add(_ribbon([inner, outer], 6, _CM.asphalt, -0.605));
+            _cityEnvGroup.add(_ribbon([inner, outer], 11, _CM.sidewalk, CITY_GROUND.walk));
+            _cityEnvGroup.add(_ribbon([inner, outer], 6, _CM.asphalt, CITY_GROUND.road));
         });
     });
 
@@ -3378,7 +3478,7 @@ function _buildCityGround() {
         const dash = new THREE.Mesh(dashGeo, dashMat);
         dash.rotation.x = -Math.PI / 2;
         dash.rotation.z = -angle;
-        dash.position.set(Math.cos(angle) * 33, -0.58, Math.sin(angle) * 33);
+        dash.position.set(Math.cos(angle) * 33, CITY_GROUND.surface, Math.sin(angle) * 33);
         _cityEnvGroup.add(dash);
     }
 }
@@ -4446,7 +4546,7 @@ function _buildDistrictSurfaces() {
             const slab = new THREE.Mesh(new THREE.PlaneGeometry(16, 13), mat);
             slab.rotation.x = -Math.PI / 2;
             slab.rotation.z = -ang;
-            slab.position.set(pos.x, -0.55, pos.z);
+            slab.position.set(pos.x, CITY_GROUND.surface, pos.z);
             slab.receiveShadow = true;
             _cityEnvGroup.add(slab);
             // One seam line per slab, so the surface reads as laid rather than
@@ -4460,7 +4560,7 @@ function _buildDistrictSurfaces() {
                 line.rotation.z = -ang;
                 const off = new THREE.Vector3(Math.cos(ang), 0, -Math.sin(ang))
                     .multiplyScalar((s - (seams - 1) / 2) * 3.4);
-                line.position.set(pos.x + off.x, -0.54, pos.z + off.z);
+                line.position.set(pos.x + off.x, CITY_GROUND.seam, pos.z + off.z);
                 _cityEnvGroup.add(line);
             }
             // Back Alley puddles: dark glossy discs that catch the key light.
@@ -4471,7 +4571,7 @@ function _buildDistrictSurfaces() {
                         metalness: 0.5, transparent: true, opacity: 0.85 }));
                 puddle.rotation.x = -Math.PI / 2;
                 const out = _outwardDir(pos).multiplyScalar(2.4 + _seeded(i * 5) * 2.6);
-                puddle.position.set(pos.x + out.x, -0.53, pos.z + out.z);
+                puddle.position.set(pos.x + out.x, CITY_GROUND.puddle, pos.z + out.z);
                 _cityEnvGroup.add(puddle);
             }
         });
@@ -4949,11 +5049,11 @@ function _buildTraffic() {
     });
     avenues.forEach(av => {
         const p0 = av.dir.clone().multiplyScalar(TRAFFIC.r0 - 3), p1 = av.dir.clone().multiplyScalar(TRAFFIC.r1 + 3);
-        _cityEnvGroup.add(_ribbon([p0, p1], 9.5, _CM.sidewalk, -0.60));
-        _cityEnvGroup.add(_ribbon([p0, p1], 7, _CM.asphalt, -0.595));
+        _cityEnvGroup.add(_ribbon([p0, p1], 9.5, _CM.sidewalk, CITY_GROUND.walk));
+        _cityEnvGroup.add(_ribbon([p0, p1], 7, _CM.asphalt, CITY_GROUND.road));
         // A turning circle at the inner end, so the U-turn has somewhere to be.
         const pad = new THREE.Mesh(new THREE.CircleGeometry(4.2, 20), _CM.asphalt);
-        pad.rotation.x = -Math.PI / 2; pad.position.copy(av.dir).multiplyScalar(TRAFFIC.r0).setY(-0.594);
+        pad.rotation.x = -Math.PI / 2; pad.position.copy(av.dir).multiplyScalar(TRAFFIC.r0).setY(CITY_GROUND.road);
         pad.receiveShadow = true;
         _cityEnvGroup.add(pad);
     });

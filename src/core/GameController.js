@@ -241,7 +241,7 @@ function _populateMapSelectScreen() {
     const grid = document.getElementById('map-select-grid');
     if (!grid) return;
     grid.innerHTML = '';
-    MAP_REGISTRY.forEach(map => {
+    MAP_REGISTRY.filter(m => !m.archived).forEach(map => {
         const card = document.createElement('div');
         card.className = `map-card bfont${!map.available ? ' map-card-locked' : ''}`;
         card.dataset.mapId = map.id;
@@ -259,7 +259,7 @@ function _populateMapSelectScreen() {
     });
 
     // Pre-select first available map
-    const first = MAP_REGISTRY.find(m => m.available);
+    const first = MAP_REGISTRY.find(m => m.available && !m.archived);
     if (first) selectMap(first.id);
 }
 

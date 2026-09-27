@@ -700,12 +700,25 @@ function _midShot(a, b) {
     return { pos: mid.clone().add(new THREE.Vector3(0, 12, 20)), look: mid.clone().setY(1) };
 }
 
+// A camera move keeps running for its whole duration, but the camera may be
+// handed back before it ends: a short set piece calls endCinematic() while its
+// last move is still easing, and the next set piece can take the camera over
+// from the one before. The move used to keep writing regardless, so it and
+// the follow camera (or the next shot) took turns setting the camera, one
+// frame each: jumps of 16 to 90 units in one frame (qa/boardmotion.js).
+// Each move now owns the camera by number and stops writing the moment it is
+// no longer the latest owner, or the camera has left CINEMATIC.
+let _camOwner = 0;
+function _ownsCamera(id) { return id === _camOwner && state.cameraState === 'CINEMATIC'; }
+
 function _takeCamera(pose, dur) {
     const cam = getCamera();
     if (!cam) return;
     state.cameraState = 'CINEMATIC';
+    const id = ++_camOwner;
     const from = cam.position.clone();
     _beat(dur, (pr) => {
+        if (!_ownsCamera(id)) return;
         const e = 1 - Math.pow(1 - pr, 3);
         cam.position.lerpVectors(from, pose.pos, e);
         cam.lookAt(pose.look);
@@ -716,8 +729,10 @@ function _takeCameraPath(a, b, dur) {
     const cam = getCamera();
     if (!cam) return;
     state.cameraState = 'CINEMATIC';
+    const id = ++_camOwner;
     const look = a.look.clone();
     _beat(dur, (pr) => {
+        if (!_ownsCamera(id)) return;
         const e = 1 - Math.pow(1 - pr, 3);
         cam.position.lerpVectors(a.pos, b.pos, e);
         look.lerpVectors(a.look, b.look, e);

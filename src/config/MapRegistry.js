@@ -11,6 +11,9 @@
 //   color      — accent color for the card border / highlight
 //   available  — false shows a "COMING SOON" badge and disables selection
 //   lengthPicker — id of the match-length chip row to reveal for this map
+//   archived   — true hides the card from map select entirely. The module in
+//                maps/ stays registered, so a saved match still resumes and the
+//                QA probes can still load it; flip it back to bring the map in.
 // ============================================================
 
 export const MAP_REGISTRY = [
@@ -48,5 +51,6 @@ export const MAP_REGISTRY = [
         color:     '#d97706',
         lengthPicker: 'city-length-select',
         available: true,
+        archived:  true,   // shelved for v1 — the store build ships City Circuit and Hundred Block Dash
     },
 ];
