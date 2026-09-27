@@ -13,7 +13,6 @@
     "cap:sync": "npm run build:web && npx cap sync",
     "android": "npm run cap:sync && npx cap open android",
     "ios": "npm run cap:sync && npx cap open ios",
-    "editor:build": "node scripts/build-map-editor.js",
     "layout:apply": "node scripts/apply-layout.js"
   },
   "dependencies": {

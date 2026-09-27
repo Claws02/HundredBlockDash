@@ -3015,7 +3015,8 @@ export function qaRenderFrom(pos, look) {
 /** Last frame's draw calls and triangles, for QA and the diagnostics log. */
 /**
  * A straight-down orthographic render of the board, `half` world units either
- * side of the origin, for the map editor's floor (qa/exportlayout.js). `hide`
+ * side of the origin, for the map editor's floor (the editor repo's
+ * scripts/export-reference.js). `hide`
  * decides which top-level scene objects to leave out. Returns a JPEG data URL.
  */
 export function qaRenderTopDown(half, hide = () => false) {

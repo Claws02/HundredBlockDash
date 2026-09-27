@@ -10,7 +10,6 @@
 // code taken from the input.
 //
 // usage: node scripts/apply-layout.js <layout.json>
-//        (qa/exportlayout.js calls writeLayout() directly)
 // ============================================================
 const fs = require('fs');
 const path = require('path');
