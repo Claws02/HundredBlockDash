@@ -11,6 +11,7 @@ import * as ActiveMap from '../config/ActiveMap.js';
 import * as Stars from '../core/Stars.js';
 import * as Settings from '../core/Settings.js';
 import * as CityKit from './CityKit.js';
+import { layoutFor } from '../config/layouts/index.js';
 
 let scene, camera, renderer, clock;
 let boardGrp, diceGrp;
@@ -3012,6 +3013,24 @@ export function qaRenderFrom(pos, look) {
     return { calls: renderer.info.render.calls, triangles: renderer.info.render.triangles };
 }
 /** Last frame's draw calls and triangles, for QA and the diagnostics log. */
+/**
+ * A straight-down orthographic render of the board, `half` world units either
+ * side of the origin, for the map editor's floor (qa/exportlayout.js). `hide`
+ * decides which top-level scene objects to leave out. Returns a JPEG data URL.
+ */
+export function qaRenderTopDown(half, hide = () => false) {
+    if (!renderer || !scene) return null;
+    const cam = new THREE.OrthographicCamera(-half, half, half, -half, 1, 2000);
+    cam.position.set(0, 1000, 0); cam.up.set(0, 0, -1); cam.lookAt(0, 0, 0);
+    const hidden = [];
+    scene.traverse(o => { if (o !== scene && o.visible && hide(o)) { o.visible = false; hidden.push(o); } });
+    const fog = scene.fog; scene.fog = null;
+    renderer.render(scene, cam);
+    const url = renderer.domElement.toDataURL('image/jpeg', 0.85);
+    scene.fog = fog; hidden.forEach(o => { o.visible = true; });
+    return url;
+}
+
 /** One plot building on its own, for qa/modelsheet.js. Not added to the scene. */
 export function qaPlotBuilding(district, isHQ, x, z) {
     const make = _PLOT_BUILDER[district];
@@ -3837,7 +3856,7 @@ const _PLOT_BUILDER = {
     ba:   (pos, isHQ) => CityKit.walkup(pos, isHQ),
     shop: (pos, isHQ) => CityKit.shopfront(pos, undefined, isHQ),
     ind:  (pos, isHQ) => CityKit.works(pos, isHQ),
-    ring: (pos)       => CityKit.civic(pos) || _mkTree(pos),   // one plot in four is a tree
+    ring: (pos)       => CityKit.civic(pos) || CityKit.tree(pos),   // one plot in four is a tree
     // ---- Star Territory ----
     hub:   (pos, _h, seed) => _mkFalseFront(pos, seed),
     rail:  (pos, _h, seed) => _mkRailShed(pos, seed),
@@ -3846,7 +3865,32 @@ const _PLOT_BUILDER = {
     bad:   (pos, _h, seed) => _mkBadlandsRock(pos, seed),
 };
 
+// A hand-made layout (the map editor's) places every building and landmark
+// itself; see src/config/layouts.
+function _placeLayout(layout) {
+    layout.items.forEach(it => {
+        const M = CityKit.MODELS[it.model];
+        const g = CityKit.buildModel(it, { live: _kitLive });
+        if (!M || !g) return;
+        const scale = it.scale || 1;
+        g.position.set(it.x, 0, it.z);
+        g.rotation.y = it.rotY || 0;
+        g.scale.setScalar(scale);
+        // Plot buildings get out of the camera's way like the automatic ones;
+        // landmarks stand far enough back that they never did.
+        if (!M.landmark) _canOcclude(g, M.half * (it.hq ? 1.35 : 1) * scale);
+        _cityEnvGroup.add(g);
+    });
+}
+
 function _buildAllDistrictBuildings() {
+    const layout = layoutFor(ActiveMap.id());
+    if (layout) {
+        _placeLayout(layout);
+        if (_isClover()) _buildMesaHorizon();
+        else             _buildBackgroundSkyline();
+        return;
+    }
     const boardData = state.board;
     let plotSeed = 0;
     Object.keys(ActiveMap.graph()).forEach(nodeId => {
@@ -4580,9 +4624,14 @@ function _propCivic(r, seed) {
 // Placed at the district's midpoint and set well back, so it reads as the thing
 // the district is named after from the flyover and from the map view.
 function _buildDistrictLandmarks() {
-    const BUILD = { fin: _lmExchange, ba: _lmNeonArch, shop: _lmArcade, ind: _lmCoolingTowers,
+    // City's four landmarks live in CityKit.js (the map editor builds them too).
+    const kitLm = key => () => CityKit.landmark(key, { live: e => _cityLive.push(e) });
+    const BUILD = { fin: kitLm('fin'), ba: kitLm('ba'), shop: kitLm('shop'), ind: kitLm('ind'),
                     rail: _lmWaterTower, mine: _lmHeadframe, ranch: _lmGreatBarn, bad: _lmMesa };
+    // A layout places City's landmarks with everything else.
+    const laid = layoutFor(ActiveMap.id());
     Object.keys(BUILD).forEach(key => {
+        if (laid && laid.items.some(it => it.model === 'lm-' + key)) return;
         const nodes = _districtNodes(key);
         if (!nodes.length) return;
         const mid = getPos(nodes[Math.floor(nodes.length / 2)]).clone().setY(0);
@@ -4593,119 +4642,6 @@ function _buildDistrictLandmarks() {
         g.traverse(o => { if (o.isMesh) o.castShadow = true; });
         _cityEnvGroup.add(g);
     });
-}
-
-function _lmExchange() {                                 // colonnaded exchange
-    const g = new THREE.Group();
-    const stone = _dressMat(0xd7d2c6, { rough: 0.75 });
-    const base = new THREE.Mesh(new THREE.BoxGeometry(22, 2, 13), stone);
-    base.position.y = 1; g.add(base);
-    const body = new THREE.Mesh(new THREE.BoxGeometry(19, 11, 11), stone);
-    body.position.y = 7.5; g.add(body);
-    for (let i = 0; i < 7; i++) {
-        const col = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.85, 11, 12), stone);
-        col.position.set(-8.4 + i * 2.8, 7.5, 6.2); g.add(col);
-    }
-    const ped = new THREE.Mesh(new THREE.ConeGeometry(11.5, 3.6, 4), stone);
-    ped.position.y = 14.6; ped.rotation.y = Math.PI / 4; g.add(ped);
-    // A gold arrow over the pediment: the district's own emblem.
-    const arrow = new THREE.Mesh(new THREE.ConeGeometry(1.5, 3.2, 4),
-        _dressMat(0xfbbf24, { rough: 0.3, metal: 0.7, emissive: 0xb45309, ei: 0.4 }));
-    arrow.position.y = 18.4; arrow.rotation.y = Math.PI / 4; g.add(arrow);
-    return g;
-}
-
-function _lmNeonArch() {                                 // market gate over the alley
-    const g = new THREE.Group();
-    const brick = _dressMat(0x5a2417, { rough: 0.95 });
-    [-6.5, 6.5].forEach(x => {
-        const leg = new THREE.Mesh(new THREE.BoxGeometry(2.2, 12, 2.2), brick);
-        leg.position.set(x, 6, 0); g.add(leg);
-    });
-    const span = new THREE.Mesh(new THREE.BoxGeometry(15, 2.4, 2.2), brick);
-    span.position.y = 13.2; g.add(span);
-    const signMat = new THREE.MeshBasicMaterial({ color: 0xff2d78 });
-    const sign = new THREE.Mesh(new THREE.BoxGeometry(11, 2.6, 0.3), signMat);
-    sign.position.set(0, 13.2, 1.3); g.add(sign);
-    const tubeMat = new THREE.MeshBasicMaterial({ color: 0x2ddcff });
-    for (let i = 0; i < 5; i++) {
-        const t = new THREE.Mesh(new THREE.TorusGeometry(0.7, 0.11, 6, 16), tubeMat);
-        t.position.set(-4 + i * 2, 10.6, 1.3); g.add(t);
-    }
-    // Washing lines strung between the legs — the detail that says "lived in".
-    const line = _dressMat(0x2a2a2a, { rough: 1 });
-    [8.6, 6.4].forEach((y, li) => {
-        const rope = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 13, 5), line);
-        rope.rotation.z = Math.PI / 2; rope.position.set(0, y, li ? 1.2 : -1.2); g.add(rope);
-        for (let i = 0; i < 6; i++) {
-            const cloth = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 1.3),
-                _dressMat([0xf8fafc, 0x60a5fa, 0xfbbf24, 0xf87171][i % 4],
-                          { rough: 0.9, opacity: 0.95 }));
-            cloth.material.side = THREE.DoubleSide;
-            cloth.position.set(-5 + i * 2, y - 0.75, li ? 1.2 : -1.2); g.add(cloth);
-        }
-    });
-    _cityLive.push({ kind: 'neon', parts: [signMat, tubeMat], seed: 4 });
-    return g;
-}
-
-function _lmArcade() {                                   // glass arcade with bunting
-    const g = new THREE.Group();
-    const frame = _dressMat(0xf2e9f7, { rough: 0.5 });
-    [-8, 8].forEach(x => {
-        const w = new THREE.Mesh(new THREE.BoxGeometry(1.6, 12, 10), frame);
-        w.position.set(x, 6, 0); g.add(w);
-    });
-    const glass = new THREE.Mesh(new THREE.CylinderGeometry(8.4, 8.4, 10, 20, 1, true, 0, Math.PI),
-        new THREE.MeshPhysicalMaterial({ color: 0xd8b4fe, transparent: true, opacity: 0.42,
-            roughness: 0.05, metalness: 0.2, side: THREE.DoubleSide }));
-    glass.rotation.z = Math.PI / 2; glass.rotation.y = Math.PI / 2;
-    glass.position.y = 12; g.add(glass);
-    for (let i = 0; i < 6; i++) {
-        const rib = new THREE.Mesh(new THREE.TorusGeometry(8.4, 0.16, 6, 18, Math.PI), frame);
-        rib.position.set(0, 12, -4.6 + i * 1.85); g.add(rib);
-    }
-    // Bunting between the two piers.
-    for (let i = 0; i < 11; i++) {
-        const flag = new THREE.Mesh(new THREE.ConeGeometry(0.4, 0.9, 3),
-            _dressMat([0xef4444, 0xfbbf24, 0x22c55e, 0x3b82f6][i % 4], { rough: 0.7 }));
-        const t = i / 10;
-        flag.position.set(-7.5 + t * 15, 13.2 - Math.sin(t * Math.PI) * 1.8, 5.4);
-        flag.rotation.x = Math.PI; g.add(flag);
-    }
-    return g;
-}
-
-function _lmCoolingTowers() {                            // the power plant
-    const g = new THREE.Group();
-    const shell = _dressMat(0x9c968a, { rough: 0.92 });
-    [-7.5, 7.5].forEach((x, i) => {
-        const pts = [];
-        for (let s = 0; s <= 10; s++) {
-            const t = s / 10;
-            const rr = 5.4 - Math.sin(t * Math.PI) * 2.2 + t * 1.1;
-            pts.push(new THREE.Vector2(rr, t * 18));
-        }
-        const tower = new THREE.Mesh(new THREE.LatheGeometry(pts, 18), shell);
-        tower.position.set(x, 0, i ? 2.5 : -2.5); g.add(tower);
-        const puffs = [];
-        for (let k = 0; k < 4; k++) {
-            const puff = new THREE.Mesh(new THREE.SphereGeometry(3.0, 10, 8),
-                new THREE.MeshBasicMaterial({ color: 0xdfe3e8, transparent: true, opacity: 0, depthWrite: false }));
-            puff.position.set(x, 18, i ? 2.5 : -2.5); g.add(puff); puffs.push(puff);
-        }
-        _cityLive.push({ kind: 'steam', puffs, seed: 20 + i * 3, rise: 13, base: 18,
-                         spread: 2.2, x, z: i ? 2.5 : -2.5 });
-    });
-    // A red aircraft beacon on a gantry between them.
-    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.5, 22, 8),
-        _dressMat(0x6b6f66, { rough: 0.6, metal: 0.5 }));
-    mast.position.y = 11; g.add(mast);
-    const lampMat = new THREE.MeshBasicMaterial({ color: 0xff3b30 });
-    const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.7, 10, 8), lampMat);
-    lamp.position.y = 22.4; g.add(lamp);
-    _cityLive.push({ kind: 'beacon', mat: lampMat, seed: 1 });
-    return g;
 }
 
 // ---- Token reactions (RELEASE_AUDIT M-01) ----
