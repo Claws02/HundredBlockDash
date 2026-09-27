@@ -84,8 +84,15 @@ async function measure(browser, query, shot) {
         const a = off.r.views[v], b = on.r.views[v];
         ok(`1 ${v} view: draw calls do not rise`, b.calls <= a.calls, `${a.calls} → ${b.calls} calls, ${a.triangles} → ${b.triangles} tris`);
     }
-    ok('1 overview: draw calls fall by a third or more', on.r.views.overview.calls <= off.r.views.overview.calls * 0.67,
+    // The merge's share of the saving shrank when the plot buildings became
+    // pre-merged kit models (CityKit.js, three meshes each): unmerged, the
+    // overview fell 2,213 → 1,581 calls before the merge does anything. So
+    // the merge must still cut a quarter, and the shipped overview must stay
+    // under the 1,262 calls it cost before the kit (measured 2026-09-27).
+    ok('1 overview: the merge still cuts a quarter or more', on.r.views.overview.calls <= off.r.views.overview.calls * 0.75,
        `${off.r.views.overview.calls} → ${on.r.views.overview.calls}`);
+    ok('1 overview: shipped draw calls under the pre-kit 1,262', on.r.views.overview.calls < 1262,
+       `${on.r.views.overview.calls}`);
 
     // 2. The living bits still move and fade.
     const live = await on.page.evaluate(async () => {
