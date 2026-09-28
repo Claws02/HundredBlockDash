@@ -1235,6 +1235,21 @@ export function benchPiece() { return _piece(bench(), 'bench'); }
 export function fountainPiece() { return _piece(fountain(), 'fountain'); }
 
 // ------------------------------------------------------------
+// ROADS THROUGH MOVED SPACES
+// ------------------------------------------------------------
+/**
+ * A smooth road through `points` ([x, z] pairs), sampled at n+1 points. When a
+ * layout moves a district's spaces, the game lays that district's road along
+ * this curve (Renderer.lobeSamples), and the map editor previews it with the
+ * same function, so the two cannot disagree. Centripetal, so a road does not
+ * overshoot or loop between spaces that are close together.
+ */
+export function roadCurve(points, n) {
+    const c = new THREE.CatmullRomCurve3(points.map(([x, z]) => new THREE.Vector3(x, 0, z)), false, 'centripetal');
+    return c.getPoints(n);
+}
+
+// ------------------------------------------------------------
 // THE MODEL LIBRARY — what a layout can place
 // ------------------------------------------------------------
 // A layout item is { model, seed, hq, x, z, rotY, scale } (src/config/layouts).

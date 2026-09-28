@@ -17,6 +17,10 @@ A layout item is `{ model, seed, hq, x, z, rotY, scale }`. `seed` (0–99) picks
 
 `apply-layout.js` treats a saved layout as untrusted. It refuses unknown maps and models, numbers that aren't finite, positions off the board, scales outside 0.5–2 and seeds outside 0–99, and it writes a JSON literal, never code from the input.
 
+## Moved spaces
+
+A layout may carry `spaces: { nodeId: [x, z] }`: spaces the editor moved. They are applied right after the map's geometry places every node (`buildNodePositions`), so tiles, tokens, hops, the camera path and the guide tubes all follow. A district with moved spaces lays its road and pavement through them (`lobeSamples` switches to `CityKit.roadCurve`, the curve the editor previews), and a ring stretch with moved spaces gets asphalt along them. Space *types* are untouched: the game still deals them each match. Only real spaces may move (not the junctions where roads meet), and `apply-layout.js` checks every id against the map module. `qa/mapmodules.js` loads with `?nolayout` because it checks the map module's own geometry.
+
 ## Pulling a saved layout in
 
 1. Read the saved layout from the editor page's store (`layouts/city_circuit`).

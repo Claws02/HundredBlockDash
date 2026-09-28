@@ -157,6 +157,14 @@ function _lobePoint(run, t, pow) {
 export function lobeSamples(run, n = 40) {
     const L = ActiveMap.layout() || {};
     const pow = L.lobePow || 1.3;
+    // A district whose spaces a layout has moved: its road runs through where
+    // the spaces now are, from the lobe's own ends, on the curve the map
+    // editor previews (CityKit.roadCurve).
+    if (run.ids.some(id => _movedSpaces.has(id))) {
+        const at = v => [v.x, v.z];
+        return CityKit.roadCurve([at(_lobePoint(run, 0, pow)), ...run.ids.map(id => at(getPos(id))),
+                                  at(_lobePoint(run, 1, pow))], n);
+    }
     const out = [];
     for (let i = 0; i <= n; i++) out.push(_lobePoint(run, i / n, pow));
     return out;
@@ -226,6 +234,7 @@ function _buildCloverPositions(L) {
 
 function buildNodePositions() {
     nodePositions.clear();
+    _movedSpaces.clear();
     const L = ActiveMap.layout();
     if (L && L.kind === 'clover') { _buildCloverPositions(L); return; }
     if (!L || L.kind !== 'city_arcs') return;
@@ -249,7 +258,18 @@ function buildNodePositions() {
         const n = run.ids.length;
         run.ids.forEach((id, i) => nodePositions.set(id, _lobePoint(run, (i + 1) / (n + 1), pow)));
     }
+    // Spaces a hand-made layout has moved (src/config/layouts). Only real
+    // spaces: the junctions are where roads meet, not somewhere to stand.
+    const moved = layoutFor(ActiveMap.id())?.spaces;
+    if (moved) for (const [id, xz] of Object.entries(moved)) {
+        if (!nodePositions.has(id) || ActiveMap.isJunction(id) || !Array.isArray(xz)) continue;
+        nodePositions.set(id, new THREE.Vector3(xz[0], 0, xz[1]));
+        _movedSpaces.add(id);
+    }
 }
+// Which spaces stand where a layout put them rather than where the map's
+// geometry would (roads through them are laid along the new positions).
+const _movedSpaces = new Set();
 
 export function getPos(nodeId) {
     if (typeof nodeId === 'number') return hbdPositions[Math.max(0, Math.min(nodeId, _hbdMax))] || new THREE.Vector3();
@@ -3032,6 +3052,30 @@ export function qaRenderTopDown(half, hide = () => false) {
     return url;
 }
 
+/**
+ * The board as the map editor needs it (its export-reference script): every
+ * node with its district, the roads as node lists, and each district's run
+ * with the ends of its lobe and its pavement's width and colour, so the
+ * editor can lay the same road through spaces it moves (CityKit.roadCurve).
+ */
+export function qaBoardRef() {
+    const L = ActiveMap.layout() || {}, pow = L.lobePow || 1.3, r3 = n => Math.round(n * 1000) / 1000;
+    const g = ActiveMap.graph();
+    const nodes = [...nodePositions.keys()].map(id => {
+        const v = nodePositions.get(id);
+        return { id, x: r3(v.x), z: r3(v.z), district: g[id]?.district || ActiveMap.hubKey(), junction: ActiveMap.isJunction(id) };
+    });
+    const roads = ActiveMap.roads().map(r => ({ district: r.district, ids: r.nodes.slice() }));
+    const runs = districtRuns().map(run => {
+        const a = _lobePoint(run, 0, pow), b = _lobePoint(run, 1, pow);
+        const key = run.ids[0].split('_')[0];
+        const mat = (_DISTRICT_GROUND[key] || {}).pave || (_CM && _CM.sidewalk);
+        return { district: key, ids: run.ids.slice(), end0: [r3(a.x), r3(a.z)], end1: [r3(b.x), r3(b.z)],
+                 width: 23, color: mat && mat.color ? '#' + mat.color.getHexString() : '#b0a898' };
+    });
+    return { nodes, roads, runs, hub: ActiveMap.hubKey() };
+}
+
 /** One plot building on its own, for qa/modelsheet.js. Not added to the scene. */
 export function qaPlotBuilding(district, isHQ, x, z) {
     const make = _PLOT_BUILDER[district];
@@ -3455,12 +3499,25 @@ function _buildCityGround() {
     districtRuns().forEach(run => {
         const pts = lobeSamples(run, 56);
         const tint = _DISTRICT_GROUND[run.ids[0].split('_')[0]] || {};
-        _cityEnvGroup.add(_ribbon(pts, 23, tint.pave || _CM.sidewalk, CITY_GROUND.pave));
+        const pave = _ribbon(pts, 23, tint.pave || _CM.sidewalk, CITY_GROUND.pave);
+        pave.userData.followsSpaces = true;         // the map editor draws this itself
+        _cityEnvGroup.add(pave);
         // No asphalt or lane markings under a district: _buildDistrictSurfaces
         // lays a slab per tile on top of this, and a road nobody can see is
         // just triangles. The pavement is the part that shows, and its job is
         // to draw the district's outline on the ground.
     });
+
+    // Ring spaces a layout moved off the ring's band get asphalt under them:
+    // the ring road is a fixed circle, so a stretch through moved spaces is
+    // laid along them.
+    ActiveMap.roads().filter(r => r.district === ActiveMap.hubKey() && r.nodes.some(id => _movedSpaces.has(id)))
+        .forEach(r => {
+            const pts = CityKit.roadCurve(r.nodes.map(id => { const v = getPos(id); return [v.x, v.z]; }), r.nodes.length * 8);
+            const strip = _ribbon(pts, 10, _CM.asphalt, CITY_GROUND.road);
+            strip.userData.followsSpaces = true;
+            _cityEnvGroup.add(strip);
+        });
 
     // ---- The spurs -------------------------------------------------------
     //
@@ -4125,7 +4182,7 @@ function _buildDistrictSurfaces() {
             slab.rotation.z = -ang;
             slab.position.set(pos.x, CITY_GROUND.surface, pos.z);
             slab.receiveShadow = true;
-            _cityEnvGroup.add(slab);
+            slab.userData.followsSpaces = true; _cityEnvGroup.add(slab);
             // One seam line per slab, so the surface reads as laid rather than
             // painted. Hazard chevrons in Industrial, joints everywhere else.
             const seams = (key === 'ind' || key === 'mine') ? 3 : 1;
@@ -4138,7 +4195,7 @@ function _buildDistrictSurfaces() {
                 const off = new THREE.Vector3(Math.cos(ang), 0, -Math.sin(ang))
                     .multiplyScalar((s - (seams - 1) / 2) * 3.4);
                 line.position.set(pos.x + off.x, CITY_GROUND.seam, pos.z + off.z);
-                _cityEnvGroup.add(line);
+                line.userData.followsSpaces = true; _cityEnvGroup.add(line);
             }
             // Back Alley puddles: dark glossy discs that catch the key light.
             if (key === 'ba' && _seeded(i * 7 + 3) > 0.45) {
@@ -4149,7 +4206,7 @@ function _buildDistrictSurfaces() {
                 puddle.rotation.x = -Math.PI / 2;
                 const out = _outwardDir(pos).multiplyScalar(2.4 + _seeded(i * 5) * 2.6);
                 puddle.position.set(pos.x + out.x, CITY_GROUND.puddle, pos.z + out.z);
-                _cityEnvGroup.add(puddle);
+                puddle.userData.followsSpaces = true; _cityEnvGroup.add(puddle);
             }
         });
     });
