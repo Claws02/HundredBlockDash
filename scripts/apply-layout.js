@@ -17,29 +17,31 @@ const path = require('path');
 const ROOT = path.join(__dirname, '..');
 const MAPS = { city_circuit: 138 };            // map → how far from the centre an item may stand
 
-// The model keys CityKit.MODELS defines, read from its source so the two
-// cannot disagree.
-function modelKeys() {
-    const src = fs.readFileSync(path.join(ROOT, 'src/engine/CityKit.js'), 'utf8');
-    const block = src.slice(src.indexOf('export const MODELS = {'));
-    const body = block.slice(0, block.indexOf('\n};'));
-    return new Set([...body.matchAll(/^\s{4}'?([a-z][a-z-]*)'?:\s*\{/gm)].map(m => m[1]));
+// The model library, loaded from CityKit.js itself so the two cannot
+// disagree: three.js from the game's vendor copy stands in for the browser
+// global, and the kit is imported from a copy named .mjs so Node reads it as
+// the ES module it is.
+async function loadModels() {
+    global.THREE = global.THREE || require(path.join(ROOT, 'vendor/three.min.js'));
+    const tmp = path.join(require('os').tmpdir(), `citykit-${process.pid}.mjs`);
+    fs.copyFileSync(path.join(ROOT, 'src/engine/CityKit.js'), tmp);
+    try { return (await import(require('url').pathToFileURL(tmp).href)).MODELS; }
+    finally { fs.rmSync(tmp, { force: true }); }
 }
 
 function fail(msg) { throw new Error('layout rejected: ' + msg); }
 const num = (v, what) => { if (typeof v !== 'number' || !Number.isFinite(v)) fail(`${what} is not a number`); return v; };
 
-function validate(layout) {
+function validate(layout, MODELS) {
     if (!layout || typeof layout !== 'object') fail('not an object');
     const reach = MAPS[layout.map];
     if (!reach) fail(`unknown map "${layout.map}"`);
     if (!Array.isArray(layout.items)) fail('items is not a list');
     if (layout.items.length > 600) fail(`${layout.items.length} items (limit 600)`);
-    const known = modelKeys();
     const items = layout.items.map((it, i) => {
         const at = `item ${i}`;
         if (!it || typeof it !== 'object') fail(`${at} is not an object`);
-        if (!known.has(it.model)) fail(`${at}: unknown model "${it.model}"`);
+        if (!Object.prototype.hasOwnProperty.call(MODELS, it.model)) fail(`${at}: unknown model "${it.model}"`);
         const x = num(it.x, `${at}.x`), z = num(it.z, `${at}.z`);
         if (Math.hypot(x, z) > reach) fail(`${at} stands off the board (${x.toFixed(1)}, ${z.toFixed(1)})`);
         let rotY = num(it.rotY ?? 0, `${at}.rotY`);
@@ -47,17 +49,21 @@ function validate(layout) {
         const scale = num(it.scale ?? 1, `${at}.scale`);
         if (scale < 0.5 || scale > 2) fail(`${at}.scale ${scale} outside 0.5–2`);
         const seed = num(it.seed ?? 0, `${at}.seed`);
-        if (!Number.isInteger(seed) || seed < 0 || seed > 99) fail(`${at}.seed ${seed} is not 0–99`);
+        const seeds = MODELS[it.model].seeds || 100;
+        if (!Number.isInteger(seed) || seed < 0 || seed >= seeds) fail(`${at}.seed ${seed} is not 0–${seeds - 1}`);
         const r3 = n => Math.round(n * 1000) / 1000;
         return { model: it.model, seed, hq: it.hq === true, x: r3(x), z: r3(z), rotY: r3(rotY), scale: r3(scale) };
     });
     const note = typeof layout.note === 'string' ? layout.note.slice(0, 300) : '';
     const savedAt = typeof layout.savedAt === 'string' && !isNaN(Date.parse(layout.savedAt)) ? layout.savedAt : new Date().toISOString();
-    return { map: layout.map, version: 1, savedAt, note, items };
+    // Version 2 places the street pieces too (props, spans, lamps, the park);
+    // version 1 is buildings and landmarks only, the rest automatic.
+    const version = layout.version === 2 ? 2 : 1;
+    return { map: layout.map, version, savedAt, note, items };
 }
 
-function writeLayout(layout) {
-    const clean = validate(layout);
+async function writeLayout(layout) {
+    const clean = validate(layout, await loadModels());
     const file = path.join(ROOT, 'src/config/layouts', clean.map + '.js');
     const body = JSON.stringify(clean, null, 1)
         .replace(/\n {2,}/g, ' ').replace(/\{ "model"/g, '\n  { "model"');    // one item per line
@@ -68,13 +74,12 @@ function writeLayout(layout) {
     return { file, count: clean.items.length };
 }
 
-module.exports = { validate, writeLayout };
+module.exports = { validate, writeLayout, loadModels };
 
 if (require.main === module) {
     const src = process.argv[2];
     if (!src) { console.error('usage: node scripts/apply-layout.js <layout.json>'); process.exit(2); }
-    try {
-        const r = writeLayout(JSON.parse(fs.readFileSync(src, 'utf8')));
-        console.log(`wrote ${path.relative(ROOT, r.file)} (${r.count} items)`);
-    } catch (e) { console.error(e.message); process.exit(1); }
+    writeLayout(JSON.parse(fs.readFileSync(src, 'utf8')))
+        .then(r => console.log(`wrote ${path.relative(ROOT, r.file)} (${r.count} items)`))
+        .catch(e => { console.error(e.message); process.exit(1); });
 }

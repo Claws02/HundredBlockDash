@@ -3494,46 +3494,28 @@ function _buildCityGround() {
 // ---- Center plaza (fountain + park) ----
 
 function _buildCityCenter() {
-    // Raised platform
-    const platform = new THREE.Mesh(new THREE.CylinderGeometry(9, 9, 0.4, 32), _CM.concrete);
-    platform.position.y = -0.38;
-    _cityEnvGroup.add(platform);
-
-    // Fountain basin wall
-    const basin = new THREE.Mesh(new THREE.CylinderGeometry(5.5, 5.5, 1.0, 32), _CM.concrete);
-    basin.position.y = 0.28;
-    _cityEnvGroup.add(basin);
-
-    // Water surface
-    const water = new THREE.Mesh(new THREE.CircleGeometry(5.2, 32), _CM.water);
-    water.rotation.x = -Math.PI / 2;
-    water.position.y = 0.82;
-    _cityEnvGroup.add(water);
-
-    // Fountain column
-    const colMat = new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.5, roughness: 0.4 });
-    const col = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.36, 3.5, 8), colMat);
-    col.position.y = 2.35;
-    _cityEnvGroup.add(col);
-
-    // Water spray (translucent cone)
-    const sprayMat = new THREE.MeshPhysicalMaterial({ color: 0x99ccff, transparent: true, opacity: 0.35, roughness: 0.1 });
-    const spray = new THREE.Mesh(new THREE.ConeGeometry(1.0, 2.2, 16), sprayMat);
-    spray.position.y = 5.1;
-    _cityEnvGroup.add(spray);
-
-    // Park trees (8 around perimeter)
+    // The fountain, eight park trees and four benches facing the fountain
+    // (CityKit.js). A full layout places these itself.
+    if (_fullLayout()) return;
+    _cityEnvGroup.add(CityKit.fountainPiece());
     for (let i = 0; i < 8; i++) {
         const a = (i / 8) * Math.PI * 2;
-        _cityEnvGroup.add(_mkTree(new THREE.Vector3(Math.cos(a) * 14, 0, Math.sin(a) * 14)));
+        _cityEnvGroup.add(CityKit.tree(new THREE.Vector3(Math.cos(a) * 14, 0, Math.sin(a) * 14)));
     }
-
-    // Benches facing fountain
     for (let i = 0; i < 4; i++) {
         const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
-        const bPos = new THREE.Vector3(Math.cos(a) * 10, 0, Math.sin(a) * 10);
-        _cityEnvGroup.add(_mkBench(bPos, a + Math.PI));
+        const b = CityKit.benchPiece();
+        b.position.set(Math.cos(a) * 10, 0, Math.sin(a) * 10);
+        b.rotation.y = a + Math.PI;
+        _cityEnvGroup.add(b);
     }
+}
+
+// A layout that places everything (version 2: buildings, landmarks and the
+// street pieces), in which case the automatic dressing passes stand aside.
+function _fullLayout() {
+    const l = layoutFor(ActiveMap.id());
+    return l && l.version >= 2 ? l : null;
 }
 
 // ---- Street lamps ----
@@ -3546,7 +3528,8 @@ function _buildStreetLamps() {
     if (!hubNodes.length) return;
     // A city has electric lamps; Perdition has lantern posts, and a shorter
     // hub ring means every node gets one rather than every other.
-    const post = _isClover() ? _mkLanternPost : _mkLampPost;
+    if (_fullLayout()) return;
+    const post = _isClover() ? _mkLanternPost : () => CityKit.lampPiece();
     const every = hubNodes.length > 14 ? 2 : 1;
     const reach = _isClover() ? 5 : 6;
     hubNodes.forEach((id, idx) => {
@@ -3556,50 +3539,17 @@ function _buildStreetLamps() {
         [reach, -reach].forEach(d => {
             const at = pos.clone().addScaledVector(out, d);
             at.y = 0;
-            _cityEnvGroup.add(post(at));
+            const lp = post(at);
+            if (!_isClover()) lp.position.copy(at);
+            _cityEnvGroup.add(lp);
         });
     });
 }
 
 // ---- Small helpers ----
 
-function _mkTree(pos) {
-    const grp = new THREE.Group();
-    grp.position.copy(pos);
-    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.3, 2.2, 6), _CM.treeTrunk);
-    trunk.position.y = 1.1; trunk.castShadow = true;
-    grp.add(trunk);
-    const leaves = new THREE.Mesh(new THREE.SphereGeometry(1.6, 8, 8), _CM.treeLeaf);
-    leaves.position.y = 3.3; leaves.scale.y = 1.15; leaves.castShadow = true;
-    grp.add(leaves);
-    return grp;
-}
 
-function _mkBench(pos, rotY) {
-    const grp = new THREE.Group();
-    grp.position.copy(pos); grp.rotation.y = rotY;
-    const seat = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.14, 0.65), _CM.bench);
-    seat.position.y = 0.72; grp.add(seat);
-    const back = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.85, 0.1), _CM.bench);
-    back.position.set(0, 1.14, -0.27); grp.add(back);
-    const legGeo = new THREE.BoxGeometry(0.14, 0.72, 0.65);
-    [-0.8, 0.8].forEach(x => { const leg = new THREE.Mesh(legGeo, _CM.benchMetal); leg.position.set(x, 0.36, 0); grp.add(leg); });
-    return grp;
-}
 
-function _mkLampPost(pos) {
-    const grp = new THREE.Group();
-    grp.position.copy(pos);
-    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.12, 8.5, 7), _CM.lampPole);
-    pole.position.y = 4.25; pole.castShadow = true; grp.add(pole);
-    const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 2.2, 6), _CM.lampPole);
-    arm.rotation.z = Math.PI / 2; arm.position.set(1.1, 8.4, 0); grp.add(arm);
-    const head = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.22, 0.55, 8), _CM.lampPole);
-    head.position.set(2.1, 8.2, 0); grp.add(head);
-    const glow = new THREE.Mesh(new THREE.SphereGeometry(0.18, 8, 8), _CM.lampGlow);
-    glow.position.set(2.1, 8.1, 0); grp.add(glow);
-    return grp;
-}
 
 // ---- District buildings ----
 
@@ -3879,7 +3829,7 @@ function _placeLayout(layout) {
         g.scale.setScalar(scale);
         // Plot buildings get out of the camera's way like the automatic ones;
         // landmarks stand far enough back that they never did.
-        if (!M.landmark) _canOcclude(g, M.half * (it.hq ? 1.35 : 1) * scale);
+        if (M.occlude) _canOcclude(g, M.half * (it.hq ? 1.35 : 1) * scale);
         _cityEnvGroup.add(g);
     });
 }
@@ -4023,11 +3973,14 @@ function _buildDistrictLights() {
 // one object — a stock board, a washing line under dead neon, a bunting arch, a
 // pipe bridge.
 function _buildOverheads() {
-    const SPAN = { fin: _spanTickerArch, ba: _spanLaundry, shop: _spanBunting,
-                   ind: _spanPipeBridge, ring: _spanGantrySign,
+    const kitSpan = key => i => CityKit.span(key, i, { live: e => _cityLive.push(e) });
+    const full = _fullLayout();
+    const SPAN = { fin: kitSpan('fin'), ba: kitSpan('ba'), shop: kitSpan('shop'),
+                   ind: kitSpan('ind'), ring: kitSpan('ring'),
                    hub: _spanGallowsSign, rail: _spanSignalGantry, mine: _spanShoring,
                    ranch: _spanLogGate, bad: _spanDeadCottonwood };
     Object.keys(SPAN).forEach(key => {
+        if (full && ['fin', 'ba', 'shop', 'ind', 'ring'].includes(key)) return;
         const nodes = _districtNodes(key);
         if (nodes.length < 3) return;
         // The hub carries its spans further apart, because everybody crosses it
@@ -4060,194 +4013,10 @@ function _buildOverheads() {
     });
 }
 
-// A pair of legs either side of the road, at ±SPAN_HALF, with a deck across.
-const SPAN_HALF = 7.4;
-
-function _spanLegs(g, mat, height, thick = 0.55) {
-    [-SPAN_HALF, SPAN_HALF].forEach(x => {
-        const leg = new THREE.Mesh(new THREE.BoxGeometry(thick, height, thick), mat);
-        leg.position.set(x, height / 2, 0);
-        g.add(leg);
-    });
-}
-
-function _spanTickerArch(i) {                    // Financial: the boards overhead
-    const g = new THREE.Group();
-    const steel = _dressMat(0xb8c2cf, { rough: 0.35, metal: 0.7 });
-    _spanLegs(g, steel, 8.4, 0.6);
-    const deck = new THREE.Mesh(new THREE.BoxGeometry(SPAN_HALF * 2 + 1.2, 0.5, 1.0), steel);
-    deck.position.y = 8.4; g.add(deck);
-    const face = new THREE.Mesh(new THREE.BoxGeometry(SPAN_HALF * 2, 1.9, 0.28),
-        _dressMat(0x080d16, { rough: 0.45 }));
-    face.position.set(0, 7.2, 0.62); g.add(face);
-    const bars = [];
-    for (let k = 0; k < 16; k++) {
-        const bar = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 1.1),
-            new THREE.MeshBasicMaterial({ color: 0x22c55e }));
-        bar.position.set(-SPAN_HALF + 0.75 + k * 0.94, 7.2, 0.78);
-        g.add(bar); bars.push(bar);
-    }
-    _cityLive.push({ kind: 'ticker', bars, seed: 90 + i * 5 });
-    // A gold band under the deck picks the district's colour out at night.
-    const band = new THREE.Mesh(new THREE.BoxGeometry(SPAN_HALF * 2 + 1.2, 0.16, 1.02),
-        new THREE.MeshBasicMaterial({ color: 0xfbbf24 }));
-    band.position.y = 8.1; g.add(band);
-    return g;
-}
-
-function _spanLaundry(i) {                       // Back Alley: lines and dead neon
-    const g = new THREE.Group();
-    const brick = _dressMat(0x4a2018, { rough: 0.95 });
-    // Two tenement walls right at the kerb, so the alley is enclosed.
-    [-1, 1].forEach(sgn => {
-        const wall = new THREE.Mesh(new THREE.BoxGeometry(1.4, 13, 11), brick);
-        wall.position.set(sgn * (SPAN_HALF + 0.7), 6.5, 0); g.add(wall);
-        // Fire escape: three landings and their rails.
-        for (let f = 0; f < 3; f++) {
-            const deck = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.16, 3.2),
-                _dressMat(0x2c2c2c, { rough: 0.6, metal: 0.55 }));
-            deck.position.set(sgn * (SPAN_HALF - 0.6), 3.4 + f * 3.1, 0); g.add(deck);
-            const rail = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.9, 3.2),
-                _dressMat(0x2c2c2c, { rough: 0.6, metal: 0.55 }));
-            rail.position.set(sgn * (SPAN_HALF - 1.3), 3.9 + f * 3.1, 0); g.add(rail);
-        }
-        // Lit window squares up the wall — the cheapest "people live here".
-        for (let w = 0; w < 5; w++) {
-            const lit = _seeded(i * 13 + w + (sgn > 0 ? 7 : 0)) > 0.45;
-            const win = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 1.1),
-                new THREE.MeshBasicMaterial({ color: lit ? 0xffd88a : 0x14171f }));
-            win.position.set(sgn * (SPAN_HALF - 0.05), 4.5 + w * 1.9, -3.4 + (w % 2) * 6.8);
-            win.rotation.y = sgn > 0 ? -Math.PI / 2 : Math.PI / 2;
-            g.add(win);
-        }
-    });
-    // Three washing lines across, sagging.
-    const rope = _dressMat(0x1e1e1e, { rough: 1 });
-    [7.2, 9.6, 11.4].forEach((y, li) => {
-        const line = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, SPAN_HALF * 2, 5), rope);
-        line.rotation.z = Math.PI / 2;
-        line.position.set(0, y, -2 + li * 2); g.add(line);
-        for (let k = 0; k < 7; k++) {
-            const t = (k + 0.5) / 7;
-            const cloth = new THREE.Mesh(new THREE.PlaneGeometry(0.95, 1.4),
-                _dressMat([0xf1f5f9, 0x60a5fa, 0xfbbf24, 0xf87171, 0x86efac][(k + li) % 5], { rough: 0.9 }));
-            cloth.material.side = THREE.DoubleSide;
-            cloth.position.set(-SPAN_HALF + t * SPAN_HALF * 2,
-                               y - 0.8 - Math.sin(t * Math.PI) * 0.5, -2 + li * 2);
-            g.add(cloth);
-        }
-    });
-    // A dead neon sign hanging over the middle of the road.
-    const col = [0xff2d78, 0x35e0ff, 0xa855f7][i % 3];
-    const signMat = new THREE.MeshBasicMaterial({ color: col });
-    const sign = new THREE.Mesh(new THREE.BoxGeometry(4.6, 1.5, 0.22), signMat);
-    sign.position.set(0, 5.6, 1.2); g.add(sign);
-    const tubeMat = new THREE.MeshBasicMaterial({ color: 0xfff3a0 });
-    for (let k = 0; k < 3; k++) {
-        const t = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.1, 6, 14), tubeMat);
-        t.position.set(-1.3 + k * 1.3, 4.2, 1.2); g.add(t);
-    }
-    _cityLive.push({ kind: 'neon', parts: [signMat, tubeMat], seed: 30 + i * 3 });
-    return g;
-}
-
-function _spanBunting(i) {                       // Promenade: the parade arch
-    const g = new THREE.Group();
-    const pole = _dressMat(0xf5eaf8, { rough: 0.5 });
-    _spanLegs(g, pole, 7.6, 0.4);
-    [-SPAN_HALF, SPAN_HALF].forEach(x => {
-        const finial = new THREE.Mesh(new THREE.SphereGeometry(0.45, 12, 10),
-            _dressMat(0xfbbf24, { rough: 0.3, metal: 0.6 }));
-        finial.position.set(x, 8.0, 0); g.add(finial);
-    });
-    // Three swags of bunting at different depths, each a catenary of triangles.
-    const cols = [0xef4444, 0xfbbf24, 0x22c55e, 0x3b82f6, 0xf472b6];
-    [0, 1, 2].forEach(row => {
-        for (let k = 0; k < 13; k++) {
-            const t = k / 12;
-            const flag = new THREE.Mesh(new THREE.ConeGeometry(0.34, 0.85, 3),
-                _dressMat(cols[(k + row) % 5], { rough: 0.65 }));
-            flag.position.set(-SPAN_HALF + t * SPAN_HALF * 2,
-                              7.2 - Math.sin(t * Math.PI) * 1.7 - row * 0.15,
-                              -2.2 + row * 2.2);
-            flag.rotation.x = Math.PI;
-            g.add(flag);
-        }
-    });
-    // A banner across the top.
-    const banner = new THREE.Mesh(new THREE.BoxGeometry(SPAN_HALF * 1.5, 1.5, 0.2),
-        _dressMat(0xf472b6, { rough: 0.6, emissive: 0xd6337f, ei: 0.35 }));
-    banner.position.set(0, 8.3, 0); g.add(banner);
-    // Balloon cluster tied to one leg.
-    const side = i % 2 ? 1 : -1;
-    for (let k = 0; k < 6; k++) {
-        const b = new THREE.Mesh(new THREE.SphereGeometry(0.42, 10, 8),
-            _dressMat(cols[k % 5], { rough: 0.35 }));
-        b.scale.y = 1.2;
-        b.position.set(side * (SPAN_HALF - 0.9) + (_seeded(i * 9 + k) - 0.5) * 1.4,
-                       5.6 + _seeded(i * 5 + k) * 1.5,
-                       (_seeded(i * 3 + k) - 0.5) * 1.4);
-        g.add(b);
-    }
-    return g;
-}
-
-function _spanPipeBridge(i) {                    // Industrial: the works overhead
-    const g = new THREE.Group();
-    const steel = _dressMat(0x6d7268, { rough: 0.55, metal: 0.6 });
-    _spanLegs(g, steel, 7.0, 0.75);
-    // Lattice deck.
-    const deck = new THREE.Mesh(new THREE.BoxGeometry(SPAN_HALF * 2 + 1.5, 0.4, 2.6), steel);
-    deck.position.y = 7.0; g.add(deck);
-    for (let k = 0; k < 9; k++) {
-        const brace = new THREE.Mesh(new THREE.BoxGeometry(0.18, 1.5, 0.18), steel);
-        brace.position.set(-SPAN_HALF + k * (SPAN_HALF * 2 / 8), 6.3, 0);
-        brace.rotation.z = (k % 2 ? 1 : -1) * 0.7; g.add(brace);
-    }
-    // Three pipes running the span, one of them painted hazard orange.
-    [[-0.8, 0x8a8f7a], [0, 0xb45309], [0.8, 0x7e8478]].forEach(([z, c], k) => {
-        const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.36, SPAN_HALF * 2 + 1.5, 10),
-            _dressMat(c, { rough: 0.6, metal: 0.45 }));
-        pipe.rotation.z = Math.PI / 2;
-        pipe.position.set(0, 7.9 + (k === 1 ? 0.1 : 0), z * 1.5); g.add(pipe);
-    });
-    // Floodlights aimed down at the road.
-    [-1, 1].forEach(sgn => {
-        const head = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.6, 0.7), steel);
-        head.position.set(sgn * (SPAN_HALF - 1.6), 6.6, 1.6);
-        head.rotation.x = 0.5; g.add(head);
-        const glow = new THREE.Mesh(new THREE.PlaneGeometry(0.95, 0.5),
-            new THREE.MeshBasicMaterial({ color: 0xffd9a0 }));
-        glow.position.set(sgn * (SPAN_HALF - 1.6), 6.35, 1.9);
-        glow.rotation.x = -1.1; g.add(glow);
-    });
-    // Hazard chevrons on the legs.
-    [-SPAN_HALF, SPAN_HALF].forEach(x => {
-        for (let k = 0; k < 3; k++) {
-            const ch = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.28, 0.8),
-                _dressMat(k % 2 ? 0x111111 : 0xfacc15, { rough: 0.8 }));
-            ch.position.set(x, 0.5 + k * 0.34, 0); g.add(ch);
-        }
-    });
-    return g;
-}
-
-function _spanGantrySign(i) {                    // Ring road: motorway signage
-    const g = new THREE.Group();
-    const steel = _dressMat(0x9aa3ad, { rough: 0.4, metal: 0.65 });
-    _spanLegs(g, steel, 6.6, 0.42);
-    const beam = new THREE.Mesh(new THREE.BoxGeometry(SPAN_HALF * 2 + 1.0, 0.32, 0.42), steel);
-    beam.position.y = 6.6; g.add(beam);
-    const board = new THREE.Mesh(new THREE.BoxGeometry(6.4, 2.0, 0.22),
-        _dressMat(0x1b5e2a, { rough: 0.7 }));
-    board.position.set(0, 5.4, 0.35); g.add(board);
-    [0, 1].forEach(r => {
-        const line = new THREE.Mesh(new THREE.PlaneGeometry(4.4 - r * 1.4, 0.3),
-            new THREE.MeshBasicMaterial({ color: 0xf1f5f9 }));
-        line.position.set(-0.4 + r * 0.5, 5.8 - r * 0.75, 0.48); g.add(line);
-    });
-    return g;
-}
+// The span pieces (City's five spans, and the legs every span stands on)
+// live in CityKit.js; Star Territory's spans below use the same legs.
+const SPAN_HALF = CityKit.SPAN_HALF;
+const _spanLegs = CityKit.spanLegs;
 
 // ---- 6. Ambient particles ----
 //
@@ -4389,13 +4158,16 @@ function _buildDistrictSurfaces() {
 // ---- 2. Roadside props ----
 
 function _buildDistrictDressing() {
-    const MAKER = { finance: _propFinance, alley: _propAlley, market: _propMarket,
-                    works: _propWorks, civic: _propCivic,
+    const kitProp = set => (r, seed) => CityKit.prop(set, r, seed, { live: e => _cityLive.push(e) });
+    const full = _fullLayout();
+    const MAKER = { finance: kitProp('finance'), alley: kitProp('alley'), market: kitProp('market'),
+                    works: kitProp('works'), civic: kitProp('civic'),
                     township: _propTownship, railyard: _propRailyard, mine: _propMine,
                     ranch: _propRanch, badlands: _propBadlands };
     Object.keys(DISTRICT_BIOMES).forEach(key => {
         const make = MAKER[DISTRICT_BIOMES[key].props];
         if (!make) return;
+        if (full && ['finance', 'alley', 'market', 'works', 'civic'].includes(DISTRICT_BIOMES[key].props)) return;
         _districtNodes(key).forEach((id, i) => {
             const pos = getPos(id).clone().setY(0);
             const out = _outwardDir(pos);
@@ -4420,205 +4192,6 @@ function _buildDistrictDressing() {
 }
 
 // Financial: planters, bollard rows, and a live stock ticker.
-function _propFinance(r, seed) {
-    const g = new THREE.Group();
-    if (r < 0.34) {                                    // stone planter with a hedge
-        const box = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.9, 1.2), _dressMat(0xbfc6d1, { rough: 0.7 }));
-        box.position.y = 0.45; g.add(box);
-        const hedge = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.8, 0.95), _dressMat(0x2f6b32, { rough: 0.95 }));
-        hedge.position.y = 1.2; g.add(hedge);
-    } else if (r < 0.66) {                             // bollard row
-        for (let i = 0; i < 4; i++) {
-            const b = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.2, 1.0, 8),
-                _dressMat(0xd8dee8, { rough: 0.4, metal: 0.6 }));
-            b.position.set((i - 1.5) * 0.95, 0.5, 0); g.add(b);
-        }
-    } else {                                            // ticker board
-        const post = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.16, 3.0, 8),
-            _dressMat(0x5b6472, { rough: 0.4, metal: 0.7 }));
-        post.position.y = 1.5; g.add(post);
-        const board = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.95, 0.22), _dressMat(0x0b1220, { rough: 0.5 }));
-        board.position.y = 3.1; g.add(board);
-        const bars = [];
-        for (let i = 0; i < 7; i++) {
-            const up = _seeded(seed * 5 + i) > 0.45;
-            const bar = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.5),
-                new THREE.MeshBasicMaterial({ color: up ? 0x22c55e : 0xef4444 }));
-            bar.position.set(-1.3 + i * 0.44, 3.1, 0.13);
-            g.add(bar); bars.push(bar);
-        }
-        _cityLive.push({ kind: 'ticker', bars, seed });
-    }
-    return g;
-}
-
-// Back Alley: dumpsters, crate stacks, steam vents, flickering neon.
-function _propAlley(r, seed) {
-    const g = new THREE.Group();
-    if (r < 0.3) {                                      // dumpster
-        const body = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.4, 1.3), _dressMat(0x2f5f3a, { rough: 0.8 }));
-        body.position.y = 0.7; g.add(body);
-        const lid = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.16, 1.4), _dressMat(0x24482d, { rough: 0.8 }));
-        lid.position.set(0, 1.5, -0.1); lid.rotation.x = -0.25; g.add(lid);
-    } else if (r < 0.55) {                              // crates and a barrel
-        for (let i = 0; i < 3; i++) {
-            const s = 0.7 + _seeded(seed + i) * 0.4;
-            const c = new THREE.Mesh(new THREE.BoxGeometry(s, s, s), _dressMat(0x8a6a3c, { rough: 0.95 }));
-            c.position.set((i - 1) * 0.85, s / 2 + (i === 1 ? 0.75 : 0), _seeded(seed * 3 + i) * 0.5);
-            c.rotation.y = _seeded(seed + i * 2) * 0.7; g.add(c);
-        }
-        const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 1.1, 10),
-            _dressMat(0x7a3b22, { rough: 0.85 }));
-        barrel.position.set(1.5, 0.55, 0.2); g.add(barrel);
-    } else if (r < 0.72) {                              // steam vent
-        const grate = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.75, 0.14, 12),
-            _dressMat(0x3a3a3a, { rough: 0.7, metal: 0.5 }));
-        grate.position.y = 0.07; g.add(grate);
-        const puffs = [];
-        for (let i = 0; i < 4; i++) {
-            const puff = new THREE.Mesh(new THREE.SphereGeometry(0.55, 8, 6),
-                new THREE.MeshBasicMaterial({ color: 0xd8dde5, transparent: true,
-                    opacity: 0.0, depthWrite: false }));
-            puff.position.y = 0.3; g.add(puff); puffs.push(puff);
-        }
-        _cityLive.push({ kind: 'steam', puffs, seed, rise: 4.5, spread: 0.5 });
-    } else {                                            // neon sign on a bracket
-        const arm = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 1.4), _dressMat(0x333333, { rough: 0.6, metal: 0.5 }));
-        arm.position.set(0, 3.0, 0.7); g.add(arm);
-        const col = [0xff2d78, 0x2ddcff, 0xffd12d, 0x8b5cf6][Math.floor(_seeded(seed * 9) * 4)];
-        const tube = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.09, 6, 18),
-            new THREE.MeshBasicMaterial({ color: col }));
-        tube.position.set(0, 2.8, 1.4); g.add(tube);
-        const bar = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.13, 0.13),
-            new THREE.MeshBasicMaterial({ color: col }));
-        bar.position.set(0, 2.8, 1.4); g.add(bar);
-        _cityLive.push({ kind: 'neon', parts: [tube.material, bar.material], seed });
-    }
-    return g;
-}
-
-// Promenade: market stalls, kiosks, planters, sandwich boards.
-function _propMarket(r, seed) {
-    const g = new THREE.Group();
-    const stripe = [0xef4444, 0x22c55e, 0x3b82f6, 0xf59e0b][Math.floor(_seeded(seed * 3) * 4)];
-    if (r < 0.5) {                                      // stall with a striped awning
-        for (let i = 0; i < 4; i++) {
-            const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 2.0, 6),
-                _dressMat(0xd6d3d1, { rough: 0.6, metal: 0.3 }));
-            leg.position.set(i < 2 ? -1.1 : 1.1, 1.0, i % 2 ? -0.7 : 0.7); g.add(leg);
-        }
-        const table = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.12, 1.6), _dressMat(0xa1854f, { rough: 0.9 }));
-        table.position.y = 1.0; g.add(table);
-        // Awning: two sloped panels in the stall's colour and white.
-        [-1, 1].forEach(s => {
-            const panel = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.08, 1.05),
-                _dressMat(s > 0 ? stripe : 0xf8fafc, { rough: 0.7 }));
-            panel.position.set(0, 2.25, s * 0.5);
-            panel.rotation.x = s * 0.42; g.add(panel);
-        });
-        // Goods on the table.
-        for (let i = 0; i < 3; i++) {
-            const b = new THREE.Mesh(new THREE.SphereGeometry(0.2, 8, 6),
-                _dressMat([0xef4444, 0xfbbf24, 0x22c55e][i], { rough: 0.7 }));
-            b.position.set(-0.7 + i * 0.7, 1.2, 0); g.add(b);
-        }
-    } else if (r < 0.75) {                              // kiosk
-        const body = new THREE.Mesh(new THREE.CylinderGeometry(0.95, 1.0, 2.4, 10),
-            _dressMat(0xe8e2ee, { rough: 0.7 }));
-        body.position.y = 1.2; g.add(body);
-        const roof = new THREE.Mesh(new THREE.ConeGeometry(1.35, 0.8, 10), _dressMat(stripe, { rough: 0.7 }));
-        roof.position.y = 2.8; g.add(roof);
-        const board = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 0.7),
-            _dressMat(0xffffff, { rough: 0.5, emissive: 0xffffff, ei: 0.25 }));
-        board.position.set(0, 1.6, 1.02); g.add(board);
-    } else {                                            // planter + sandwich board
-        const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.45, 0.8, 10),
-            _dressMat(0xb08968, { rough: 0.9 }));
-        pot.position.y = 0.4; g.add(pot);
-        const bush = new THREE.Mesh(new THREE.SphereGeometry(0.7, 10, 8), _dressMat(0x2f6b32, { rough: 0.95 }));
-        bush.position.y = 1.25; bush.scale.y = 1.15; g.add(bush);
-        [-1, 1].forEach(s => {
-            const p = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.2, 0.06), _dressMat(0x6b4f2a, { rough: 0.9 }));
-            p.position.set(1.6, 0.65, s * 0.16); p.rotation.x = s * 0.22; g.add(p);
-        });
-    }
-    return g;
-}
-
-// Industrial: pipe runs, containers, cones, and a smoking stack.
-function _propWorks(r, seed) {
-    const g = new THREE.Group();
-    if (r < 0.32) {                                     // pipe run on trestles
-        const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 5.2, 10),
-            _dressMat(0x8a8f7a, { rough: 0.6, metal: 0.5 }));
-        pipe.rotation.z = Math.PI / 2; pipe.position.y = 1.35; g.add(pipe);
-        [-1.9, 1.9].forEach(x => {
-            const leg = new THREE.Mesh(new THREE.BoxGeometry(0.2, 1.35, 0.2), _dressMat(0x5c6157, { rough: 0.7, metal: 0.4 }));
-            leg.position.set(x, 0.68, 0); g.add(leg);
-        });
-        const flange = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.38, 0.2, 10),
-            _dressMat(0xb45309, { rough: 0.6, metal: 0.4 }));
-        flange.rotation.z = Math.PI / 2; flange.position.y = 1.35; g.add(flange);
-    } else if (r < 0.6) {                               // cargo containers
-        const cols = [0xb45309, 0x1d4ed8, 0x15803d, 0x991b1b];
-        for (let i = 0; i < 2; i++) {
-            const c = new THREE.Mesh(new THREE.BoxGeometry(3.4, 1.5, 1.5),
-                _dressMat(cols[Math.floor(_seeded(seed * 3 + i) * 4)], { rough: 0.85, metal: 0.2 }));
-            c.position.set(_seeded(seed + i) * 0.5, 0.75 + i * 1.55, 0);
-            c.rotation.y = (_seeded(seed * 7 + i) - 0.5) * 0.25; g.add(c);
-        }
-    } else if (r < 0.78) {                              // hazard cones and a barrier
-        for (let i = 0; i < 3; i++) {
-            const cone = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.85, 8), _dressMat(0xf97316, { rough: 0.8 }));
-            cone.position.set((i - 1) * 1.1, 0.42, _seeded(seed + i) * 0.4); g.add(cone);
-            const band = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.19, 0.14, 8), _dressMat(0xf8fafc, { rough: 0.7 }));
-            band.position.copy(cone.position).setY(0.52); g.add(band);
-        }
-    } else {                                            // smoking stack
-        const stack = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.78, 5.2, 12),
-            _dressMat(0x8a8070, { rough: 0.9 }));
-        stack.position.y = 2.6; g.add(stack);
-        [1.5, 3.2, 4.6].forEach(y => {
-            const ring = new THREE.Mesh(new THREE.TorusGeometry(0.66, 0.09, 6, 14), _dressMat(0x59544a, { rough: 0.8 }));
-            ring.position.y = y; ring.rotation.x = Math.PI / 2; g.add(ring);
-        });
-        const puffs = [];
-        for (let i = 0; i < 5; i++) {
-            const puff = new THREE.Mesh(new THREE.SphereGeometry(0.85, 8, 6),
-                new THREE.MeshBasicMaterial({ color: 0xc9ccd2, transparent: true, opacity: 0, depthWrite: false }));
-            puff.position.y = 5.2; g.add(puff); puffs.push(puff);
-        }
-        _cityLive.push({ kind: 'steam', puffs, seed, rise: 7.0, base: 5.2, spread: 1.1 });
-    }
-    return g;
-}
-
-// Ring road: the civic baseline — hedges, benches, parked cars, crossings.
-function _propCivic(r, seed) {
-    const g = new THREE.Group();
-    if (r < 0.4) {                                      // hedge run
-        const hedge = new THREE.Mesh(new THREE.BoxGeometry(3.6, 1.0, 1.0), _dressMat(0x2f6b32, { rough: 0.95 }));
-        hedge.position.y = 0.5; g.add(hedge);
-    } else if (r < 0.72) {                              // parked car
-        const cols = [0xdc2626, 0x2563eb, 0xf8fafc, 0x111827, 0x16a34a];
-        const col = cols[Math.floor(_seeded(seed * 5) * 5)];
-        const body = new THREE.Mesh(_roundedBox(3.9, 1.0, 1.7, 0.32, 4), _dressMat(col, { rough: 0.35, metal: 0.35 }));
-        body.position.y = 0.78; g.add(body);
-        const cabin = new THREE.Mesh(_roundedBox(2.0, 0.8, 1.5, 0.3, 4),
-            _dressMat(0x93c5fd, { rough: 0.15, metal: 0.2, opacity: 0.85 }));
-        cabin.position.set(-0.25, 1.5, 0); g.add(cabin);
-        [[-1.3, 0.65], [1.3, 0.65], [-1.3, -0.65], [1.3, -0.65]].forEach(([x, z]) => {
-            const w = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.38, 0.3, 10), _dressMat(0x1c1c1c, { rough: 0.9 }));
-            w.rotation.x = Math.PI / 2; w.position.set(x, 0.38, z); g.add(w);
-        });
-    } else {                                            // bench and a bin
-        g.add(_mkBench(new THREE.Vector3(0, 0, 0), 0));
-        const bin = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.3, 0.9, 10),
-            _dressMat(0x4b5563, { rough: 0.7, metal: 0.3 }));
-        bin.position.set(1.7, 0.45, 0); g.add(bin);
-    }
-    return g;
-}
 
 // ---- 3. One landmark per district ----
 //
@@ -6182,10 +5755,10 @@ export const PROP_KIT = {
     // r in [0.46, 0.66) is the hanging lantern, which registers itself.
     mine:        (r, seed) => _propMine(r >= 0.46 && r < 0.66 ? 0.8 : r, seed),
     // r >= 0.78 is the smoking stack, which registers itself.
-    works:       (r, seed) => _propWorks(r >= 0.78 ? 0.5 : r, seed),
-    market:      (r, seed) => _propMarket(r, seed),
+    works:       (r, seed) => CityKit.prop('works', r >= 0.78 ? 0.5 : r, seed),
+    market:      (r, seed) => CityKit.prop('market', r, seed),
     // r >= 0.55 is the steam vent and the neon, which register themselves.
-    alley:       (r, seed) => _propAlley(r >= 0.55 ? 0.4 : r, seed),
+    alley:       (r, seed) => CityKit.prop('alley', r >= 0.55 ? 0.4 : r, seed),
     faeDecor:    seed => _mkFaeDecor(seed),
     // The floating shard (r < 0.55) registers itself; a stage gets the spire.
     voidSpire:   seed => { let s = seed; while (_sr(s) < 0.55) s += 0.37; return _mkVoidDecor(s); },

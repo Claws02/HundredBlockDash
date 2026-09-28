@@ -13,7 +13,7 @@ City Circuit's buildings and landmarks are placed by a **layout** instead of the
 | Placing a layout on the board | `Renderer._placeLayout` |
 | The checker a saved layout must pass to become a layout module | `scripts/apply-layout.js` (`npm run layout:apply -- <layout.json>`) |
 
-A layout item is `{ model, seed, hq, x, z, rotY, scale }`. `seed` (0–99) picks the variant independently of position. A map without an entry in `src/config/layouts/index.js` keeps automatic placement, and `?nolayout` in the URL forces it. `city_circuit.js` started as an exact export of the automatic placement (64 items), so the city looked the same until the first hand-made layout.
+A layout item is `{ model, seed, hq, x, z, rotY, scale }`. `seed` (0–99) picks the variant independently of position. A map without an entry in `src/config/layouts/index.js` keeps automatic placement, and `?nolayout` in the URL forces it. `city_circuit.js` started as an exact export of the automatic placement (64 items), so the city looked the same until the first hand-made layout. Version 2 layouts also place the street pieces (props, overhead spans, lamps, the fountain, park trees and benches); the automatic dressing passes stand aside for them (`_fullLayout()`).
 
 `apply-layout.js` treats a saved layout as untrusted. It refuses unknown maps and models, numbers that aren't finite, positions off the board, scales outside 0.5–2 and seeds outside 0–99, and it writes a JSON literal, never code from the input.
 

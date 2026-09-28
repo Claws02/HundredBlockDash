@@ -712,36 +712,573 @@ export function tree(pos, opts = {}) {
     return _tag(k.build(), pos, 'tree', 0, false);
 }
 
+
+// ------------------------------------------------------------
+// STREET PIECES — props, overhead spans, lamps, benches, the fountain
+// ------------------------------------------------------------
+// Moved here unchanged from Renderer.js so the map editor places them with
+// the same code the game draws them with. Each prop function still picks
+// its kind from `r` (the bands below); a layout names the kind directly.
+
+/** A box with round corners (three r128 has no RoundedBoxGeometry). */
+function roundedBox(w, h, d, r, seg = 4) {
+    const g = new THREE.BoxGeometry(w, h, d, seg, seg, seg);
+    const pos = g.attributes.position;
+    const ix = w / 2 - r, iy = h / 2 - r, iz = d / 2 - r;
+    const v = new THREE.Vector3(), c = new THREE.Vector3(), o = new THREE.Vector3();
+    for (let i = 0; i < pos.count; i++) {
+        v.fromBufferAttribute(pos, i);
+        c.set(Math.max(-ix, Math.min(ix, v.x)), Math.max(-iy, Math.min(iy, v.y)), Math.max(-iz, Math.min(iz, v.z)));
+        o.copy(v).sub(c);
+        if (o.lengthSq() > 1e-9) { o.setLength(r); v.copy(c).add(o); pos.setXYZ(i, v.x, v.y, v.z); }
+    }
+    g.computeVertexNormals();
+    return g;
+}
+
+const _street = {};
+function streetMats() {
+    if (_street.pole) return _street;
+    Object.assign(_street, {
+        pole:  new THREE.MeshStandardMaterial({ color: 0x888888, metalness: 0.8, roughness: 0.3 }),
+        glow:  new THREE.MeshStandardMaterial({ color: 0xffffcc, emissive: 0xffff44, emissiveIntensity: 1.0 }),
+        bench: new THREE.MeshStandardMaterial({ color: 0x8a6030, roughness: 0.8 }),
+        benchMetal: new THREE.MeshStandardMaterial({ color: 0x555555, metalness: 0.7, roughness: 0.4 }),
+        concrete: new THREE.MeshStandardMaterial({ color: 0x8a8680, roughness: 0.85 }),
+        water: new THREE.MeshPhysicalMaterial({ color: 0x3399cc, transparent: true, opacity: 0.72, roughness: 0.08, metalness: 0.2 }),
+    });
+    return _street;
+}
+
+/** A park bench, at the origin, facing +Z. */
+export function bench() {
+    const M = streetMats();
+    const grp = new THREE.Group();
+    const seat = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.14, 0.65), M.bench);
+    seat.position.y = 0.72; grp.add(seat);
+    const back = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.85, 0.1), M.bench);
+    back.position.set(0, 1.14, -0.27); grp.add(back);
+    const legGeo = new THREE.BoxGeometry(0.14, 0.72, 0.65);
+    [-0.8, 0.8].forEach(x => { const leg = new THREE.Mesh(legGeo, M.benchMetal); leg.position.set(x, 0.36, 0); grp.add(leg); });
+    return grp;
+}
+
+/** A street lamp, its arm reaching along +X. */
+export function lamp() {
+    const M = streetMats();
+    const grp = new THREE.Group();
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.12, 8.5, 7), M.pole);
+    pole.position.y = 4.25; pole.castShadow = true; grp.add(pole);
+    const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 2.2, 6), M.pole);
+    arm.rotation.z = Math.PI / 2; arm.position.set(1.1, 8.4, 0); grp.add(arm);
+    const head = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.22, 0.55, 8), M.pole);
+    head.position.set(2.1, 8.2, 0); grp.add(head);
+    const glow = new THREE.Mesh(new THREE.SphereGeometry(0.18, 8, 8), M.glow);
+    glow.position.set(2.1, 8.1, 0); grp.add(glow);
+    return grp;
+}
+
+/** The park fountain: platform, basin, water, column and spray. */
+export function fountain() {
+    const M = streetMats();
+    const g = new THREE.Group();
+    const platform = new THREE.Mesh(new THREE.CylinderGeometry(9, 9, 0.4, 32), M.concrete);
+    platform.position.y = -0.38; g.add(platform);
+    const basin = new THREE.Mesh(new THREE.CylinderGeometry(5.5, 5.5, 1.0, 32), M.concrete);
+    basin.position.y = 0.28; g.add(basin);
+    const water = new THREE.Mesh(new THREE.CircleGeometry(5.2, 32), M.water);
+    water.rotation.x = -Math.PI / 2; water.position.y = 0.82; g.add(water);
+    const col = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.36, 3.5, 8),
+        new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.5, roughness: 0.4 }));
+    col.position.y = 2.35; g.add(col);
+    const spray = new THREE.Mesh(new THREE.ConeGeometry(1.0, 2.2, 16),
+        new THREE.MeshPhysicalMaterial({ color: 0x99ccff, transparent: true, opacity: 0.35, roughness: 0.1 }));
+    spray.position.y = 5.1; g.add(spray);
+    return g;
+}
+
+function _propFinance(r, seed, live) {
+    const g = new THREE.Group();
+    if (r < 0.34) {                                    // stone planter with a hedge
+        const box = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.9, 1.2), dress(0xbfc6d1, { rough: 0.7 }));
+        box.position.y = 0.45; g.add(box);
+        const hedge = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.8, 0.95), dress(0x2f6b32, { rough: 0.95 }));
+        hedge.position.y = 1.2; g.add(hedge);
+    } else if (r < 0.66) {                             // bollard row
+        for (let i = 0; i < 4; i++) {
+            const b = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.2, 1.0, 8),
+                dress(0xd8dee8, { rough: 0.4, metal: 0.6 }));
+            b.position.set((i - 1.5) * 0.95, 0.5, 0); g.add(b);
+        }
+    } else {                                            // ticker board
+        const post = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.16, 3.0, 8),
+            dress(0x5b6472, { rough: 0.4, metal: 0.7 }));
+        post.position.y = 1.5; g.add(post);
+        const board = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.95, 0.22), dress(0x0b1220, { rough: 0.5 }));
+        board.position.y = 3.1; g.add(board);
+        const bars = [];
+        for (let i = 0; i < 7; i++) {
+            const up = seeded(seed * 5 + i) > 0.45;
+            const bar = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.5),
+                new THREE.MeshBasicMaterial({ color: up ? 0x22c55e : 0xef4444 }));
+            bar.position.set(-1.3 + i * 0.44, 3.1, 0.13);
+            g.add(bar); bars.push(bar);
+        }
+        live({ kind: 'ticker', bars, seed });
+    }
+    return g;
+}
+
+// Back Alley: dumpsters, crate stacks, steam vents, flickering neon.
+function _propAlley(r, seed, live) {
+    const g = new THREE.Group();
+    if (r < 0.3) {                                      // dumpster
+        const body = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.4, 1.3), dress(0x2f5f3a, { rough: 0.8 }));
+        body.position.y = 0.7; g.add(body);
+        const lid = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.16, 1.4), dress(0x24482d, { rough: 0.8 }));
+        lid.position.set(0, 1.5, -0.1); lid.rotation.x = -0.25; g.add(lid);
+    } else if (r < 0.55) {                              // crates and a barrel
+        for (let i = 0; i < 3; i++) {
+            const s = 0.7 + seeded(seed + i) * 0.4;
+            const c = new THREE.Mesh(new THREE.BoxGeometry(s, s, s), dress(0x8a6a3c, { rough: 0.95 }));
+            c.position.set((i - 1) * 0.85, s / 2 + (i === 1 ? 0.75 : 0), seeded(seed * 3 + i) * 0.5);
+            c.rotation.y = seeded(seed + i * 2) * 0.7; g.add(c);
+        }
+        const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 1.1, 10),
+            dress(0x7a3b22, { rough: 0.85 }));
+        barrel.position.set(1.5, 0.55, 0.2); g.add(barrel);
+    } else if (r < 0.72) {                              // steam vent
+        const grate = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.75, 0.14, 12),
+            dress(0x3a3a3a, { rough: 0.7, metal: 0.5 }));
+        grate.position.y = 0.07; g.add(grate);
+        const puffs = [];
+        for (let i = 0; i < 4; i++) {
+            const puff = new THREE.Mesh(new THREE.SphereGeometry(0.55, 8, 6),
+                new THREE.MeshBasicMaterial({ color: 0xd8dde5, transparent: true,
+                    opacity: 0.0, depthWrite: false }));
+            puff.position.y = 0.3; g.add(puff); puffs.push(puff);
+        }
+        live({ kind: 'steam', puffs, seed, rise: 4.5, spread: 0.5 });
+    } else {                                            // neon sign on a bracket
+        const arm = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 1.4), dress(0x333333, { rough: 0.6, metal: 0.5 }));
+        arm.position.set(0, 3.0, 0.7); g.add(arm);
+        const col = [0xff2d78, 0x2ddcff, 0xffd12d, 0x8b5cf6][Math.floor(seeded(seed * 9) * 4)];
+        const tube = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.09, 6, 18),
+            new THREE.MeshBasicMaterial({ color: col }));
+        tube.position.set(0, 2.8, 1.4); g.add(tube);
+        const bar = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.13, 0.13),
+            new THREE.MeshBasicMaterial({ color: col }));
+        bar.position.set(0, 2.8, 1.4); g.add(bar);
+        live({ kind: 'neon', parts: [tube.material, bar.material], seed });
+    }
+    return g;
+}
+
+// Promenade: market stalls, kiosks, planters, sandwich boards.
+function _propMarket(r, seed, live) {
+    const g = new THREE.Group();
+    const stripe = [0xef4444, 0x22c55e, 0x3b82f6, 0xf59e0b][Math.floor(seeded(seed * 3) * 4)];
+    if (r < 0.5) {                                      // stall with a striped awning
+        for (let i = 0; i < 4; i++) {
+            const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 2.0, 6),
+                dress(0xd6d3d1, { rough: 0.6, metal: 0.3 }));
+            leg.position.set(i < 2 ? -1.1 : 1.1, 1.0, i % 2 ? -0.7 : 0.7); g.add(leg);
+        }
+        const table = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.12, 1.6), dress(0xa1854f, { rough: 0.9 }));
+        table.position.y = 1.0; g.add(table);
+        // Awning: two sloped panels in the stall's colour and white.
+        [-1, 1].forEach(s => {
+            const panel = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.08, 1.05),
+                dress(s > 0 ? stripe : 0xf8fafc, { rough: 0.7 }));
+            panel.position.set(0, 2.25, s * 0.5);
+            panel.rotation.x = s * 0.42; g.add(panel);
+        });
+        // Goods on the table.
+        for (let i = 0; i < 3; i++) {
+            const b = new THREE.Mesh(new THREE.SphereGeometry(0.2, 8, 6),
+                dress([0xef4444, 0xfbbf24, 0x22c55e][i], { rough: 0.7 }));
+            b.position.set(-0.7 + i * 0.7, 1.2, 0); g.add(b);
+        }
+    } else if (r < 0.75) {                              // kiosk
+        const body = new THREE.Mesh(new THREE.CylinderGeometry(0.95, 1.0, 2.4, 10),
+            dress(0xe8e2ee, { rough: 0.7 }));
+        body.position.y = 1.2; g.add(body);
+        const roof = new THREE.Mesh(new THREE.ConeGeometry(1.35, 0.8, 10), dress(stripe, { rough: 0.7 }));
+        roof.position.y = 2.8; g.add(roof);
+        const board = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 0.7),
+            dress(0xffffff, { rough: 0.5, emissive: 0xffffff, ei: 0.25 }));
+        board.position.set(0, 1.6, 1.02); g.add(board);
+    } else {                                            // planter + sandwich board
+        const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.45, 0.8, 10),
+            dress(0xb08968, { rough: 0.9 }));
+        pot.position.y = 0.4; g.add(pot);
+        const bush = new THREE.Mesh(new THREE.SphereGeometry(0.7, 10, 8), dress(0x2f6b32, { rough: 0.95 }));
+        bush.position.y = 1.25; bush.scale.y = 1.15; g.add(bush);
+        [-1, 1].forEach(s => {
+            const p = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.2, 0.06), dress(0x6b4f2a, { rough: 0.9 }));
+            p.position.set(1.6, 0.65, s * 0.16); p.rotation.x = s * 0.22; g.add(p);
+        });
+    }
+    return g;
+}
+
+// Industrial: pipe runs, containers, cones, and a smoking stack.
+function _propWorks(r, seed, live) {
+    const g = new THREE.Group();
+    if (r < 0.32) {                                     // pipe run on trestles
+        const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 5.2, 10),
+            dress(0x8a8f7a, { rough: 0.6, metal: 0.5 }));
+        pipe.rotation.z = Math.PI / 2; pipe.position.y = 1.35; g.add(pipe);
+        [-1.9, 1.9].forEach(x => {
+            const leg = new THREE.Mesh(new THREE.BoxGeometry(0.2, 1.35, 0.2), dress(0x5c6157, { rough: 0.7, metal: 0.4 }));
+            leg.position.set(x, 0.68, 0); g.add(leg);
+        });
+        const flange = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.38, 0.2, 10),
+            dress(0xb45309, { rough: 0.6, metal: 0.4 }));
+        flange.rotation.z = Math.PI / 2; flange.position.y = 1.35; g.add(flange);
+    } else if (r < 0.6) {                               // cargo containers
+        const cols = [0xb45309, 0x1d4ed8, 0x15803d, 0x991b1b];
+        for (let i = 0; i < 2; i++) {
+            const c = new THREE.Mesh(new THREE.BoxGeometry(3.4, 1.5, 1.5),
+                dress(cols[Math.floor(seeded(seed * 3 + i) * 4)], { rough: 0.85, metal: 0.2 }));
+            c.position.set(seeded(seed + i) * 0.5, 0.75 + i * 1.55, 0);
+            c.rotation.y = (seeded(seed * 7 + i) - 0.5) * 0.25; g.add(c);
+        }
+    } else if (r < 0.78) {                              // hazard cones and a barrier
+        for (let i = 0; i < 3; i++) {
+            const cone = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.85, 8), dress(0xf97316, { rough: 0.8 }));
+            cone.position.set((i - 1) * 1.1, 0.42, seeded(seed + i) * 0.4); g.add(cone);
+            const band = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.19, 0.14, 8), dress(0xf8fafc, { rough: 0.7 }));
+            band.position.copy(cone.position).setY(0.52); g.add(band);
+        }
+    } else {                                            // smoking stack
+        const stack = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.78, 5.2, 12),
+            dress(0x8a8070, { rough: 0.9 }));
+        stack.position.y = 2.6; g.add(stack);
+        [1.5, 3.2, 4.6].forEach(y => {
+            const ring = new THREE.Mesh(new THREE.TorusGeometry(0.66, 0.09, 6, 14), dress(0x59544a, { rough: 0.8 }));
+            ring.position.y = y; ring.rotation.x = Math.PI / 2; g.add(ring);
+        });
+        const puffs = [];
+        for (let i = 0; i < 5; i++) {
+            const puff = new THREE.Mesh(new THREE.SphereGeometry(0.85, 8, 6),
+                new THREE.MeshBasicMaterial({ color: 0xc9ccd2, transparent: true, opacity: 0, depthWrite: false }));
+            puff.position.y = 5.2; g.add(puff); puffs.push(puff);
+        }
+        live({ kind: 'steam', puffs, seed, rise: 7.0, base: 5.2, spread: 1.1 });
+    }
+    return g;
+}
+
+// Ring road: the civic baseline — hedges, benches, parked cars, crossings.
+function _propCivic(r, seed, live) {
+    const g = new THREE.Group();
+    if (r < 0.4) {                                      // hedge run
+        const hedge = new THREE.Mesh(new THREE.BoxGeometry(3.6, 1.0, 1.0), dress(0x2f6b32, { rough: 0.95 }));
+        hedge.position.y = 0.5; g.add(hedge);
+    } else if (r < 0.72) {                              // parked car
+        const cols = [0xdc2626, 0x2563eb, 0xf8fafc, 0x111827, 0x16a34a];
+        const col = cols[Math.floor(seeded(seed * 5) * 5)];
+        const body = new THREE.Mesh(roundedBox(3.9, 1.0, 1.7, 0.32, 4), dress(col, { rough: 0.35, metal: 0.35 }));
+        body.position.y = 0.78; g.add(body);
+        const cabin = new THREE.Mesh(roundedBox(2.0, 0.8, 1.5, 0.3, 4),
+            dress(0x93c5fd, { rough: 0.15, metal: 0.2, opacity: 0.85 }));
+        cabin.position.set(-0.25, 1.5, 0); g.add(cabin);
+        [[-1.3, 0.65], [1.3, 0.65], [-1.3, -0.65], [1.3, -0.65]].forEach(([x, z]) => {
+            const w = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.38, 0.3, 10), dress(0x1c1c1c, { rough: 0.9 }));
+            w.rotation.x = Math.PI / 2; w.position.set(x, 0.38, z); g.add(w);
+        });
+    } else {                                            // bench and a bin
+        g.add(bench());
+        const bin = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.3, 0.9, 10),
+            dress(0x4b5563, { rough: 0.7, metal: 0.3 }));
+        bin.position.set(1.7, 0.45, 0); g.add(bin);
+    }
+    return g;
+}
+
+
+export const SPAN_HALF = 7.4;
+
+function _spanLegs(g, mat, height, thick = 0.55) {
+    [-SPAN_HALF, SPAN_HALF].forEach(x => {
+        const leg = new THREE.Mesh(new THREE.BoxGeometry(thick, height, thick), mat);
+        leg.position.set(x, height / 2, 0);
+        g.add(leg);
+    });
+}
+
+function _spanTickerArch(i, live) {                    // Financial: the boards overhead
+    const g = new THREE.Group();
+    const steel = dress(0xb8c2cf, { rough: 0.35, metal: 0.7 });
+    _spanLegs(g, steel, 8.4, 0.6);
+    const deck = new THREE.Mesh(new THREE.BoxGeometry(SPAN_HALF * 2 + 1.2, 0.5, 1.0), steel);
+    deck.position.y = 8.4; g.add(deck);
+    const face = new THREE.Mesh(new THREE.BoxGeometry(SPAN_HALF * 2, 1.9, 0.28),
+        dress(0x080d16, { rough: 0.45 }));
+    face.position.set(0, 7.2, 0.62); g.add(face);
+    const bars = [];
+    for (let k = 0; k < 16; k++) {
+        const bar = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 1.1),
+            new THREE.MeshBasicMaterial({ color: 0x22c55e }));
+        bar.position.set(-SPAN_HALF + 0.75 + k * 0.94, 7.2, 0.78);
+        g.add(bar); bars.push(bar);
+    }
+    live({ kind: 'ticker', bars, seed: 90 + i * 5 });
+    // A gold band under the deck picks the district's colour out at night.
+    const band = new THREE.Mesh(new THREE.BoxGeometry(SPAN_HALF * 2 + 1.2, 0.16, 1.02),
+        new THREE.MeshBasicMaterial({ color: 0xfbbf24 }));
+    band.position.y = 8.1; g.add(band);
+    return g;
+}
+
+function _spanLaundry(i, live) {                       // Back Alley: lines and dead neon
+    const g = new THREE.Group();
+    const brick = dress(0x4a2018, { rough: 0.95 });
+    // Two tenement walls right at the kerb, so the alley is enclosed.
+    [-1, 1].forEach(sgn => {
+        const wall = new THREE.Mesh(new THREE.BoxGeometry(1.4, 13, 11), brick);
+        wall.position.set(sgn * (SPAN_HALF + 0.7), 6.5, 0); g.add(wall);
+        // Fire escape: three landings and their rails.
+        for (let f = 0; f < 3; f++) {
+            const deck = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.16, 3.2),
+                dress(0x2c2c2c, { rough: 0.6, metal: 0.55 }));
+            deck.position.set(sgn * (SPAN_HALF - 0.6), 3.4 + f * 3.1, 0); g.add(deck);
+            const rail = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.9, 3.2),
+                dress(0x2c2c2c, { rough: 0.6, metal: 0.55 }));
+            rail.position.set(sgn * (SPAN_HALF - 1.3), 3.9 + f * 3.1, 0); g.add(rail);
+        }
+        // Lit window squares up the wall — the cheapest "people live here".
+        for (let w = 0; w < 5; w++) {
+            const lit = seeded(i * 13 + w + (sgn > 0 ? 7 : 0)) > 0.45;
+            const win = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 1.1),
+                new THREE.MeshBasicMaterial({ color: lit ? 0xffd88a : 0x14171f }));
+            win.position.set(sgn * (SPAN_HALF - 0.05), 4.5 + w * 1.9, -3.4 + (w % 2) * 6.8);
+            win.rotation.y = sgn > 0 ? -Math.PI / 2 : Math.PI / 2;
+            g.add(win);
+        }
+    });
+    // Three washing lines across, sagging.
+    const rope = dress(0x1e1e1e, { rough: 1 });
+    [7.2, 9.6, 11.4].forEach((y, li) => {
+        const line = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, SPAN_HALF * 2, 5), rope);
+        line.rotation.z = Math.PI / 2;
+        line.position.set(0, y, -2 + li * 2); g.add(line);
+        for (let k = 0; k < 7; k++) {
+            const t = (k + 0.5) / 7;
+            const cloth = new THREE.Mesh(new THREE.PlaneGeometry(0.95, 1.4),
+                dress([0xf1f5f9, 0x60a5fa, 0xfbbf24, 0xf87171, 0x86efac][(k + li) % 5], { rough: 0.9 }));
+            cloth.material.side = THREE.DoubleSide;
+            cloth.position.set(-SPAN_HALF + t * SPAN_HALF * 2,
+                               y - 0.8 - Math.sin(t * Math.PI) * 0.5, -2 + li * 2);
+            g.add(cloth);
+        }
+    });
+    // A dead neon sign hanging over the middle of the road.
+    const col = [0xff2d78, 0x35e0ff, 0xa855f7][i % 3];
+    const signMat = new THREE.MeshBasicMaterial({ color: col });
+    const sign = new THREE.Mesh(new THREE.BoxGeometry(4.6, 1.5, 0.22), signMat);
+    sign.position.set(0, 5.6, 1.2); g.add(sign);
+    const tubeMat = new THREE.MeshBasicMaterial({ color: 0xfff3a0 });
+    for (let k = 0; k < 3; k++) {
+        const t = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.1, 6, 14), tubeMat);
+        t.position.set(-1.3 + k * 1.3, 4.2, 1.2); g.add(t);
+    }
+    live({ kind: 'neon', parts: [signMat, tubeMat], seed: 30 + i * 3 });
+    return g;
+}
+
+function _spanBunting(i, live) {                       // Promenade: the parade arch
+    const g = new THREE.Group();
+    const pole = dress(0xf5eaf8, { rough: 0.5 });
+    _spanLegs(g, pole, 7.6, 0.4);
+    [-SPAN_HALF, SPAN_HALF].forEach(x => {
+        const finial = new THREE.Mesh(new THREE.SphereGeometry(0.45, 12, 10),
+            dress(0xfbbf24, { rough: 0.3, metal: 0.6 }));
+        finial.position.set(x, 8.0, 0); g.add(finial);
+    });
+    // Three swags of bunting at different depths, each a catenary of triangles.
+    const cols = [0xef4444, 0xfbbf24, 0x22c55e, 0x3b82f6, 0xf472b6];
+    [0, 1, 2].forEach(row => {
+        for (let k = 0; k < 13; k++) {
+            const t = k / 12;
+            const flag = new THREE.Mesh(new THREE.ConeGeometry(0.34, 0.85, 3),
+                dress(cols[(k + row) % 5], { rough: 0.65 }));
+            flag.position.set(-SPAN_HALF + t * SPAN_HALF * 2,
+                              7.2 - Math.sin(t * Math.PI) * 1.7 - row * 0.15,
+                              -2.2 + row * 2.2);
+            flag.rotation.x = Math.PI;
+            g.add(flag);
+        }
+    });
+    // A banner across the top.
+    const banner = new THREE.Mesh(new THREE.BoxGeometry(SPAN_HALF * 1.5, 1.5, 0.2),
+        dress(0xf472b6, { rough: 0.6, emissive: 0xd6337f, ei: 0.35 }));
+    banner.position.set(0, 8.3, 0); g.add(banner);
+    // Balloon cluster tied to one leg.
+    const side = i % 2 ? 1 : -1;
+    for (let k = 0; k < 6; k++) {
+        const b = new THREE.Mesh(new THREE.SphereGeometry(0.42, 10, 8),
+            dress(cols[k % 5], { rough: 0.35 }));
+        b.scale.y = 1.2;
+        b.position.set(side * (SPAN_HALF - 0.9) + (seeded(i * 9 + k) - 0.5) * 1.4,
+                       5.6 + seeded(i * 5 + k) * 1.5,
+                       (seeded(i * 3 + k) - 0.5) * 1.4);
+        g.add(b);
+    }
+    return g;
+}
+
+function _spanPipeBridge(i, live) {                    // Industrial: the works overhead
+    const g = new THREE.Group();
+    const steel = dress(0x6d7268, { rough: 0.55, metal: 0.6 });
+    _spanLegs(g, steel, 7.0, 0.75);
+    // Lattice deck.
+    const deck = new THREE.Mesh(new THREE.BoxGeometry(SPAN_HALF * 2 + 1.5, 0.4, 2.6), steel);
+    deck.position.y = 7.0; g.add(deck);
+    for (let k = 0; k < 9; k++) {
+        const brace = new THREE.Mesh(new THREE.BoxGeometry(0.18, 1.5, 0.18), steel);
+        brace.position.set(-SPAN_HALF + k * (SPAN_HALF * 2 / 8), 6.3, 0);
+        brace.rotation.z = (k % 2 ? 1 : -1) * 0.7; g.add(brace);
+    }
+    // Three pipes running the span, one of them painted hazard orange.
+    [[-0.8, 0x8a8f7a], [0, 0xb45309], [0.8, 0x7e8478]].forEach(([z, c], k) => {
+        const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.36, SPAN_HALF * 2 + 1.5, 10),
+            dress(c, { rough: 0.6, metal: 0.45 }));
+        pipe.rotation.z = Math.PI / 2;
+        pipe.position.set(0, 7.9 + (k === 1 ? 0.1 : 0), z * 1.5); g.add(pipe);
+    });
+    // Floodlights aimed down at the road.
+    [-1, 1].forEach(sgn => {
+        const head = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.6, 0.7), steel);
+        head.position.set(sgn * (SPAN_HALF - 1.6), 6.6, 1.6);
+        head.rotation.x = 0.5; g.add(head);
+        const glow = new THREE.Mesh(new THREE.PlaneGeometry(0.95, 0.5),
+            new THREE.MeshBasicMaterial({ color: 0xffd9a0 }));
+        glow.position.set(sgn * (SPAN_HALF - 1.6), 6.35, 1.9);
+        glow.rotation.x = -1.1; g.add(glow);
+    });
+    // Hazard chevrons on the legs.
+    [-SPAN_HALF, SPAN_HALF].forEach(x => {
+        for (let k = 0; k < 3; k++) {
+            const ch = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.28, 0.8),
+                dress(k % 2 ? 0x111111 : 0xfacc15, { rough: 0.8 }));
+            ch.position.set(x, 0.5 + k * 0.34, 0); g.add(ch);
+        }
+    });
+    return g;
+}
+
+function _spanGantrySign(i, live) {                    // Ring road: motorway signage
+    const g = new THREE.Group();
+    const steel = dress(0x9aa3ad, { rough: 0.4, metal: 0.65 });
+    _spanLegs(g, steel, 6.6, 0.42);
+    const beam = new THREE.Mesh(new THREE.BoxGeometry(SPAN_HALF * 2 + 1.0, 0.32, 0.42), steel);
+    beam.position.y = 6.6; g.add(beam);
+    const board = new THREE.Mesh(new THREE.BoxGeometry(6.4, 2.0, 0.22),
+        dress(0x1b5e2a, { rough: 0.7 }));
+    board.position.set(0, 5.4, 0.35); g.add(board);
+    [0, 1].forEach(r => {
+        const line = new THREE.Mesh(new THREE.PlaneGeometry(4.4 - r * 1.4, 0.3),
+            new THREE.MeshBasicMaterial({ color: 0xf1f5f9 }));
+        line.position.set(-0.4 + r * 0.5, 5.8 - r * 0.75, 0.48); g.add(line);
+    });
+    return g;
+}
+
+
+// Which prop each district's dressing puts down, by the band `r` falls in.
+const PROP_KINDS = {
+    finance: [[0.34, 'planter'], [0.66, 'bollards'], [1, 'ticker']],
+    alley:   [[0.3, 'dumpster'], [0.55, 'crates'], [0.72, 'steam'], [1, 'neon']],
+    market:  [[0.5, 'stall'], [0.75, 'kiosk'], [1, 'sandwich']],
+    works:   [[0.32, 'pipes'], [0.6, 'containers'], [0.78, 'cones'], [1, 'stack']],
+    civic:   [[0.4, 'hedge'], [0.72, 'car'], [1, 'benchbin']],
+};
+const PROP_MAKERS = { finance: _propFinance, alley: _propAlley, market: _propMarket, works: _propWorks, civic: _propCivic };
+export const spanLegs = _spanLegs;
+const SPAN_MAKERS = { fin: _spanTickerArch, ba: _spanLaundry, shop: _spanBunting, ind: _spanPipeBridge, ring: _spanGantrySign };
+
+function _shadowed(g) { g.traverse(o => { if (o.isMesh) o.castShadow = true; }); return g; }
+
+/** A street prop of `set` (a district's dressing style), kind picked by r. Tagged for layouts. */
+export function prop(set, r, seed, opts = {}) {
+    const make = PROP_MAKERS[set];
+    if (!make) return null;
+    const g = make(r, seed, opts.live || (() => {}));
+    if (!g) return null;
+    const kind = PROP_KINDS[set].find(([top]) => r < top)[1];
+    g.userData.kit = { model: 'prop-' + set + '-' + kind, seed, hq: false };
+    return _shadowed(g);
+}
+/** A prop named by kind: the middle of its band, so it is always that kind. */
+function propKind(set, kind, seed, opts) {
+    const bands = PROP_KINDS[set], i = bands.findIndex(b => b[1] === kind);
+    const lo = i ? bands[i - 1][0] : 0, r = (lo + bands[i][0]) / 2;
+    return prop(set, r, seed, opts);
+}
+
+/** An overhead span across a road; `i` (0 or 1) is which of a district's two. */
+export function span(key, i, opts = {}) {
+    const make = SPAN_MAKERS[key];
+    if (!make) return null;
+    const g = make(i, opts.live || (() => {}));
+    if (!g) return null;
+    g.userData.kit = { model: 'span-' + key, seed: i, hq: false };
+    return _shadowed(g);
+}
+
+/** Tag a street piece built without a seed. */
+function _piece(g, model) { g.userData.kit = { model, seed: 0, hq: false }; return _shadowed(g); }
+export function lampPiece() { return _piece(lamp(), 'lamp'); }
+export function benchPiece() { return _piece(bench(), 'bench'); }
+export function fountainPiece() { return _piece(fountain(), 'fountain'); }
+
 // ------------------------------------------------------------
 // THE MODEL LIBRARY — what a layout can place
 // ------------------------------------------------------------
 // A layout item is { model, seed, hq, x, z, rotY, scale } (src/config/layouts).
 // `seed` picks the variant (height, width, colour and options), independent
 // of where the model stands, so moving a building never changes its look.
-// `half` is the footprint half-width the camera's fade test uses.
+// Fields: `cat` is what kind of piece it is (the editor's library tabs and
+// its conflict rules); `occlude` makes it fade out of the camera's way, with
+// `half` the footprint half-width that test uses; `seeds` is how many
+// variants the seed picks between; `spansRoad` marks pieces built to stand
+// over the road, which the editor's keep-out test leaves alone.
 const ORIGIN = new THREE.Vector3();
+const B = { cat: 'building', variants: true, occlude: true, seeds: 100 };
+const P = { cat: 'prop', variants: true, seeds: 100 };
 export const MODELS = {
-    fin:  { name: 'Glass tower',       district: 'Financial District', variants: true, hq: true, half: 5.0,
-            build: o => tower(ORIGIN, o.hq, o) },
-    ba:   { name: 'Brick walk-up',     district: 'Back Alley',         variants: true, hq: true, half: 5.5,
-            build: o => walkup(ORIGIN, o.hq, o) },
-    shop: { name: 'Shopfront',         district: 'Shopping Promenade', variants: true, hq: true, half: 5.0,
-            build: o => shopfront(ORIGIN, undefined, o.hq, o) },
-    ind:  { name: 'Works shed',        district: 'Industrial Zone',    variants: true, hq: true, half: 6.5,
-            build: o => works(ORIGIN, o.hq, o) },
-    ring: { name: 'Civic hall',        district: 'Ring Road',          variants: true, hq: false, half: 4.5,
-            build: o => civic(ORIGIN, o) },
-    tree: { name: 'Tree',              district: 'Ring Road',          variants: false, hq: false, half: 2.0,
-            build: o => tree(ORIGIN, o) },
-    'lm-fin':  { name: 'The Exchange',   district: 'Financial District', landmark: true, half: 11,
-                 build: o => landmark('fin', o) },
-    'lm-ba':   { name: 'Neon arch',      district: 'Back Alley',         landmark: true, half: 8,
-                 build: o => landmark('ba', o) },
-    'lm-shop': { name: 'Glass arcade',   district: 'Shopping Promenade', landmark: true, half: 9,
-                 build: o => landmark('shop', o) },
-    'lm-ind':  { name: 'Cooling towers', district: 'Industrial Zone',    landmark: true, half: 13,
-                 build: o => landmark('ind', o) },
+    fin:  { ...B, name: 'Glass tower',   district: 'Financial District', hq: true, half: 5.0, build: o => tower(ORIGIN, o.hq, o) },
+    ba:   { ...B, name: 'Brick walk-up', district: 'Back Alley',         hq: true, half: 5.5, build: o => walkup(ORIGIN, o.hq, o) },
+    shop: { ...B, name: 'Shopfront',     district: 'Shopping Promenade', hq: true, half: 5.0, build: o => shopfront(ORIGIN, undefined, o.hq, o) },
+    ind:  { ...B, name: 'Works shed',    district: 'Industrial Zone',    hq: true, half: 6.5, build: o => works(ORIGIN, o.hq, o) },
+    ring: { ...B, name: 'Civic hall',    district: 'Ring Road',          hq: false, half: 4.5, build: o => civic(ORIGIN, o) },
+    'lm-fin':  { cat: 'landmark', name: 'The Exchange',   district: 'Financial District', half: 11, build: o => landmark('fin', o) },
+    'lm-ba':   { cat: 'landmark', name: 'Neon arch',      district: 'Back Alley',         half: 8,  build: o => landmark('ba', o) },
+    'lm-shop': { cat: 'landmark', name: 'Glass arcade',   district: 'Shopping Promenade', half: 9,  build: o => landmark('shop', o) },
+    'lm-ind':  { cat: 'landmark', name: 'Cooling towers', district: 'Industrial Zone',    half: 13, build: o => landmark('ind', o) },
+    'span-fin':  { cat: 'span', name: 'Ticker arch',  district: 'Financial District', seeds: 2, variants: true, occlude: true, half: SPAN_HALF * 0.6, spansRoad: true, build: o => span('fin', o.seed, o) },
+    'span-ba':   { cat: 'span', name: 'Washing lines', district: 'Back Alley',        seeds: 2, variants: true, occlude: true, half: SPAN_HALF * 0.6, spansRoad: true, build: o => span('ba', o.seed, o) },
+    'span-shop': { cat: 'span', name: 'Bunting arch', district: 'Shopping Promenade', seeds: 2, variants: true, occlude: true, half: SPAN_HALF * 0.6, spansRoad: true, build: o => span('shop', o.seed, o) },
+    'span-ind':  { cat: 'span', name: 'Pipe bridge',  district: 'Industrial Zone',    seeds: 2, variants: true, occlude: true, half: SPAN_HALF * 0.6, spansRoad: true, build: o => span('ind', o.seed, o) },
+    'span-ring': { cat: 'span', name: 'Road sign gantry', district: 'Ring Road',       seeds: 2, variants: true, occlude: true, half: SPAN_HALF * 0.6, spansRoad: true, build: o => span('ring', o.seed, o) },
+    tree:     { cat: 'furniture', name: 'Tree',      district: 'Ring Road', occlude: true, half: 2.0, build: o => tree(ORIGIN, o) },
+    lamp:     { cat: 'furniture', name: 'Street lamp', district: 'Ring Road', build: () => lampPiece() },
+    bench:    { cat: 'furniture', name: 'Bench',     district: 'Ring Road', build: () => benchPiece() },
+    fountain: { cat: 'furniture', name: 'Fountain',  district: 'Ring Road', build: () => fountainPiece() },
 };
+const PROP_NAMES = {
+    finance: { district: 'Financial District', planter: 'Planter', bollards: 'Bollards', ticker: 'Ticker board' },
+    alley:   { district: 'Back Alley', dumpster: 'Dumpster', crates: 'Crates and barrel', steam: 'Steam vent', neon: 'Neon sign' },
+    market:  { district: 'Shopping Promenade', stall: 'Market stall', kiosk: 'Kiosk', sandwich: 'Sandwich board' },
+    works:   { district: 'Industrial Zone', pipes: 'Pipe run', containers: 'Containers', cones: 'Hazard cones', stack: 'Smoking stack' },
+    civic:   { district: 'Ring Road', hedge: 'Hedge', car: 'Parked car', benchbin: 'Bench and bin' },
+};
+Object.entries(PROP_KINDS).forEach(([set, bands]) => bands.forEach(([, kind]) => {
+    MODELS['prop-' + set + '-' + kind] = { ...P, name: PROP_NAMES[set][kind], district: PROP_NAMES[set].district,
+                                           build: o => propKind(set, kind, o.seed, o) };
+}));
 
 /** Build one layout item at the origin (the caller places it). */
 export function buildModel(item, opts = {}) {
