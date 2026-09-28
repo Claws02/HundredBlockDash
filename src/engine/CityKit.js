@@ -57,6 +57,14 @@ export function kitMaterials() {
     return _mats;
 }
 
+/** Place a built model and record what it is, so a layout can be exported
+ *  from the board and rebuilt exactly (see src/config/layouts). */
+function _tag(grp, pos, model, seed, hq) {
+    grp.position.copy(pos);
+    grp.userData.kit = { model, seed, hq: !!hq };
+    return grp;
+}
+
 // ------------------------------------------------------------
 // The accumulator: triangles in, three meshes out.
 // ------------------------------------------------------------
@@ -226,7 +234,7 @@ function windowRow(k, { z, sign = 1, x0, x1, y, cols, pw, ph, lit, dark = DARK_G
 // setback crown and rooftop plant. The HQ adds a gold crown ring and a taller
 // spire.
 export function tower(pos, isHQ, opts = {}) {
-    const s = Math.abs(Math.round(pos.x * 7 + pos.z * 13)) % 100;
+    const s = opts.seed ?? Math.abs(Math.round(pos.x * 7 + pos.z * 13)) % 100;
     const h = isHQ ? 32 : 15 + (s % 8) * 2;
     const w = isHQ ? 7 : 4 + (s % 3);
     const d = isHQ ? 7 : 4 + ((s + 2) % 3);
@@ -281,8 +289,7 @@ export function tower(pos, isHQ, opts = {}) {
         grp.add(lamp);
         opts.live({ kind: 'beacon', mat, seed: s });
     }
-    grp.position.copy(pos);
-    return grp;
+    return _tag(grp, pos, 'fin', s, isHQ);
 }
 
 // ------------------------------------------------------------
@@ -292,7 +299,7 @@ export function tower(pos, isHQ, opts = {}) {
 // lintels and a projecting cornice; a stoop door; a front fire escape on some;
 // a neon blade sign on others; and the water tower on every other roof.
 export function walkup(pos, isHQ, opts = {}) {
-    const s = Math.abs(Math.round(pos.x * 5 + pos.z * 11)) % 100;
+    const s = opts.seed ?? Math.abs(Math.round(pos.x * 5 + pos.z * 11)) % 100;
     const h = isHQ ? 14 : 6 + (s % 6);
     const w = isHQ ? 9 : 5 + (s % 4);
     const d = isHQ ? 7 : 4 + (s % 3);
@@ -361,8 +368,7 @@ export function walkup(pos, isHQ, opts = {}) {
         for (const px of [-0.3, 0.1]) k.box('body', 0.12, 1.2, 0.12, T([px * w, h + 0.6, d / 2 - 0.8]), METAL);
     }
     const grp = k.build();
-    grp.position.copy(pos);
-    return grp;
+    return _tag(grp, pos, 'ba', s, isHQ);
 }
 
 // ------------------------------------------------------------
@@ -373,7 +379,7 @@ export function walkup(pos, isHQ, opts = {}) {
 // boxes under the upper windows. The mall HQ gets a glass dome on a drum.
 const SHOP_COLS = [0xe0559b, 0x3fb86a, 0x4a86e8, 0xf08c24, 0xa45ad6];
 export function shopfront(pos, colorIdx, isHQ, opts = {}) {
-    const s = Math.abs(Math.round(pos.x * 3 + pos.z * 9)) % 100;
+    const s = opts.seed ?? Math.abs(Math.round(pos.x * 3 + pos.z * 9)) % 100;
     const ci = colorIdx !== undefined ? colorIdx : s % SHOP_COLS.length;
     const MAIN = SHOP_COLS[ci];
     const h = isHQ ? 12 : 5 + (s % 5);
@@ -425,8 +431,7 @@ export function shopfront(pos, colorIdx, isHQ, opts = {}) {
         k.geo('glow', new THREE.SphereGeometry(0.3, 10, 8), T([0, h + 5.1, 0]), 0xffd27a);
     }
     const grp = k.build();
-    grp.position.copy(pos);
-    return grp;
+    return _tag(grp, pos, 'shop', s, isHQ);
 }
 
 // ------------------------------------------------------------
@@ -436,7 +441,7 @@ export function shopfront(pos, colorIdx, isHQ, opts = {}) {
 // roof with lit north-lights, a roller door in a hazard-striped frame, red and
 // white banded chimneys, roof vents, and a cream office block at one end.
 export function works(pos, isHQ, opts = {}) {
-    const s = Math.abs(Math.round(pos.x * 11 + pos.z * 7)) % 100;
+    const s = opts.seed ?? Math.abs(Math.round(pos.x * 11 + pos.z * 7)) % 100;
     const h = isHQ ? 10 : 6 + (s % 5);
     const w = isHQ ? 14 : 8 + (s % 6);
     const d = isHQ ? 8 : 6 + (s % 3);
@@ -489,8 +494,7 @@ export function works(pos, isHQ, opts = {}) {
     // Roof vents.
     for (let i = 0; i < 2; i++) k.cyl('body', 0.35, 0.35, 0.7, 8, T([w * (0.1 + i * 0.22), h + tH + 0.3, d * 0.1]), 0xa7adb3);
     const grp = k.build();
-    grp.position.copy(pos);
-    return grp;
+    return _tag(grp, pos, 'ind', s, isHQ);
 }
 
 // ------------------------------------------------------------
@@ -501,8 +505,10 @@ export function works(pos, isHQ, opts = {}) {
 // back): four columns with bases and capitals, an entablature and a pediment.
 // One in three carries a verdigris dome on a drum; the rest fly a flag.
 export function civic(pos, opts = {}) {
-    const s = Math.abs(Math.round(pos.x * 7 + pos.z * 3)) % 100;
-    if (s % 4 === 0) return null;                     // the caller plants a tree on this plot
+    const s = opts.seed ?? Math.abs(Math.round(pos.x * 7 + pos.z * 3)) % 100;
+    // On the procedural board one ring plot in four is a tree, not a hall.
+    // Asked for by seed (the map editor), a tree seed is a hall anyway.
+    if (s % 4 === 0) { if (opts.seed === undefined) return null; return civic(pos, { ...opts, seed: (s + 1) % 100 }); }
     const h = 8 + (s % 6);
     const w = 5 + (s % 3);
     const d = 5 + (s % 2);
@@ -553,6 +559,193 @@ export function civic(pos, opts = {}) {
         k.box('body', 1.4, 0.85, 0.05, T([w * 0.25 + 0.72, h + 3.0, 0]), [0x2f6fd6, 0xd94a3a, 0x2f9e5b][s % 3]);
     }
     const grp = k.build();
-    grp.position.copy(pos);
-    return grp;
+    return _tag(grp, pos, 'ring', s, false);
+}
+
+// ------------------------------------------------------------
+// DISTRICT LANDMARKS
+// ------------------------------------------------------------
+// One per district, standing back from its road. These are the landmarks as
+// they were built in Renderer.js, moved here unchanged so the map editor and
+// the game draw them from the same code. Rebuilding them in the kit's style
+// is the next batch of docs/MODEL_UPGRADE.md.
+function dress(color, opts = {}) {
+    return new THREE.MeshStandardMaterial({
+        color, roughness: opts.rough ?? 0.85, metalness: opts.metal ?? 0,
+        emissive: opts.emissive ?? 0x000000, emissiveIntensity: opts.ei ?? 0,
+        transparent: !!opts.opacity, opacity: opts.opacity ?? 1,
+    });
+}
+
+function _exchange(live) {                                 // colonnaded exchange
+    const g = new THREE.Group();
+    const stone = dress(0xd7d2c6, { rough: 0.75 });
+    const base = new THREE.Mesh(new THREE.BoxGeometry(22, 2, 13), stone);
+    base.position.y = 1; g.add(base);
+    const body = new THREE.Mesh(new THREE.BoxGeometry(19, 11, 11), stone);
+    body.position.y = 7.5; g.add(body);
+    for (let i = 0; i < 7; i++) {
+        const col = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.85, 11, 12), stone);
+        col.position.set(-8.4 + i * 2.8, 7.5, 6.2); g.add(col);
+    }
+    const ped = new THREE.Mesh(new THREE.ConeGeometry(11.5, 3.6, 4), stone);
+    ped.position.y = 14.6; ped.rotation.y = Math.PI / 4; g.add(ped);
+    // A gold arrow over the pediment: the district's own emblem.
+    const arrow = new THREE.Mesh(new THREE.ConeGeometry(1.5, 3.2, 4),
+        dress(0xfbbf24, { rough: 0.3, metal: 0.7, emissive: 0xb45309, ei: 0.4 }));
+    arrow.position.y = 18.4; arrow.rotation.y = Math.PI / 4; g.add(arrow);
+    return g;
+}
+
+function _neonArch(live) {                                 // market gate over the alley
+    const g = new THREE.Group();
+    const brick = dress(0x5a2417, { rough: 0.95 });
+    [-6.5, 6.5].forEach(x => {
+        const leg = new THREE.Mesh(new THREE.BoxGeometry(2.2, 12, 2.2), brick);
+        leg.position.set(x, 6, 0); g.add(leg);
+    });
+    const span = new THREE.Mesh(new THREE.BoxGeometry(15, 2.4, 2.2), brick);
+    span.position.y = 13.2; g.add(span);
+    const signMat = new THREE.MeshBasicMaterial({ color: 0xff2d78 });
+    const sign = new THREE.Mesh(new THREE.BoxGeometry(11, 2.6, 0.3), signMat);
+    sign.position.set(0, 13.2, 1.3); g.add(sign);
+    const tubeMat = new THREE.MeshBasicMaterial({ color: 0x2ddcff });
+    for (let i = 0; i < 5; i++) {
+        const t = new THREE.Mesh(new THREE.TorusGeometry(0.7, 0.11, 6, 16), tubeMat);
+        t.position.set(-4 + i * 2, 10.6, 1.3); g.add(t);
+    }
+    // Washing lines strung between the legs — the detail that says "lived in".
+    const line = dress(0x2a2a2a, { rough: 1 });
+    [8.6, 6.4].forEach((y, li) => {
+        const rope = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 13, 5), line);
+        rope.rotation.z = Math.PI / 2; rope.position.set(0, y, li ? 1.2 : -1.2); g.add(rope);
+        for (let i = 0; i < 6; i++) {
+            const cloth = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 1.3),
+                dress([0xf8fafc, 0x60a5fa, 0xfbbf24, 0xf87171][i % 4],
+                          { rough: 0.9, opacity: 0.95 }));
+            cloth.material.side = THREE.DoubleSide;
+            cloth.position.set(-5 + i * 2, y - 0.75, li ? 1.2 : -1.2); g.add(cloth);
+        }
+    });
+    live({ kind: 'neon', parts: [signMat, tubeMat], seed: 4 });
+    return g;
+}
+
+function _arcade(live) {                                   // glass arcade with bunting
+    const g = new THREE.Group();
+    const frame = dress(0xf2e9f7, { rough: 0.5 });
+    [-8, 8].forEach(x => {
+        const w = new THREE.Mesh(new THREE.BoxGeometry(1.6, 12, 10), frame);
+        w.position.set(x, 6, 0); g.add(w);
+    });
+    const glass = new THREE.Mesh(new THREE.CylinderGeometry(8.4, 8.4, 10, 20, 1, true, 0, Math.PI),
+        new THREE.MeshPhysicalMaterial({ color: 0xd8b4fe, transparent: true, opacity: 0.42,
+            roughness: 0.05, metalness: 0.2, side: THREE.DoubleSide }));
+    glass.rotation.z = Math.PI / 2; glass.rotation.y = Math.PI / 2;
+    glass.position.y = 12; g.add(glass);
+    for (let i = 0; i < 6; i++) {
+        const rib = new THREE.Mesh(new THREE.TorusGeometry(8.4, 0.16, 6, 18, Math.PI), frame);
+        rib.position.set(0, 12, -4.6 + i * 1.85); g.add(rib);
+    }
+    // Bunting between the two piers.
+    for (let i = 0; i < 11; i++) {
+        const flag = new THREE.Mesh(new THREE.ConeGeometry(0.4, 0.9, 3),
+            dress([0xef4444, 0xfbbf24, 0x22c55e, 0x3b82f6][i % 4], { rough: 0.7 }));
+        const t = i / 10;
+        flag.position.set(-7.5 + t * 15, 13.2 - Math.sin(t * Math.PI) * 1.8, 5.4);
+        flag.rotation.x = Math.PI; g.add(flag);
+    }
+    return g;
+}
+
+function _coolingTowers(live) {                            // the power plant
+    const g = new THREE.Group();
+    const shell = dress(0x9c968a, { rough: 0.92 });
+    [-7.5, 7.5].forEach((x, i) => {
+        const pts = [];
+        for (let s = 0; s <= 10; s++) {
+            const t = s / 10;
+            const rr = 5.4 - Math.sin(t * Math.PI) * 2.2 + t * 1.1;
+            pts.push(new THREE.Vector2(rr, t * 18));
+        }
+        const tower = new THREE.Mesh(new THREE.LatheGeometry(pts, 18), shell);
+        tower.position.set(x, 0, i ? 2.5 : -2.5); g.add(tower);
+        const puffs = [];
+        for (let k = 0; k < 4; k++) {
+            const puff = new THREE.Mesh(new THREE.SphereGeometry(3.0, 10, 8),
+                new THREE.MeshBasicMaterial({ color: 0xdfe3e8, transparent: true, opacity: 0, depthWrite: false }));
+            puff.position.set(x, 18, i ? 2.5 : -2.5); g.add(puff); puffs.push(puff);
+        }
+        live({ kind: 'steam', puffs, seed: 20 + i * 3, rise: 13, base: 18,
+                         spread: 2.2, x, z: i ? 2.5 : -2.5 });
+    });
+    // A red aircraft beacon on a gantry between them.
+    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.5, 22, 8),
+        dress(0x6b6f66, { rough: 0.6, metal: 0.5 }));
+    mast.position.y = 11; g.add(mast);
+    const lampMat = new THREE.MeshBasicMaterial({ color: 0xff3b30 });
+    const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.7, 10, 8), lampMat);
+    lamp.position.y = 22.4; g.add(lamp);
+    live({ kind: 'beacon', mat: lampMat, seed: 1 });
+    return g;
+}
+
+const LANDMARKS = { fin: _exchange, ba: _neonArch, shop: _arcade, ind: _coolingTowers };
+
+/** A district landmark, at the origin. `live` registers its animated parts. */
+export function landmark(key, opts = {}) {
+    const make = LANDMARKS[key];
+    if (!make) return null;
+    const g = make(opts.live || (() => {}));
+    g.traverse(o => { if (o.isMesh) o.castShadow = true; });
+    g.userData.kit = { model: 'lm-' + key, seed: 0, hq: false };
+    return g;
+}
+
+// ------------------------------------------------------------
+// PLOT TREE — what one Ring Road plot in four holds instead of a hall
+// ------------------------------------------------------------
+export function tree(pos, opts = {}) {
+    const k = new Kit();
+    k.cyl('body', 0.22, 0.3, 2.2, 6, T([0, 1.1, 0]), 0x5a3010);
+    k.geo('body', new THREE.SphereGeometry(1.6, 8, 8), at(0, 3.3, 0, 0, 0, 0, 1, 1.15, 1), 0x2a7a18);
+    return _tag(k.build(), pos, 'tree', 0, false);
+}
+
+// ------------------------------------------------------------
+// THE MODEL LIBRARY — what a layout can place
+// ------------------------------------------------------------
+// A layout item is { model, seed, hq, x, z, rotY, scale } (src/config/layouts).
+// `seed` picks the variant (height, width, colour and options), independent
+// of where the model stands, so moving a building never changes its look.
+// `half` is the footprint half-width the camera's fade test uses.
+const ORIGIN = new THREE.Vector3();
+export const MODELS = {
+    fin:  { name: 'Glass tower',       district: 'Financial District', variants: true, hq: true, half: 5.0,
+            build: o => tower(ORIGIN, o.hq, o) },
+    ba:   { name: 'Brick walk-up',     district: 'Back Alley',         variants: true, hq: true, half: 5.5,
+            build: o => walkup(ORIGIN, o.hq, o) },
+    shop: { name: 'Shopfront',         district: 'Shopping Promenade', variants: true, hq: true, half: 5.0,
+            build: o => shopfront(ORIGIN, undefined, o.hq, o) },
+    ind:  { name: 'Works shed',        district: 'Industrial Zone',    variants: true, hq: true, half: 6.5,
+            build: o => works(ORIGIN, o.hq, o) },
+    ring: { name: 'Civic hall',        district: 'Ring Road',          variants: true, hq: false, half: 4.5,
+            build: o => civic(ORIGIN, o) },
+    tree: { name: 'Tree',              district: 'Ring Road',          variants: false, hq: false, half: 2.0,
+            build: o => tree(ORIGIN, o) },
+    'lm-fin':  { name: 'The Exchange',   district: 'Financial District', landmark: true, half: 11,
+                 build: o => landmark('fin', o) },
+    'lm-ba':   { name: 'Neon arch',      district: 'Back Alley',         landmark: true, half: 8,
+                 build: o => landmark('ba', o) },
+    'lm-shop': { name: 'Glass arcade',   district: 'Shopping Promenade', landmark: true, half: 9,
+                 build: o => landmark('shop', o) },
+    'lm-ind':  { name: 'Cooling towers', district: 'Industrial Zone',    landmark: true, half: 13,
+                 build: o => landmark('ind', o) },
+};
+
+/** Build one layout item at the origin (the caller places it). */
+export function buildModel(item, opts = {}) {
+    const M = MODELS[item.model];
+    if (!M) return null;
+    return M.build({ ...opts, seed: item.seed, hq: !!item.hq });
 }
