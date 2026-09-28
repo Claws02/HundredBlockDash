@@ -297,7 +297,9 @@ export function getNodeT(nodeId) {
 // ---- HBD board ----
 
 function buildHBDPositions() {
-    const waypoints = [
+    // A layout may lay the path itself (the map editor's waypoints, [x, z]).
+    const laid = layoutFor(ActiveMap.id())?.path;
+    const waypoints = laid ? laid.map(([x, z]) => new THREE.Vector3(x, 0, z)) : [
         new THREE.Vector3(0, 0, 0),     new THREE.Vector3(0, 0, -30),
         new THREE.Vector3(40, 0, -60),  new THREE.Vector3(60, 0, -100),
         new THREE.Vector3(20, 0, -140), new THREE.Vector3(-40, 0, -160),
@@ -369,8 +371,17 @@ function _pathNormal(t) {
     return new THREE.Vector3(0, 1, 0).cross(tan).normalize();
 }
 
+// The scenery a layout places for this run length, if it has any. The realms
+// split the path by length (two realms on a 50-block run, four on 100), so a
+// layout keeps one set of scenery per length.
+function _hbdLaid(cfg) {
+    const items = layoutFor(ActiveMap.id())?.runs?.[cfg.length];
+    return Array.isArray(items) ? items : null;
+}
+
 function _buildHBDScene() {
     const cfg     = state.hbd || HBD_DEFAULT_CONFIG;
+    const laid    = _hbdLaid(cfg);
     const realmGroups = {};   // key → list of block indices
     for (let i = 0; i <= cfg.finish; i++) {
         const key = getBiomeForSpace(i).key;
@@ -386,14 +397,15 @@ function _buildHBDScene() {
         _buildHBDRibbon(ext, key, order);
         _buildRealmParticles(idxs, key);
         _buildRealmAccentLight(idxs, key);
-        _buildRealmLandmark(idxs, key);
+        if (!laid) _buildRealmLandmark(idxs, key);
     });
 
     // 3) Glowing walking path on top of the ground.
     _buildHBDPath();
 
-    // 4) Scenery lining both sides of every block.
-    for (let i = 1; i < cfg.finish; i++) {
+    // 4) Scenery lining both sides of every block: the layout's, or automatic.
+    if (laid) _placeItems(laid, boardGrp, GROUND_Y, { float: _float });
+    else for (let i = 1; i < cfg.finish; i++) {
         const key = getBiomeForSpace(i).key;
         const t   = i / _hbdMax;
         const nrm = _pathNormal(t);
@@ -403,13 +415,13 @@ function _buildHBDScene() {
             if (_sr(i * 2 + (side > 0 ? 1 : 0)) > 0.82) return; // leave some gaps
             const dist = 9 + _sr(i * 7 + side) * 10;
             const pos  = base.clone().addScaledVector(nrm, side * dist);
-            const deco = _mkRealmDecor(key, i * 13 + side);
+            const deco = CityKit.realmDecor(key, i * 13 + side, { float: _float });
             if (deco) { deco.position.copy(pos); boardGrp.add(deco); }
         });
     }
 
     // 5) Dense low-cost ground scatter (grass / embers / sparkles) near the path.
-    _buildGroundScatter(cfg);
+    if (!laid) _buildGroundScatter(cfg);
 
     // 6) The Crown beacon at the finish.
     _buildCrownBeacon(getPos(cfg.finish).clone());
@@ -498,98 +510,16 @@ function _buildRealmLandmark(idxs, key) {
     const nrm = _pathNormal(mid / _hbdMax);
     const side = _sr(mid) > 0.5 ? 1 : -1;
     const pos  = getPos(mid).clone().addScaledVector(nrm, side * 36); pos.y = GROUND_Y;
-    let lm = null;
-    if (key === 'woods') lm = _lmGiantTree();
-    else if (key === 'ember') lm = _lmVolcano();
-    else if (key === 'fae') lm = _lmCrystalCluster();
-    else if (key === 'void') lm = _lmPlanet();
+    const lm = CityKit.realmLandmark(key, { float: _float });
     if (lm) { lm.position.copy(pos); boardGrp.add(lm); }
 }
 
-function _lmGiantTree() {
-    const grp = new THREE.Group();
-    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.7, 11, 8),
-        new THREE.MeshStandardMaterial({ color: 0x4a2a14, roughness: 0.95 }));
-    trunk.position.y = 5.5; grp.add(trunk);
-    const leafMat = new THREE.MeshStandardMaterial({ color: 0x1f7a2e, roughness: 0.9 });
-    [[0, 12, 0, 6], [-3.5, 10.5, 1, 4.5], [3.5, 11, -1, 4.8], [0, 14.5, 0, 4]].forEach(([x, y, z, r]) => {
-        const s = new THREE.Mesh(new THREE.SphereGeometry(r, 10, 9), leafMat);
-        s.position.set(x, y, z); s.scale.y = 0.9; grp.add(s);
-    });
-    return grp;
-}
-
-function _lmVolcano() {
-    const grp = new THREE.Group();
-    const cone = new THREE.Mesh(new THREE.ConeGeometry(13, 17, 16, 1, true),
-        new THREE.MeshStandardMaterial({ color: 0x2a1410, roughness: 1.0, side: THREE.DoubleSide,
-            emissive: 0xff2200, emissiveIntensity: 0.12 }));
-    cone.position.y = 8.5; grp.add(cone);
-    // Glowing crater
-    const crater = new THREE.Mesh(new THREE.CircleGeometry(4.2, 16),
-        new THREE.MeshStandardMaterial({ color: 0xff7a1a, emissive: 0xff4400, emissiveIntensity: 1.6 }));
-    crater.rotation.x = -Math.PI / 2; crater.position.y = 16.8; grp.add(crater);
-    // Lava trickle on a flank
-    const lava = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 1.2, 11, 6),
-        new THREE.MeshStandardMaterial({ color: 0xff5a1a, emissive: 0xff3300, emissiveIntensity: 1.3 }));
-    lava.position.set(5.5, 8, 4); lava.rotation.z = 0.5; lava.rotation.x = 0.2; grp.add(lava);
-    // Smoke puff
-    const smoke = new THREE.Mesh(new THREE.SphereGeometry(3.5, 10, 8),
-        new THREE.MeshStandardMaterial({ color: 0x333333, transparent: true, opacity: 0.35, roughness: 1 }));
-    smoke.position.y = 22; grp.add(smoke);
-    return grp;
-}
-
-function _lmCrystalCluster() {
-    const grp = new THREE.Group();
-    const cols = [0xd946ef, 0xc084fc, 0xf472b6, 0x8b5cf6];
-    for (let i = 0; i < 6; i++) {
-        const col = cols[i % cols.length];
-        const h = 7 + _sr(i * 4) * 9;
-        const cr = new THREE.Mesh(new THREE.ConeGeometry(1.2 + _sr(i) * 0.8, h, 5),
-            new THREE.MeshPhysicalMaterial({ color: col, emissive: col, emissiveIntensity: 0.7,
-                metalness: 0.3, roughness: 0.12, transparent: true, opacity: 0.9 }));
-        const a = (i / 6) * Math.PI * 2;
-        cr.position.set(Math.cos(a) * (2 + _sr(i + 1) * 3), h * 0.5, Math.sin(a) * (2 + _sr(i + 2) * 3));
-        cr.rotation.z = (_sr(i) - 0.5) * 0.5;
-        grp.add(cr);
-    }
-    return grp;
-}
-
-function _lmPlanet() {
-    const grp = new THREE.Group();
-    const planet = new THREE.Mesh(new THREE.SphereGeometry(6, 24, 20),
-        new THREE.MeshStandardMaterial({ color: 0x1b2358, emissive: 0x2a3a8a, emissiveIntensity: 0.5, roughness: 0.6, metalness: 0.3 }));
-    planet.position.y = 19; grp.add(planet);
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(9, 0.7, 10, 40),
-        new THREE.MeshStandardMaterial({ color: 0x60a5fa, emissive: 0x3b82f6, emissiveIntensity: 0.8, transparent: true, opacity: 0.8 }));
-    ring.rotation.x = Math.PI / 2.4; ring.position.y = 19; grp.add(ring);
-    floatingIcons.push({ mesh: planet, baseY: 19, speed: 0.3, phase: 0 });
-    return grp;
-}
+// Scenery that bobs (the Void's planet and shards) hands its animation here.
+const _float = e => floatingIcons.push(e);
 
 // ---- Dense, cheap ground scatter ----
 
-let _scatterShared = null;
-function _scatterRes() {
-    if (_scatterShared) return _scatterShared;
-    _scatterShared = {
-        grass:  new THREE.ConeGeometry(0.14, 0.8, 4),
-        pebble: new THREE.DodecahedronGeometry(0.28, 0),
-        dot:    new THREE.SphereGeometry(0.22, 6, 5),
-        mGrass:   new THREE.MeshStandardMaterial({ color: 0x3a9a3a, roughness: 0.95 }),
-        mPebble:  new THREE.MeshStandardMaterial({ color: 0x4a4438, roughness: 1.0 }),
-        mEmber:   new THREE.MeshStandardMaterial({ color: 0xff6a1a, emissive: 0xff3a00, emissiveIntensity: 1.5 }),
-        mEmRock:  new THREE.MeshStandardMaterial({ color: 0x281410, roughness: 1.0, emissive: 0xff3300, emissiveIntensity: 0.3 }),
-        mSpark:   new THREE.MeshStandardMaterial({ color: 0xf0a0ff, emissive: 0xe060ff, emissiveIntensity: 1.4 }),
-        mVoid:    new THREE.MeshStandardMaterial({ color: 0x88c0ff, emissive: 0x4488ff, emissiveIntensity: 1.4 }),
-    };
-    return _scatterShared;
-}
-
 function _buildGroundScatter(cfg) {
-    const R = _scatterRes();
     for (let i = 1; i < cfg.finish; i++) {
         const key = getBiomeForSpace(i).key;
         const t   = i / _hbdMax;
@@ -602,28 +532,10 @@ function _buildGroundScatter(cfg) {
             const dist  = 4.2 + _sr(i * 11 + k) * 3.2;
             const along = (_sr(i * 13 + k) - 0.5) * 2.4;
             const pos   = base.clone().addScaledVector(nrm, side * dist).addScaledVector(tan, along);
-            const prop  = _mkScatterProp(key, i * 17 + k, R);
+            const prop  = CityKit.scatter(key, i * 17 + k);
             if (prop) { prop.position.copy(pos); boardGrp.add(prop); }
         }
     }
-}
-
-function _mkScatterProp(key, seed, R) {
-    const r = _sr(seed);
-    let mesh;
-    if (key === 'woods') {
-        if (r < 0.7) { mesh = new THREE.Mesh(R.grass, R.mGrass); mesh.position.y = 0.4; mesh.scale.y = 0.8 + _sr(seed) * 0.8; }
-        else         { mesh = new THREE.Mesh(R.pebble, R.mPebble); mesh.position.y = 0.2; }
-    } else if (key === 'ember') {
-        if (r < 0.5) { mesh = new THREE.Mesh(R.dot, R.mEmber); mesh.position.y = 0.25; }
-        else         { mesh = new THREE.Mesh(R.pebble, R.mEmRock); mesh.position.y = 0.2; }
-    } else if (key === 'fae') {
-        mesh = new THREE.Mesh(R.dot, R.mSpark); mesh.position.y = 0.3 + _sr(seed) * 1.2;
-    } else { // void
-        mesh = new THREE.Mesh(R.dot, R.mVoid); mesh.position.y = 0.3 + _sr(seed) * 1.5;
-    }
-    mesh.rotation.set(_sr(seed) * 3, _sr(seed + 1) * 3, _sr(seed + 2) * 3);
-    return mesh;
 }
 
 // Build a flat tinted ground strip following the given block indices.
@@ -657,127 +569,6 @@ function _buildHBDRibbon(indices, key, order = 0) {
     const mesh = new THREE.Mesh(geo, mat);
     mesh.receiveShadow = true;
     boardGrp.add(mesh);
-}
-
-// Dispatch to a realm-specific decor maker. Returns a Group (or null).
-function _mkRealmDecor(key, seed) {
-    switch (key) {
-        case 'woods': return _mkWoodsDecor(seed);
-        case 'ember': return _mkEmberDecor(seed);
-        case 'fae':   return _mkFaeDecor(seed);
-        case 'void':  return _mkVoidDecor(seed);
-        default:      return _mkWoodsDecor(seed);
-    }
-}
-
-function _mkPineTree(seed) {
-    const grp = new THREE.Group();
-    const h = 2.4 + _sr(seed) * 1.8;
-    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.26, h * 0.5, 6),
-        new THREE.MeshStandardMaterial({ color: 0x5a3318, roughness: 0.95 }));
-    trunk.position.y = h * 0.25; trunk.castShadow = true; grp.add(trunk);
-    const leafMat = new THREE.MeshStandardMaterial({ color: 0x1f7a2e, roughness: 0.9 });
-    for (let c = 0; c < 3; c++) {
-        const cone = new THREE.Mesh(new THREE.ConeGeometry(1.4 - c * 0.35, 1.5, 7), leafMat);
-        cone.position.y = h * 0.5 + c * 0.9; cone.castShadow = true; grp.add(cone);
-    }
-    return grp;
-}
-
-function _mkWoodsDecor(seed) {
-    const r = _sr(seed);
-    if (r < 0.6) return _mkPineTree(seed);
-    if (r < 0.85) {
-        // bush cluster
-        const grp = new THREE.Group();
-        const m = new THREE.MeshStandardMaterial({ color: 0x2f8a35, roughness: 0.95 });
-        for (let i = 0; i < 3; i++) {
-            const b = new THREE.Mesh(new THREE.SphereGeometry(0.6 + _sr(seed + i) * 0.4, 7, 6), m);
-            b.position.set((_sr(seed + i) - 0.5) * 1.2, 0.5, (_sr(seed - i) - 0.5) * 1.2);
-            b.castShadow = true; grp.add(b);
-        }
-        return grp;
-    }
-    // mossy rock
-    const rock = new THREE.Mesh(new THREE.IcosahedronGeometry(0.8 + _sr(seed) * 0.6, 0),
-        new THREE.MeshStandardMaterial({ color: 0x556b4a, roughness: 1.0 }));
-    rock.position.y = 0.5; rock.rotation.set(_sr(seed), _sr(seed + 1), _sr(seed + 2)); rock.castShadow = true;
-    const g = new THREE.Group(); g.add(rock); return g;
-}
-
-function _mkEmberDecor(seed) {
-    const r = _sr(seed);
-    const grp = new THREE.Group();
-    if (r < 0.4) {
-        // lava pool — glowing flat disc on the ground
-        const pool = new THREE.Mesh(new THREE.CircleGeometry(1.4 + _sr(seed) * 1.2, 14),
-            new THREE.MeshStandardMaterial({ color: 0xff5a1a, emissive: 0xff3a00, emissiveIntensity: 1.4, roughness: 0.5 }));
-        pool.rotation.x = -Math.PI / 2; pool.position.y = 0.06; grp.add(pool);
-        return grp;
-    }
-    if (r < 0.75) {
-        // charred volcanic rock with glowing cracks
-        const rock = new THREE.Mesh(new THREE.IcosahedronGeometry(0.9 + _sr(seed) * 0.7, 0),
-            new THREE.MeshStandardMaterial({ color: 0x241010, roughness: 1.0, emissive: 0xff3300, emissiveIntensity: 0.25 }));
-        rock.position.y = 0.6; rock.rotation.set(_sr(seed), _sr(seed + 1), _sr(seed + 2)); rock.castShadow = true; grp.add(rock);
-        return grp;
-    }
-    // dead/charred tree
-    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.22, 2.6 + _sr(seed) * 1.2, 5),
-        new THREE.MeshStandardMaterial({ color: 0x1a1410, roughness: 1.0 }));
-    trunk.position.y = 1.4; trunk.castShadow = true; grp.add(trunk);
-    for (let i = 0; i < 2; i++) {
-        const br = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.1, 1.1, 4),
-            new THREE.MeshStandardMaterial({ color: 0x1a1410, roughness: 1.0 }));
-        br.position.set(0, 2.0 + i * 0.5, 0); br.rotation.z = (i ? 1 : -1) * 0.9; grp.add(br);
-    }
-    return grp;
-}
-
-function _mkFaeDecor(seed) {
-    const r = _sr(seed);
-    const grp = new THREE.Group();
-    const glow = [0xd946ef, 0xc084fc, 0xf472b6, 0x8b5cf6][Math.floor(_sr(seed + 5) * 4)];
-    if (r < 0.5) {
-        // glowing mushroom
-        const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.22, 1.0 + _sr(seed), 6),
-            new THREE.MeshStandardMaterial({ color: 0xe8d8f0, roughness: 0.7 }));
-        stem.position.y = 0.6; stem.castShadow = true; grp.add(stem);
-        const cap = new THREE.Mesh(new THREE.SphereGeometry(0.6 + _sr(seed) * 0.3, 10, 8, 0, Math.PI * 2, 0, Math.PI / 2),
-            new THREE.MeshStandardMaterial({ color: glow, emissive: glow, emissiveIntensity: 0.9, roughness: 0.5 }));
-        cap.position.y = 1.1 + _sr(seed); grp.add(cap);
-        return grp;
-    }
-    // crystal spire
-    const h = 1.8 + _sr(seed) * 2.0;
-    const crystal = new THREE.Mesh(new THREE.ConeGeometry(0.5, h, 5),
-        new THREE.MeshPhysicalMaterial({ color: glow, emissive: glow, emissiveIntensity: 0.7, metalness: 0.3, roughness: 0.15, transparent: true, opacity: 0.9 }));
-    crystal.position.y = h * 0.5; crystal.rotation.y = _sr(seed) * 3; crystal.castShadow = true; grp.add(crystal);
-    return grp;
-}
-
-function _mkVoidDecor(seed) {
-    const grp = new THREE.Group();
-    const r = _sr(seed);
-    const glow = [0x60a5fa, 0x3b82f6, 0xa855f7, 0x22d3ee][Math.floor(_sr(seed + 3) * 4)];
-    if (r < 0.55) {
-        // floating shard that slowly bobs
-        const shard = new THREE.Mesh(new THREE.OctahedronGeometry(0.6 + _sr(seed) * 0.8, 0),
-            new THREE.MeshPhysicalMaterial({ color: glow, emissive: glow, emissiveIntensity: 0.8, metalness: 0.5, roughness: 0.1, transparent: true, opacity: 0.92 }));
-        const baseY = 1.5 + _sr(seed) * 2.5;
-        shard.position.y = baseY; shard.castShadow = true; grp.add(shard);
-        floatingIcons.push({ mesh: shard, baseY, speed: 0.5 + _sr(seed), phase: _sr(seed) * 6 });
-        return grp;
-    }
-    // dark spire tipped with light
-    const h = 2.2 + _sr(seed) * 2.0;
-    const spire = new THREE.Mesh(new THREE.ConeGeometry(0.5, h, 5),
-        new THREE.MeshStandardMaterial({ color: 0x10122e, roughness: 0.6, metalness: 0.4 }));
-    spire.position.y = h * 0.5; spire.castShadow = true; grp.add(spire);
-    const tip = new THREE.Mesh(new THREE.SphereGeometry(0.3, 8, 8),
-        new THREE.MeshStandardMaterial({ color: glow, emissive: glow, emissiveIntensity: 1.4 }));
-    tip.position.y = h; grp.add(tip);
-    return grp;
 }
 
 function _buildCrownBeacon(pos) {
@@ -3041,10 +2832,10 @@ export function qaRenderFrom(pos, look) {
  * scripts/export-reference.js). `hide`
  * decides which top-level scene objects to leave out. Returns a JPEG data URL.
  */
-export function qaRenderTopDown(half, hide = () => false) {
+export function qaRenderTopDown(half, hide = () => false, cx = 0, cz = 0) {
     if (!renderer || !scene) return null;
     const cam = new THREE.OrthographicCamera(-half, half, half, -half, 1, 2000);
-    cam.position.set(0, 1000, 0); cam.up.set(0, 0, -1); cam.lookAt(0, 0, 0);
+    cam.position.set(cx, 1000, cz); cam.up.set(0, 0, -1); cam.lookAt(cx, 0, cz);
     const hidden = [];
     scene.traverse(o => { if (o !== scene && o.visible && hide(o)) { o.visible = false; hidden.push(o); } });
     const fog = scene.fog; scene.fog = null;
@@ -3052,6 +2843,31 @@ export function qaRenderTopDown(half, hide = () => false) {
     const url = renderer.domElement.toDataURL('image/jpeg', 0.85);
     scene.fog = fog; hidden.forEach(o => { o.visible = true; });
     return url;
+}
+
+/**
+ * Hundred Block Dash as the map editor needs it: the path's waypoints, the
+ * run length, the realm of every block, each realm's ground colours, and
+ * the scenery standing on the board now (with ?nolayout, the automatic one).
+ */
+export function qaHbdRef() {
+    if (!ActiveMap.isLinear()) return null;
+    const r3 = n => Math.round(n * 1000) / 1000, hex = c => '#' + c.toString(16).padStart(6, '0');
+    const cfg = state.hbd || HBD_DEFAULT_CONFIG;
+    const items = [];
+    boardGrp.children.forEach(o => {
+        const k = o.userData.kit;
+        if (!k) return;
+        items.push({ model: k.model, seed: k.seed, hq: !!k.hq, x: r3(o.position.x), z: r3(o.position.z), rotY: r3(o.rotation.y), scale: r3(o.scale.x) });
+    });
+    const style = {};
+    for (const [key, st] of Object.entries(HBD_REALM_STYLE)) style[key] = { ground: hex(st.ground), ground2: hex(st.ground2), accent: hex(st.accent) };
+    return {
+        length: cfg.length,
+        waypoints: boardCurve.points.map(p => [r3(p.x), r3(p.z)]),
+        realms: hbdPositions.map((_, i) => getBiomeForSpace(i).key),
+        style, ribbonHalf: 26, groundY: GROUND_Y, items,
+    };
 }
 
 /**
@@ -3911,19 +3727,21 @@ const _PLOT_BUILDER = {
 
 // A hand-made layout (the map editor's) places every building and landmark
 // itself; see src/config/layouts.
-function _placeLayout(layout) {
-    layout.items.forEach(it => {
+function _placeLayout(layout) { _placeItems(layout.items, _cityEnvGroup, 0, { live: _kitLive }); }
+
+function _placeItems(items, parent, y, opts) {
+    items.forEach(it => {
         const M = CityKit.MODELS[it.model];
-        const g = CityKit.buildModel(it, { live: _kitLive });
+        const g = CityKit.buildModel(it, opts);
         if (!M || !g) return;
         const scale = it.scale || 1;
-        g.position.set(it.x, 0, it.z);
+        g.position.set(it.x, y, it.z);
         g.rotation.y = it.rotY || 0;
         g.scale.setScalar(scale);
         // Plot buildings get out of the camera's way like the automatic ones;
         // landmarks stand far enough back that they never did.
         if (M.occlude) _canOcclude(g, M.half * (it.hq ? 1.35 : 1) * scale);
-        _cityEnvGroup.add(g);
+        parent.add(g);
     });
 }
 
@@ -5855,8 +5673,8 @@ export const PROP_KIT = {
     market:      (r, seed) => CityKit.prop('market', r, seed),
     // r >= 0.55 is the steam vent and the neon, which register themselves.
     alley:       (r, seed) => CityKit.prop('alley', r >= 0.55 ? 0.4 : r, seed),
-    faeDecor:    seed => _mkFaeDecor(seed),
+    faeDecor:    seed => CityKit.realmDecor('fae', seed),
     // The floating shard (r < 0.55) registers itself; a stage gets the spire.
-    voidSpire:   seed => { let s = seed; while (_sr(s) < 0.55) s += 0.37; return _mkVoidDecor(s); },
+    voidSpire:   seed => { let s = seed; while (_sr(s) < 0.55) s += 0.37; return CityKit.realmDecor('void', s); },
     shopFront:   (pos, colorIdx) => CityKit.shopfront(pos, colorIdx, false),
 };

@@ -25,11 +25,23 @@ A layout may carry `spaces: { nodeId: [x, z] }`: spaces the editor moved. They a
 
 A layout may carry `looks: { district: { ... } }`, only what differs from the game's own values: `bgTop`, `bgBot`, `fog` (sky and haze), `pave` (pavement), `slab` and `seam` (paving slabs), `light: { color, intensity, bounce, bounceI }` and `motes: { color, count, rise, size }`. The board reads them through `_look()` / `_lookOf()` in `Renderer.js`, merged over `DISTRICT_BIOMES`; the minigame sets keep the built-in biomes. `apply-layout.js` allows only City's five districts and these fields, colours as `#rrggbb`, and numbers within fixed ranges (light 0–4, particles 0–120 and so on).
 
+## Hundred Block Dash
+
+Hundred Block Dash's layout is shaped differently, because its realms split the path by run length (two realms on a 50-block run, three on 75, four on 100), so the same spot is Woods on one run and Ember on another:
+
+```js
+{ map: 'hundred_block_dash', version: 2,
+  path: [[x, z], ...],                 // optional: the path's waypoints (4–40), shared by every length
+  runs: { '50': [items], '75': [...], '100': [...] } }   // the scenery for each run length
+```
+
+Its models are CityKit's `map: 'hbd'` entries: the four realm landmarks (`lm-woods`, `lm-ember`, `lm-fae`, `lm-void`), the scenery beside the path (`decor-<realm>`) and the ground scatter (`scatter-<realm>`); their seeds run 0–9999 because the game seeded them by block number. Items stand at the board's ground height. `path` goes into `buildHBDPositions`, so the blocks, tiles, realm ground and camera all follow it; a length missing from `runs` keeps automatic scenery (`_hbdLaid`). `hundred_block_dash.js` started as an exact export of the automatic scenery for all three lengths (652 items) with the path left as the game had it, so the board looked the same. `apply-layout.js` refuses city models here and Hundred Block Dash models on the city, and `qaHbdRef()` in `Renderer.js` is what the editor's reference export reads.
+
 ## Pulling a saved layout in
 
-1. Read the saved layout from the editor page's store (`layouts/city_circuit`).
+1. Read the saved layout from the editor page's store (`layouts/city_circuit` or `layouts/hundred_block_dash`).
 2. `node scripts/apply-layout.js <layout.json>`
-3. `node qa/zfight.js city_circuit && node qa/ci-smoke.js`, then look at the districts with `TAG=pulled node qa/modelsheet.js`.
+3. `node qa/zfight.js <map> && node qa/ci-smoke.js`; for the city, look at the districts with `TAG=pulled node qa/modelsheet.js`.
 4. Commit here. Then, in the editor repo, move the `game` submodule to that commit and rebuild, so the editor's "start again from the game" matches.
 
 ## When the models change
