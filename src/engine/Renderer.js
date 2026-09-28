@@ -3071,7 +3071,9 @@ export function qaBoardRef() {
         const key = run.ids[0].split('_')[0];
         const mat = (_DISTRICT_GROUND[key] || {}).pave || (_CM && _CM.sidewalk);
         return { district: key, ids: run.ids.slice(), end0: [r3(a.x), r3(a.z)], end1: [r3(b.x), r3(b.z)],
-                 width: 23, color: mat && mat.color ? '#' + mat.color.getHexString() : '#b0a898' };
+                 width: 23, color: mat && mat.color ? '#' + mat.color.getHexString() : '#b0a898',
+                 // The lobe itself, for drawing the pavement exactly while no space in it has moved.
+                 samples: lobeSamples(run, 56).map(v => [r3(v.x), r3(v.z)]) };
     });
     return { nodes, roads, runs, hub: ActiveMap.hubKey() };
 }
