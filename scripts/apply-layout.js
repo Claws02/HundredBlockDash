@@ -16,6 +16,13 @@ const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
 const MAPS = { city_circuit: 138 };            // map → how far from the centre an item may stand
+const LOOK_KEYS = { city_circuit: ['fin', 'ba', 'shop', 'ind', 'ring'] };   // districts a layout may restyle
+// What a district look may set, and how: a colour, or a number in a range.
+const LOOK_FIELDS = {
+    bgTop: 'colour', bgBot: 'colour', fog: 'colour', pave: 'colour', slab: 'colour', seam: 'colour',
+    light: { color: 'colour', intensity: [0, 4], bounce: 'colour', bounceI: [0, 4] },
+    motes: { color: 'colour', count: [0, 120, true], rise: [-4, 4], size: [0.03, 0.6] },
+};
 
 // The model library, loaded from CityKit.js itself so the two cannot
 // disagree: three.js from the game's vendor copy stands in for the browser
@@ -75,6 +82,38 @@ function validate(layout, MODELS, SPACES = new Set()) {
             spaces[id] = [Math.round(x * 1000) / 1000, Math.round(z * 1000) / 1000];
         }
     }
+    // District looks: { district: { bgTop: '#rrggbb', light: { intensity: 1.2 }, ... } }.
+    const looks = {};
+    if (layout.looks !== undefined) {
+        const plain = (v, what) => { if (!v || typeof v !== 'object' || Array.isArray(v)) fail(`${what} is not an object`); return v; };
+        const check = (spec, val, what) => {
+            if (spec === 'colour') {
+                if (typeof val !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(val)) fail(`${what} is not a colour like #1a2b3c`);
+                return val.toLowerCase();
+            }
+            const [lo, hi, whole] = spec;
+            num(val, what);
+            if (val < lo || val > hi || (whole && !Number.isInteger(val))) fail(`${what} ${val} is outside ${lo}–${hi}`);
+            return Math.round(val * 1000) / 1000;
+        };
+        for (const [key, look] of Object.entries(plain(layout.looks, 'looks'))) {
+            if (!(LOOK_KEYS[layout.map] || []).includes(key)) fail(`looks: "${key}" is not a district of ${layout.map}`);
+            const out = {};
+            for (const [field, v] of Object.entries(plain(look, `looks.${key}`))) {
+                const own = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+                const spec = own(LOOK_FIELDS, field) ? LOOK_FIELDS[field] : null;
+                if (!spec) fail(`looks.${key}.${field} is not something a look can set`);
+                if (typeof spec === 'string') { out[field] = check(spec, v, `looks.${key}.${field}`); continue; }
+                const sub = {};
+                for (const [f, vv] of Object.entries(plain(v, `looks.${key}.${field}`))) {
+                    if (!own(spec, f)) fail(`looks.${key}.${field}.${f} is not something a look can set`);
+                    sub[f] = check(spec[f], vv, `looks.${key}.${field}.${f}`);
+                }
+                if (Object.keys(sub).length) out[field] = sub;
+            }
+            if (Object.keys(out).length) looks[key] = out;
+        }
+    }
     const note = typeof layout.note === 'string' ? layout.note.slice(0, 300) : '';
     const savedAt = typeof layout.savedAt === 'string' && !isNaN(Date.parse(layout.savedAt)) ? layout.savedAt : new Date().toISOString();
     // Version 2 places the street pieces too (props, spans, lamps, the park);
@@ -82,6 +121,7 @@ function validate(layout, MODELS, SPACES = new Set()) {
     const version = layout.version === 2 ? 2 : 1;
     const out = { map: layout.map, version, savedAt, note, items };
     if (Object.keys(spaces).length) out.spaces = spaces;
+    if (Object.keys(looks).length) out.looks = looks;
     return out;
 }
 

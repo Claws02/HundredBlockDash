@@ -1887,6 +1887,8 @@ export function updateBiomeVisuals(districtOrIdx) {
         if (scene && scene.fog) scene.fog.color.set(b.fog);
     } else {
         b = getBiomeForDistrict(districtOrIdx || 'ring');
+        const lk = _lookOf(districtOrIdx || 'ring');
+        if (lk) b = { ...b, ...Object.fromEntries(['bgTop', 'bgBot', 'fog'].filter(k => lk[k]).map(k => [k, lk[k]])) };
         if (scene && scene.fog) scene.fog.color.set(b.fog);
     }
     // Three stops, not two. The bottom one is the biome's FOG colour, which is
@@ -3075,7 +3077,24 @@ export function qaBoardRef() {
                  // The lobe itself, for drawing the pavement exactly while no space in it has moved.
                  samples: lobeSamples(run, 56).map(v => [r3(v.x), r3(v.z)]) };
     });
-    return { nodes, roads, runs, hub: ActiveMap.hubKey() };
+    // Each district's look as the game has it now (built-in, or a layout's
+    // overrides): the editor's starting values and what its Reset returns to.
+    const hex = c => '#' + new THREE.Color(c).getHexString();
+    const looks = {};
+    [...(ActiveMap.regionKeys() || []), ActiveMap.hubKey()].filter(Boolean).forEach(key => {
+        const b = _look(key); if (!b) return;
+        const surf = _SURF[b.surface] || {}, lk = _lookOf(key) || {};
+        const pave = (_DISTRICT_GROUND[key] || {}).pave;
+        looks[key] = {
+            name: b.name, bgTop: b.bgTop, bgBot: b.bgBot, fog: b.fog,
+            pave: pave ? hex(pave.color) : null,
+            slab: surf.col !== undefined ? hex(lk.slab ?? surf.col) : null, seam: surf.seam !== undefined ? hex(lk.seam ?? surf.seam) : null,
+            light: b.light ? { color: hex(b.light.color), intensity: b.light.intensity, bounce: b.light.bounce !== undefined ? hex(b.light.bounce) : null, bounceI: b.light.bounceI ?? 0,
+                               height: b.light.height, radius: b.light.radius } : null,
+            motes: b.motes ? { color: hex(b.motes.color), count: b.motes.count, rise: b.motes.rise, size: b.motes.size } : null,
+        };
+    });
+    return { nodes, roads, runs, hub: ActiveMap.hubKey(), looks };
 }
 
 /** One plot building on its own, for qa/modelsheet.js. Not added to the scene. */
@@ -3277,16 +3296,16 @@ function _facingAngle(pos) {
 let _DISTRICT_GROUND = {};
 
 function _buildDistrictGroundMaterials() {
-    const pave = c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.9 });
+    const pave = (c, key) => new THREE.MeshStandardMaterial({ color: _lookOf(key)?.pave ?? c, roughness: 0.9 });
     _DISTRICT_GROUND = {
         // Darker than they look written down. The city's key light is strong
         // and these are large flat areas facing straight up at it, so a stone
         // that reads as mid-grey on paper renders as white and swallows the
         // buildings standing on it.
-        fin:  { pave: pave(0x5c6470) },   // clean grey stone
-        ba:   { pave: pave(0x463c33) },   // stained brick dust
-        shop: { pave: pave(0x6b5563) },   // promenade paving, faintly pink
-        ind:  { pave: pave(0x565139) },   // dirty concrete
+        fin:  { pave: pave(0x5c6470, 'fin') },   // clean grey stone
+        ba:   { pave: pave(0x463c33, 'ba') },   // stained brick dust
+        shop: { pave: pave(0x6b5563, 'shop') },   // promenade paving, faintly pink
+        ind:  { pave: pave(0x565139, 'ind') },   // dirty concrete
     };
 }
 
@@ -3568,6 +3587,21 @@ function _buildCityCenter() {
         b.rotation.y = a + Math.PI;
         _cityEnvGroup.add(b);
     }
+}
+
+// DISTRICT LOOKS. A hand-made layout may override a district's sky, haze,
+// pavement, paving slabs, light and particles (`looks`, src/config/layouts);
+// the board reads its looks through these, merged over DISTRICT_BIOMES. The
+// minigame sets keep the built-in biomes.
+function _lookOf(key) { return layoutFor(ActiveMap.id())?.looks?.[key] || null; }
+function _look(key) {
+    const base = DISTRICT_BIOMES[key], o = _lookOf(key);
+    if (!base || !o) return base;
+    const sky = {};
+    for (const k of ['bgTop', 'bgBot', 'fog']) if (o[k]) sky[k] = o[k];
+    return { ...base, ...sky,
+             light: base.light && o.light ? { ...base.light, ...o.light } : base.light,
+             motes: base.motes && o.motes ? { ...base.motes, ...o.motes } : base.motes };
 }
 
 // A layout that places everything (version 2: buildings, landmarks and the
@@ -3999,7 +4033,7 @@ function _isClover() { return ActiveMap.layout()?.kind === 'clover'; }
 // nothing next to the shadow-casting sun that was already there.
 function _buildDistrictLights() {
     Object.keys(DISTRICT_BIOMES).forEach(key => {
-        const cfg = DISTRICT_BIOMES[key].light;
+        const cfg = _look(key).light;
         if (!cfg || !cfg.intensity) return;
         const nodes = _districtNodes(key);
         if (!nodes.length) return;
@@ -4085,7 +4119,7 @@ const _spanLegs = CityKit.spanLegs;
 // as a still life.
 function _buildDistrictMotes() {
     Object.keys(DISTRICT_BIOMES).forEach(key => {
-        const cfg = DISTRICT_BIOMES[key].motes;
+        const cfg = _look(key).motes;
         if (!cfg) return;
         const nodes = _districtNodes(key);
         if (!nodes.length) return;
@@ -4154,26 +4188,29 @@ function _dressMat(color, opts = {}) {
 // A flat patch per node, laid just above the base disc, oriented along the
 // road. Cheaper and far more controllable than re-texturing the ring bands,
 // and it means the surface follows the road rather than a perfect annulus.
+const _SURF = {
+    granite:  { col: 0x3c4250, rough: 0.35, metal: 0.25, seam: 0xa9b6c8 },
+    wet:      { col: 0x22252b, rough: 0.28, metal: 0.15, seam: 0x4d5460 },
+    paving:   { col: 0x6f5f88, rough: 0.8,  metal: 0,    seam: 0xd8c4ea },
+    concrete: { col: 0x6f6a5e, rough: 0.92, metal: 0,    seam: 0xd9b23a },
+    // ---- Star Territory. Nothing out here is paved, so the "seam" is a
+    // wagon rut, a rail, an ore-cart track or a crack in the hardpan.
+    dirt:      { col: 0x6b4f33, rough: 0.98, metal: 0, seam: 0x8a6a45 },  // rutted township dirt
+    ballast:   { col: 0x4a4a4e, rough: 0.95, metal: 0, seam: 0x8a7a5c },  // stone chip and sleepers
+    wetrock:   { col: 0x2b2420, rough: 0.55, metal: 0.1, seam: 0x6a5a48 },// wet rock, cart rails
+    grassdirt: { col: 0x4d5a2c, rough: 0.96, metal: 0, seam: 0x7a6b3a },  // packed earth through grass
+    hardpan:   { col: 0xa08f6c, rough: 0.99, metal: 0, seam: 0xc9b68c },  // cracked salt flat
+};
+
 function _buildDistrictSurfaces() {
-    const SURF = {
-        granite:  { col: 0x3c4250, rough: 0.35, metal: 0.25, seam: 0xa9b6c8 },
-        wet:      { col: 0x22252b, rough: 0.28, metal: 0.15, seam: 0x4d5460 },
-        paving:   { col: 0x6f5f88, rough: 0.8,  metal: 0,    seam: 0xd8c4ea },
-        concrete: { col: 0x6f6a5e, rough: 0.92, metal: 0,    seam: 0xd9b23a },
-        // ---- Star Territory. Nothing out here is paved, so the "seam" is a
-        // wagon rut, a rail, an ore-cart track or a crack in the hardpan.
-        dirt:      { col: 0x6b4f33, rough: 0.98, metal: 0, seam: 0x8a6a45 },  // rutted township dirt
-        ballast:   { col: 0x4a4a4e, rough: 0.95, metal: 0, seam: 0x8a7a5c },  // stone chip and sleepers
-        wetrock:   { col: 0x2b2420, rough: 0.55, metal: 0.1, seam: 0x6a5a48 },// wet rock, cart rails
-        grassdirt: { col: 0x4d5a2c, rough: 0.96, metal: 0, seam: 0x7a6b3a },  // packed earth through grass
-        hardpan:   { col: 0xa08f6c, rough: 0.99, metal: 0, seam: 0xc9b68c },  // cracked salt flat
-    };
     // Every region on THIS board that names a surface — it used to be City's
     // four district keys written out, which is the one line in the dressing
     // passes that a second graph board could not reach.
     [...ActiveMap.regionKeys(), ActiveMap.hubKey()].filter(Boolean).forEach(key => {
-        const cfg = SURF[DISTRICT_BIOMES[key]?.surface];
-        if (!cfg) return;
+        const base = _SURF[DISTRICT_BIOMES[key]?.surface];
+        if (!base) return;
+        const lk = _lookOf(key);
+        const cfg = { ...base, col: lk?.slab ?? base.col, seam: lk?.seam ?? base.seam };
         const mat = _dressMat(cfg.col, { rough: cfg.rough, metal: cfg.metal });
         const seamMat = _dressMat(cfg.seam, { rough: 0.6, opacity: 0.5 });
         _districtNodes(key).forEach((id, i) => {

@@ -21,6 +21,10 @@ A layout item is `{ model, seed, hq, x, z, rotY, scale }`. `seed` (0–99) picks
 
 A layout may carry `spaces: { nodeId: [x, z] }`: spaces the editor moved. They are applied right after the map's geometry places every node (`buildNodePositions`), so tiles, tokens, hops, the camera path and the guide tubes all follow. A district with moved spaces lays its road and pavement through them (`lobeSamples` switches to `CityKit.roadCurve`, the curve the editor previews), and a ring stretch with moved spaces gets asphalt along them. Space *types* are untouched: the game still deals them each match. Only real spaces may move (not the junctions where roads meet), and `apply-layout.js` checks every id against the map module. `qa/mapmodules.js` loads with `?nolayout` because it checks the map module's own geometry.
 
+## District looks
+
+A layout may carry `looks: { district: { ... } }`, only what differs from the game's own values: `bgTop`, `bgBot`, `fog` (sky and haze), `pave` (pavement), `slab` and `seam` (paving slabs), `light: { color, intensity, bounce, bounceI }` and `motes: { color, count, rise, size }`. The board reads them through `_look()` / `_lookOf()` in `Renderer.js`, merged over `DISTRICT_BIOMES`; the minigame sets keep the built-in biomes. `apply-layout.js` allows only City's five districts and these fields, colours as `#rrggbb`, and numbers within fixed ranges (light 0–4, particles 0–120 and so on).
+
 ## Pulling a saved layout in
 
 1. Read the saved layout from the editor page's store (`layouts/city_circuit`).
