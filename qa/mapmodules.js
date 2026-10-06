@@ -54,7 +54,9 @@ const EXPECTED_POOLS = { ring: 17, fin: 8, ba: 10, shop: 8, ind: 5 };
     const errors = [];
     page.on('pageerror', e => errors.push('PAGEERROR: ' + e.message));
     page.on('console', m => { if (m.type() === 'error' && !/Failed to load resource/.test(m.text())) errors.push('CONSOLE: ' + m.text()); });
-    await page.goto(BASE, { waitUntil: 'domcontentloaded' });
+    // ?nolayout: this checks the map module's OWN geometry, which a hand-made
+    // layout may move spaces away from (src/config/layouts).
+    await page.goto(BASE + (BASE.includes('?') ? '&' : '?') + 'nolayout', { waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => !!window.CITY_GRAPH_REF, null, { timeout: 20000 });
 
     // ---- 1. registry ⇄ module parity --------------------------------------

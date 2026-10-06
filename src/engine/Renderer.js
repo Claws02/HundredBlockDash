@@ -157,6 +157,14 @@ function _lobePoint(run, t, pow) {
 export function lobeSamples(run, n = 40) {
     const L = ActiveMap.layout() || {};
     const pow = L.lobePow || 1.3;
+    // A district whose spaces a layout has moved: its road runs through where
+    // the spaces now are, from the lobe's own ends, on the curve the map
+    // editor previews (CityKit.roadCurve).
+    if (run.ids.some(id => _movedSpaces.has(id))) {
+        const at = v => [v.x, v.z];
+        return CityKit.roadCurve([at(_lobePoint(run, 0, pow)), ...run.ids.map(id => at(getPos(id))),
+                                  at(_lobePoint(run, 1, pow))], n);
+    }
     const out = [];
     for (let i = 0; i <= n; i++) out.push(_lobePoint(run, i / n, pow));
     return out;
@@ -226,6 +234,7 @@ function _buildCloverPositions(L) {
 
 function buildNodePositions() {
     nodePositions.clear();
+    _movedSpaces.clear();
     const L = ActiveMap.layout();
     if (L && L.kind === 'clover') { _buildCloverPositions(L); return; }
     if (!L || L.kind !== 'city_arcs') return;
@@ -249,7 +258,18 @@ function buildNodePositions() {
         const n = run.ids.length;
         run.ids.forEach((id, i) => nodePositions.set(id, _lobePoint(run, (i + 1) / (n + 1), pow)));
     }
+    // Spaces a hand-made layout has moved (src/config/layouts). Only real
+    // spaces: the junctions are where roads meet, not somewhere to stand.
+    const moved = layoutFor(ActiveMap.id())?.spaces;
+    if (moved) for (const [id, xz] of Object.entries(moved)) {
+        if (!nodePositions.has(id) || ActiveMap.isJunction(id) || !Array.isArray(xz)) continue;
+        nodePositions.set(id, new THREE.Vector3(xz[0], 0, xz[1]));
+        _movedSpaces.add(id);
+    }
 }
+// Which spaces stand where a layout put them rather than where the map's
+// geometry would (roads through them are laid along the new positions).
+const _movedSpaces = new Set();
 
 export function getPos(nodeId) {
     if (typeof nodeId === 'number') return hbdPositions[Math.max(0, Math.min(nodeId, _hbdMax))] || new THREE.Vector3();
@@ -277,7 +297,9 @@ export function getNodeT(nodeId) {
 // ---- HBD board ----
 
 function buildHBDPositions() {
-    const waypoints = [
+    // A layout may lay the path itself (the map editor's waypoints, [x, z]).
+    const laid = layoutFor(ActiveMap.id())?.path;
+    const waypoints = laid ? laid.map(([x, z]) => new THREE.Vector3(x, 0, z)) : [
         new THREE.Vector3(0, 0, 0),     new THREE.Vector3(0, 0, -30),
         new THREE.Vector3(40, 0, -60),  new THREE.Vector3(60, 0, -100),
         new THREE.Vector3(20, 0, -140), new THREE.Vector3(-40, 0, -160),
@@ -349,8 +371,17 @@ function _pathNormal(t) {
     return new THREE.Vector3(0, 1, 0).cross(tan).normalize();
 }
 
+// The scenery a layout places for this run length, if it has any. The realms
+// split the path by length (two realms on a 50-block run, four on 100), so a
+// layout keeps one set of scenery per length.
+function _hbdLaid(cfg) {
+    const items = layoutFor(ActiveMap.id())?.runs?.[cfg.length];
+    return Array.isArray(items) ? items : null;
+}
+
 function _buildHBDScene() {
     const cfg     = state.hbd || HBD_DEFAULT_CONFIG;
+    const laid    = _hbdLaid(cfg);
     const realmGroups = {};   // key → list of block indices
     for (let i = 0; i <= cfg.finish; i++) {
         const key = getBiomeForSpace(i).key;
@@ -366,14 +397,15 @@ function _buildHBDScene() {
         _buildHBDRibbon(ext, key, order);
         _buildRealmParticles(idxs, key);
         _buildRealmAccentLight(idxs, key);
-        _buildRealmLandmark(idxs, key);
+        if (!laid) _buildRealmLandmark(idxs, key);
     });
 
     // 3) Glowing walking path on top of the ground.
     _buildHBDPath();
 
-    // 4) Scenery lining both sides of every block.
-    for (let i = 1; i < cfg.finish; i++) {
+    // 4) Scenery lining both sides of every block: the layout's, or automatic.
+    if (laid) _placeItems(laid, boardGrp, GROUND_Y, { float: _float });
+    else for (let i = 1; i < cfg.finish; i++) {
         const key = getBiomeForSpace(i).key;
         const t   = i / _hbdMax;
         const nrm = _pathNormal(t);
@@ -383,13 +415,13 @@ function _buildHBDScene() {
             if (_sr(i * 2 + (side > 0 ? 1 : 0)) > 0.82) return; // leave some gaps
             const dist = 9 + _sr(i * 7 + side) * 10;
             const pos  = base.clone().addScaledVector(nrm, side * dist);
-            const deco = _mkRealmDecor(key, i * 13 + side);
+            const deco = CityKit.realmDecor(key, i * 13 + side, { float: _float });
             if (deco) { deco.position.copy(pos); boardGrp.add(deco); }
         });
     }
 
     // 5) Dense low-cost ground scatter (grass / embers / sparkles) near the path.
-    _buildGroundScatter(cfg);
+    if (!laid) _buildGroundScatter(cfg);
 
     // 6) The Crown beacon at the finish.
     _buildCrownBeacon(getPos(cfg.finish).clone());
@@ -478,98 +510,16 @@ function _buildRealmLandmark(idxs, key) {
     const nrm = _pathNormal(mid / _hbdMax);
     const side = _sr(mid) > 0.5 ? 1 : -1;
     const pos  = getPos(mid).clone().addScaledVector(nrm, side * 36); pos.y = GROUND_Y;
-    let lm = null;
-    if (key === 'woods') lm = _lmGiantTree();
-    else if (key === 'ember') lm = _lmVolcano();
-    else if (key === 'fae') lm = _lmCrystalCluster();
-    else if (key === 'void') lm = _lmPlanet();
+    const lm = CityKit.realmLandmark(key, { float: _float });
     if (lm) { lm.position.copy(pos); boardGrp.add(lm); }
 }
 
-function _lmGiantTree() {
-    const grp = new THREE.Group();
-    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.7, 11, 8),
-        new THREE.MeshStandardMaterial({ color: 0x4a2a14, roughness: 0.95 }));
-    trunk.position.y = 5.5; grp.add(trunk);
-    const leafMat = new THREE.MeshStandardMaterial({ color: 0x1f7a2e, roughness: 0.9 });
-    [[0, 12, 0, 6], [-3.5, 10.5, 1, 4.5], [3.5, 11, -1, 4.8], [0, 14.5, 0, 4]].forEach(([x, y, z, r]) => {
-        const s = new THREE.Mesh(new THREE.SphereGeometry(r, 10, 9), leafMat);
-        s.position.set(x, y, z); s.scale.y = 0.9; grp.add(s);
-    });
-    return grp;
-}
-
-function _lmVolcano() {
-    const grp = new THREE.Group();
-    const cone = new THREE.Mesh(new THREE.ConeGeometry(13, 17, 16, 1, true),
-        new THREE.MeshStandardMaterial({ color: 0x2a1410, roughness: 1.0, side: THREE.DoubleSide,
-            emissive: 0xff2200, emissiveIntensity: 0.12 }));
-    cone.position.y = 8.5; grp.add(cone);
-    // Glowing crater
-    const crater = new THREE.Mesh(new THREE.CircleGeometry(4.2, 16),
-        new THREE.MeshStandardMaterial({ color: 0xff7a1a, emissive: 0xff4400, emissiveIntensity: 1.6 }));
-    crater.rotation.x = -Math.PI / 2; crater.position.y = 16.8; grp.add(crater);
-    // Lava trickle on a flank
-    const lava = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 1.2, 11, 6),
-        new THREE.MeshStandardMaterial({ color: 0xff5a1a, emissive: 0xff3300, emissiveIntensity: 1.3 }));
-    lava.position.set(5.5, 8, 4); lava.rotation.z = 0.5; lava.rotation.x = 0.2; grp.add(lava);
-    // Smoke puff
-    const smoke = new THREE.Mesh(new THREE.SphereGeometry(3.5, 10, 8),
-        new THREE.MeshStandardMaterial({ color: 0x333333, transparent: true, opacity: 0.35, roughness: 1 }));
-    smoke.position.y = 22; grp.add(smoke);
-    return grp;
-}
-
-function _lmCrystalCluster() {
-    const grp = new THREE.Group();
-    const cols = [0xd946ef, 0xc084fc, 0xf472b6, 0x8b5cf6];
-    for (let i = 0; i < 6; i++) {
-        const col = cols[i % cols.length];
-        const h = 7 + _sr(i * 4) * 9;
-        const cr = new THREE.Mesh(new THREE.ConeGeometry(1.2 + _sr(i) * 0.8, h, 5),
-            new THREE.MeshPhysicalMaterial({ color: col, emissive: col, emissiveIntensity: 0.7,
-                metalness: 0.3, roughness: 0.12, transparent: true, opacity: 0.9 }));
-        const a = (i / 6) * Math.PI * 2;
-        cr.position.set(Math.cos(a) * (2 + _sr(i + 1) * 3), h * 0.5, Math.sin(a) * (2 + _sr(i + 2) * 3));
-        cr.rotation.z = (_sr(i) - 0.5) * 0.5;
-        grp.add(cr);
-    }
-    return grp;
-}
-
-function _lmPlanet() {
-    const grp = new THREE.Group();
-    const planet = new THREE.Mesh(new THREE.SphereGeometry(6, 24, 20),
-        new THREE.MeshStandardMaterial({ color: 0x1b2358, emissive: 0x2a3a8a, emissiveIntensity: 0.5, roughness: 0.6, metalness: 0.3 }));
-    planet.position.y = 19; grp.add(planet);
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(9, 0.7, 10, 40),
-        new THREE.MeshStandardMaterial({ color: 0x60a5fa, emissive: 0x3b82f6, emissiveIntensity: 0.8, transparent: true, opacity: 0.8 }));
-    ring.rotation.x = Math.PI / 2.4; ring.position.y = 19; grp.add(ring);
-    floatingIcons.push({ mesh: planet, baseY: 19, speed: 0.3, phase: 0 });
-    return grp;
-}
+// Scenery that bobs (the Void's planet and shards) hands its animation here.
+const _float = e => floatingIcons.push(e);
 
 // ---- Dense, cheap ground scatter ----
 
-let _scatterShared = null;
-function _scatterRes() {
-    if (_scatterShared) return _scatterShared;
-    _scatterShared = {
-        grass:  new THREE.ConeGeometry(0.14, 0.8, 4),
-        pebble: new THREE.DodecahedronGeometry(0.28, 0),
-        dot:    new THREE.SphereGeometry(0.22, 6, 5),
-        mGrass:   new THREE.MeshStandardMaterial({ color: 0x3a9a3a, roughness: 0.95 }),
-        mPebble:  new THREE.MeshStandardMaterial({ color: 0x4a4438, roughness: 1.0 }),
-        mEmber:   new THREE.MeshStandardMaterial({ color: 0xff6a1a, emissive: 0xff3a00, emissiveIntensity: 1.5 }),
-        mEmRock:  new THREE.MeshStandardMaterial({ color: 0x281410, roughness: 1.0, emissive: 0xff3300, emissiveIntensity: 0.3 }),
-        mSpark:   new THREE.MeshStandardMaterial({ color: 0xf0a0ff, emissive: 0xe060ff, emissiveIntensity: 1.4 }),
-        mVoid:    new THREE.MeshStandardMaterial({ color: 0x88c0ff, emissive: 0x4488ff, emissiveIntensity: 1.4 }),
-    };
-    return _scatterShared;
-}
-
 function _buildGroundScatter(cfg) {
-    const R = _scatterRes();
     for (let i = 1; i < cfg.finish; i++) {
         const key = getBiomeForSpace(i).key;
         const t   = i / _hbdMax;
@@ -582,28 +532,10 @@ function _buildGroundScatter(cfg) {
             const dist  = 4.2 + _sr(i * 11 + k) * 3.2;
             const along = (_sr(i * 13 + k) - 0.5) * 2.4;
             const pos   = base.clone().addScaledVector(nrm, side * dist).addScaledVector(tan, along);
-            const prop  = _mkScatterProp(key, i * 17 + k, R);
+            const prop  = CityKit.scatter(key, i * 17 + k);
             if (prop) { prop.position.copy(pos); boardGrp.add(prop); }
         }
     }
-}
-
-function _mkScatterProp(key, seed, R) {
-    const r = _sr(seed);
-    let mesh;
-    if (key === 'woods') {
-        if (r < 0.7) { mesh = new THREE.Mesh(R.grass, R.mGrass); mesh.position.y = 0.4; mesh.scale.y = 0.8 + _sr(seed) * 0.8; }
-        else         { mesh = new THREE.Mesh(R.pebble, R.mPebble); mesh.position.y = 0.2; }
-    } else if (key === 'ember') {
-        if (r < 0.5) { mesh = new THREE.Mesh(R.dot, R.mEmber); mesh.position.y = 0.25; }
-        else         { mesh = new THREE.Mesh(R.pebble, R.mEmRock); mesh.position.y = 0.2; }
-    } else if (key === 'fae') {
-        mesh = new THREE.Mesh(R.dot, R.mSpark); mesh.position.y = 0.3 + _sr(seed) * 1.2;
-    } else { // void
-        mesh = new THREE.Mesh(R.dot, R.mVoid); mesh.position.y = 0.3 + _sr(seed) * 1.5;
-    }
-    mesh.rotation.set(_sr(seed) * 3, _sr(seed + 1) * 3, _sr(seed + 2) * 3);
-    return mesh;
 }
 
 // Build a flat tinted ground strip following the given block indices.
@@ -637,127 +569,6 @@ function _buildHBDRibbon(indices, key, order = 0) {
     const mesh = new THREE.Mesh(geo, mat);
     mesh.receiveShadow = true;
     boardGrp.add(mesh);
-}
-
-// Dispatch to a realm-specific decor maker. Returns a Group (or null).
-function _mkRealmDecor(key, seed) {
-    switch (key) {
-        case 'woods': return _mkWoodsDecor(seed);
-        case 'ember': return _mkEmberDecor(seed);
-        case 'fae':   return _mkFaeDecor(seed);
-        case 'void':  return _mkVoidDecor(seed);
-        default:      return _mkWoodsDecor(seed);
-    }
-}
-
-function _mkPineTree(seed) {
-    const grp = new THREE.Group();
-    const h = 2.4 + _sr(seed) * 1.8;
-    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.26, h * 0.5, 6),
-        new THREE.MeshStandardMaterial({ color: 0x5a3318, roughness: 0.95 }));
-    trunk.position.y = h * 0.25; trunk.castShadow = true; grp.add(trunk);
-    const leafMat = new THREE.MeshStandardMaterial({ color: 0x1f7a2e, roughness: 0.9 });
-    for (let c = 0; c < 3; c++) {
-        const cone = new THREE.Mesh(new THREE.ConeGeometry(1.4 - c * 0.35, 1.5, 7), leafMat);
-        cone.position.y = h * 0.5 + c * 0.9; cone.castShadow = true; grp.add(cone);
-    }
-    return grp;
-}
-
-function _mkWoodsDecor(seed) {
-    const r = _sr(seed);
-    if (r < 0.6) return _mkPineTree(seed);
-    if (r < 0.85) {
-        // bush cluster
-        const grp = new THREE.Group();
-        const m = new THREE.MeshStandardMaterial({ color: 0x2f8a35, roughness: 0.95 });
-        for (let i = 0; i < 3; i++) {
-            const b = new THREE.Mesh(new THREE.SphereGeometry(0.6 + _sr(seed + i) * 0.4, 7, 6), m);
-            b.position.set((_sr(seed + i) - 0.5) * 1.2, 0.5, (_sr(seed - i) - 0.5) * 1.2);
-            b.castShadow = true; grp.add(b);
-        }
-        return grp;
-    }
-    // mossy rock
-    const rock = new THREE.Mesh(new THREE.IcosahedronGeometry(0.8 + _sr(seed) * 0.6, 0),
-        new THREE.MeshStandardMaterial({ color: 0x556b4a, roughness: 1.0 }));
-    rock.position.y = 0.5; rock.rotation.set(_sr(seed), _sr(seed + 1), _sr(seed + 2)); rock.castShadow = true;
-    const g = new THREE.Group(); g.add(rock); return g;
-}
-
-function _mkEmberDecor(seed) {
-    const r = _sr(seed);
-    const grp = new THREE.Group();
-    if (r < 0.4) {
-        // lava pool — glowing flat disc on the ground
-        const pool = new THREE.Mesh(new THREE.CircleGeometry(1.4 + _sr(seed) * 1.2, 14),
-            new THREE.MeshStandardMaterial({ color: 0xff5a1a, emissive: 0xff3a00, emissiveIntensity: 1.4, roughness: 0.5 }));
-        pool.rotation.x = -Math.PI / 2; pool.position.y = 0.06; grp.add(pool);
-        return grp;
-    }
-    if (r < 0.75) {
-        // charred volcanic rock with glowing cracks
-        const rock = new THREE.Mesh(new THREE.IcosahedronGeometry(0.9 + _sr(seed) * 0.7, 0),
-            new THREE.MeshStandardMaterial({ color: 0x241010, roughness: 1.0, emissive: 0xff3300, emissiveIntensity: 0.25 }));
-        rock.position.y = 0.6; rock.rotation.set(_sr(seed), _sr(seed + 1), _sr(seed + 2)); rock.castShadow = true; grp.add(rock);
-        return grp;
-    }
-    // dead/charred tree
-    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.22, 2.6 + _sr(seed) * 1.2, 5),
-        new THREE.MeshStandardMaterial({ color: 0x1a1410, roughness: 1.0 }));
-    trunk.position.y = 1.4; trunk.castShadow = true; grp.add(trunk);
-    for (let i = 0; i < 2; i++) {
-        const br = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.1, 1.1, 4),
-            new THREE.MeshStandardMaterial({ color: 0x1a1410, roughness: 1.0 }));
-        br.position.set(0, 2.0 + i * 0.5, 0); br.rotation.z = (i ? 1 : -1) * 0.9; grp.add(br);
-    }
-    return grp;
-}
-
-function _mkFaeDecor(seed) {
-    const r = _sr(seed);
-    const grp = new THREE.Group();
-    const glow = [0xd946ef, 0xc084fc, 0xf472b6, 0x8b5cf6][Math.floor(_sr(seed + 5) * 4)];
-    if (r < 0.5) {
-        // glowing mushroom
-        const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.22, 1.0 + _sr(seed), 6),
-            new THREE.MeshStandardMaterial({ color: 0xe8d8f0, roughness: 0.7 }));
-        stem.position.y = 0.6; stem.castShadow = true; grp.add(stem);
-        const cap = new THREE.Mesh(new THREE.SphereGeometry(0.6 + _sr(seed) * 0.3, 10, 8, 0, Math.PI * 2, 0, Math.PI / 2),
-            new THREE.MeshStandardMaterial({ color: glow, emissive: glow, emissiveIntensity: 0.9, roughness: 0.5 }));
-        cap.position.y = 1.1 + _sr(seed); grp.add(cap);
-        return grp;
-    }
-    // crystal spire
-    const h = 1.8 + _sr(seed) * 2.0;
-    const crystal = new THREE.Mesh(new THREE.ConeGeometry(0.5, h, 5),
-        new THREE.MeshPhysicalMaterial({ color: glow, emissive: glow, emissiveIntensity: 0.7, metalness: 0.3, roughness: 0.15, transparent: true, opacity: 0.9 }));
-    crystal.position.y = h * 0.5; crystal.rotation.y = _sr(seed) * 3; crystal.castShadow = true; grp.add(crystal);
-    return grp;
-}
-
-function _mkVoidDecor(seed) {
-    const grp = new THREE.Group();
-    const r = _sr(seed);
-    const glow = [0x60a5fa, 0x3b82f6, 0xa855f7, 0x22d3ee][Math.floor(_sr(seed + 3) * 4)];
-    if (r < 0.55) {
-        // floating shard that slowly bobs
-        const shard = new THREE.Mesh(new THREE.OctahedronGeometry(0.6 + _sr(seed) * 0.8, 0),
-            new THREE.MeshPhysicalMaterial({ color: glow, emissive: glow, emissiveIntensity: 0.8, metalness: 0.5, roughness: 0.1, transparent: true, opacity: 0.92 }));
-        const baseY = 1.5 + _sr(seed) * 2.5;
-        shard.position.y = baseY; shard.castShadow = true; grp.add(shard);
-        floatingIcons.push({ mesh: shard, baseY, speed: 0.5 + _sr(seed), phase: _sr(seed) * 6 });
-        return grp;
-    }
-    // dark spire tipped with light
-    const h = 2.2 + _sr(seed) * 2.0;
-    const spire = new THREE.Mesh(new THREE.ConeGeometry(0.5, h, 5),
-        new THREE.MeshStandardMaterial({ color: 0x10122e, roughness: 0.6, metalness: 0.4 }));
-    spire.position.y = h * 0.5; spire.castShadow = true; grp.add(spire);
-    const tip = new THREE.Mesh(new THREE.SphereGeometry(0.3, 8, 8),
-        new THREE.MeshStandardMaterial({ color: glow, emissive: glow, emissiveIntensity: 1.4 }));
-    tip.position.y = h; grp.add(tip);
-    return grp;
 }
 
 function _buildCrownBeacon(pos) {
@@ -1867,6 +1678,8 @@ export function updateBiomeVisuals(districtOrIdx) {
         if (scene && scene.fog) scene.fog.color.set(b.fog);
     } else {
         b = getBiomeForDistrict(districtOrIdx || 'ring');
+        const lk = _lookOf(districtOrIdx || 'ring');
+        if (lk) b = { ...b, ...Object.fromEntries(['bgTop', 'bgBot', 'fog'].filter(k => lk[k]).map(k => [k, lk[k]])) };
         if (scene && scene.fog) scene.fog.color.set(b.fog);
     }
     // Three stops, not two. The bottom one is the biome's FOG colour, which is
@@ -3019,10 +2832,10 @@ export function qaRenderFrom(pos, look) {
  * scripts/export-reference.js). `hide`
  * decides which top-level scene objects to leave out. Returns a JPEG data URL.
  */
-export function qaRenderTopDown(half, hide = () => false) {
+export function qaRenderTopDown(half, hide = () => false, cx = 0, cz = 0) {
     if (!renderer || !scene) return null;
     const cam = new THREE.OrthographicCamera(-half, half, half, -half, 1, 2000);
-    cam.position.set(0, 1000, 0); cam.up.set(0, 0, -1); cam.lookAt(0, 0, 0);
+    cam.position.set(cx, 1000, cz); cam.up.set(0, 0, -1); cam.lookAt(cx, 0, cz);
     const hidden = [];
     scene.traverse(o => { if (o !== scene && o.visible && hide(o)) { o.visible = false; hidden.push(o); } });
     const fog = scene.fog; scene.fog = null;
@@ -3030,6 +2843,74 @@ export function qaRenderTopDown(half, hide = () => false) {
     const url = renderer.domElement.toDataURL('image/jpeg', 0.85);
     scene.fog = fog; hidden.forEach(o => { o.visible = true; });
     return url;
+}
+
+/**
+ * Hundred Block Dash as the map editor needs it: the path's waypoints, the
+ * run length, the realm of every block, each realm's ground colours, and
+ * the scenery standing on the board now (with ?nolayout, the automatic one).
+ */
+export function qaHbdRef() {
+    if (!ActiveMap.isLinear()) return null;
+    const r3 = n => Math.round(n * 1000) / 1000, hex = c => '#' + c.toString(16).padStart(6, '0');
+    const cfg = state.hbd || HBD_DEFAULT_CONFIG;
+    const items = [];
+    boardGrp.children.forEach(o => {
+        const k = o.userData.kit;
+        if (!k) return;
+        items.push({ model: k.model, seed: k.seed, hq: !!k.hq, x: r3(o.position.x), z: r3(o.position.z), rotY: r3(o.rotation.y), scale: r3(o.scale.x) });
+    });
+    const style = {};
+    for (const [key, st] of Object.entries(HBD_REALM_STYLE)) style[key] = { ground: hex(st.ground), ground2: hex(st.ground2), accent: hex(st.accent) };
+    return {
+        length: cfg.length,
+        waypoints: boardCurve.points.map(p => [r3(p.x), r3(p.z)]),
+        realms: hbdPositions.map((_, i) => getBiomeForSpace(i).key),
+        style, ribbonHalf: 26, groundY: GROUND_Y, items,
+    };
+}
+
+/**
+ * The board as the map editor needs it (its export-reference script): every
+ * node with its district, the roads as node lists, and each district's run
+ * with the ends of its lobe and its pavement's width and colour, so the
+ * editor can lay the same road through spaces it moves (CityKit.roadCurve).
+ */
+export function qaBoardRef() {
+    const L = ActiveMap.layout() || {}, pow = L.lobePow || 1.3, r3 = n => Math.round(n * 1000) / 1000;
+    const g = ActiveMap.graph();
+    const nodes = [...nodePositions.keys()].map(id => {
+        const v = nodePositions.get(id);
+        return { id, x: r3(v.x), z: r3(v.z), district: g[id]?.district || ActiveMap.hubKey(), junction: ActiveMap.isJunction(id) };
+    });
+    const roads = ActiveMap.roads().map(r => ({ district: r.district, ids: r.nodes.slice() }));
+    const runs = districtRuns().map(run => {
+        const a = _lobePoint(run, 0, pow), b = _lobePoint(run, 1, pow);
+        const key = run.ids[0].split('_')[0];
+        const mat = (_DISTRICT_GROUND[key] || {}).pave || (_CM && _CM.sidewalk);
+        return { district: key, ids: run.ids.slice(), end0: [r3(a.x), r3(a.z)], end1: [r3(b.x), r3(b.z)],
+                 width: 23, color: mat && mat.color ? '#' + mat.color.getHexString() : '#b0a898',
+                 // The lobe itself, for drawing the pavement exactly while no space in it has moved.
+                 samples: lobeSamples(run, 56).map(v => [r3(v.x), r3(v.z)]) };
+    });
+    // Each district's look as the game has it now (built-in, or a layout's
+    // overrides): the editor's starting values and what its Reset returns to.
+    const hex = c => '#' + new THREE.Color(c).getHexString();
+    const looks = {};
+    [...(ActiveMap.regionKeys() || []), ActiveMap.hubKey()].filter(Boolean).forEach(key => {
+        const b = _look(key); if (!b) return;
+        const surf = _SURF[b.surface] || {}, lk = _lookOf(key) || {};
+        const pave = (_DISTRICT_GROUND[key] || {}).pave;
+        looks[key] = {
+            name: b.name, bgTop: b.bgTop, bgBot: b.bgBot, fog: b.fog,
+            pave: pave ? hex(pave.color) : null,
+            slab: surf.col !== undefined ? hex(lk.slab ?? surf.col) : null, seam: surf.seam !== undefined ? hex(lk.seam ?? surf.seam) : null,
+            light: b.light ? { color: hex(b.light.color), intensity: b.light.intensity, bounce: b.light.bounce !== undefined ? hex(b.light.bounce) : null, bounceI: b.light.bounceI ?? 0,
+                               height: b.light.height, radius: b.light.radius } : null,
+            motes: b.motes ? { color: hex(b.motes.color), count: b.motes.count, rise: b.motes.rise, size: b.motes.size } : null,
+        };
+    });
+    return { nodes, roads, runs, hub: ActiveMap.hubKey(), looks };
 }
 
 /** One plot building on its own, for qa/modelsheet.js. Not added to the scene. */
@@ -3231,16 +3112,16 @@ function _facingAngle(pos) {
 let _DISTRICT_GROUND = {};
 
 function _buildDistrictGroundMaterials() {
-    const pave = c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.9 });
+    const pave = (c, key) => new THREE.MeshStandardMaterial({ color: _lookOf(key)?.pave ?? c, roughness: 0.9 });
     _DISTRICT_GROUND = {
         // Darker than they look written down. The city's key light is strong
         // and these are large flat areas facing straight up at it, so a stone
         // that reads as mid-grey on paper renders as white and swallows the
         // buildings standing on it.
-        fin:  { pave: pave(0x5c6470) },   // clean grey stone
-        ba:   { pave: pave(0x463c33) },   // stained brick dust
-        shop: { pave: pave(0x6b5563) },   // promenade paving, faintly pink
-        ind:  { pave: pave(0x565139) },   // dirty concrete
+        fin:  { pave: pave(0x5c6470, 'fin') },   // clean grey stone
+        ba:   { pave: pave(0x463c33, 'ba') },   // stained brick dust
+        shop: { pave: pave(0x6b5563, 'shop') },   // promenade paving, faintly pink
+        ind:  { pave: pave(0x565139, 'ind') },   // dirty concrete
     };
 }
 
@@ -3455,12 +3336,25 @@ function _buildCityGround() {
     districtRuns().forEach(run => {
         const pts = lobeSamples(run, 56);
         const tint = _DISTRICT_GROUND[run.ids[0].split('_')[0]] || {};
-        _cityEnvGroup.add(_ribbon(pts, 23, tint.pave || _CM.sidewalk, CITY_GROUND.pave));
+        const pave = _ribbon(pts, 23, tint.pave || _CM.sidewalk, CITY_GROUND.pave);
+        pave.userData.followsSpaces = true;         // the map editor draws this itself
+        _cityEnvGroup.add(pave);
         // No asphalt or lane markings under a district: _buildDistrictSurfaces
         // lays a slab per tile on top of this, and a road nobody can see is
         // just triangles. The pavement is the part that shows, and its job is
         // to draw the district's outline on the ground.
     });
+
+    // Ring spaces a layout moved off the ring's band get asphalt under them:
+    // the ring road is a fixed circle, so a stretch through moved spaces is
+    // laid along them.
+    ActiveMap.roads().filter(r => r.district === ActiveMap.hubKey() && r.nodes.some(id => _movedSpaces.has(id)))
+        .forEach(r => {
+            const pts = CityKit.roadCurve(r.nodes.map(id => { const v = getPos(id); return [v.x, v.z]; }), r.nodes.length * 8);
+            const strip = _ribbon(pts, 10, _CM.asphalt, CITY_GROUND.road);
+            strip.userData.followsSpaces = true;
+            _cityEnvGroup.add(strip);
+        });
 
     // ---- The spurs -------------------------------------------------------
     //
@@ -3494,46 +3388,43 @@ function _buildCityGround() {
 // ---- Center plaza (fountain + park) ----
 
 function _buildCityCenter() {
-    // Raised platform
-    const platform = new THREE.Mesh(new THREE.CylinderGeometry(9, 9, 0.4, 32), _CM.concrete);
-    platform.position.y = -0.38;
-    _cityEnvGroup.add(platform);
-
-    // Fountain basin wall
-    const basin = new THREE.Mesh(new THREE.CylinderGeometry(5.5, 5.5, 1.0, 32), _CM.concrete);
-    basin.position.y = 0.28;
-    _cityEnvGroup.add(basin);
-
-    // Water surface
-    const water = new THREE.Mesh(new THREE.CircleGeometry(5.2, 32), _CM.water);
-    water.rotation.x = -Math.PI / 2;
-    water.position.y = 0.82;
-    _cityEnvGroup.add(water);
-
-    // Fountain column
-    const colMat = new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.5, roughness: 0.4 });
-    const col = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.36, 3.5, 8), colMat);
-    col.position.y = 2.35;
-    _cityEnvGroup.add(col);
-
-    // Water spray (translucent cone)
-    const sprayMat = new THREE.MeshPhysicalMaterial({ color: 0x99ccff, transparent: true, opacity: 0.35, roughness: 0.1 });
-    const spray = new THREE.Mesh(new THREE.ConeGeometry(1.0, 2.2, 16), sprayMat);
-    spray.position.y = 5.1;
-    _cityEnvGroup.add(spray);
-
-    // Park trees (8 around perimeter)
+    // The fountain, eight park trees and four benches facing the fountain
+    // (CityKit.js). A full layout places these itself.
+    if (_fullLayout()) return;
+    _cityEnvGroup.add(CityKit.fountainPiece());
     for (let i = 0; i < 8; i++) {
         const a = (i / 8) * Math.PI * 2;
-        _cityEnvGroup.add(_mkTree(new THREE.Vector3(Math.cos(a) * 14, 0, Math.sin(a) * 14)));
+        _cityEnvGroup.add(CityKit.tree(new THREE.Vector3(Math.cos(a) * 14, 0, Math.sin(a) * 14)));
     }
-
-    // Benches facing fountain
     for (let i = 0; i < 4; i++) {
         const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
-        const bPos = new THREE.Vector3(Math.cos(a) * 10, 0, Math.sin(a) * 10);
-        _cityEnvGroup.add(_mkBench(bPos, a + Math.PI));
+        const b = CityKit.benchPiece();
+        b.position.set(Math.cos(a) * 10, 0, Math.sin(a) * 10);
+        b.rotation.y = a + Math.PI;
+        _cityEnvGroup.add(b);
     }
+}
+
+// DISTRICT LOOKS. A hand-made layout may override a district's sky, haze,
+// pavement, paving slabs, light and particles (`looks`, src/config/layouts);
+// the board reads its looks through these, merged over DISTRICT_BIOMES. The
+// minigame sets keep the built-in biomes.
+function _lookOf(key) { return layoutFor(ActiveMap.id())?.looks?.[key] || null; }
+function _look(key) {
+    const base = DISTRICT_BIOMES[key], o = _lookOf(key);
+    if (!base || !o) return base;
+    const sky = {};
+    for (const k of ['bgTop', 'bgBot', 'fog']) if (o[k]) sky[k] = o[k];
+    return { ...base, ...sky,
+             light: base.light && o.light ? { ...base.light, ...o.light } : base.light,
+             motes: base.motes && o.motes ? { ...base.motes, ...o.motes } : base.motes };
+}
+
+// A layout that places everything (version 2: buildings, landmarks and the
+// street pieces), in which case the automatic dressing passes stand aside.
+function _fullLayout() {
+    const l = layoutFor(ActiveMap.id());
+    return l && l.version >= 2 ? l : null;
 }
 
 // ---- Street lamps ----
@@ -3546,7 +3437,8 @@ function _buildStreetLamps() {
     if (!hubNodes.length) return;
     // A city has electric lamps; Perdition has lantern posts, and a shorter
     // hub ring means every node gets one rather than every other.
-    const post = _isClover() ? _mkLanternPost : _mkLampPost;
+    if (_fullLayout()) return;
+    const post = _isClover() ? _mkLanternPost : () => CityKit.lampPiece();
     const every = hubNodes.length > 14 ? 2 : 1;
     const reach = _isClover() ? 5 : 6;
     hubNodes.forEach((id, idx) => {
@@ -3556,50 +3448,17 @@ function _buildStreetLamps() {
         [reach, -reach].forEach(d => {
             const at = pos.clone().addScaledVector(out, d);
             at.y = 0;
-            _cityEnvGroup.add(post(at));
+            const lp = post(at);
+            if (!_isClover()) lp.position.copy(at);
+            _cityEnvGroup.add(lp);
         });
     });
 }
 
 // ---- Small helpers ----
 
-function _mkTree(pos) {
-    const grp = new THREE.Group();
-    grp.position.copy(pos);
-    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.3, 2.2, 6), _CM.treeTrunk);
-    trunk.position.y = 1.1; trunk.castShadow = true;
-    grp.add(trunk);
-    const leaves = new THREE.Mesh(new THREE.SphereGeometry(1.6, 8, 8), _CM.treeLeaf);
-    leaves.position.y = 3.3; leaves.scale.y = 1.15; leaves.castShadow = true;
-    grp.add(leaves);
-    return grp;
-}
 
-function _mkBench(pos, rotY) {
-    const grp = new THREE.Group();
-    grp.position.copy(pos); grp.rotation.y = rotY;
-    const seat = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.14, 0.65), _CM.bench);
-    seat.position.y = 0.72; grp.add(seat);
-    const back = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.85, 0.1), _CM.bench);
-    back.position.set(0, 1.14, -0.27); grp.add(back);
-    const legGeo = new THREE.BoxGeometry(0.14, 0.72, 0.65);
-    [-0.8, 0.8].forEach(x => { const leg = new THREE.Mesh(legGeo, _CM.benchMetal); leg.position.set(x, 0.36, 0); grp.add(leg); });
-    return grp;
-}
 
-function _mkLampPost(pos) {
-    const grp = new THREE.Group();
-    grp.position.copy(pos);
-    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.12, 8.5, 7), _CM.lampPole);
-    pole.position.y = 4.25; pole.castShadow = true; grp.add(pole);
-    const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 2.2, 6), _CM.lampPole);
-    arm.rotation.z = Math.PI / 2; arm.position.set(1.1, 8.4, 0); grp.add(arm);
-    const head = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.22, 0.55, 8), _CM.lampPole);
-    head.position.set(2.1, 8.2, 0); grp.add(head);
-    const glow = new THREE.Mesh(new THREE.SphereGeometry(0.18, 8, 8), _CM.lampGlow);
-    glow.position.set(2.1, 8.1, 0); grp.add(glow);
-    return grp;
-}
 
 // ---- District buildings ----
 
@@ -3868,19 +3727,21 @@ const _PLOT_BUILDER = {
 
 // A hand-made layout (the map editor's) places every building and landmark
 // itself; see src/config/layouts.
-function _placeLayout(layout) {
-    layout.items.forEach(it => {
+function _placeLayout(layout) { _placeItems(layout.items, _cityEnvGroup, 0, { live: _kitLive }); }
+
+function _placeItems(items, parent, y, opts) {
+    items.forEach(it => {
         const M = CityKit.MODELS[it.model];
-        const g = CityKit.buildModel(it, { live: _kitLive });
+        const g = CityKit.buildModel(it, opts);
         if (!M || !g) return;
         const scale = it.scale || 1;
-        g.position.set(it.x, 0, it.z);
+        g.position.set(it.x, y, it.z);
         g.rotation.y = it.rotY || 0;
         g.scale.setScalar(scale);
         // Plot buildings get out of the camera's way like the automatic ones;
         // landmarks stand far enough back that they never did.
-        if (!M.landmark) _canOcclude(g, M.half * (it.hq ? 1.35 : 1) * scale);
-        _cityEnvGroup.add(g);
+        if (M.occlude) _canOcclude(g, M.half * (it.hq ? 1.35 : 1) * scale);
+        parent.add(g);
     });
 }
 
@@ -3990,7 +3851,7 @@ function _isClover() { return ActiveMap.layout()?.kind === 'clover'; }
 // nothing next to the shadow-casting sun that was already there.
 function _buildDistrictLights() {
     Object.keys(DISTRICT_BIOMES).forEach(key => {
-        const cfg = DISTRICT_BIOMES[key].light;
+        const cfg = _look(key).light;
         if (!cfg || !cfg.intensity) return;
         const nodes = _districtNodes(key);
         if (!nodes.length) return;
@@ -4023,11 +3884,14 @@ function _buildDistrictLights() {
 // one object — a stock board, a washing line under dead neon, a bunting arch, a
 // pipe bridge.
 function _buildOverheads() {
-    const SPAN = { fin: _spanTickerArch, ba: _spanLaundry, shop: _spanBunting,
-                   ind: _spanPipeBridge, ring: _spanGantrySign,
+    const kitSpan = key => i => CityKit.span(key, i, { live: e => _cityLive.push(e) });
+    const full = _fullLayout();
+    const SPAN = { fin: kitSpan('fin'), ba: kitSpan('ba'), shop: kitSpan('shop'),
+                   ind: kitSpan('ind'), ring: kitSpan('ring'),
                    hub: _spanGallowsSign, rail: _spanSignalGantry, mine: _spanShoring,
                    ranch: _spanLogGate, bad: _spanDeadCottonwood };
     Object.keys(SPAN).forEach(key => {
+        if (full && ['fin', 'ba', 'shop', 'ind', 'ring'].includes(key)) return;
         const nodes = _districtNodes(key);
         if (nodes.length < 3) return;
         // The hub carries its spans further apart, because everybody crosses it
@@ -4060,194 +3924,10 @@ function _buildOverheads() {
     });
 }
 
-// A pair of legs either side of the road, at ±SPAN_HALF, with a deck across.
-const SPAN_HALF = 7.4;
-
-function _spanLegs(g, mat, height, thick = 0.55) {
-    [-SPAN_HALF, SPAN_HALF].forEach(x => {
-        const leg = new THREE.Mesh(new THREE.BoxGeometry(thick, height, thick), mat);
-        leg.position.set(x, height / 2, 0);
-        g.add(leg);
-    });
-}
-
-function _spanTickerArch(i) {                    // Financial: the boards overhead
-    const g = new THREE.Group();
-    const steel = _dressMat(0xb8c2cf, { rough: 0.35, metal: 0.7 });
-    _spanLegs(g, steel, 8.4, 0.6);
-    const deck = new THREE.Mesh(new THREE.BoxGeometry(SPAN_HALF * 2 + 1.2, 0.5, 1.0), steel);
-    deck.position.y = 8.4; g.add(deck);
-    const face = new THREE.Mesh(new THREE.BoxGeometry(SPAN_HALF * 2, 1.9, 0.28),
-        _dressMat(0x080d16, { rough: 0.45 }));
-    face.position.set(0, 7.2, 0.62); g.add(face);
-    const bars = [];
-    for (let k = 0; k < 16; k++) {
-        const bar = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 1.1),
-            new THREE.MeshBasicMaterial({ color: 0x22c55e }));
-        bar.position.set(-SPAN_HALF + 0.75 + k * 0.94, 7.2, 0.78);
-        g.add(bar); bars.push(bar);
-    }
-    _cityLive.push({ kind: 'ticker', bars, seed: 90 + i * 5 });
-    // A gold band under the deck picks the district's colour out at night.
-    const band = new THREE.Mesh(new THREE.BoxGeometry(SPAN_HALF * 2 + 1.2, 0.16, 1.02),
-        new THREE.MeshBasicMaterial({ color: 0xfbbf24 }));
-    band.position.y = 8.1; g.add(band);
-    return g;
-}
-
-function _spanLaundry(i) {                       // Back Alley: lines and dead neon
-    const g = new THREE.Group();
-    const brick = _dressMat(0x4a2018, { rough: 0.95 });
-    // Two tenement walls right at the kerb, so the alley is enclosed.
-    [-1, 1].forEach(sgn => {
-        const wall = new THREE.Mesh(new THREE.BoxGeometry(1.4, 13, 11), brick);
-        wall.position.set(sgn * (SPAN_HALF + 0.7), 6.5, 0); g.add(wall);
-        // Fire escape: three landings and their rails.
-        for (let f = 0; f < 3; f++) {
-            const deck = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.16, 3.2),
-                _dressMat(0x2c2c2c, { rough: 0.6, metal: 0.55 }));
-            deck.position.set(sgn * (SPAN_HALF - 0.6), 3.4 + f * 3.1, 0); g.add(deck);
-            const rail = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.9, 3.2),
-                _dressMat(0x2c2c2c, { rough: 0.6, metal: 0.55 }));
-            rail.position.set(sgn * (SPAN_HALF - 1.3), 3.9 + f * 3.1, 0); g.add(rail);
-        }
-        // Lit window squares up the wall — the cheapest "people live here".
-        for (let w = 0; w < 5; w++) {
-            const lit = _seeded(i * 13 + w + (sgn > 0 ? 7 : 0)) > 0.45;
-            const win = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 1.1),
-                new THREE.MeshBasicMaterial({ color: lit ? 0xffd88a : 0x14171f }));
-            win.position.set(sgn * (SPAN_HALF - 0.05), 4.5 + w * 1.9, -3.4 + (w % 2) * 6.8);
-            win.rotation.y = sgn > 0 ? -Math.PI / 2 : Math.PI / 2;
-            g.add(win);
-        }
-    });
-    // Three washing lines across, sagging.
-    const rope = _dressMat(0x1e1e1e, { rough: 1 });
-    [7.2, 9.6, 11.4].forEach((y, li) => {
-        const line = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, SPAN_HALF * 2, 5), rope);
-        line.rotation.z = Math.PI / 2;
-        line.position.set(0, y, -2 + li * 2); g.add(line);
-        for (let k = 0; k < 7; k++) {
-            const t = (k + 0.5) / 7;
-            const cloth = new THREE.Mesh(new THREE.PlaneGeometry(0.95, 1.4),
-                _dressMat([0xf1f5f9, 0x60a5fa, 0xfbbf24, 0xf87171, 0x86efac][(k + li) % 5], { rough: 0.9 }));
-            cloth.material.side = THREE.DoubleSide;
-            cloth.position.set(-SPAN_HALF + t * SPAN_HALF * 2,
-                               y - 0.8 - Math.sin(t * Math.PI) * 0.5, -2 + li * 2);
-            g.add(cloth);
-        }
-    });
-    // A dead neon sign hanging over the middle of the road.
-    const col = [0xff2d78, 0x35e0ff, 0xa855f7][i % 3];
-    const signMat = new THREE.MeshBasicMaterial({ color: col });
-    const sign = new THREE.Mesh(new THREE.BoxGeometry(4.6, 1.5, 0.22), signMat);
-    sign.position.set(0, 5.6, 1.2); g.add(sign);
-    const tubeMat = new THREE.MeshBasicMaterial({ color: 0xfff3a0 });
-    for (let k = 0; k < 3; k++) {
-        const t = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.1, 6, 14), tubeMat);
-        t.position.set(-1.3 + k * 1.3, 4.2, 1.2); g.add(t);
-    }
-    _cityLive.push({ kind: 'neon', parts: [signMat, tubeMat], seed: 30 + i * 3 });
-    return g;
-}
-
-function _spanBunting(i) {                       // Promenade: the parade arch
-    const g = new THREE.Group();
-    const pole = _dressMat(0xf5eaf8, { rough: 0.5 });
-    _spanLegs(g, pole, 7.6, 0.4);
-    [-SPAN_HALF, SPAN_HALF].forEach(x => {
-        const finial = new THREE.Mesh(new THREE.SphereGeometry(0.45, 12, 10),
-            _dressMat(0xfbbf24, { rough: 0.3, metal: 0.6 }));
-        finial.position.set(x, 8.0, 0); g.add(finial);
-    });
-    // Three swags of bunting at different depths, each a catenary of triangles.
-    const cols = [0xef4444, 0xfbbf24, 0x22c55e, 0x3b82f6, 0xf472b6];
-    [0, 1, 2].forEach(row => {
-        for (let k = 0; k < 13; k++) {
-            const t = k / 12;
-            const flag = new THREE.Mesh(new THREE.ConeGeometry(0.34, 0.85, 3),
-                _dressMat(cols[(k + row) % 5], { rough: 0.65 }));
-            flag.position.set(-SPAN_HALF + t * SPAN_HALF * 2,
-                              7.2 - Math.sin(t * Math.PI) * 1.7 - row * 0.15,
-                              -2.2 + row * 2.2);
-            flag.rotation.x = Math.PI;
-            g.add(flag);
-        }
-    });
-    // A banner across the top.
-    const banner = new THREE.Mesh(new THREE.BoxGeometry(SPAN_HALF * 1.5, 1.5, 0.2),
-        _dressMat(0xf472b6, { rough: 0.6, emissive: 0xd6337f, ei: 0.35 }));
-    banner.position.set(0, 8.3, 0); g.add(banner);
-    // Balloon cluster tied to one leg.
-    const side = i % 2 ? 1 : -1;
-    for (let k = 0; k < 6; k++) {
-        const b = new THREE.Mesh(new THREE.SphereGeometry(0.42, 10, 8),
-            _dressMat(cols[k % 5], { rough: 0.35 }));
-        b.scale.y = 1.2;
-        b.position.set(side * (SPAN_HALF - 0.9) + (_seeded(i * 9 + k) - 0.5) * 1.4,
-                       5.6 + _seeded(i * 5 + k) * 1.5,
-                       (_seeded(i * 3 + k) - 0.5) * 1.4);
-        g.add(b);
-    }
-    return g;
-}
-
-function _spanPipeBridge(i) {                    // Industrial: the works overhead
-    const g = new THREE.Group();
-    const steel = _dressMat(0x6d7268, { rough: 0.55, metal: 0.6 });
-    _spanLegs(g, steel, 7.0, 0.75);
-    // Lattice deck.
-    const deck = new THREE.Mesh(new THREE.BoxGeometry(SPAN_HALF * 2 + 1.5, 0.4, 2.6), steel);
-    deck.position.y = 7.0; g.add(deck);
-    for (let k = 0; k < 9; k++) {
-        const brace = new THREE.Mesh(new THREE.BoxGeometry(0.18, 1.5, 0.18), steel);
-        brace.position.set(-SPAN_HALF + k * (SPAN_HALF * 2 / 8), 6.3, 0);
-        brace.rotation.z = (k % 2 ? 1 : -1) * 0.7; g.add(brace);
-    }
-    // Three pipes running the span, one of them painted hazard orange.
-    [[-0.8, 0x8a8f7a], [0, 0xb45309], [0.8, 0x7e8478]].forEach(([z, c], k) => {
-        const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.36, SPAN_HALF * 2 + 1.5, 10),
-            _dressMat(c, { rough: 0.6, metal: 0.45 }));
-        pipe.rotation.z = Math.PI / 2;
-        pipe.position.set(0, 7.9 + (k === 1 ? 0.1 : 0), z * 1.5); g.add(pipe);
-    });
-    // Floodlights aimed down at the road.
-    [-1, 1].forEach(sgn => {
-        const head = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.6, 0.7), steel);
-        head.position.set(sgn * (SPAN_HALF - 1.6), 6.6, 1.6);
-        head.rotation.x = 0.5; g.add(head);
-        const glow = new THREE.Mesh(new THREE.PlaneGeometry(0.95, 0.5),
-            new THREE.MeshBasicMaterial({ color: 0xffd9a0 }));
-        glow.position.set(sgn * (SPAN_HALF - 1.6), 6.35, 1.9);
-        glow.rotation.x = -1.1; g.add(glow);
-    });
-    // Hazard chevrons on the legs.
-    [-SPAN_HALF, SPAN_HALF].forEach(x => {
-        for (let k = 0; k < 3; k++) {
-            const ch = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.28, 0.8),
-                _dressMat(k % 2 ? 0x111111 : 0xfacc15, { rough: 0.8 }));
-            ch.position.set(x, 0.5 + k * 0.34, 0); g.add(ch);
-        }
-    });
-    return g;
-}
-
-function _spanGantrySign(i) {                    // Ring road: motorway signage
-    const g = new THREE.Group();
-    const steel = _dressMat(0x9aa3ad, { rough: 0.4, metal: 0.65 });
-    _spanLegs(g, steel, 6.6, 0.42);
-    const beam = new THREE.Mesh(new THREE.BoxGeometry(SPAN_HALF * 2 + 1.0, 0.32, 0.42), steel);
-    beam.position.y = 6.6; g.add(beam);
-    const board = new THREE.Mesh(new THREE.BoxGeometry(6.4, 2.0, 0.22),
-        _dressMat(0x1b5e2a, { rough: 0.7 }));
-    board.position.set(0, 5.4, 0.35); g.add(board);
-    [0, 1].forEach(r => {
-        const line = new THREE.Mesh(new THREE.PlaneGeometry(4.4 - r * 1.4, 0.3),
-            new THREE.MeshBasicMaterial({ color: 0xf1f5f9 }));
-        line.position.set(-0.4 + r * 0.5, 5.8 - r * 0.75, 0.48); g.add(line);
-    });
-    return g;
-}
+// The span pieces (City's five spans, and the legs every span stands on)
+// live in CityKit.js; Star Territory's spans below use the same legs.
+const SPAN_HALF = CityKit.SPAN_HALF;
+const _spanLegs = CityKit.spanLegs;
 
 // ---- 6. Ambient particles ----
 //
@@ -4257,7 +3937,7 @@ function _spanGantrySign(i) {                    // Ring road: motorway signage
 // as a still life.
 function _buildDistrictMotes() {
     Object.keys(DISTRICT_BIOMES).forEach(key => {
-        const cfg = DISTRICT_BIOMES[key].motes;
+        const cfg = _look(key).motes;
         if (!cfg) return;
         const nodes = _districtNodes(key);
         if (!nodes.length) return;
@@ -4326,26 +4006,29 @@ function _dressMat(color, opts = {}) {
 // A flat patch per node, laid just above the base disc, oriented along the
 // road. Cheaper and far more controllable than re-texturing the ring bands,
 // and it means the surface follows the road rather than a perfect annulus.
+const _SURF = {
+    granite:  { col: 0x3c4250, rough: 0.35, metal: 0.25, seam: 0xa9b6c8 },
+    wet:      { col: 0x22252b, rough: 0.28, metal: 0.15, seam: 0x4d5460 },
+    paving:   { col: 0x6f5f88, rough: 0.8,  metal: 0,    seam: 0xd8c4ea },
+    concrete: { col: 0x6f6a5e, rough: 0.92, metal: 0,    seam: 0xd9b23a },
+    // ---- Star Territory. Nothing out here is paved, so the "seam" is a
+    // wagon rut, a rail, an ore-cart track or a crack in the hardpan.
+    dirt:      { col: 0x6b4f33, rough: 0.98, metal: 0, seam: 0x8a6a45 },  // rutted township dirt
+    ballast:   { col: 0x4a4a4e, rough: 0.95, metal: 0, seam: 0x8a7a5c },  // stone chip and sleepers
+    wetrock:   { col: 0x2b2420, rough: 0.55, metal: 0.1, seam: 0x6a5a48 },// wet rock, cart rails
+    grassdirt: { col: 0x4d5a2c, rough: 0.96, metal: 0, seam: 0x7a6b3a },  // packed earth through grass
+    hardpan:   { col: 0xa08f6c, rough: 0.99, metal: 0, seam: 0xc9b68c },  // cracked salt flat
+};
+
 function _buildDistrictSurfaces() {
-    const SURF = {
-        granite:  { col: 0x3c4250, rough: 0.35, metal: 0.25, seam: 0xa9b6c8 },
-        wet:      { col: 0x22252b, rough: 0.28, metal: 0.15, seam: 0x4d5460 },
-        paving:   { col: 0x6f5f88, rough: 0.8,  metal: 0,    seam: 0xd8c4ea },
-        concrete: { col: 0x6f6a5e, rough: 0.92, metal: 0,    seam: 0xd9b23a },
-        // ---- Star Territory. Nothing out here is paved, so the "seam" is a
-        // wagon rut, a rail, an ore-cart track or a crack in the hardpan.
-        dirt:      { col: 0x6b4f33, rough: 0.98, metal: 0, seam: 0x8a6a45 },  // rutted township dirt
-        ballast:   { col: 0x4a4a4e, rough: 0.95, metal: 0, seam: 0x8a7a5c },  // stone chip and sleepers
-        wetrock:   { col: 0x2b2420, rough: 0.55, metal: 0.1, seam: 0x6a5a48 },// wet rock, cart rails
-        grassdirt: { col: 0x4d5a2c, rough: 0.96, metal: 0, seam: 0x7a6b3a },  // packed earth through grass
-        hardpan:   { col: 0xa08f6c, rough: 0.99, metal: 0, seam: 0xc9b68c },  // cracked salt flat
-    };
     // Every region on THIS board that names a surface — it used to be City's
     // four district keys written out, which is the one line in the dressing
     // passes that a second graph board could not reach.
     [...ActiveMap.regionKeys(), ActiveMap.hubKey()].filter(Boolean).forEach(key => {
-        const cfg = SURF[DISTRICT_BIOMES[key]?.surface];
-        if (!cfg) return;
+        const base = _SURF[DISTRICT_BIOMES[key]?.surface];
+        if (!base) return;
+        const lk = _lookOf(key);
+        const cfg = { ...base, col: lk?.slab ?? base.col, seam: lk?.seam ?? base.seam };
         const mat = _dressMat(cfg.col, { rough: cfg.rough, metal: cfg.metal });
         const seamMat = _dressMat(cfg.seam, { rough: 0.6, opacity: 0.5 });
         _districtNodes(key).forEach((id, i) => {
@@ -4356,7 +4039,7 @@ function _buildDistrictSurfaces() {
             slab.rotation.z = -ang;
             slab.position.set(pos.x, CITY_GROUND.surface, pos.z);
             slab.receiveShadow = true;
-            _cityEnvGroup.add(slab);
+            slab.userData.followsSpaces = true; _cityEnvGroup.add(slab);
             // One seam line per slab, so the surface reads as laid rather than
             // painted. Hazard chevrons in Industrial, joints everywhere else.
             const seams = (key === 'ind' || key === 'mine') ? 3 : 1;
@@ -4369,7 +4052,7 @@ function _buildDistrictSurfaces() {
                 const off = new THREE.Vector3(Math.cos(ang), 0, -Math.sin(ang))
                     .multiplyScalar((s - (seams - 1) / 2) * 3.4);
                 line.position.set(pos.x + off.x, CITY_GROUND.seam, pos.z + off.z);
-                _cityEnvGroup.add(line);
+                line.userData.followsSpaces = true; _cityEnvGroup.add(line);
             }
             // Back Alley puddles: dark glossy discs that catch the key light.
             if (key === 'ba' && _seeded(i * 7 + 3) > 0.45) {
@@ -4380,7 +4063,7 @@ function _buildDistrictSurfaces() {
                 puddle.rotation.x = -Math.PI / 2;
                 const out = _outwardDir(pos).multiplyScalar(2.4 + _seeded(i * 5) * 2.6);
                 puddle.position.set(pos.x + out.x, CITY_GROUND.puddle, pos.z + out.z);
-                _cityEnvGroup.add(puddle);
+                puddle.userData.followsSpaces = true; _cityEnvGroup.add(puddle);
             }
         });
     });
@@ -4389,13 +4072,16 @@ function _buildDistrictSurfaces() {
 // ---- 2. Roadside props ----
 
 function _buildDistrictDressing() {
-    const MAKER = { finance: _propFinance, alley: _propAlley, market: _propMarket,
-                    works: _propWorks, civic: _propCivic,
+    const kitProp = set => (r, seed) => CityKit.prop(set, r, seed, { live: e => _cityLive.push(e) });
+    const full = _fullLayout();
+    const MAKER = { finance: kitProp('finance'), alley: kitProp('alley'), market: kitProp('market'),
+                    works: kitProp('works'), civic: kitProp('civic'),
                     township: _propTownship, railyard: _propRailyard, mine: _propMine,
                     ranch: _propRanch, badlands: _propBadlands };
     Object.keys(DISTRICT_BIOMES).forEach(key => {
         const make = MAKER[DISTRICT_BIOMES[key].props];
         if (!make) return;
+        if (full && ['finance', 'alley', 'market', 'works', 'civic'].includes(DISTRICT_BIOMES[key].props)) return;
         _districtNodes(key).forEach((id, i) => {
             const pos = getPos(id).clone().setY(0);
             const out = _outwardDir(pos);
@@ -4420,205 +4106,6 @@ function _buildDistrictDressing() {
 }
 
 // Financial: planters, bollard rows, and a live stock ticker.
-function _propFinance(r, seed) {
-    const g = new THREE.Group();
-    if (r < 0.34) {                                    // stone planter with a hedge
-        const box = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.9, 1.2), _dressMat(0xbfc6d1, { rough: 0.7 }));
-        box.position.y = 0.45; g.add(box);
-        const hedge = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.8, 0.95), _dressMat(0x2f6b32, { rough: 0.95 }));
-        hedge.position.y = 1.2; g.add(hedge);
-    } else if (r < 0.66) {                             // bollard row
-        for (let i = 0; i < 4; i++) {
-            const b = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.2, 1.0, 8),
-                _dressMat(0xd8dee8, { rough: 0.4, metal: 0.6 }));
-            b.position.set((i - 1.5) * 0.95, 0.5, 0); g.add(b);
-        }
-    } else {                                            // ticker board
-        const post = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.16, 3.0, 8),
-            _dressMat(0x5b6472, { rough: 0.4, metal: 0.7 }));
-        post.position.y = 1.5; g.add(post);
-        const board = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.95, 0.22), _dressMat(0x0b1220, { rough: 0.5 }));
-        board.position.y = 3.1; g.add(board);
-        const bars = [];
-        for (let i = 0; i < 7; i++) {
-            const up = _seeded(seed * 5 + i) > 0.45;
-            const bar = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.5),
-                new THREE.MeshBasicMaterial({ color: up ? 0x22c55e : 0xef4444 }));
-            bar.position.set(-1.3 + i * 0.44, 3.1, 0.13);
-            g.add(bar); bars.push(bar);
-        }
-        _cityLive.push({ kind: 'ticker', bars, seed });
-    }
-    return g;
-}
-
-// Back Alley: dumpsters, crate stacks, steam vents, flickering neon.
-function _propAlley(r, seed) {
-    const g = new THREE.Group();
-    if (r < 0.3) {                                      // dumpster
-        const body = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.4, 1.3), _dressMat(0x2f5f3a, { rough: 0.8 }));
-        body.position.y = 0.7; g.add(body);
-        const lid = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.16, 1.4), _dressMat(0x24482d, { rough: 0.8 }));
-        lid.position.set(0, 1.5, -0.1); lid.rotation.x = -0.25; g.add(lid);
-    } else if (r < 0.55) {                              // crates and a barrel
-        for (let i = 0; i < 3; i++) {
-            const s = 0.7 + _seeded(seed + i) * 0.4;
-            const c = new THREE.Mesh(new THREE.BoxGeometry(s, s, s), _dressMat(0x8a6a3c, { rough: 0.95 }));
-            c.position.set((i - 1) * 0.85, s / 2 + (i === 1 ? 0.75 : 0), _seeded(seed * 3 + i) * 0.5);
-            c.rotation.y = _seeded(seed + i * 2) * 0.7; g.add(c);
-        }
-        const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 1.1, 10),
-            _dressMat(0x7a3b22, { rough: 0.85 }));
-        barrel.position.set(1.5, 0.55, 0.2); g.add(barrel);
-    } else if (r < 0.72) {                              // steam vent
-        const grate = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.75, 0.14, 12),
-            _dressMat(0x3a3a3a, { rough: 0.7, metal: 0.5 }));
-        grate.position.y = 0.07; g.add(grate);
-        const puffs = [];
-        for (let i = 0; i < 4; i++) {
-            const puff = new THREE.Mesh(new THREE.SphereGeometry(0.55, 8, 6),
-                new THREE.MeshBasicMaterial({ color: 0xd8dde5, transparent: true,
-                    opacity: 0.0, depthWrite: false }));
-            puff.position.y = 0.3; g.add(puff); puffs.push(puff);
-        }
-        _cityLive.push({ kind: 'steam', puffs, seed, rise: 4.5, spread: 0.5 });
-    } else {                                            // neon sign on a bracket
-        const arm = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 1.4), _dressMat(0x333333, { rough: 0.6, metal: 0.5 }));
-        arm.position.set(0, 3.0, 0.7); g.add(arm);
-        const col = [0xff2d78, 0x2ddcff, 0xffd12d, 0x8b5cf6][Math.floor(_seeded(seed * 9) * 4)];
-        const tube = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.09, 6, 18),
-            new THREE.MeshBasicMaterial({ color: col }));
-        tube.position.set(0, 2.8, 1.4); g.add(tube);
-        const bar = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.13, 0.13),
-            new THREE.MeshBasicMaterial({ color: col }));
-        bar.position.set(0, 2.8, 1.4); g.add(bar);
-        _cityLive.push({ kind: 'neon', parts: [tube.material, bar.material], seed });
-    }
-    return g;
-}
-
-// Promenade: market stalls, kiosks, planters, sandwich boards.
-function _propMarket(r, seed) {
-    const g = new THREE.Group();
-    const stripe = [0xef4444, 0x22c55e, 0x3b82f6, 0xf59e0b][Math.floor(_seeded(seed * 3) * 4)];
-    if (r < 0.5) {                                      // stall with a striped awning
-        for (let i = 0; i < 4; i++) {
-            const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 2.0, 6),
-                _dressMat(0xd6d3d1, { rough: 0.6, metal: 0.3 }));
-            leg.position.set(i < 2 ? -1.1 : 1.1, 1.0, i % 2 ? -0.7 : 0.7); g.add(leg);
-        }
-        const table = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.12, 1.6), _dressMat(0xa1854f, { rough: 0.9 }));
-        table.position.y = 1.0; g.add(table);
-        // Awning: two sloped panels in the stall's colour and white.
-        [-1, 1].forEach(s => {
-            const panel = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.08, 1.05),
-                _dressMat(s > 0 ? stripe : 0xf8fafc, { rough: 0.7 }));
-            panel.position.set(0, 2.25, s * 0.5);
-            panel.rotation.x = s * 0.42; g.add(panel);
-        });
-        // Goods on the table.
-        for (let i = 0; i < 3; i++) {
-            const b = new THREE.Mesh(new THREE.SphereGeometry(0.2, 8, 6),
-                _dressMat([0xef4444, 0xfbbf24, 0x22c55e][i], { rough: 0.7 }));
-            b.position.set(-0.7 + i * 0.7, 1.2, 0); g.add(b);
-        }
-    } else if (r < 0.75) {                              // kiosk
-        const body = new THREE.Mesh(new THREE.CylinderGeometry(0.95, 1.0, 2.4, 10),
-            _dressMat(0xe8e2ee, { rough: 0.7 }));
-        body.position.y = 1.2; g.add(body);
-        const roof = new THREE.Mesh(new THREE.ConeGeometry(1.35, 0.8, 10), _dressMat(stripe, { rough: 0.7 }));
-        roof.position.y = 2.8; g.add(roof);
-        const board = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 0.7),
-            _dressMat(0xffffff, { rough: 0.5, emissive: 0xffffff, ei: 0.25 }));
-        board.position.set(0, 1.6, 1.02); g.add(board);
-    } else {                                            // planter + sandwich board
-        const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.45, 0.8, 10),
-            _dressMat(0xb08968, { rough: 0.9 }));
-        pot.position.y = 0.4; g.add(pot);
-        const bush = new THREE.Mesh(new THREE.SphereGeometry(0.7, 10, 8), _dressMat(0x2f6b32, { rough: 0.95 }));
-        bush.position.y = 1.25; bush.scale.y = 1.15; g.add(bush);
-        [-1, 1].forEach(s => {
-            const p = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.2, 0.06), _dressMat(0x6b4f2a, { rough: 0.9 }));
-            p.position.set(1.6, 0.65, s * 0.16); p.rotation.x = s * 0.22; g.add(p);
-        });
-    }
-    return g;
-}
-
-// Industrial: pipe runs, containers, cones, and a smoking stack.
-function _propWorks(r, seed) {
-    const g = new THREE.Group();
-    if (r < 0.32) {                                     // pipe run on trestles
-        const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 5.2, 10),
-            _dressMat(0x8a8f7a, { rough: 0.6, metal: 0.5 }));
-        pipe.rotation.z = Math.PI / 2; pipe.position.y = 1.35; g.add(pipe);
-        [-1.9, 1.9].forEach(x => {
-            const leg = new THREE.Mesh(new THREE.BoxGeometry(0.2, 1.35, 0.2), _dressMat(0x5c6157, { rough: 0.7, metal: 0.4 }));
-            leg.position.set(x, 0.68, 0); g.add(leg);
-        });
-        const flange = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.38, 0.2, 10),
-            _dressMat(0xb45309, { rough: 0.6, metal: 0.4 }));
-        flange.rotation.z = Math.PI / 2; flange.position.y = 1.35; g.add(flange);
-    } else if (r < 0.6) {                               // cargo containers
-        const cols = [0xb45309, 0x1d4ed8, 0x15803d, 0x991b1b];
-        for (let i = 0; i < 2; i++) {
-            const c = new THREE.Mesh(new THREE.BoxGeometry(3.4, 1.5, 1.5),
-                _dressMat(cols[Math.floor(_seeded(seed * 3 + i) * 4)], { rough: 0.85, metal: 0.2 }));
-            c.position.set(_seeded(seed + i) * 0.5, 0.75 + i * 1.55, 0);
-            c.rotation.y = (_seeded(seed * 7 + i) - 0.5) * 0.25; g.add(c);
-        }
-    } else if (r < 0.78) {                              // hazard cones and a barrier
-        for (let i = 0; i < 3; i++) {
-            const cone = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.85, 8), _dressMat(0xf97316, { rough: 0.8 }));
-            cone.position.set((i - 1) * 1.1, 0.42, _seeded(seed + i) * 0.4); g.add(cone);
-            const band = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.19, 0.14, 8), _dressMat(0xf8fafc, { rough: 0.7 }));
-            band.position.copy(cone.position).setY(0.52); g.add(band);
-        }
-    } else {                                            // smoking stack
-        const stack = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.78, 5.2, 12),
-            _dressMat(0x8a8070, { rough: 0.9 }));
-        stack.position.y = 2.6; g.add(stack);
-        [1.5, 3.2, 4.6].forEach(y => {
-            const ring = new THREE.Mesh(new THREE.TorusGeometry(0.66, 0.09, 6, 14), _dressMat(0x59544a, { rough: 0.8 }));
-            ring.position.y = y; ring.rotation.x = Math.PI / 2; g.add(ring);
-        });
-        const puffs = [];
-        for (let i = 0; i < 5; i++) {
-            const puff = new THREE.Mesh(new THREE.SphereGeometry(0.85, 8, 6),
-                new THREE.MeshBasicMaterial({ color: 0xc9ccd2, transparent: true, opacity: 0, depthWrite: false }));
-            puff.position.y = 5.2; g.add(puff); puffs.push(puff);
-        }
-        _cityLive.push({ kind: 'steam', puffs, seed, rise: 7.0, base: 5.2, spread: 1.1 });
-    }
-    return g;
-}
-
-// Ring road: the civic baseline — hedges, benches, parked cars, crossings.
-function _propCivic(r, seed) {
-    const g = new THREE.Group();
-    if (r < 0.4) {                                      // hedge run
-        const hedge = new THREE.Mesh(new THREE.BoxGeometry(3.6, 1.0, 1.0), _dressMat(0x2f6b32, { rough: 0.95 }));
-        hedge.position.y = 0.5; g.add(hedge);
-    } else if (r < 0.72) {                              // parked car
-        const cols = [0xdc2626, 0x2563eb, 0xf8fafc, 0x111827, 0x16a34a];
-        const col = cols[Math.floor(_seeded(seed * 5) * 5)];
-        const body = new THREE.Mesh(_roundedBox(3.9, 1.0, 1.7, 0.32, 4), _dressMat(col, { rough: 0.35, metal: 0.35 }));
-        body.position.y = 0.78; g.add(body);
-        const cabin = new THREE.Mesh(_roundedBox(2.0, 0.8, 1.5, 0.3, 4),
-            _dressMat(0x93c5fd, { rough: 0.15, metal: 0.2, opacity: 0.85 }));
-        cabin.position.set(-0.25, 1.5, 0); g.add(cabin);
-        [[-1.3, 0.65], [1.3, 0.65], [-1.3, -0.65], [1.3, -0.65]].forEach(([x, z]) => {
-            const w = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.38, 0.3, 10), _dressMat(0x1c1c1c, { rough: 0.9 }));
-            w.rotation.x = Math.PI / 2; w.position.set(x, 0.38, z); g.add(w);
-        });
-    } else {                                            // bench and a bin
-        g.add(_mkBench(new THREE.Vector3(0, 0, 0), 0));
-        const bin = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.3, 0.9, 10),
-            _dressMat(0x4b5563, { rough: 0.7, metal: 0.3 }));
-        bin.position.set(1.7, 0.45, 0); g.add(bin);
-    }
-    return g;
-}
 
 // ---- 3. One landmark per district ----
 //
@@ -6182,12 +5669,12 @@ export const PROP_KIT = {
     // r in [0.46, 0.66) is the hanging lantern, which registers itself.
     mine:        (r, seed) => _propMine(r >= 0.46 && r < 0.66 ? 0.8 : r, seed),
     // r >= 0.78 is the smoking stack, which registers itself.
-    works:       (r, seed) => _propWorks(r >= 0.78 ? 0.5 : r, seed),
-    market:      (r, seed) => _propMarket(r, seed),
+    works:       (r, seed) => CityKit.prop('works', r >= 0.78 ? 0.5 : r, seed),
+    market:      (r, seed) => CityKit.prop('market', r, seed),
     // r >= 0.55 is the steam vent and the neon, which register themselves.
-    alley:       (r, seed) => _propAlley(r >= 0.55 ? 0.4 : r, seed),
-    faeDecor:    seed => _mkFaeDecor(seed),
+    alley:       (r, seed) => CityKit.prop('alley', r >= 0.55 ? 0.4 : r, seed),
+    faeDecor:    seed => CityKit.realmDecor('fae', seed),
     // The floating shard (r < 0.55) registers itself; a stage gets the spire.
-    voidSpire:   seed => { let s = seed; while (_sr(s) < 0.55) s += 0.37; return _mkVoidDecor(s); },
+    voidSpire:   seed => { let s = seed; while (_sr(s) < 0.55) s += 0.37; return CityKit.realmDecor('void', s); },
     shopFront:   (pos, colorIdx) => CityKit.shopfront(pos, colorIdx, false),
 };

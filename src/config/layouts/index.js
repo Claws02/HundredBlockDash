@@ -15,8 +15,9 @@
 // ============================================================
 
 import city_circuit from './city_circuit.js';
+import hundred_block_dash from './hundred_block_dash.js';
 
-export const LAYOUTS = { city_circuit };
+export const LAYOUTS = { city_circuit, hundred_block_dash };
 
 export function layoutFor(mapId) {
     try { if (new URLSearchParams(location.search).has('nolayout')) return null; } catch (e) {}

@@ -314,6 +314,7 @@ games that passed the verb test and failed the fun test are in `archived/`.
 | Auto-runner race (3D)| jump the gaps, slide, trip    | ✅ Rooftop Run       |
 | Call & response (3D) | copy the DJ, on the beat      | ✅ Block Party       |
 | Split-screen race (3D)| steer your own dive          | ✅ Rift Dive         |
+| Shared tower, turns (3D)| time the claw, don't topple it | ✅ Brainrot Tower |
 
 **Curation rule:** the 40 files in `src/minigames/archived/` are a **design
 backlog, not a code backlog** — their imports and shared-DOM dependencies are

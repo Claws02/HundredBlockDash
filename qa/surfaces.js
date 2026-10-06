@@ -74,13 +74,14 @@ const EXPECT = {
     snowball:    [false, null,     true ],   // 3D stage game
     pancakes:    [false, null,     true ],   // 3D stage game
     shellgame:   [false, null,     true ],   // 3D stage game
+    brainrot:    [true,  'any',    true ],   // one tower in turns: another seat is another name
 };
 
 // The headline counts from the plan. If a property changes and one of these
 // moves, the plan is out of date and should be updated deliberately.
-const EXPECT_PHONE_MANY = 4;    // LIVE games — converted to N slots
-const EXPECT_TABLET_MANY = 8;    // ...plus the `roomy` games, which need the extra room
-const EXPECT_ONLINE = 35;       // possible across devices
+const EXPECT_PHONE_MANY = 5;    // LIVE games — converted to N slots
+const EXPECT_TABLET_MANY = 9;    // ...plus the `roomy` games, which need the extra room
+const EXPECT_ONLINE = 36;       // possible across devices
 const EXPECT_ONLINE_NOW = 5;    // running across devices today
 
 function asModule(file) {
