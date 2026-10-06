@@ -21,7 +21,7 @@ require('./stageprobe').run('brainrot', async ({ page, ok, launch, state, result
         while (Date.now() - t0 < ms) { const s = await state(); if (s && pred(s)) return s; await page.waitForTimeout(150); }
         return state();
     };
-    const RANGE = 2.3;
+    const RANGE = 2.65;
     const trackX = (c, x) => c.l + ((x / RANGE) + 1) / 2 * (c.r - c.l);
 
     await launch();
@@ -31,7 +31,7 @@ require('./stageprobe').run('brainrot', async ({ page, ok, launch, state, result
     ok('stage built with physics, upright hold, not turned', s.gl && s.physics && s.hold === 'upright' && !s.turned, JSON.stringify({ gl: s.gl, physics: s.physics, hold: s.hold, turned: s.turned }));
     await waitPhase('play');
     s = await state();
-    ok('play opens on P1 with the claw out past the plinth\'s edge', s.turn === 0 && !!s.held && Math.abs(s.clawX) > 1.7, JSON.stringify({ turn: s.turn, held: s.held, clawX: s.clawX }));
+    ok('play opens on P1 with the claw out past the plinth\'s edge', s.turn === 0 && !!s.held && Math.abs(s.clawX) > 2.2, JSON.stringify({ turn: s.turn, held: s.held, clawX: s.clawX }));
 
     // 2. The slider, then DROP, with a real mouse.
     await G('_debugFreeze', true);
@@ -57,7 +57,7 @@ require('./stageprobe').run('brainrot', async ({ page, ok, launch, state, result
 
     // 4. A few known shapes, dropped on the middle, stack.
     const top0 = s.top, cam0 = s.camY;
-    for (const key of ['fridge', 'pizza', 'cup', 'banana']) {
+    for (const key of ['wardrobe', 'pizza', 'teapot', 'banana']) {
         await G('_debugHold', key);
         const turn = (await state()).turn;
         await G('_debugDropAt', 0);
@@ -67,11 +67,29 @@ require('./stageprobe').run('brainrot', async ({ page, ok, launch, state, result
     ok('critters dropped on the middle stack up', s.toppler < 0 && s.pieces.filter(p => !p.off).length === 5 && s.top > top0 + 0.4,
        `top ${top0} → ${s.top}, ${s.pieces.map(p => p.key).join(',')}`);
     ok('the camera rises with the tower', s.camY > cam0 + 0.3, `${cam0} → ${s.camY}`);
+
+    // No match clock: ten minutes on the clock and the next turn still comes.
+    await G('_debugClock', 600);
+    {
+        const turn = s.turn;
+        await G('_debugHold', 'brick');
+        await G('_debugDropAt', -1.35);            // on the bare plinth beside the tower
+        s = await until(x => x.turn !== turn && !x.settling && !!x.held, 15000);
+        ok('there is no match clock: it goes on until something falls', s.phase === 'play' && s.toppler < 0 && s.turn !== turn, `phase ${s.phase}, clock ${s.clock}`);
+    }
+
+    // Every critter in the cast builds, lands on an empty plinth and rests there, in the plane.
+    const cast = await G('_debugCast');
+    const tests = [];
+    for (const key of cast) tests.push(await G('_debugSettleTest', key));
+    const bad = tests.filter(t => !t || !t.onPlinth || t.speed > 0.05 || t.depth > 1e-3);
+    ok(`all ${cast.length} critters land and rest on the plinth`, cast.length >= 24 && !bad.length, bad.length ? JSON.stringify(bad) : cast.join(','));
     await shot('stack');
 
     // 6. Shove the top one off: the last to drop knocked it over.
     const last = s.pieces[s.pieces.length - 1].slot;
-    await G('_debugShove', 6);
+    const lastX = s.pieces[s.pieces.length - 1].x;
+    await G('_debugShove', (lastX < 0 ? -1 : 1) * 6);     // toward the nearer edge
     s = await until(x => x.toppler >= 0, 8000);
     ok('anything off the plinth is a topple, blamed on the last to drop', s.toppler === last, `toppler ${s.toppler}, last dropper ${last}`);
     await page.waitForTimeout(600);
@@ -87,7 +105,8 @@ require('./stageprobe').run('brainrot', async ({ page, ok, launch, state, result
     await launch();
     await waitPhase('play');
     await G('_debugFreeze', true);
-    await G('_debugDropAt', 2.2);
+    await G('_debugHold', 'meatball');
+    await G('_debugDropAt', 2.65);
     s = await until(x => x.toppler >= 0, 8000);
     r = await waitResult(30000);
     ok('a critter dropped off the edge loses on the spot', s.toppler === 0 && !!r && r.winner === 1, `toppler ${s.toppler}, winner ${r && r.winner}`);
