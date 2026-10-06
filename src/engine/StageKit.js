@@ -123,6 +123,36 @@ export function sideHud(stage, { padWidth = 260 } = {}) {
 }
 
 /**
+ * HUD for the upright hold: the phone stands portrait and is passed round, so
+ * there is one reader at a time and everything reads one way up. A bar across
+ * the top and a big centred message, with the same say/tick as the others.
+ */
+export function uprightHud(stage) {
+    const root = stage.hud;
+    root.classList.add('bfont');
+    const el = (css, parent = root) => { const e = document.createElement('div'); e.style.cssText = css; parent.appendChild(e); return e; };
+    const bar = el('position:absolute;top:calc(10px + env(safe-area-inset-top, 0px));left:50%;transform:translateX(-50%);max-width:calc(100% - 20px);' +
+        'display:flex;flex-wrap:wrap;justify-content:center;gap:4px 12px;align-items:center;padding:5px 14px;border-radius:14px;' +
+        'background:rgba(20,12,24,.62);font-size:17px;' + TXT);
+    const box = el('position:absolute;left:50%;top:30%;transform:translate(-50%,-50%);width:94%;text-align:center;' +
+        'opacity:0;transition:opacity .15s;' + TXT);
+    const big = el('font-size:46px;display:inline-block;line-height:1.05;', box);
+    const sub = el('font-size:17px;margin-top:4px;', box);
+    let clearAt = 0;
+    return {
+        bar(html) { bar.innerHTML = html; },
+        hint() {},
+        say(msg, subText = '', ms = 0, now = 0, color = '') {
+            big.textContent = msg; sub.textContent = subText; big.style.color = color;
+            box.style.opacity = msg ? '1' : '0';
+            _pop(big, !!msg);
+            clearAt = ms ? now + ms / 1000 : 0;
+        },
+        tick(now) { if (clearAt && now > clearAt) { clearAt = 0; this.say(''); } },
+    };
+}
+
+/**
  * Per-seat touch on that seat's half. `split` is 'y' for the face-off hold
  * (P1 the bottom half) or 'x' for the side hold (P1 the right half).
  *
