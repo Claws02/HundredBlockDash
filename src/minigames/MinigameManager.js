@@ -653,6 +653,16 @@ function _renderOrientationDiagram(mgTypeKey) {
         return;
     }
     diag.style.width = ''; diag.style.height = '';
+    // Upright: one phone, held normally, with the slider and DROP at the bottom.
+    if (orient.upright) {
+        diag.innerHTML = `<div class="ph-body"></div><div class="ph-camera"></div><div class="ph-screen" style="display:flex;flex-direction:column;align-items:center;justify-content:space-between;padding:10px 0 8px;">` +
+            `<span style="font-size:11px;font-family:'Bebas Neue';letter-spacing:1px;color:rgba(255,255,255,.75);">YOUR TURN</span>` +
+            `<span style="font-size:26px;">🗼</span>` +
+            `<span style="display:flex;flex-direction:column;align-items:center;gap:5px;width:80%;"><span style="width:30px;height:30px;border-radius:50%;background:#ffde59;font:11px 'Bebas Neue';color:#1a1033;display:flex;align-items:center;justify-content:center;">DROP</span>` +
+            `<span style="position:relative;width:100%;height:5px;border-radius:3px;background:rgba(255,255,255,.3);"><span style="position:absolute;left:62%;top:-5px;width:14px;height:14px;border-radius:50%;background:#ff3b3b;"></span></span></span>` +
+            `</div><div class="ph-home"></div><div class="ph-thumb p1 pulse" style="left:62%;transform:translateX(-50%);">👆</div>`;
+        return;
+    }
     if (orient.huddle) {
         diag.innerHTML = `<div class="ph-body"></div><div class="ph-screen" style="inset:8px 12px;"><div style="width:100%;height:100%;background:linear-gradient(90deg,rgba(255,59,59,.08),rgba(59,142,255,.08));display:flex;align-items:center;justify-content:center;font-size:22px;letter-spacing:2px;font-family:'Bebas Neue';color:rgba(255,255,255,.3);">CARDS</div></div><div class="ph-grip holder" style="left:-3px;top:-3px;bottom:-3px;right:auto;width:36px;height:auto;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;border-radius:18px 4px 4px 18px;background:rgba(255,59,59,.85);border:2px solid #ff3b3b;"><span style="font-size:11px;font-family:'Bebas Neue';color:#fff;writing-mode:vertical-rl;text-orientation:mixed;">P1</span></div>`;
     } else {
@@ -698,6 +708,7 @@ function _startMinigameLayer() {
     // countdown — to face players sitting side by side, and hides the two
     // status pills, which sit on the short edges (css: #minigame-layer.is-sideon).
     layer.classList.toggle('is-sideon', MG_ORIENTATION_MAP[state.mgType] === 'sideon');
+    layer.classList.toggle('is-upright', MG_ORIENTATION_MAP[state.mgType] === 'upright');
     const n = slotCount();
     state.mgReady  = new Array(n).fill(false);
     state.mgActive = false;

@@ -2897,6 +2897,11 @@ body:not(.tabletop-mode) #turn-banner.tb-show .tb-bottom.tb-mine {
 #minigame-layer.is-sideon #mg-ready-2   { rotate: -90deg; }
 #minigame-layer.is-sideon #mg-neutral,
 #minigame-layer.is-sideon #mg-neutral-mirror { visibility: hidden; }
+/* The upright hold (pass & play) is one reader at a time, the right way up:
+   no mirrored pill for a player at the far end, and the game's own bar says
+   whose turn it is, so neither pill sits over its controls. */
+#minigame-layer.is-upright #mg-neutral,
+#minigame-layer.is-upright #mg-neutral-mirror { visibility: hidden; }
 
 /* The countdown is moved into #minigame-layer when it starts, and the layer is
    a flex column with no centring — so for every game "3 · 2 · 1 · GO" drew in

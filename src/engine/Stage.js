@@ -15,6 +15,8 @@
 //     turned 90° clockwise, the same convention the win screen uses — so the
 //     phone's home edge ends up on the players' RIGHT. P1's ready button is on
 //     that edge, so P1 sits on the right and P2 on the left.
+//   · `upright` is the pass-the-phone hold: portrait, one picture, one player
+//     at a time (a tower, a climb). It is never turned.
 //   · `toLocal()`, which maps a touch into the stage's own frame whichever way
 //     it is turned. Games never see screen coordinates.
 //   · a HUD layer inside the turned frame, for text that must read the same
@@ -39,7 +41,7 @@ const DPR_CAP = 2;
 /**
  * @param {HTMLElement} host   usually the game's own overlay in #minigame-layer
  * @param {object} opts
- *   hold        'faceoff' | 'side'
+ *   hold        'faceoff' | 'side' | 'upright'
  *   background  hex colour behind everything (the sky should cover it)
  *   fov         vertical field of view, degrees
  *   shadows     true for a shadow-casting key light
@@ -134,6 +136,10 @@ export function createStage(host, opts = {}) {
     if (hold === 'side' && layer) {
         layer.classList.add('is-sideon');
         stage._owned.push(() => layer.classList.remove('is-sideon'));
+    }
+    if (hold === 'upright' && layer) {
+        layer.classList.add('is-upright');
+        stage._owned.push(() => layer.classList.remove('is-upright'));
     }
 
     // ---- API -------------------------------------------------------------
