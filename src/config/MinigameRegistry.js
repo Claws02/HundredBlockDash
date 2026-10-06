@@ -53,6 +53,7 @@ export const MG_TYPES = [
     'snowball',
     'pancakes',
     'shellgame',
+    'brainrot',
 ];
 
 export const MG_INFO = {
@@ -98,6 +99,7 @@ export const MG_INFO = {
     snowball: { icon: '☃️', title: 'SNOWBALL FIGHT', desc: 'A half of the winter yard each, with two snow walls. DRAG to run, FLICK to throw — flick further to throw further — and STAND STILL to crouch and pack snow (three snowballs at most). Crouched behind a wall you\'re safe from a straight throw — to get somebody hiding, come round the side. Three hits and you\'re out!' },
     pancakes: { icon: '🥞', title: 'PANCAKE STACK', desc: 'Turn the phone sideways: a plate each, on its own little diner table. A pancake slides back and forth over your plate — TAP to drop it. The ring under it goes green when you\'re lined up. They\'re real pancakes: drop one off-centre and the stack leans; miss the plate and it\'s on the floor. Each one that lands makes the next slide faster. TALLEST STACK, plate to top, after 40 seconds wins!' },
     shellgame: { icon: '🥤', title: 'SHELL GAME', desc: 'Three brass cups, one pea. A cup lifts to show you the pea, then Madame Fortuna shuffles. When she stops, tap LEFT, MIDDLE or RIGHT on your half — as YOU see the table from your end. Picks stay secret until you\'ve both locked in. Five rounds, each shuffle longer and faster. Most right picks wins!' },
+    brainrot: { icon: '🗼', title: 'BRAINROT TOWER', desc: 'One claw machine, one tower, everybody takes turns. The claw swings a plush critter over the plinth: tap anywhere to let go. Every critter is a different silly shape and they all pile up together. Knock ANYTHING off the plinth and you lose. Dither and the claw drops it for you, and every turn it swings wider and faster.' },
 };
 
 // ============================================================
@@ -167,6 +169,7 @@ export const MG_WATCHDOG_MS = {
     kartgp:      210000,   // three laps of one of five circuits, with a 150 s bell of its own
     bowling:     300000,   // no shot clock, two frames each and up to three tie-break frames
     barrage:     120000,   // a 60 s clock to clear a pedestal, plus the opening and verdict
+    brainrot:    150000,   // turns until it falls; a 70 s cap of its own, slower on a slow GPU
 };
 
 // ============================================================
@@ -243,6 +246,7 @@ export const MG_NET = {
     snowball: 'local',
     pancakes: 'local',
     shellgame: 'local',
+    brainrot: 'local',
 };
 
 // The parallel games whose SCORE is also a coin haul.
@@ -348,6 +352,7 @@ export const MG_SHAPE = {
     snowball: 'arena',
     pancakes: 'arena',
     shellgame: 'arena',
+    brainrot: 'table',      // one tower, one claw, taken in turns
 };
 
 // Modifiers laid over a shape: the seats do not have the same job (ASYM), or
@@ -406,6 +411,7 @@ export const MG_ORIENTATION_MAP = {
     snowball: 'faceoff',
     pancakes: 'sideon',
     shellgame: 'faceoff',
+    brainrot: 'sideon',
 };
 
 export const FALLBACK_TRIVIA = [
@@ -596,6 +602,10 @@ export const MG_PROFILE = {
     snowball: { genre: 'aim', control: 'thumb', wire: 'snapshot', seats: [2, 2], live: false },
     pancakes: { genre: 'aim', control: 'tap', wire: 'snapshot', seats: [2, 2], live: false },
     shellgame: { genre: 'brain', control: 'tap', wire: 'snapshot', seats: [2, 2], live: false },
+    // A shared tower taken in turns: a third or fourth player is one more
+    // name in the rotation, not another playfield, so it is live at 2-4 on a
+    // phone. 'snapshot': the collapse is physics and cannot replay from taps.
+    brainrot:    { genre: 'nerve',    control: 'tap',   wire: 'snapshot', seats: [2, 4], live: true },
 };
 
 // The order the wire tiers come in, cheapest first. Used by the READINESS sort:
