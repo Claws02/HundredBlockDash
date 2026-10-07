@@ -174,6 +174,11 @@ function _buildSettings() {
                 </label>
                 <button class="ob-btn ob-btn-ghost set-wide" id="set-howto">❓ How to play</button>
                 <a class="ob-btn ob-btn-ghost set-wide set-link" id="set-privacy" href="privacy.html" target="_blank" rel="noopener">🔒 Privacy policy</a>
+                <div class="set-legal">
+                    <a href="terms.html" target="_blank" rel="noopener" id="set-terms">Terms of Use</a>
+                    <a href="credits.html" target="_blank" rel="noopener" id="set-credits">Credits</a>
+                    <a href="support.html" target="_blank" rel="noopener" id="set-support">Support</a>
+                </div>
                 <button class="ob-btn ob-btn-ghost set-wide" id="set-reset">🗑️ Reset stats</button>
             </div>
         </div>`;

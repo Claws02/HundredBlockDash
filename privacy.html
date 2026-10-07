@@ -18,6 +18,7 @@
     .card { background: var(--card); border-radius: 12px; padding: 12px 16px; margin: 12px 0; }
     a { color: var(--accent); }
     .back { display: inline-block; min-height: 44px; line-height: 44px; font-weight: 700; }
+    pre.lic { white-space: pre-wrap; font-size: 12px; background: var(--card); padding: 12px; border-radius: 8px; overflow-wrap: anywhere; }
     table { border-collapse: collapse; width: 100%; font-size: 15px; }
     th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid rgba(128,128,160,.25); vertical-align: top; }
 </style>
@@ -26,24 +27,69 @@
 <main>
     <a class="back" href="index.html">← Back to the game</a>
     <h1>Privacy Policy</h1>
-    <p class="muted">Hundred Block Dash · Effective 24 September 2026 · Version 1.0.0</p>
+    <p class="muted">Hundred Block Dash · Effective [[EFFECTIVE DATE]] · Version 1.1</p>
 
     <div class="card">
-        <strong>In short:</strong> no accounts, no ads, no analytics and no tracking. Your
-        progress and settings stay on your device. Online play connects your phone
-        directly to your friends' phones.
+        <strong>In short:</strong> no accounts, no forced ads, and the game itself sends us
+        nothing. Your progress, Tickets and settings stay on your device. Ads appear only
+        when <em>you</em> tap "watch an ad", and those come from Google AdMob. Purchases are
+        handled entirely by Apple or Google. Online play connects your phone directly to
+        your friends' phones.
     </div>
 
+    <h2>Who we are</h2>
+    <p>Hundred Block Dash is published by <strong>[[PUBLISHER LEGAL NAME]]</strong>
+       ("we", "us"), [[PUBLISHER POSTAL ADDRESS]]. Contact:
+       <a href="mailto:[[SUPPORT EMAIL]]">[[SUPPORT EMAIL]]</a>.</p>
+
     <h2>What stays on your device</h2>
-    <p>The game keeps these in your device's local storage. None of it is sent anywhere:</p>
+    <p>The game keeps these in your device's local storage. We never receive them:</p>
     <ul>
-        <li>your settings (sound, music, text size, reduced motion, battery saver);</li>
+        <li>your settings (sound, music, text size, reduced motion, battery saver) and privacy choices;</li>
+        <li>your Ticket balance, what you have unlocked and which cosmetics you have equipped;</li>
+        <li>a record of the purchases this device has made, so unlocks work offline;</li>
         <li>the names you type for players, and your last online name;</li>
         <li>a match in progress, so you can resume it (deleted when the match ends, when you quit, or after 7 days);</li>
+        <li>simple counters, such as your win record and how many bonus ads you have watched today;</li>
         <li>which tips and introductions you have already seen;</li>
         <li>a short log of the last 20 errors the game hit, for troubleshooting. It never leaves your device unless you choose to share it.</li>
     </ul>
-    <p>Uninstalling the app, or clearing its data, deletes all of it.</p>
+    <p>Uninstalling the app, or clearing its data, deletes all of it. Purchases you
+       paid for can be brought back with <strong>Restore Purchases</strong>; Tickets and
+       Ticket-bought unlocks cannot, because we keep no copy of them.</p>
+
+    <h2>Purchases</h2>
+    <p>In-app purchases are processed by Apple (App Store) or Google (Google Play) under
+       their own terms and privacy policies. We never see your name, email address or
+       payment details. The store gives the app a purchase receipt, which the app checks
+       on your device to unlock what you bought.</p>
+
+    <h2>Optional ads (Google AdMob)</h2>
+    <p>The game shows an ad only when you choose to watch one for bonus Tickets. There are
+       no banner ads and no ads that interrupt play.</p>
+    <p>When you choose to watch one, Google AdMob (Google LLC) serves it. To serve the ad,
+       measure it and prevent fraud, Google may collect: your device's advertising
+       identifier (on Android) or other device identifiers, your IP address and
+       approximate location derived from it, device and app information (model, OS,
+       language, app version), and how you interact with the ad. Google's use of this
+       data is described at
+       <a href="https://policies.google.com/technologies/partner-sites" rel="noopener">How Google uses information from sites or apps that use its services</a>.</p>
+    <ul>
+        <li><strong>No cross-app tracking on iPhone/iPad.</strong> We do not ask for
+            permission to track you (App Tracking Transparency), so the iOS advertising
+            identifier is never shared.</li>
+        <li><strong>Consent in the UK, EEA and Switzerland.</strong> Before any ad is
+            requested, you are asked whether ads may be personalised. You can say no and
+            still watch ads (they will be non-personalised) or not watch ads at all.</li>
+        <li><strong>US state privacy rights.</strong> Where the law treats sharing for
+            targeted advertising as a "sale" or "share", you can opt out with
+            <em>Settings → Privacy choices</em>.</li>
+        <li>You can change or withdraw your choice at any time in
+            <em>Settings → Privacy choices</em>, and reset your Android advertising ID in
+            your device settings.</li>
+        <li>If the store tells the app that you are under 18 in a place where the law
+            requires it, the ad and purchase buttons are hidden.</li>
+    </ul>
 
     <h2>Online play</h2>
     <p>When you host or join an online room, the game uses public matchmaking services
@@ -52,10 +98,17 @@
        your IP address, which is how the internet works. They do not see your name or
        your game.</p>
     <p>After that, gameplay travels directly between the phones over an encrypted
-       WebRTC connection. The other players in your room see the name you type and your
-       moves. Nothing is stored after the match.</p>
+       WebRTC connection. The other players in your room see the name you type, the
+       cosmetics you have equipped, which minigames the host has unlocked, and your moves.
+       Nothing is stored after the match.</p>
     <p>If a direct connection is impossible, the connection may pass through a relay
        server (TURN). The relay forwards encrypted traffic and cannot read it.</p>
+
+    <h2>Age signals</h2>
+    <p>Where the law requires it (for example Texas, Utah and Louisiana), the app asks
+       Apple or Google for your age range and whether a parent has approved. It uses the
+       answer only to decide whether to show purchases and ads, keeps it in memory only,
+       and never sends it to us or anyone else.</p>
 
     <h2>Crash reports</h2>
     <p>This version does not send crash reports. If a future version does, it will be
@@ -63,22 +116,41 @@
        with player names removed, and this policy will be updated first.</p>
 
     <h2>Children</h2>
-    <p>The game collects no personal information from anyone, including children
-       under 13. There is no chat, no account and no way to contact other players
-       except through the room code you share yourself.</p>
+    <p>Hundred Block Dash is a general-audience game and is not directed at children under
+       13. We do not knowingly collect personal information from children. There is no
+       chat, no account and no way to contact other players except through the room code
+       you share yourself. If you believe a child has watched an ad that collected data,
+       contact us and we will help you reset it through Google.</p>
+
+    <h2>Your rights</h2>
+    <p>Depending on where you live (for example under the GDPR, UK GDPR or US state
+       privacy laws) you may have rights to access, correct, delete or object to the
+       processing of personal data, and to complain to your local data protection
+       authority. Because we hold no personal data on our side, most requests are
+       answered by clearing the app's data. For ad data, use the Privacy choices button
+       or Google's tools; we will help with any request at the address above.</p>
+    <p>Legal bases (UK/EEA): your settings and progress are kept to provide the game you
+       asked for (contract); ads are personalised only with your consent, and
+       non-personalised ads rely on our legitimate interest in funding a free game.</p>
 
     <h2>Data safety summary</h2>
     <table>
-        <tr><th>Data collected</th><td>None</td></tr>
-        <tr><th>Data shared with third parties</th><td>None</td></tr>
-        <tr><th>Tracking</th><td>None</td></tr>
-        <tr><th>Encryption in transit</th><td>Yes (online play)</td></tr>
-        <tr><th>Deletion</th><td>Clear the app's data, or uninstall</td></tr>
+        <tr><th>Data collected by us</th><td>None</td></tr>
+        <tr><th>Data collected by third parties</th><td>Only if you choose to watch an ad: device identifiers, approximate location (from IP), device info and ad interactions, collected by Google AdMob for advertising and fraud prevention</td></tr>
+        <tr><th>Purchases</th><td>Processed by Apple or Google; we receive only a receipt</td></tr>
+        <tr><th>Tracking across other companies' apps (iOS)</th><td>No</td></tr>
+        <tr><th>Encryption in transit</th><td>Yes</td></tr>
+        <tr><th>Deletion</th><td>Clear the app's data, or uninstall; ad data via Google</td></tr>
     </table>
 
-    <h2>Contact</h2>
-    <p>Questions about this policy: <span id="contact">see the support contact on the store listing</span>.</p>
-    <p class="muted">We will post any change to this policy here, with a new effective date.</p>
+    <h2>Changes</h2>
+    <p>We will post any change to this policy here with a new effective date, and say so
+       in the app's update notes when it matters.</p>
+
+    <h2 id="contact">Contact</h2>
+    <p>[[PUBLISHER LEGAL NAME]] · [[PUBLISHER POSTAL ADDRESS]] ·
+       <a href="mailto:[[SUPPORT EMAIL]]">[[SUPPORT EMAIL]]</a></p>
+    <p class="muted"><a href="terms.html">Terms of Use</a> · <a href="credits.html">Credits</a> · <a href="support.html">Support</a></p>
 </main>
 </body>
 </html>

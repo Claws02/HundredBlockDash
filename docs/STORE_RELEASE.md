@@ -37,6 +37,10 @@ Then, before every build: `npm run cap:sync`, and open the native project with
 
 ## 3. Store privacy answers (as the code stands, no Sentry DSN)
 
+> **Superseded once Phase 4 (IAP + opt-in AdMob ads) lands.** The answers for the
+> monetized build are in `LAUNCH_PLAN.md` §4. The ones below hold only for a build
+> with no ads.
+
 **Apple — App Privacy ("nutrition label"):** *Data Not Collected.*
 Nothing leaves the device except online play, which goes phone to phone. The
 signalling relays see an IP address, as any network connection does, but the

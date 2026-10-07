@@ -3042,3 +3042,7 @@ html.is-tablet .btn-action { width: 108px; height: 108px; border-radius: 26px; }
 html.is-tablet #btn-rules, html.is-tablet #btn-pause { width: 52px; height: 52px; }
 html.is-tablet .inv-slot { width: 30px; height: 30px; }
 
+
+/* Legal footer under Settings: Terms, Credits, Support. Tap targets stay 44px. */
+.set-legal { display: flex; justify-content: center; gap: 4px; margin-top: 8px; flex-wrap: wrap; }
+.set-legal a { color: rgba(255,255,255,.7); font-size: 13px; text-decoration: underline; min-height: 44px; line-height: 44px; padding: 0 10px; }
