@@ -1,3 +1,4 @@
+import * as CosmeticsFx from './CosmeticsFx.js';
 // ============================================================
 // PHYSICS — Cannon.js dice simulation
 // Relies on the global CANNON object from the CDN script.
@@ -65,10 +66,12 @@ function getCachedDiceFace(v) {
     return tex;
 }
 
-export function spawnDie(diceGroup) {
+export function spawnDie(diceGroup, skin = null) {
     const size = 0.9;
     const geo  = new THREE.BoxGeometry(size * 2, size * 2, size * 2);
-    const mats = [4, 3, 1, 6, 2, 5].map(v =>
+    const ORDER = [4, 3, 1, 6, 2, 5];
+    // A dice-skin cosmetic (CosmeticsFx), or the shipped die when there is none.
+    const mats = CosmeticsFx.diceMaterials(skin, ORDER) || ORDER.map(v =>
         new THREE.MeshStandardMaterial({ color: 0xffffff, map: getCachedDiceFace(v) })
     );
     const mesh = new THREE.Mesh(geo, mats);

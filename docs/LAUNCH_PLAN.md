@@ -117,6 +117,23 @@ more and makes free guests the marketing.
 - Each IAP product needs a name, description, price tier, review screenshot,
   and (Texas) an age rating. Apple's questionnaire covers this.
 
+### Where it lives in the code
+
+| Piece | File |
+|---|---|
+| Prices, packs, product ids, earn rates | `src/meta/Catalog.js` (the one table to edit) |
+| Ticket balance, match reward, ad cap | `src/meta/Wallet.js` |
+| Ownership and the game's gates | `src/meta/Unlocks.js`, used by `MinigameManager.eligibleTypes`, the map picker and the arcade |
+| Cosmetics and per-seat loadouts | `src/meta/Cosmetics.js` (data), `src/engine/CosmeticsFx.js` (3D) |
+| Store / ads / age signal adapters | `src/meta/Store.js`, `src/meta/Ads.js`, `src/meta/AgeGate.js` |
+| Shop screen | `src/ui/Shop.js` |
+| Probe | `qa/shop.js` (runs in CI; `?devstore` simulates the store and ads) |
+
+Everything is local to the device: no server, no account. Tickets and
+Ticket-bought unlocks do not survive a wipe; money purchases come back through
+the store. A cloud save (iCloud key-value / Play Games Saved Games) is the
+natural follow-up if players ask for it.
+
 ---
 
 ## 4. Privacy changes that come with ads

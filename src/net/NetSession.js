@@ -20,6 +20,7 @@
 import * as T from './NetTransport.js';
 import { MSG, PROTOCOL_VERSION, KICK_REASON } from './NetProtocol.js';
 import { MAX_PLAYERS, MIN_PLAYERS, PLAYER_SLOTS } from '../config/GameConfig.js';
+import * as Cosmetics from '../meta/Cosmetics.js';
 
 export const ROLE = { OFFLINE: 'offline', HOST: 'host', CLIENT: 'client' };
 
@@ -69,7 +70,7 @@ export async function host(displayName) {
     // The host readies up the same way everybody else does. Seating them as
     // ready-by-default meant their own READY button had nothing to turn on and
     // toggled them OFF instead, so a full lobby could never satisfy canStart().
-    _roster = [{ peerId: info.selfId, name: _name, char: null, ready: false, connected: true, bot: false }];
+    _roster = [{ peerId: info.selfId, name: _name, char: null, ready: false, connected: true, bot: false, look: Cosmetics.lookFor(0) }];
     _emit('roster', roster());
     _emit('status', { kind: 'hosting', code, strategy: info.strategy });
     return code;
@@ -91,7 +92,7 @@ export async function join(code, displayName) {
     // The host may not have finished its side of the handshake yet, and there
     // is no "the room is ready" signal to wait on — so say hello now AND on
     // every peer that turns up, and let the host de-duplicate by peer id.
-    T.send({ t: MSG.HELLO, v: PROTOCOL_VERSION, name: _name });
+    T.send({ t: MSG.HELLO, v: PROTOCOL_VERSION, name: _name, look: Cosmetics.lookFor(0) });
     return info.code;
 }
 
@@ -116,7 +117,7 @@ function _wire() {
             _broadcastLobby();
         } else {
             // The peer that just appeared is very likely the host.
-            T.send({ t: MSG.HELLO, v: PROTOCOL_VERSION, name: _name });
+            T.send({ t: MSG.HELLO, v: PROTOCOL_VERSION, name: _name, look: Cosmetics.lookFor(0) });
         }
     });
 
@@ -164,6 +165,7 @@ function _hostRecv(msg, peerId) {
             if (existing) {                 // a repeat hello: reconnect, not a new seat
                 existing.connected = true;
                 existing.bot = false;
+                existing.look = Cosmetics.sanitize(msg.look);
                 _broadcastLobby();
                 _emit('roster', roster());
                 return;
@@ -178,6 +180,9 @@ function _hostRecv(msg, peerId) {
                 name: String(msg.name || '').trim().slice(0, 14)
                       || (PLAYER_SLOTS[_roster.length] || {}).name || 'Player',
                 char: null, ready: false, connected: true, bot: false,
+                // Cosmetics only: what they wear, cleaned to known ids. It never
+                // decides what is playable — the host's library does that.
+                look: Cosmetics.sanitize(msg.look),
             });
             _broadcastLobby();
             _emit('roster', roster());
@@ -233,7 +238,7 @@ function _broadcastLobby() {
     if (!isHost()) return;
     T.send({
         t: MSG.LOBBY, v: PROTOCOL_VERSION, code: T.roomCode(),
-        seats: _roster.map(r => ({ peerId: r.peerId, name: r.name, char: r.char, ready: r.ready, connected: r.connected, bot: r.bot })),
+        seats: _roster.map(r => ({ peerId: r.peerId, name: r.name, char: r.char, ready: r.ready, connected: r.connected, bot: r.bot, look: r.look })),
     });
 }
 
@@ -272,7 +277,7 @@ export function startMatch(setup) {
     _started = true;
     const payload = {
         t: MSG.START, v: PROTOCOL_VERSION,
-        seats: _roster.map(r => ({ peerId: r.peerId, name: r.name, char: r.char, bot: r.bot })),
+        seats: _roster.map(r => ({ peerId: r.peerId, name: r.name, char: r.char, bot: r.bot, look: r.look })),
         setup,
     };
     T.send(payload);

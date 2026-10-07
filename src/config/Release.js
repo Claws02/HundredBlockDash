@@ -18,4 +18,15 @@ export const RELEASE = {
     // phone-to-phone (RELEASE_AUDIT RA-02). Empty = public STUN only.
     // e.g. [{ urls: 'turn:turn.example.com:3478', username: 'u', credential: 'p' }]
     turnServers: [],
+
+    // Opt-in rewarded ads (docs/LAUNCH_PLAN.md §3–4). Ad unit ids come from the
+    // AdMob console. While `adsTesting` is true the game uses Google's public
+    // test units, which always fill and never pay: ship with it false and the
+    // real ids filled in. The AdMob APP ids go in Info.plist
+    // (GADApplicationIdentifier) and AndroidManifest.xml, not here.
+    adsTesting: true,
+    admobRewarded: {
+        ios:     '',   // ca-app-pub-XXXXXXXXXXXXXXXX/NNNNNNNNNN
+        android: '',
+    },
 };

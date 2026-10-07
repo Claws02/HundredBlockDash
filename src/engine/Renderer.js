@@ -2,6 +2,7 @@
 // RENDERER — Three.js scene, city circuit + hundred block dash
 // ============================================================
 
+import * as CosmeticsFx from './CosmeticsFx.js';
 import { state } from '../core/GameState.js';
 import { SPACE_META, DISTRICT_BIOMES, getBiomeForDistrict, HBD_BIOMES, getBiomeForSpace, ALLIES, CHAR_ICONS, HBD_DEFAULT_CONFIG } from '../config/GameConfig.js';
 import { SCENE } from '../config/SceneTiming.js';
@@ -1193,7 +1194,7 @@ function _eyeball(x, y, z, r, look = 0) {
     return g;
 }
 
-export function createCharacterMesh(type, colorCode) {
+export function createCharacterMesh(type, colorCode, look = null) {
     const group = new THREE.Group();
 
     // Moulded-vinyl body. Clearcoat is what separates a toy figure from a lump
@@ -1415,6 +1416,14 @@ export function createCharacterMesh(type, colorCode) {
 
     contact.userData.contact = true;
 
+    // Cosmetics (src/meta/Cosmetics.js). After the contact shadow, so the hat
+    // is placed from the figure's real height; before the shadow pass, so the
+    // hat casts like the rest of it.
+    if (look) {
+        CosmeticsFx.applyFinish(look.finish, { body: mat, shade, pale });
+        CosmeticsFx.addHat(group, look.hat);
+    }
+
     group.traverse(o => {
         if (!o.isMesh || o === contact) return;
         o.castShadow = true; o.receiveShadow = true;
@@ -1451,7 +1460,7 @@ export function seatOffset(seatId, unit) {
 function buildPlayerMeshes() {
     const isHBD = ActiveMap.isLinear();
     state.players.forEach(p => {
-        p.mesh = createCharacterMesh(p.charType, p.color);
+        p.mesh = createCharacterMesh(p.charType, p.color, p.look);
         if (isHBD) {
             const idx = typeof p.pos === 'number' ? p.pos : 0;
             const pos = getPos(idx).clone();
@@ -1578,7 +1587,7 @@ export function removeAllyMarker() {
 // A throwaway WebGL context is created, used and released inside this call, so
 // it never competes with the board renderer (which does not exist yet at char
 // select) and cannot leak a context if the player backs out.
-export function renderCharacterPortraits(types, colorCode, size = 176) {
+export function renderCharacterPortraits(types, colorCode, size = 176, look = null) {
     const out = {};
     if (typeof THREE === 'undefined' || !types || !types.length) return out;
     let gl = null;
@@ -1595,7 +1604,7 @@ export function renderCharacterPortraits(types, colorCode, size = 176) {
         const cam = new THREE.PerspectiveCamera(30, 1, 0.1, 60);
 
         types.forEach(t => {
-            const grp = createCharacterMesh(t, colorCode);
+            const grp = createCharacterMesh(t, colorCode, look);
             s.add(grp);
             // Frame from the bounding SPHERE, not a fixed multiple of height —
             // a fixed pull-back crops the tall ones (the bunny loses its ears,
@@ -1759,9 +1768,14 @@ export function animatePlayerHop(player, targetNodeId, onComplete, opts = {}) {
     const faceTo = player.mesh.quaternion.clone();
     player.mesh.quaternion.copy(faceFrom);
     const turns = faceFrom.angleTo(faceTo) > 1e-3;
+    // A trail cosmetic puffs where the token lands, on every hop.
+    const trail = player.look?.trail;
+    const done = trail && trail !== 'none'
+        ? (...a) => { CosmeticsFx.landingPuff(scene, player.mesh.position, trail); onComplete && onComplete(...a); }
+        : onComplete;
     activeAnims.push({
         obj: player.mesh.position, start: player.mesh.position.clone(), to: dest,
-        dur, isHop: true, hopH: opts.hopH, onComplete,
+        dur, isHop: true, hopH: opts.hopH, onComplete: done,
         onUpdate: turns ? p => {
             const k = Math.min(1, p / HOP_TURN);
             player.mesh.quaternion.slerpQuaternions(faceFrom, faceTo, k * k * (3 - 2 * k));

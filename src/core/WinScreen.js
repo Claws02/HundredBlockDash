@@ -10,6 +10,8 @@ import * as MatchSave from './MatchSave.js';
 import { DISTRICT_DOMINANCE_BONUS, HQ_META, HBD_FINISH_BONUS, PLAYER_SLOTS } from '../config/GameConfig.js';
 import { earnCoins } from './Economy.js';
 import * as Stats from './Stats.js';
+import * as Wallet from '../meta/Wallet.js';
+import * as Session from '../net/NetSession.js';
 import * as ModalManager from '../ui/ModalManager.js';
 import { sfx, setMusicMood } from '../engine/AudioManager.js';
 import * as ActiveMap from '../config/ActiveMap.js';
@@ -186,6 +188,8 @@ export function calculateWinner(applyBonuses = true) {
         }
     }
 
+    _payTickets();
+    if (!isTie) _victoryEmote(winner);
     _renderRaceChart();
     _wireRotate();
     // Upright in whatever way the phone is actually held. The screen used to
@@ -354,4 +358,43 @@ function _wireRotate() {
     if (!btn || !scr || btn._wired) return;
     btn._wired = true;
     btn.addEventListener('click', () => scr.classList.toggle('portrait'));
+}
+
+// ---- Tickets ---------------------------------------------------------------
+//
+// Paid once per match, on every device that shows the win screen (online
+// guests run calculateWinner too, from NetGame). Only the humans on THIS device
+// count: every non-bot seat in pass-and-play, my own seat online. The flag is
+// cleared by startGame, so a second calculateWinner for the same match (a
+// replayed network message, say) pays nothing.
+function _payTickets() {
+    const el = document.getElementById('win-tickets');
+    if (state.ticketsPaid) return;
+    state.ticketsPaid = true;
+    const seats = state.playStyle === 'online'
+        ? [Session.mySeat()].filter(s => s != null)
+        : state.players.filter(p => !p.isBot).map(p => p.id);
+    if (!seats.length) { if (el) el.innerHTML = ''; return; }
+    const wins = seats.reduce((n, id) => n + (state.players[id]?.mgWins || 0), 0);
+    const { total, lines } = Wallet.rewardMatch(wins);
+    if (!el) return;
+    el.innerHTML =
+        `<span class="win-tickets-total bfont">+${total} 🎟️</span>` +
+        `<span class="win-tickets-lines">${lines.map(l => `${l.label} +${l.amount}`).join(' · ')}</span>` +
+        `<span class="win-tickets-bal">Balance: ${Wallet.balance()} 🎟️</span>`;
+}
+
+// The winner's victory emote (src/meta/Cosmetics.js). Pure CSS over the win
+// screen, so it costs nothing on a phone that is already hot from a match.
+const EMOTE_GLYPH = { dance: '💃', trumpet: '🎺', rainbow: '🌈', fireworks: '🎆🎇🎆', micdrop: '🎤' };
+function _victoryEmote(winner) {
+    const id = winner?.look?.emote;
+    const glyph = EMOTE_GLYPH[id];
+    if (!glyph) return;
+    const el = document.createElement('div');
+    el.className = `win-emote win-emote-${id}`;
+    el.textContent = glyph;
+    el.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 3400);
 }

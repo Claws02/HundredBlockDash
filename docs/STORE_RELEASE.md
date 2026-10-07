@@ -28,6 +28,55 @@ Then, before every build: `npm run cap:sync`, and open the native project with
 | Orientation | Xcode / `AndroidManifest.xml` | Allow all. The board asks landscape phones to turn upright; side-on minigames need landscape |
 | Support contact | `privacy.html` → `#contact`, and both store listings | not set |
 
+## 1b. Purchases and ads (native setup)
+
+The JS side is in `src/meta/` (`Store.js`, `Ads.js`, `AgeGate.js`) and reaches the
+plugins through `window.Capacitor.Plugins`, so `npm install` + `npx cap sync` is
+all the wiring the web code needs. On the native side:
+
+**In-app purchases (`@capgo/native-purchases`)**
+- iOS: Xcode → target → Signing & Capabilities → **+ In-App Purchase**.
+- Android: nothing beyond the plugin (it adds `com.android.vending.BILLING`).
+- Create these products in App Store Connect (Features → In-App Purchases) and
+  Play Console (Monetize → Products → In-app products) with **exactly** these ids:
+
+  | Product id | Type | Price |
+  |---|---|---|
+  | `hbd.map.city_circuit` | Non-consumable | $1.99 |
+  | `hbd.pack.frontier` | Non-consumable | $1.99 |
+  | `hbd.pack.fairground` | Non-consumable | $1.99 |
+  | `hbd.pack.citynights` | Non-consumable | $1.99 |
+  | `hbd.pack.tableclassics` | Non-consumable | $1.99 |
+  | `hbd.bundle.everything` | Non-consumable | $6.99 |
+  | `hbd.tickets.500` | Consumable | $0.99 |
+  | `hbd.tickets.1200` | Consumable | $1.99 |
+  | `hbd.tickets.3500` | Consumable | $4.99 |
+
+  Each needs a display name, description and (Apple) a review screenshot of the
+  shop. The ids are permanent (`src/meta/Catalog.js`).
+- Test with Apple sandbox testers (Users and Access → Sandbox) and Google
+  licence testers (Play Console → Settings → License testing).
+
+**Rewarded ads (`@capacitor-community/admob`)**
+- AdMob console: add the iOS and Android apps, create one **Rewarded** ad unit
+  each, put their ids in `src/config/Release.js → admobRewarded`, and set
+  `adsTesting: false` for store builds.
+- iOS `Info.plist`: `GADApplicationIdentifier` = the AdMob iOS **app** id, and the
+  `SKAdNetworkItems` list from Google's docs. **Do not** add
+  `NSUserTrackingUsageDescription`: the game never asks to track.
+- Android `AndroidManifest.xml`:
+  `<meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="ca-app-pub-…~…"/>`.
+- AdMob → Privacy & messaging: create a **GDPR** message and a **US states**
+  message. The game shows them through UMP on the first "watch an ad" tap, and
+  Settings → Privacy choices reopens them.
+- Publish `app-ads.txt` at the root of the developer website listed in both stores.
+
+**Age signals (`AgeGate.js`): still to do.** Texas, Utah and Louisiana require
+honouring the store's age range and parental consent. `AgeGate.js` expects a
+plugin at `Capacitor.Plugins.AgeSignals` that wraps Apple's Declared Age Range
+API and Google's Play Age Signals API; until one is added it allows everything.
+That is correct outside those states, and the one code item to close before launch.
+
 ## 2. Optional services
 
 | Service | Where | Notes |
@@ -55,7 +104,8 @@ developer receives nothing.
 its public URL into both consoles.
 
 **Age rating:** no chat, no user-generated content shared beyond typed display
-names in a private room, no purchases, cartoon mischief (coin fines, duels).
+names in a private room, cartoon mischief (coin fines, duels). Declare in-app
+purchases and (opt-in) advertising in both questionnaires.
 Expect 4+ on iOS and Everyone on Google Play.
 
 ## 4. Before submission — on real devices
@@ -71,6 +121,12 @@ These could not be tested in the build environment (headless Chromium, software 
 - [ ] Notch, Dynamic Island and gesture bar: nothing interactive sits under a system inset
 - [ ] Online: two phones on different networks (one on mobile data) can join a room
 - [ ] Fonts render in Nunito and Bebas Neue in airplane mode
+- [ ] Sandbox purchase of a pack, the bundle and a Ticket pack on each platform; prices show in local currency
+- [ ] Delete and reinstall: packs/maps come back on launch and via Restore Purchases; Tickets are (correctly) gone
+- [ ] Android: a "slow test card" pending purchase unlocks once it completes
+- [ ] Rewarded ad (test units): consent form appears first in the EEA (use a VPN or UMP debug geography), the reward lands only after watching to the end, the 6th ad of the day is refused
+- [ ] Settings → Privacy choices reopens the consent form; Restore purchases reports correctly
+- [ ] Online: a guest without packs plays the host's unlocked minigames; every phone shows everyone's hats
 
 ## 5. CI
 

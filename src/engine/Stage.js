@@ -175,7 +175,7 @@ export function createStage(host, opts = {}) {
     stage.character = slot => {
         if (!stage.gl) return null;
         const p = state.players[seatFor(slot)] || state.players[slot] || {};
-        const rig = buildRiggedCharacter(p.charType || 'slime', p.color ?? 0xffffff);
+        const rig = buildRiggedCharacter(p.charType || 'slime', p.color ?? 0xffffff, p.look || null);
         const anim = new CharacterAnimator(rig);
         stage.scene.add(rig.root);
         const c = { slot, rig, anim, player: p };

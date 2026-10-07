@@ -67,7 +67,7 @@ function _throw() {
             : new THREE.Vector3(0, 0, -1);
         if (!isFinite(dir.x) || dir.lengthSq() < 0.001) dir.set(0, 0, -1);
 
-        const d = Physics.spawnDie(group);
+        const d = Physics.spawnDie(group, p.look?.dice);
         const right = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), dir).normalize();
         const sp = 8 + Math.random() * 12, up = 10 + Math.random() * 6, spin = 14 + Math.random() * 12;
         d.body.position.set(from.x + dir.x * 1.5, from.y + 2.5, from.z + dir.z * 1.5);

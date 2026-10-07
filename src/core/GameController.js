@@ -17,6 +17,11 @@ import {
     hbdSpaceLabel, hbdShopKey, getRealmForSpace,
 } from '../config/GameConfig.js';
 import { MAP_REGISTRY } from '../config/MapRegistry.js';
+import * as Unlocks from '../meta/Unlocks.js';
+import * as Cosmetics from '../meta/Cosmetics.js';
+import * as Session from '../net/NetSession.js';
+import * as Wallet from '../meta/Wallet.js';
+import { keyForMap, ticketPrice } from '../meta/Catalog.js';
 import * as Bot from './Bot.js';
 import { initCityBoard, generateBoard } from './BoardSetup.js';
 import * as Stars from './Stars.js';
@@ -243,7 +248,11 @@ function _populateMapSelectScreen() {
     grid.innerHTML = '';
     MAP_REGISTRY.filter(m => !m.archived).forEach(map => {
         const card = document.createElement('div');
-        card.className = `map-card bfont${!map.available ? ' map-card-locked' : ''}`;
+        // Not owned is different from not available: a map you have not
+        // unlocked still selects (so its preview can offer the unlock), it just
+        // cannot be confirmed. COMING SOON stays inert.
+        const owned = Unlocks.mapOwned(map.id);
+        card.className = `map-card bfont${!map.available ? ' map-card-locked' : ''}${map.available && !owned ? ' map-card-unowned' : ''}`;
         card.dataset.mapId = map.id;
         if (!map.available) card.setAttribute('aria-disabled', 'true');
         card.style.setProperty('--map-color', map.color || '#60a5fa');
@@ -251,15 +260,17 @@ function _populateMapSelectScreen() {
             `<span class="map-card-icon">${map.icon}</span>` +
             `<span class="map-card-name">${map.name}</span>` +
             `<span class="map-card-desc">${map.desc}</span>` +
-            (!map.available ? '<span class="map-card-soon">COMING SOON</span>' : '');
+            (!map.available ? '<span class="map-card-soon">COMING SOON</span>'
+                : !owned ? `<span class="map-card-soon">🔒 ${ticketPrice(keyForMap(map.id))} 🎟️</span>` : '');
         if (map.available) {
             card.addEventListener('click', () => selectMap(map.id));
         }
         grid.appendChild(card);
     });
 
-    // Pre-select first available map
-    const first = MAP_REGISTRY.find(m => m.available && !m.archived);
+    // Pre-select the first map that can actually be played
+    const first = MAP_REGISTRY.find(m => m.available && !m.archived && Unlocks.mapOwned(m.id))
+               || MAP_REGISTRY.find(m => m.available && !m.archived);
     if (first) selectMap(first.id);
 }
 
@@ -277,11 +288,12 @@ export function selectMap(mapId) {
             `<div class="map-preview-icon">${map.icon}</div>` +
             `<div class="map-preview-name bfont">${map.name}</div>` +
             `<div class="map-preview-desc">${map.longDesc}</div>` +
-            `<div class="map-preview-tags">${map.tags.map(t => `<span class="map-tag">${t}</span>`).join('')}</div>`;
+            `<div class="map-preview-tags">${map.tags.map(t => `<span class="map-tag">${t}</span>`).join('')}</div>` +
+            _mapUnlockOffer(map);
     }
 
     const confirmBtn = document.getElementById('btn-map-confirm');
-    if (confirmBtn) confirmBtn.disabled = false;
+    if (confirmBtn) confirmBtn.disabled = !Unlocks.mapOwned(mapId);
 
     // Each map names its own length picker on its registry card, so showing the
     // right one is a lookup rather than one `if` per map. This was the last
@@ -290,6 +302,34 @@ export function selectMap(mapId) {
     for (const id of pickers) {
         const el = document.getElementById(id);
         if (el) el.style.display = (id === map.lengthPicker) ? 'block' : 'none';
+    }
+}
+
+// The unlock offer under a locked map's preview. Buying with Tickets happens
+// right here; the real-money option opens the shop (src/ui/Shop.js), which owns
+// every store interaction.
+function _mapUnlockOffer(map) {
+    if (Unlocks.mapOwned(map.id)) return '';
+    const key = keyForMap(map.id);
+    const price = ticketPrice(key);
+    const can = Wallet.balance() >= price;
+    return `<div class="map-unlock">` +
+        `<div class="map-unlock-note">🔒 Unlock this board to play it. You have <b>${Wallet.balance()}</b> 🎟️</div>` +
+        `<button class="btn-primary bfont map-unlock-btn" data-unlock-key="${key}"${can ? '' : ' disabled'}>UNLOCK · ${price} 🎟️</button>` +
+        `<button class="splash-link bfont map-unlock-shop" data-open-shop="${key}">🛒 MORE WAYS TO UNLOCK</button>` +
+        `</div>`;
+}
+
+/** Spend Tickets on the selected map from its preview, then refresh the screen. */
+export function unlockSelectedMap(key) {
+    const r = Unlocks.buyWithTickets(key);
+    if (r === 'ok') {
+        UIManager.toast('🔓 Board unlocked!', '#22c55e');
+        const keep = state.selectedMap;
+        _populateMapSelectScreen();
+        selectMap(keep);
+    } else if (r === 'short') {
+        UIManager.toast('Not enough Tickets yet. Play matches to earn more!', '#ef4444');
     }
 }
 
@@ -308,6 +348,7 @@ function _cityRounds() {
 
 export function confirmMapSelect() {
     if (!state.selectedMap) { UIManager.toast('Pick a map first!', '#ef4444'); return; }
+    if (!Unlocks.mapOwned(state.selectedMap)) { UIManager.toast('🔒 Unlock this board first!', '#ef4444'); return; }
     document.getElementById('map-select').style.display = 'none';
     startGame();
 }
@@ -343,6 +384,7 @@ export function quickStart(prefs) {
     state.playStyle     = prefs.mode;
     state.botDifficulty = prefs.difficulty || 'medium';
     state.selectedMap   = prefs.map || 'city_circuit';
+    if (!Unlocks.mapOwned(state.selectedMap)) return false;   // back to the menus, not into a locked board
     state.hbdLength     = prefs.hbdLength || 100;
     state.cityRounds    = prefs.cityRounds || CITY_DEFAULT_ROUNDS;
     // `chars` replaced charP1/charP2 when seats became variable; a prefs blob
@@ -386,8 +428,24 @@ function _measureShareDevice() {
         MinigameLayout.SHAPES.SPLIT, seats, w, h).ok ? 'tablet' : 'phone';
 }
 
+// Who wears what (src/meta/Cosmetics.js). Pass-and-play: each human seat its
+// own loadout from this device. Online: the look each phone sent with its seat
+// in the lobby, cleaned. Bots: nothing. A resumed match already carries looks
+// in its save and keeps them.
+function _dressPlayers(resume) {
+    if (resume && state.players.every(p => p.isBot || p.look)) return;
+    const online = state.playStyle === 'online';
+    const roster = online ? Session.roster() : [];
+    state.players.forEach((p, i) => {
+        if (p.isBot) { p.look = null; return; }
+        if (online) p.look = Cosmetics.sanitize(roster[i]?.look);
+        else p.look = Cosmetics.lookFor(i);
+    });
+}
+
 export function startGame(resume = null) {
     if (state.gameStarted) return;
+    state.ticketsPaid = false;   // WinScreen pays each match once
     _measureShareDevice();
     Director.reset();          // no beat from a previous match may fire into this one
     _gateFromTurnStart = false;
@@ -437,6 +495,7 @@ export function startGame(resume = null) {
             // location is never hidden, and "not yet decided" is hidden.
             Stars.initStars();
         }
+        _dressPlayers(resume);
         Renderer.init(document.getElementById('game-container'));
         UIManager.initCoinDisplays();
         UIManager.updateUI();
@@ -669,7 +728,7 @@ export function executeRoll(flickVelocity) {
     const diceGrp = Renderer.getDiceGroup();
 
     for (let i = 0; i < numDice; i++) {
-        const d = Physics.spawnDie(diceGrp);
+        const d = Physics.spawnDie(diceGrp, p.look?.dice);
         const offset = numDice > 1 ? (i === 0 ? -1.2 : 1.2) : 0;
         const right  = new THREE.Vector3().crossVectors(new THREE.Vector3(0,1,0), flickDir).normalize();
         const sp = 8 + strength * 10, up = 10 + strength * 7, spin = 10 + strength * 12;
@@ -2037,7 +2096,7 @@ export function rollGate() {
     if (dir.lengthSq() < 0.001) dir.set(0,0,-1); else dir.normalize();
     const diceGrp = Renderer.getDiceGroup();
     for (let i = 0; i < GATE_NUM_DICE; i++) {
-        const d = Physics.spawnDie(diceGrp);
+        const d = Physics.spawnDie(diceGrp, p.look?.dice);
         const offset = (i-(GATE_NUM_DICE-1)/2)*2.5;
         const right  = new THREE.Vector3().crossVectors(new THREE.Vector3(0,1,0), dir).normalize();
         d.body.position.set(pPos.x+dir.x*1.5+right.x*offset, pPos.y+3, pPos.z+dir.z*1.5+right.z*offset);

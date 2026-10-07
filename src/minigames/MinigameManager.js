@@ -5,6 +5,7 @@
 // and create a new file in src/minigames/. That's it.
 // ============================================================
 
+import * as Unlocks from '../meta/Unlocks.js';
 import { state, playerCount, setPlayerCount } from '../core/GameState.js';
 import * as Bot from '../core/Bot.js';
 import { MG_TYPES, MG_INFO, MG_ORIENTATIONS, MG_ORIENTATION_MAP, MG_WATCHDOG_MS,
@@ -540,7 +541,10 @@ export function eligibleTypes() {
     // Never hand back nothing. A roster change that emptied the pool would
     // otherwise deal `undefined` into `state.mgType` and the round would fail
     // somewhere far away from the cause.
-    return pool.length ? pool : MG_TYPES.slice();
+    //
+    // Then only what this device owns (src/meta/). In an online match this runs
+    // on the host alone, so the host's library is the room's library.
+    return Unlocks.ownedMinigames(pool.length ? pool : MG_TYPES.slice());
 }
 
 /**
@@ -555,7 +559,7 @@ export function bagDepth() {
     const surface = matchSurface();
     const now = eligibleTypes().length;
     if (surface !== 'many' || state.mgDevice === 'tablet') return { count: now, tabletAdds: 0 };
-    const onTablet = MG_TYPES.filter(t => surfacesOf(t).sharedMany).length;
+    const onTablet = Unlocks.ownedMinigames(MG_TYPES.filter(t => surfacesOf(t).sharedMany)).length;
     return { count: now, tabletAdds: Math.max(0, onTablet - now) };
 }
 

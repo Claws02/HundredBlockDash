@@ -57,6 +57,14 @@ window.__QA = (function () {
         // A relay leg reports a score rather than naming a winner, so the
         // force-resolve has to be able to tell the two apart.
         SOLO = await import('/src/minigames/SoloArena.js');
+        // The gameplay probes test gameplay, not the paywall: own everything,
+        // as a player who bought the bundle would. qa/shop.js sets
+        // window.__QA_LOCKED before binding to test the free tier itself.
+        if (!window.__QA_LOCKED) {
+            const U = await import('/src/meta/Unlocks.js');
+            const C = await import('/src/meta/Catalog.js');
+            U.grant(C.product('hbd.bundle.everything').grants, 'iap');
+        }
         return REG.MG_TYPES.slice();
     }
     // When false, the agent stops tapping through the *bot's* result cards, so a

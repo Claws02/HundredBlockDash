@@ -46,8 +46,8 @@ const GLOVE = 0xf6f7fb;
  * Build a figure and rig it. Returns the rig; add `rig.root` to a scene.
  * `dispose()` releases every geometry and material it made.
  */
-export function buildRiggedCharacter(type, color) {
-    const fig = createCharacterMesh(type, color);
+export function buildRiggedCharacter(type, color, look = null) {
+    const fig = createCharacterMesh(type, color, look);
     const root = new THREE.Group();
     const hips = new THREE.Group();
     const neck = new THREE.Group();

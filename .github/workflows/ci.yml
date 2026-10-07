@@ -24,3 +24,5 @@ jobs:
           npx --yes http-server -p 8129 -s -c-1 . &
           npx --yes wait-on -t 30000 http://127.0.0.1:8129/index.html
           node qa/ci-smoke.js
+      - name: Shop (free tier, unlocks, simulated store, cosmetics in a match)
+        run: node qa/shop.js

@@ -17,6 +17,12 @@ import * as Lobby from './ui/Lobby.js';
 import * as MinigameLayout from './config/MinigameLayout.js';
 import * as NetGame from './net/NetGame.js';
 import * as Session from './net/NetSession.js';
+import * as Unlocks from './meta/Unlocks.js';
+import * as Shop from './ui/Shop.js';
+import * as Wallet from './meta/Wallet.js';
+import * as Store from './meta/Store.js';
+import * as AgeGate from './meta/AgeGate.js';
+import { MINIGAME_PACKS, packOf, keyForMinigame } from './meta/Catalog.js';
 
 window.addEventListener('error', e => {
     console.error('[HundredBlockDash] Uncaught error:', e.message, e.filename, e.lineno);
@@ -185,7 +191,16 @@ document.getElementById('map-select-grid').addEventListener('click', e => {
     if (card && !card.hasAttribute('aria-disabled')) GameController.selectMap(card.dataset.mapId);
 });
 
+// A locked board's preview offers its unlock (GameController._mapUnlockOffer).
+document.getElementById('map-preview-panel')?.addEventListener('click', e => {
+    const buy = e.target.closest('[data-unlock-key]');
+    if (buy) { GameController.unlockSelectedMap(buy.dataset.unlockKey); return; }
+    const shop = e.target.closest('[data-open-shop]');
+    if (shop) Shop.open({ focus: shop.dataset.openShop, onClose: () => _refreshAfterShop() });
+});
+
 document.getElementById('btn-map-confirm').addEventListener('click', () => {
+    if (!Unlocks.mapOwned(gameState.selectedMap)) { GameController.confirmMapSelect(); return; }   // says why
     // Online: the host's confirmation is what starts everybody. NetGame.START
     // carries the setup, and every device (the host included) begins the match
     // from the same message, so nobody starts a beat ahead of anybody else.
@@ -317,6 +332,8 @@ function _filteredTypes() {
         // that opens on four greyed cards reads as broken.
         const ea = _eligible(a), eb = _eligible(b);
         if (ea !== eb) return ea ? -1 : 1;
+        const oa = Unlocks.minigameOwned(a), ob = Unlocks.minigameOwned(b);
+        if (oa !== ob) return oa ? -1 : 1;
         if (sort === 'genre') {
             const d = genreOrder.indexOf(profileOf(a).genre) - genreOrder.indexOf(profileOf(b).genre);
             if (d) return d;
@@ -365,9 +382,12 @@ function _populateMgGrid() {
         const tabletNote = (okHere && _surface === 'many' && sf.manyDevice === 'tablet')
             ? '<span class="mg-sel-note">Needs a tablet at 3–4.</span>' : '';
         const card = document.createElement('div');
-        card.className = 'mg-sel-card' + (okHere ? '' : ' blocked');
+        const owned = Unlocks.minigameOwned(type);
+        const pack = owned ? null : MINIGAME_PACKS[packOf(type)];
+        card.className = 'mg-sel-card' + (okHere ? '' : ' blocked') + (owned ? '' : ' unowned');
         card.dataset.type = type;
         card.innerHTML =
+            (pack ? `<span class="mg-sel-lock">🔒 ${pack.icon} ${pack.name.toUpperCase()}</span>` : '') +
             `<span class="mg-sel-icon">${info.icon}</span>` +
             `<span class="mg-sel-name bfont">${info.title}</span>` +
             `<span class="mg-sel-genre">${MG_GENRES[profileOf(type).genre].name}</span>` +
@@ -398,7 +418,9 @@ function _paintCount(playable, total) {
 function _markSelected() {
     document.querySelectorAll('.mg-sel-card').forEach(c =>
         c.classList.toggle('sel', c.dataset.type === _selectedMgType));
-    document.getElementById('btn-mg-select-play').disabled = !_selectedMgType;
+    const play = document.getElementById('btn-mg-select-play');
+    play.disabled = !_selectedMgType;
+    play.textContent = _selectedMgType && !Unlocks.minigameOwned(_selectedMgType) ? '🔒 UNLOCK' : '▶ PLAY';
 }
 
 function _selectMg(type) {
@@ -445,6 +467,30 @@ document.getElementById('btn-mg-sort').addEventListener('click', () => {
     _populateMgGrid();
 });
 
+// ============================================================
+// SHOP & TICKETS
+// ============================================================
+// Prices, a quiet re-grant of anything already bought, and the age signal:
+// all async, none of it on the way to the first frame.
+AgeGate.init().finally(() => Store.init());
+{
+    const tix = document.getElementById('splash-tickets');
+    const paint = () => { if (tix) tix.textContent = `${Wallet.balance()} 🎟️`; };
+    paint();
+    Wallet.onChange(paint);
+}
+document.getElementById('btn-shop').addEventListener('click', () => {
+    Shop.open({ onClose: () => _refreshAfterShop() });
+});
+// Anything the shop unlocked has to show up behind it.
+function _refreshAfterShop() {
+    if (document.getElementById('mg-select-overlay').style.display === 'flex') _populateMgGrid();
+    if (document.getElementById('map-select').style.display === 'flex' && gameState.selectedMap) {
+        GameController.goToMapSelect();
+        GameController.selectMap(gameState.selectedMap);
+    }
+}
+
 document.getElementById('btn-minigames').addEventListener('click', () => {
     // A fresh visit to the arcade starts a fresh series.
     MinigameManager.resetArcadeScores();
@@ -478,6 +524,8 @@ function _arcadeSeats(type) {
 
 document.getElementById('btn-mg-select-play').addEventListener('click', () => {
     if (!_selectedMgType) return;
+    // A locked game opens its pack in the shop instead of playing.
+    if (!Unlocks.minigameOwned(_selectedMgType)) { Shop.open({ focus: keyForMinigame(_selectedMgType), onClose: () => _refreshAfterShop() }); return; }
     MinigameManager.triggerStandalone(_selectedMgType, false, _arcadeSeats(_selectedMgType));
 });
 
@@ -492,7 +540,7 @@ document.getElementById('btn-mg-select-play').addEventListener('click', () => {
 // It draws only from the PLAYABLE half of the filter. Rolling a game the
 // current surface has just greyed out would make the filter a suggestion.
 document.getElementById('btn-mg-select-random').addEventListener('click', () => {
-    const pool = _filteredTypes().filter(_eligible);
+    const pool = _filteredTypes().filter(_eligible).filter(Unlocks.minigameOwned);
     if (!pool.length) return;
     const pick = pool[Math.floor(Math.random() * pool.length)];
     _selectMg(pick);

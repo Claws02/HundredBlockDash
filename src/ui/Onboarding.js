@@ -13,6 +13,8 @@ import * as Settings from '../core/Settings.js';
 import * as Storage from '../core/Storage.js';
 import * as Stats from '../core/Stats.js';
 import { sfx } from '../engine/AudioManager.js';
+import * as Store from '../meta/Store.js';
+import * as Ads from '../meta/Ads.js';
 
 // ── How-to-Play slides ─────────────────────────────────────────────────────────
 const SLIDES = [
@@ -173,6 +175,8 @@ function _buildSettings() {
                     <input type="range" min="0" max="100" class="set-range" id="set-music" aria-label="Music volume">
                 </label>
                 <button class="ob-btn ob-btn-ghost set-wide" id="set-howto">❓ How to play</button>
+                <button class="ob-btn ob-btn-ghost set-wide" id="set-restore">↺ Restore purchases</button>
+                <button class="ob-btn ob-btn-ghost set-wide" id="set-privacy-choices" style="display:none;">🛡️ Privacy choices</button>
                 <a class="ob-btn ob-btn-ghost set-wide set-link" id="set-privacy" href="privacy.html" target="_blank" rel="noopener">🔒 Privacy policy</a>
                 <div class="set-legal">
                     <a href="terms.html" target="_blank" rel="noopener" id="set-terms">Terms of Use</a>
@@ -200,6 +204,25 @@ function _buildSettings() {
     const music = document.getElementById('set-music');
     music.addEventListener('input', () => Settings.set('music', music.value / 100));
     document.getElementById('set-howto').addEventListener('click', () => { closeSettings(); openHowToPlay(); });
+    // App Review requires Restore Purchases somewhere obvious; the shop has one
+    // too. Privacy choices only exists where the ad SDK does (the native app).
+    document.getElementById('set-restore').addEventListener('click', async e => {
+        const b = e.currentTarget;
+        b.disabled = true; b.textContent = 'Restoring…';
+        try {
+            const n = await Store.restore();
+            b.textContent = n ? `✓ Restored ${n}` : '✓ All up to date';
+        } catch (err) {
+            b.textContent = 'Store not available here';
+        }
+        setTimeout(() => { b.disabled = false; b.textContent = '↺ Restore purchases'; }, 1800);
+    });
+    const choices = document.getElementById('set-privacy-choices');
+    if (Ads.hasPrivacyChoices()) {
+        choices.style.display = '';
+        choices.addEventListener('click', () => Ads.openPrivacyChoices());
+    }
+
     document.getElementById('set-reset').addEventListener('click', e => {
         Stats.reset();
         e.target.textContent = '✓ Stats cleared';
