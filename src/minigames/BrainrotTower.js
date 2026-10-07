@@ -13,15 +13,17 @@
 // left, right, up and down, never towards or away from you, so what you see
 // side-on is all there is.
 //
-// The critters are real bodies and every one is a different awkward shape: a
-// shark in sneakers, a fridge with a frog's face, a meatball that rolls. They
-// land on whatever is already there. If ANYTHING falls off the plinth (your
-// critter, or the tower under it) the player who dropped last knocked it over
-// and loses. Hesitate and the claw lets go wherever it is, and it starts each
-// turn out past the plinth's edge; every turn the clock is shorter.
+// The critters are real bodies and every one is a different awkward shape:
+// twenty-four of them (BrainrotCast.js), from a flat pizza-hippo you can build
+// on to a cheese wheel that rolls and a taco that catches. They land on
+// whatever is already there. There is no match clock: the game goes on until
+// ANYTHING falls off the plinth (your critter, or the tower under it), and the
+// player who dropped last knocked it over and loses. Each turn has its own
+// clock: hesitate and the claw lets go wherever it is, and it starts each turn
+// out past the plinth's edge.
 //
 // The cast is our own: absurd mash-up plushies in the "brainrot" style, with
-// names made up here. No meme character from anywhere else is used.
+// names made up here (see the note at the top of BrainrotCast.js).
 //
 // Two players: the other one wins. Three or four: the one who knocked it over
 // is last and everybody else shares the win (standings pay the ladder).
@@ -33,38 +35,22 @@ import { registerMinigameCleanup, isBotSlot, slotCount } from './MinigameManager
 import { createStage } from '../engine/Stage.js';
 import { createDirector } from '../engine/StageDirector.js';
 import { seat, uprightHud, effects } from '../engine/StageKit.js';
+import { CAST } from './BrainrotCast.js';
 
 // ── Tuning (seconds and world units) ─────────────────────────────────────────
-const PLINTH_TOP = 1.0, PLINTH_W = 3.2, PLINTH_D = 1.6;   // the shared plinth
+const PLINTH_TOP = 1.0, PLINTH_W = 4.0, PLINTH_D = 1.8;   // the shared plinth
 const FALL_Y = PLINTH_TOP - 0.3;     // a critter's centre below this has fallen off
-const CLAW_ABOVE = 2.3;              // claw tip above the top of the tower
-const AIM_RANGE = 2.3;               // the claw travels this far either side, past the plinth's edge
+const CLAW_ABOVE = 1.8;              // claw tip above the top of the tower: a short fall, so a drop doesn't hammer the stack
+const AIM_RANGE = 2.65;               // the claw travels this far either side, past the plinth's edge
 const TURN_0 = 6.5, TURN_MIN = 3.5, TURN_STEP = 0.15;        // s before the claw lets go by itself
 const SETTLE_SPEED = 0.18, SETTLE_HOLD = 0.5, SETTLE_MAX = 4.0;
-const READY_TIME = 1.3, CAP_TIME = 70;   // a tower nobody topples in 70 s is a shared result
+const READY_TIME = 1.3;                  // no match clock: it goes until something falls off
 const TOPPLE_WAIT = 1.5;                 // s of watching it fall before the verdict
 
-// ── The cast: plush mash-ups, each its own awkward shape ────────────────────
-// `shapes` are the physics (half extents, offsets, a roll about z); `look`
-// builds the plush from primitives in the piece's own frame.
-const CAST = [
-    { key: 'shark', name: 'SHARKOLINO SNEAKERINI', mass: 0.5,
-      shapes: [{ box: [0.62, 0.22, 0.24] }], look: _sharkLook },
-    { key: 'log', name: 'BONKUS LOGUS', mass: 0.45,
-      shapes: [{ box: [0.58, 0.2, 0.2] }], look: _logLook },
-    { key: 'cup', name: 'CUPPACINA TWIRLINA', mass: 0.3,
-      shapes: [{ box: [0.27, 0.32, 0.27] }], look: _cupLook },
-    { key: 'fridge', name: 'FRIDGIO FROGGINI', mass: 0.6,
-      shapes: [{ box: [0.3, 0.5, 0.26] }], look: _fridgeLook },
-    { key: 'banana', name: 'BANANITO BANDITO', mass: 0.3,
-      shapes: [{ box: [0.3, 0.09, 0.12], off: [-0.25, 0.04, 0], roll: -0.42 }, { box: [0.3, 0.09, 0.12], off: [0.25, 0.04, 0], roll: 0.42 }], look: _bananaLook },
-    { key: 'pizza', name: 'PIZZAPOTAMO', mass: 0.4,
-      shapes: [{ box: [0.56, 0.11, 0.4] }], look: _pizzaLook },
-    { key: 'meatball', name: 'POLPETTO RUMBLINI', mass: 0.35,
-      shapes: [{ sphere: 0.3 }], look: _meatballLook },
-    { key: 'toast', name: 'TOASTRONAUTO', mass: 0.3,
-      shapes: [{ box: [0.36, 0.38, 0.12] }], look: _toastLook },
-];
+// ── The cast: 24 plush mash-ups, each its own awkward shape (BrainrotCast.js) ─
+// Drawn and simulated a size up from their own numbers, so they still read on
+// a phone with the camera back far enough for the wider plinth.
+const K = 1.15;
 
 // ── Module state — start() resets all of it, _destroy() clears it ───────────
 let _done = false, _onWin = null, _botSkill = 0.55;
@@ -73,7 +59,7 @@ let _world = null, _plushMat = null, _claw = null;
 let _n = 2, _pieces = [], _held = null, _turn = 0, _drops = 0, _deck = [];
 let _phase = 'intro', _phaseT = 0, _t = 0, _clock = 0, _aim = 0, _turnT = 0, _frozen = false;
 let _settle = null, _toppler = -1, _look = null, _shake = 0, _bot = { wait: 0, target: 0 };
-let _ui = null, _drag = null;            // the slider and DROP button; the finger aiming
+let _ui = null, _drag = null, _lineup = false;            // the slider and DROP button; the finger aiming
 
 export function start(isBot, onWin, botSkill = 0.55) {
     if (!state.mgActive) return;
@@ -157,14 +143,14 @@ function _buildWorld() {
     const w = new CANNON.World();
     w.gravity.set(0, -9.8, 0);
     w.broadphase = new CANNON.NaiveBroadphase();
-    w.solver.iterations = 16;
+    w.solver.iterations = 30;         // tall stacks need the extra passes to stay stiff
     w.allowSleep = true;
     // The game is played in the picture's plane. cannon.js 0.6 has no axis
     // locks, so after every step each critter is put back on it: no depth
     // drift, no depth speed, and only the roll that faces the camera.
     w.addEventListener('postStep', () => {
         for (const p of _pieces) {
-            const b = p.body; if (!b) continue;
+            const b = p.body; if (!b || p.locked) continue;
             b.position.z = 0; b.velocity.z = 0;
             b.angularVelocity.x = 0; b.angularVelocity.y = 0;
             const q = b.quaternion, roll = 2 * Math.atan2(q.z, q.w);
@@ -173,8 +159,10 @@ function _buildWorld() {
     });
     _plushMat = new CANNON.Material('plush');
     const hard = new CANNON.Material('hard');
-    w.addContactMaterial(new CANNON.ContactMaterial(_plushMat, _plushMat, { friction: 0.85, restitution: 0.02 }));
-    w.addContactMaterial(new CANNON.ContactMaterial(_plushMat, hard, { friction: 0.75, restitution: 0.05 }));
+    // Stiff contacts: cannon's soft defaults let a tall stack sink into itself.
+    const stiff = { contactEquationStiffness: 5e7, contactEquationRelaxation: 3, frictionEquationStiffness: 5e7, frictionEquationRelaxation: 3 };
+    w.addContactMaterial(new CANNON.ContactMaterial(_plushMat, _plushMat, { friction: 0.85, restitution: 0.02, ...stiff }));
+    w.addContactMaterial(new CANNON.ContactMaterial(_plushMat, hard, { friction: 0.75, restitution: 0.05, ...stiff }));
     const floor = new CANNON.Body({ mass: 0, material: hard });
     floor.addShape(new CANNON.Plane());
     floor.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
@@ -194,14 +182,16 @@ function _reach(c) {
         const oy = s.off ? s.off[1] : 0;
         r = Math.max(r, s.sphere ? s.sphere + Math.abs(oy) : Math.abs(oy) + s.box[1] + Math.abs(Math.sin(s.roll || 0)) * s.box[0]);
     }
-    return r;
+    return r * K;
 }
+
+function _lookOf(c) { const g = c.look(); g.scale.setScalar(K); return g; }
 
 function _body(c) {
     const b = new CANNON.Body({ mass: c.mass, material: _plushMat, linearDamping: 0.08, angularDamping: 0.45 });
     for (const s of c.shapes) {
-        const shape = s.sphere ? new CANNON.Sphere(s.sphere) : new CANNON.Box(new CANNON.Vec3(...s.box));
-        const off = new CANNON.Vec3(...(s.off || [0, 0, 0]));
+        const shape = s.sphere ? new CANNON.Sphere(s.sphere * K) : new CANNON.Box(new CANNON.Vec3(...s.box.map(v => v * K)));
+        const off = new CANNON.Vec3(...(s.off || [0, 0, 0]).map(v => v * K));
         const q = new CANNON.Quaternion(); q.setFromAxisAngle(new CANNON.Vec3(0, 0, 1), s.roll || 0);
         b.addShape(shape, off, q);
     }
@@ -212,26 +202,30 @@ function _body(c) {
 // ── The arcade: a claw-machine cabinet, a prize pit, neon ───────────────────
 function _buildArcade() {
     const scene = _stage.scene;
-    scene.fog = new THREE.Fog(0x1a1033, 18, 40);
+    scene.fog = new THREE.Fog(0x1a1033, 32, 80);   // the camera stands well back for the wide plinth
     _stage.light({ sun: 0xfff3e0, sunI: 1.15, sky: 0xd9c8ff, ground: 0x3a2050, hemiI: 0.75, dir: [3, 11, 8], span: 7 });
     const add = (geo, mat, x, y, z) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); _stage.add(m); return m; };
     const std = (color, o = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.7, ...o });
     // Floor and back wall, with a stripe of arcade carpet.
     const floor = add(new THREE.PlaneGeometry(30, 18), std(0x2b1b4d, { roughness: 0.95 }), 0, 0, 0); floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true;
-    add(new THREE.BoxGeometry(30, 12, 0.3), std(0x3b1f66), 0, 6, -3.4);
+    // The back wall runs far up: a tower with no clock can get very tall.
+    add(new THREE.BoxGeometry(30, 80, 0.3), std(0x3b1f66), 0, 40, -3.4);
     // The cabinet: corner posts, a top header, the claw's rail.
     const chrome = std(0xe6e6f0, { metalness: 0.7, roughness: 0.25 });
     // Back posts only: front ones would stand between the camera and the tower.
-    [[-3.6, -2.2], [3.6, -2.2]].forEach(([x, z]) => add(new THREE.BoxGeometry(0.16, 9, 0.16), chrome, x, 4.5, z).castShadow = true);
-    const head = add(new THREE.BoxGeometry(6.4, 0.7, 4.0), std(0xff4fa3, { emissive: 0xff4fa3, emissiveIntensity: 0.25 }), 0, 9.2, -0.3);
-    head.castShadow = false;
+    [[-4.3, -2.2], [4.3, -2.2]].forEach(([x, z]) => add(new THREE.BoxGeometry(0.16, 80, 0.16), chrome, x, 40, z).castShadow = true);   // up past any tower
+    // The cabinet's top (header and sign) rides with the claw's rail, so a tall
+    // tower never grows through it.
+    const crown = new THREE.Group(); _stage.add(crown);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(9.0, 0.7, 4.0), std(0xff4fa3, { emissive: 0xff4fa3, emissiveIntensity: 0.25 }));
+    head.position.set(0, 0.4, -0.3); crown.add(head);
     // The sign.
     const cv = document.createElement('canvas'); cv.width = 512; cv.height = 96;
     const g = cv.getContext('2d');
     g.fillStyle = '#fff6b0'; g.shadowColor = '#ffde59'; g.shadowBlur = 16;
     g.font = 'bold 56px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('BRAINROT TOWER', 256, 50);
     const sign = new THREE.Mesh(new THREE.PlaneGeometry(5.2, 0.98), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(cv), transparent: true }));
-    sign.position.set(0, 9.2, 1.72); _stage.add(sign);
+    sign.position.set(0, 0.4, 1.72); crown.add(sign);
     // Neon strips up the back wall.
     [0x5ef2ff, 0xffde59, 0xff4fa3, 0x7cff6b].forEach((c, i) => add(new THREE.BoxGeometry(0.08, 7, 0.08), new THREE.MeshBasicMaterial({ color: c }), -5.5 + i * 3.6 + (i > 1 ? 0.4 : 0), 4.2, -3.2));
     // The plinth, striped like a prize podium.
@@ -239,12 +233,12 @@ function _buildArcade() {
     add(new THREE.BoxGeometry(PLINTH_W + 0.04, 0.12, PLINTH_D + 0.04), std(0xff4fa3), 0, PLINTH_TOP - 0.06, 0);
     add(new THREE.BoxGeometry(PLINTH_W + 0.04, 0.12, PLINTH_D + 0.04), std(0xff4fa3), 0, 0.2, 0);
     // The prize pit: a carpet of plush balls round the plinth, one draw call.
-    const N = 140, ball = new THREE.SphereGeometry(0.22, 10, 8);
+    const N = 170, ball = new THREE.SphereGeometry(0.22, 10, 8);
     const pit = new THREE.InstancedMesh(ball, std(0xffffff, { roughness: 0.9 }), N);
     const m = new THREE.Matrix4(), col = new THREE.Color(), cols = [0xff4fa3, 0x5ef2ff, 0xffde59, 0x7cff6b, 0xb68cff, 0xff8a4c];
     let k = 0;
     for (let i = 0; i < N * 3 && k < N; i++) {
-        const x = (Math.random() - 0.5) * 7.4, z = -2.1 + Math.random() * 3.8;
+        const x = (Math.random() - 0.5) * 8.8, z = -2.1 + Math.random() * 3.9;
         if (Math.abs(x) < PLINTH_W / 2 + 0.25 && Math.abs(z) < PLINTH_D / 2 + 0.25) continue;
         m.makeTranslation(x, 0.16 + Math.random() * 0.12, z); pit.setMatrixAt(k, m);
         pit.setColorAt(k, col.setHex(cols[k % cols.length])); k++;
@@ -262,100 +256,10 @@ function _buildArcade() {
     });
     Object.assign(_claw.userData, { carriage, cable, hub, fingers });
     _stage.add(_claw);
-    // The rail the claw rides along.
-    add(new THREE.BoxGeometry(6, 0.08, 0.08), chrome, 0, 8.8, 0);
-}
-
-// ── The cast's looks ─────────────────────────────────────────────────────────
-// Each returns a Group centred on the body's centre of mass, in its own frame.
-function _m(color, o = {}) { return new THREE.MeshStandardMaterial({ color, roughness: 0.85, ...o }); }
-function _part(g, geo, mat, x = 0, y = 0, z = 0) { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = true; g.add(m); return m; }
-function _eyes(g, x, y, z, r = 0.07, gap = 0.1) {
-    const white = _m(0xffffff, { roughness: 0.3 }), black = _m(0x111111, { roughness: 0.3 });
-    [-1, 1].forEach(s => {
-        _part(g, new THREE.SphereGeometry(r, 10, 8), white, x + s * gap, y, z);
-        _part(g, new THREE.SphereGeometry(r * 0.5, 8, 6), black, x + s * gap + r * 0.15, y - r * 0.15, z + r * 0.7);
-    });
-}
-function _sharkLook() {
-    const g = new THREE.Group();
-    const body = _part(g, new THREE.SphereGeometry(0.4, 16, 12), _m(0x6fa8dc), 0, 0.02, 0); body.scale.set(1.5, 0.52, 0.58);
-    _part(g, new THREE.SphereGeometry(0.26, 12, 10), _m(0xf2f2f2), 0.05, -0.06, 0.06).scale.set(1.9, 0.5, 0.8);
-    const fin = _part(g, new THREE.ConeGeometry(0.13, 0.28, 4), _m(0x5b8fc0), -0.05, 0.25, 0); fin.rotation.z = -0.3;
-    const tail = _part(g, new THREE.ConeGeometry(0.16, 0.3, 4), _m(0x5b8fc0), -0.62, 0.05, 0); tail.rotation.z = Math.PI / 2;
-    [-0.25, 0.3].forEach(x => {                                      // two big sneakers
-        _part(g, new THREE.BoxGeometry(0.26, 0.12, 0.17), _m(0xff4fa3), x, -0.16, 0.1);
-        _part(g, new THREE.BoxGeometry(0.27, 0.035, 0.18), _m(0xffffff), x, -0.215, 0.1);
-    });
-    _eyes(g, 0.42, 0.08, 0.17, 0.06, 0.07);
-    return g;
-}
-function _logLook() {
-    const g = new THREE.Group();
-    const log = _part(g, new THREE.CylinderGeometry(0.2, 0.2, 1.16, 14), _m(0x8b5a2b)); log.rotation.z = Math.PI / 2;
-    [-1, 1].forEach(s => { const ring = _part(g, new THREE.CircleGeometry(0.19, 14), _m(0xd9a066), s * 0.585, 0, 0); ring.rotation.y = s * Math.PI / 2; });
-    const bat = _part(g, new THREE.CylinderGeometry(0.035, 0.06, 0.6, 8), _m(0xd9c27a), 0.1, 0.12, 0.2); bat.rotation.z = -1.1;
-    _eyes(g, 0.15, 0.06, 0.19, 0.06, 0.09);
-    _part(g, new THREE.BoxGeometry(0.16, 0.03, 0.02), _m(0x3a1f0a), 0.15, -0.07, 0.2);
-    return g;
-}
-function _cupLook() {
-    const g = new THREE.Group();
-    _part(g, new THREE.CylinderGeometry(0.27, 0.2, 0.5, 18), _m(0xf4efe6, { roughness: 0.4 }), 0, 0.02, 0);
-    _part(g, new THREE.CylinderGeometry(0.25, 0.25, 0.04, 18), _m(0x6b3e1e), 0, 0.26, 0);
-    const handle = _part(g, new THREE.TorusGeometry(0.1, 0.03, 6, 12), _m(0xf4efe6), 0.29, 0.05, 0);
-    const tutu = _part(g, new THREE.CylinderGeometry(0.42, 0.3, 0.09, 18), _m(0xff9ad5, { transparent: true, opacity: 0.85 }), 0, -0.18, 0);
-    tutu.castShadow = false; handle.rotation.y = 0;
-    _eyes(g, 0, 0.08, 0.24, 0.06, 0.09);
-    return g;
-}
-function _fridgeLook() {
-    const g = new THREE.Group();
-    _part(g, new THREE.BoxGeometry(0.6, 1.0, 0.52), _m(0x7cff6b, { roughness: 0.5 }));
-    _part(g, new THREE.BoxGeometry(0.58, 0.02, 0.53), _m(0x3fa63a), 0, 0.15, 0);
-    _part(g, new THREE.BoxGeometry(0.04, 0.22, 0.05), _m(0xdddddd, { metalness: 0.5 }), 0.22, 0.32, 0.28);
-    [-1, 1].forEach(s => _part(g, new THREE.SphereGeometry(0.13, 12, 10), _m(0x7cff6b), s * 0.17, 0.53, 0.05));
-    _eyes(g, 0, 0.56, 0.13, 0.08, 0.17);
-    _part(g, new THREE.BoxGeometry(0.3, 0.03, 0.02), _m(0x1f5c1a), 0, 0.3, 0.27);
-    return g;
-}
-function _bananaLook() {
-    const g = new THREE.Group();
-    const yel = _m(0xffe14d);
-    [-1, 1].forEach(s => { const half = _part(g, new THREE.CylinderGeometry(0.09, 0.12, 0.62, 10), yel, s * 0.25, 0.04, 0); half.rotation.z = Math.PI / 2 + s * 0.42; });
-    [-1, 1].forEach(s => _part(g, new THREE.SphereGeometry(0.06, 8, 6), _m(0x5a3d1a), s * 0.53, 0.29, 0));
-    _part(g, new THREE.BoxGeometry(0.3, 0.07, 0.25), _m(0x111111), 0, 0.06, 0.02);          // the bandit's mask
-    _eyes(g, 0, 0.065, 0.13, 0.04, 0.07);
-    return g;
-}
-function _pizzaLook() {
-    const g = new THREE.Group();
-    _part(g, new THREE.BoxGeometry(1.1, 0.2, 0.78), _m(0xf2b45a));
-    _part(g, new THREE.BoxGeometry(1.06, 0.03, 0.74), _m(0xe0482f), 0, 0.11, 0);
-    [[-0.3, 0.1], [0.15, -0.2], [0.35, 0.18], [-0.1, -0.15]].forEach(([x, z]) => _part(g, new THREE.CylinderGeometry(0.07, 0.07, 0.02, 10), _m(0xa3201a), x, 0.13, z));
-    const snout = _part(g, new THREE.SphereGeometry(0.2, 12, 10), _m(0xb68cff), 0.52, 0.06, 0.18); snout.scale.set(0.8, 0.7, 1);
-    [-1, 1].forEach(s => _part(g, new THREE.SphereGeometry(0.06, 8, 6), _m(0xb68cff), 0.4, 0.2, 0.18 + s * 0.12));
-    _eyes(g, 0.4, 0.2, 0.3, 0.055, 0.1);
-    return g;
-}
-function _meatballLook() {
-    const g = new THREE.Group();
-    _part(g, new THREE.SphereGeometry(0.3, 16, 12), _m(0x8a3b1e, { roughness: 1 }));
-    _part(g, new THREE.CylinderGeometry(0.15, 0.13, 0.22, 12), _m(0xffffff), 0, 0.36, 0);
-    _part(g, new THREE.SphereGeometry(0.17, 12, 8), _m(0xffffff), 0, 0.5, 0).scale.set(1, 0.6, 1);
-    _part(g, new THREE.TorusGeometry(0.12, 0.025, 6, 12), _m(0xe0482f), 0, -0.04, 0.26);   // a little moustache-ish smile
-    _eyes(g, 0, 0.1, 0.25, 0.065, 0.1);
-    return g;
-}
-function _toastLook() {
-    const g = new THREE.Group();
-    _part(g, new THREE.BoxGeometry(0.72, 0.62, 0.24), _m(0xe6a85c), 0, -0.07, 0);
-    _part(g, new THREE.SphereGeometry(0.3, 14, 10), _m(0xe6a85c), -0.14, 0.2, 0).scale.set(1, 0.6, 0.4);
-    _part(g, new THREE.SphereGeometry(0.3, 14, 10), _m(0xe6a85c), 0.14, 0.2, 0).scale.set(1, 0.6, 0.4);
-    const visor = _part(g, new THREE.SphereGeometry(0.28, 14, 10), _m(0x9ad7ff, { transparent: true, opacity: 0.45, roughness: 0.1 }), 0, 0.02, 0.1);
-    visor.scale.set(1.15, 1, 0.45); visor.castShadow = false;
-    _eyes(g, 0, 0.02, 0.14, 0.06, 0.1);
-    return g;
+    // The rail the claw rides along; it climbs with the tower (_draw).
+    _claw.userData.crown = crown;
+    crown.position.y = 8.8;
+    _claw.userData.rail = add(new THREE.BoxGeometry(8.6, 0.08, 0.08), chrome, 0, 8.8, 0);
 }
 
 // ── Turns ────────────────────────────────────────────────────────────────────
@@ -369,7 +273,7 @@ function _nextCritter() {
 function _newTurn() {
     const c = _nextCritter();
     _held = { c, reach: _reach(c), mesh: null };
-    if (_stage?.gl) { _held.mesh = c.look(); _stage.add(_held.mesh); }
+    if (_stage?.gl) { _held.mesh = _lookOf(c); _stage.add(_held.mesh); }
     _turnT = 0;
     // The claw brings it in from the side, past the plinth's edge, from the
     // left and the right in turn: leaving it there loses.
@@ -499,7 +403,7 @@ function _frame(dt) {
     _fx?.update(dt);
     const dirOwns = !!_dir && _dir.update(dt);
     if (_done) return;
-    if (!dirOwns && _stage?.gl && _phase !== 'over') {
+    if (!dirOwns && _stage?.gl && _phase !== 'over' && !_lineup) {
         const c = _cam(), cam = _stage.camera;
         cam.position.lerp(new THREE.Vector3(...c.pos), Math.min(1, dt * 1.6));
         if (!_look) _look = new THREE.Vector3(...c.look);
@@ -524,12 +428,28 @@ function _rules(dt) {
         _settle.calm = moving || (me && !me.landed) ? 0 : _settle.calm + dt;
         if (_settle.calm >= SETTLE_HOLD || _settle.t >= SETTLE_MAX) {
             _settle = null;
-            if (_clock >= CAP_TIME) { _end(-1); return; }
+            _lockDeep();
             sfx('land_good');
             _turn = (_turn + 1) % _n;
             _newTurn();
         }
     }
+}
+
+// Critters more than LIVE drops deep that are resting become part of the
+// furniture: static, so a tall tower can't sink into itself and fall over on
+// nobody's turn. Only the top few can wobble, which is where the game is.
+const LIVE = 4;
+function _lockDeep() {
+    if (typeof CANNON === 'undefined') return;
+    const on = _pieces.filter(p => p.body && !p.off && !p.locked);
+    on.slice(0, Math.max(0, on.length - LIVE)).forEach(p => {
+        const b = p.body;
+        if (b.velocity.length() > SETTLE_SPEED || b.angularVelocity.length() > SETTLE_SPEED * 3) return;
+        b.velocity.set(0, 0, 0); b.angularVelocity.set(0, 0, 0);
+        b.mass = 0; b.type = CANNON.Body.STATIC; b.updateMassProperties();
+        p.locked = true;
+    });
 }
 
 function _topple(p) {
@@ -555,7 +475,10 @@ function _draw(dt) {
     if (!_claw) return;
     const x = _held || _settle ? _clawX() : _claw.position.x;
     const tipY = _clawY();
-    const railY = 8.8;
+    // The rail climbs once the tower nears the top of the cabinet.
+    const railY = Math.max(8.8, tipY + 1.6);
+    if (_claw.userData.rail) _claw.userData.rail.position.y = railY;
+    if (_claw.userData.crown) _claw.userData.crown.position.y = railY;
     _claw.position.set(x, tipY, 0);
     const u = _claw.userData;
     u.carriage.position.y = railY - tipY;
@@ -586,7 +509,7 @@ function _renderHud() {
     _ui?.draw(_aim, seat(_turn).css, _canAim(), _phase === 'play' && !!_held && isBotSlot(_turn));
 }
 
-/** `loser` is the slot that knocked it over, or −1 when nobody did by the cap. */
+/** `loser` is the slot that knocked it over (−1, a shared result, is kept for safety only). */
 function _end(loser) {
     if (_phase === 'over') return;
     _phase = 'over';
@@ -638,9 +561,49 @@ export function _debugHold(key) {
     const c = CAST.find(x => x.key === key);
     if (!c || !_held || _settle) return;
     if (_held.mesh) { _held.mesh.parent?.remove(_held.mesh); _held.mesh = null; }
-    _held = { c, reach: _reach(c), mesh: _stage?.gl ? _stage.add(c.look()) : null };
+    _held = { c, reach: _reach(c), mesh: _stage?.gl ? _stage.add(_lookOf(c)) : null };
 }
-/** Probes: shove the tower's top critter sideways. */
-export function _debugShove(vx) { const p = [..._pieces].reverse().find(q => q.body && !q.off); if (p) { p.body.wakeUp(); p.body.velocity.x = vx; } }
-/** Probes: set the play clock (the cap). */
+/** Probes: knock the last critter dropped sideways. */
+// A hop as well as a push: a box sliding flat on a box is all friction in
+// cannon.js, which eats a pure sideways shove before it reaches the edge.
+export function _debugShove(vx, vy = 3) { const p = [..._pieces].reverse().find(q => q.body && !q.off); if (p) { p.body.wakeUp(); p.body.velocity.x = vx; p.body.velocity.y = vy; } }
+/** Probes: set the play clock (there is no cap; a probe checks that). */
 export function _debugClock(s) { _clock = s; }
+/** Probes: the whole cast in rows in front of the machine, for a contact sheet. */
+export function _debugLineup(cols = 4) {
+    if (!_stage?.gl) return 0;
+    _lineup = true; _frozen = true;
+    if (_held?.mesh) _held.mesh.visible = false;
+    const rows = Math.ceil(CAST.length / cols), dx = 1.7, dy = 1.35;
+    CAST.forEach((c, i) => {
+        const g = _lookOf(c), col = i % cols, row = Math.floor(i / cols);
+        g.position.set((col - (cols - 1) / 2) * dx, 14 + (rows - 1 - row) * dy, 3);
+        _stage.add(g);
+    });
+    const cy = 14 + (rows - 1) * dy / 2, cam = _stage.camera;
+    const t = Math.tan(25 * Math.PI / 180), d = Math.max((rows * dy / 2 + 0.8) / t, (cols * dx / 2 + 0.6) / (t * cam.aspect));
+    cam.position.set(0, cy, 3 + d);
+    cam.lookAt(0, cy, 3);
+    return CAST.length;
+}
+/** Probes: the cast's keys. */
+export function _debugCast() { return CAST.map(c => c.key); }
+/**
+ * Probes: drop one critter on an empty plinth in a world of its own and let it
+ * settle for 4 s. Where does it end up, and is it resting on the plinth?
+ */
+export function _debugSettleTest(key, x = 0) {
+    const c = CAST.find(q => q.key === key);
+    if (!c || typeof CANNON === 'undefined') return null;
+    const saved = { world: _world, pieces: _pieces, mat: _plushMat };   // _buildWorld replaces the plush material
+    const w = _buildWorld();
+    const p = { c, body: _body(c), reach: _reach(c) };
+    p.body.position.set(x, PLINTH_TOP + p.reach + 0.6, 0);
+    w.addBody(p.body);
+    _pieces = [p];
+    for (let i = 0; i < 240; i++) w.step(1 / 60);
+    _pieces = saved.pieces; _world = saved.world; _plushMat = saved.mat;
+    const b = p.body;
+    return { key, y: +b.position.y.toFixed(3), x: +b.position.x.toFixed(3), onPlinth: b.position.y > PLINTH_TOP && Math.abs(b.position.x) < PLINTH_W / 2,
+             speed: +b.velocity.length().toFixed(3), depth: +Math.abs(b.position.z).toFixed(4) };
+}
