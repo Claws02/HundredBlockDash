@@ -309,12 +309,15 @@ function _showPracticeHold(mgType) {
 // 3-4 player surface, in which case the point of pressing PLAY is to see the
 // game with three or four zones on it. Anything past the seats the match has is
 // filled with bots so there is somebody in every zone.
-export function triggerStandalone(mgType, isBotOpponent = false, seats = 2) {
+// opts (all optional, used by CLAWGames; HundredBlockDash passes none):
+//   bots        array of booleans, one per seat — overrides the default seating
+//   onComplete  (winnerId) => void, replaces the return to the arcade grid
+export function triggerStandalone(mgType, isBotOpponent = false, seats = 2, opts = {}) {
     _practiceMode = false;
     _standaloneMode = true;
-    _onComplete = () => {
+    _onComplete = opts.onComplete || (() => {
         document.getElementById('mg-select-overlay').style.display = 'flex';
-    };
+    });
 
     state.gameState   = 'MINIGAME_INTRO';
     state.cameraState = 'MINIGAME';
@@ -329,6 +332,7 @@ export function triggerStandalone(mgType, isBotOpponent = false, seats = 2) {
     // Slots 2 and 3 are never a person standing at the arcade, so give them a
     // bot rather than a zone that never moves.
     for (let i = 2; i < n; i++) state.players[i].isBot = true;
+    if (Array.isArray(opts.bots)) for (let i = 0; i < n; i++) state.players[i].isBot = !!opts.bots[i];
 
     document.getElementById('mg-select-overlay').style.display = 'none';
     _showIntroCard(mgType);
