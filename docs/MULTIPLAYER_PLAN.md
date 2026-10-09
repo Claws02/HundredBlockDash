@@ -259,8 +259,8 @@ src/core/Commands.js       every player decision, named. Offline: a direct call.
                            Online: the client's dispatcher forwards it instead.
 src/ui/Scenes.js           every full-screen beat, named and classified
                            SHARED (everybody) or OWNER (one player).
-src/net/NetTransport.js    Trystero behind a five-method interface.
-src/net/LoopbackStrategy.js  a room between tabs of one browser (?net=local).
+src/claw-core/net/NetTransport.js Trystero behind a five-method interface.
+src/claw-core/net/LoopbackStrategy.js a room between tabs of one browser (?net=local).
 src/net/NetProtocol.js     the wire format and the snapshot.
 src/net/NetSession.js      roles, roster, seats, join/leave, authority.
 src/net/NetSync.js         host: poll + push. client: apply. + intent authority.

@@ -18,6 +18,10 @@ export { DISTRICT_BIOMES } from './config/GameConfig.js';
 export { HBD_BIOMES } from './config/GameConfig.js';
 export { MINIGAME_PLACE_COINS } from './config/GameConfig.js';
 export { MINIGAME_REWARD } from './config/GameConfig.js';
+export { RELEASE } from './config/Release.js';
+// The signaling namespace online rooms live in. Changing it splits HBD players
+// on different versions into different worlds; leave it alone.
+export const NET_APP_ID = 'hundred-block-dash';
 export { PROP_KIT } from './engine/Renderer.js';
 export { playerCount } from './core/GameState.js';
 export { setBoardPaused } from './engine/Renderer.js';

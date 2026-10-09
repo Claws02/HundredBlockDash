@@ -19,16 +19,17 @@
 // connection is up, no game data touches a relay: it goes phone to phone,
 // encrypted. So a flaky relay costs you a JOIN, never a match in progress.
 
-import { RELEASE } from '../config/Release.js';
+import { RELEASE, NET_APP_ID } from '../../AppHost.js';
 
-const APP_ID = 'hundred-block-dash';
+// Each app signals in its own namespace, so rooms never cross between apps.
+const APP_ID = NET_APP_ID;
 
 // Strategy bundles, loaded on demand — the online path should cost an offline
 // player nothing. Nostr first: WebSocket relays are steadier in practice than
 // BitTorrent tracker sockets, which are what the torrent strategy needs.
 const STRATEGIES = {
-    nostr:   () => import('../../vendor/trystero-nostr.min.js'),
-    torrent: () => import('../../vendor/trystero-torrent.min.js'),
+    nostr:   () => import('../../../vendor/trystero-nostr.min.js'),
+    torrent: () => import('../../../vendor/trystero-torrent.min.js'),
     // Same browser only, no network. Never tried automatically — it is opted
     // into by `?net=local` or by the QA harness. See LoopbackStrategy.js.
     local:   () => import('./LoopbackStrategy.js'),

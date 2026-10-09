@@ -56,7 +56,7 @@ async function newPage(ctx, errors, label) {
     // told apart from a missing message.
     await page.evaluate(async () => {
         window.__sceneLog = [];
-        const T = await import('/src/net/NetTransport.js');
+        const T = await import('/src/claw-core/net/NetTransport.js');
         T.onMessage(m => { if (m && m.t === 'scene') window.__sceneLog.push(m.k); });
     });
     return page;
