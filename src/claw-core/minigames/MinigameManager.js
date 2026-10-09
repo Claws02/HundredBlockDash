@@ -178,6 +178,7 @@ let _controller   = null;
 let _onComplete   = null;
 let _botTraceInt  = null;
 let _standaloneMode = false;
+let _arcadeStandings = null;   // last standalone game's per-slot scores, for onComplete
 // Practice runs the real game with the real bot, but nothing it produces counts:
 // no coins, no turn order, no board consequence. Set for both the arcade's
 // PRACTICE button and the "TRY IT FIRST" option on the in-match intro card.
@@ -311,7 +312,9 @@ function _showPracticeHold(mgType) {
 // filled with bots so there is somebody in every zone.
 // opts (all optional, used by CLAWGames; HundredBlockDash passes none):
 //   bots        array of booleans, one per seat — overrides the default seating
-//   onComplete  (winnerId) => void, replaces the return to the arcade grid
+//   onComplete  (winnerId, standings) => void, replaces the return to the arcade
+//               grid. standings is the game's own per-slot score when it
+//               reports one (see winMinigame), else null.
 export function triggerStandalone(mgType, isBotOpponent = false, seats = 2, opts = {}) {
     _practiceMode = false;
     _standaloneMode = true;
@@ -932,7 +935,7 @@ export function winMinigame(winnerId, payouts, standings) {
     // rounds because nothing reset them until a board match started. Playing the
     // arcade for ten minutes and then starting a game handed somebody a fortune.
     // It keeps a round tally instead and touches nothing the board cares about.
-    if (_standaloneMode) return _finishArcade(winnerId);
+    if (_standaloneMode) return _finishArcade(winnerId, standings);
     // Guard against double-resolution. Don't key this off state.mgActive:
     // most minigames clear mgActive in their own _finish() before calling
     // onWin, which previously made this early-return and strand the result.
@@ -1150,9 +1153,10 @@ function _showScoreboard(winnerId, payouts, practice, done) {
 //
 // Who won this round, and how many rounds each player has won since the arcade
 // was opened. No coins move, no match statistics move.
-function _finishArcade(winnerId) {
+function _finishArcade(winnerId, standings) {
     if (_resolving) return;
     _resolving = true;
+    _arcadeStandings = Array.isArray(standings) ? standings.slice(0, slotCount()) : null;
     state.mgActive = false;
     _lastPayouts = new Array(slotCount()).fill(0);
     if (winnerId >= 0) _arcadeWins[winnerId]++;
@@ -1233,7 +1237,7 @@ export function endMinigame(winnerId) {
         _standaloneMode = false;
         state.gameState   = 'INIT';
         state.cameraState = 'INIT';
-        if (_onComplete) _onComplete(winnerId);
+        if (_onComplete) _onComplete(winnerId, _arcadeStandings);
         return;
     }
 
