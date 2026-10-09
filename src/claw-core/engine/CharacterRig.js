@@ -29,7 +29,7 @@
 // same on the squat slime and the banker in his top hat.
 // ============================================================
 
-import { createCharacterMesh } from '../../AppHost.js';
+import { createCharacterMesh } from './CharacterModels.js';
 
 // Where the neck is, as a height in the figure's own units. Parts above it are
 // the head. `null` means the figure IS its head — the slime, Boxy and the bunny

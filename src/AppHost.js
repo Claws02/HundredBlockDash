@@ -19,7 +19,6 @@ export { HBD_BIOMES } from './config/GameConfig.js';
 export { MINIGAME_PLACE_COINS } from './config/GameConfig.js';
 export { MINIGAME_REWARD } from './config/GameConfig.js';
 export { PROP_KIT } from './engine/Renderer.js';
-export { createCharacterMesh } from './engine/Renderer.js';
 export { playerCount } from './core/GameState.js';
 export { setBoardPaused } from './engine/Renderer.js';
 export { setPlayerCount } from './core/GameState.js';
