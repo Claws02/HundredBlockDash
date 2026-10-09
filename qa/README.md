@@ -7,6 +7,13 @@ no mocks, and a probe that passes means the game did the thing.
 Run one with `node qa/<name>.js`. They expect a static server on
 `http://127.0.0.1:8129` serving the repo root (`QA_BASE` overrides it).
 
+The minigames are the `src/claw-core` submodule (github.com/Claws02/claw-core,
+shared with CLAWGames). A fresh clone needs `git submodule update --init`
+before anything here will load a minigame. A change to a game is a commit in
+that repo first, then a bump of the submodule pointer here — and since
+CLAWGames runs the same files, run both apps' probes before moving either
+pointer.
+
 `bash qa/parsecheck.sh` is the fast one — no browser, four static gates: every
 module parses, no dead local references, the command bus agrees with itself, and
 every mirrored scene is classified.

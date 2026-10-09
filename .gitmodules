@@ -1,0 +1,3 @@
+[submodule "src/claw-core"]
+	path = src/claw-core
+	url = https://github.com/Claws02/claw-core

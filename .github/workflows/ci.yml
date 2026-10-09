@@ -10,6 +10,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true   # src/claw-core (github.com/Claws02/claw-core)
       - uses: actions/setup-node@v4
         with:
           node-version: 22

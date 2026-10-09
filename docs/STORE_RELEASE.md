@@ -7,6 +7,7 @@ accounts, devices or decisions that live outside the repo.
 ## 1. One-time setup
 
 ```bash
+git submodule update --init     # the minigames: src/claw-core is github.com/Claws02/claw-core
 npm install                     # Capacitor 8 + App, Haptics, SplashScreen, StatusBar
 npm run build:web               # copies the game into www/ (Capacitor's webDir)
 npx cap add android             # creates android/ — commit it
@@ -72,6 +73,8 @@ These could not be tested in the build environment (headless Chromium, software 
 
 `.github/workflows/ci.yml` runs on every push and PR: the static sweep
 (`qa/parsecheck.sh`), the web build, and `qa/ci-smoke.js` (boot, bundled fonts,
-a City match to its first roll). The long probes (`qa/city.js`, `qa/release.js`,
+a City match to its first roll). It checks out with `submodules: true`,
+because the minigames live in `src/claw-core`, a submodule shared with
+CLAWGames. The long probes (`qa/city.js`, `qa/release.js`,
 `qa/resume.js` and others) take 5–40 minutes each on a software GPU. Run them
 by hand before a release (`qa/README.md`).

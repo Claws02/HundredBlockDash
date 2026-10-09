@@ -11,6 +11,13 @@ const OUT = path.join(ROOT, 'www');
 const SHIP = ['index.html', 'privacy.html', 'css', 'src', 'vendor', 'assets'];
 const SKIP = [/\/archived(\/|$)/, /\/\./, /\.md$/];
 
+// The minigames are a git submodule; an un-initialised one is an empty folder
+// and would ship a game whose every minigame 404s.
+if (!fs.existsSync(path.join(ROOT, 'src/claw-core/minigames/MinigameManager.js'))) {
+    console.error('src/claw-core is empty: run `git submodule update --init` first.');
+    process.exit(1);
+}
+
 fs.rmSync(OUT, { recursive: true, force: true });
 let files = 0, bytes = 0;
 function copy(rel) {
