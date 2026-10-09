@@ -211,7 +211,9 @@ function _settle() {
 
     // A seat that never answered scores zero — which is what not playing is
     // worth, and keeps the round finishable whatever any one phone is doing.
-    const table = r.seats.map(seat => ({ seat, score: r.scores[seat] === undefined ? 0 : r.scores[seat] }));
+    // `answered` tells a real zero from a phone that never reported.
+    const table = r.seats.map(seat => ({ seat, score: r.scores[seat] === undefined ? 0 : r.scores[seat],
+                                         answered: r.scores[seat] !== undefined }));
     const best = Math.max(...table.map(t => t.score));
     const tied = table.filter(t => t.score === best);
     // A tie goes to the lowest seat rather than to a coin flip. Every device

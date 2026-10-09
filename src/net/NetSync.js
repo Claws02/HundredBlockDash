@@ -285,6 +285,12 @@ const CLOSERS = {
     'modal-overlay': () => ModalManager.closeAllModals(),
     'ally-arrival':  () => UIManager.closeBuddyReportNow(),
     'city-briefing': () => UIManager.closeBriefingNow(),
+    // The board stops drawing while a minigame owns the screen; a layer taken
+    // down from here has to start it again, or the client is left on a frozen board.
+    'minigame-layer': () => {
+        document.getElementById('minigame-layer').style.display = 'none';
+        Renderer.setBoardPaused(false);
+    },
 };
 
 // Only touches something that is actually on screen when it should not be, so

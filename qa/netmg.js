@@ -128,7 +128,7 @@ const gs = page => page.evaluate(async () => (await import('/src/core/GameState.
             const type = N.pickGame(3);
             if (!type) return null;
             window.__mgWinner = undefined;
-            N.hostRun(type, [0, 1], w => { window.__mgWinner = w; });
+            N.hostRun(type, [0, 1], (w, table) => { window.__mgTable = table; window.__mgWinner = w; });
             return { type, seats: [0, 1], seat: S.localSeat };
         });
         ok('there is a game that can be played across phones', !!started,
@@ -219,8 +219,15 @@ const gs = page => page.evaluate(async () => (await import('/src/core/GameState.
             boards[0].rows.length === 2 && boards[1].rows.length === 2 &&
             JSON.stringify(boards[0].rows.map(r => r.win)) === JSON.stringify(boards[1].rows.map(r => r.win)),
             `host ${JSON.stringify(boards[0].rows.map(r => r.win))}, client ${JSON.stringify(boards[1].rows.map(r => r.win))}`);
-        ok('somebody actually scored', boards[0].rows.some(r => r.score && r.score !== '0'),
-            `scores: ${JSON.stringify(boards[0].rows.map(r => r.score))}`);
+        // Not "somebody scored": Loot Catch takes points off for bombs and floors
+        // at zero, so this probe's blind dragging can end 0–0 on a perfectly
+        // healthy round. What has to be true is that each phone's own score
+        // reached the host, rather than the host filling in a zero for a phone
+        // that never answered.
+        const table = await host.evaluate(() => window.__mgTable || []);
+        notes.push(`scores: ${JSON.stringify(boards[0].rows.map(r => r.score))}`);
+        ok('every phone\'s score reached the host', table.length === 2 && table.every(t => t.answered),
+            JSON.stringify(table));
 
         await host.screenshot({ path: path.join(__dirname, 'shot-netmg-board.png') });
 
