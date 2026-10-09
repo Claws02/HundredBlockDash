@@ -2,7 +2,7 @@
 
 This is the contract every minigame in Hundred Block Dash must follow. Build to
 this and a new game drops in with zero changes to the engine: register it, add a
-file, ship it. `src/minigames/_template.js` is the annotated scaffold;
+file, ship it. `src/claw-core/minigames/_template.js` is the annotated scaffold;
 `SnapStrike.js` is the canonical reference implementation.
 
 > **Goal:** implement game after game with precision. If your game passes the
@@ -19,7 +19,7 @@ file, ship it. `src/minigames/_template.js` is the annotated scaffold;
 
 ## 1. The shape of a minigame
 
-One file per game in `src/minigames/`. It exports exactly one function:
+One file per game in `src/claw-core/minigames/`. It exports exactly one function:
 
 ```js
 export function start(isBot, onWin, botSkill = 0.55) { ... }
@@ -316,7 +316,7 @@ games that passed the verb test and failed the fun test are in `archived/`.
 | Split-screen race (3D)| steer your own dive          | ✅ Rift Dive         |
 | Shared tower, turns (3D)| time the claw, don't topple it | ✅ Brainrot Tower |
 
-**Curation rule:** the 40 files in `src/minigames/archived/` are a **design
+**Curation rule:** the 40 files in `src/claw-core/minigames/archived/` are a **design
 backlog, not a code backlog** — their imports and shared-DOM dependencies are
 dead. Mine them for *concepts*, then rebuild to this standard. Keep the archive
 for reference (do not delete).
@@ -353,9 +353,9 @@ A game is done when every box is checked:
 
 ## 9. Registering a game
 
-1. **`src/config/MinigameRegistry.js`** — add the key to `MG_TYPES`, an entry to
+1. **`src/claw-core/config/MinigameRegistry.js`** — add the key to `MG_TYPES`, an entry to
    `MG_INFO` (`icon`, `title`, `desc`), and an orientation in `MG_ORIENTATION_MAP`.
-2. **`src/minigames/MinigameManager.js`** — add a lazy import to `MG_MODULES`.
+2. **`src/claw-core/minigames/MinigameManager.js`** — add a lazy import to `MG_MODULES`.
 
 That's it. The arcade selector and the in-game rotation both read `MG_TYPES`, so
 the game is immediately playable in both.
@@ -369,8 +369,8 @@ the game is immediately playable in both.
 > and the lessons learned), then scaffold it with
 > `node scripts/new-3d-minigame.js <key> "<TITLE>" --set=<set>`.
 
-`src/engine/Stage.js` is the shared stage for a game played *as your own
-character*. High Noon (`src/minigames/HighNoon.js`) is the reference. A stage
+`src/claw-core/engine/Stage.js` is the shared stage for a game played *as your own
+character*. High Noon (`src/claw-core/minigames/HighNoon.js`) is the reference. A stage
 game still follows every rule above; the stage makes R1, R3 and R4 hard to get
 wrong.
 

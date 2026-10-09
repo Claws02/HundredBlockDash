@@ -260,7 +260,7 @@ const MAX = +maxSecS, FRESH = freshS === '1';
             await tapSel('#mg-ready-1');
             if (Date.now() - mgSince > 2500) {
                 await page.evaluate(async () => {
-                    const M = await import('/src/minigames/MinigameManager.js');
+                    const M = await import('/src/claw-core/minigames/MinigameManager.js');
                     const { state } = await import('/src/core/GameState.js');
                     if (state.mgActive) M.endMinigame(Math.random() < 0.5 ? 0 : 1);
                 });

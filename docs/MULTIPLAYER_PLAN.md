@@ -29,7 +29,7 @@ Read of the whole tree (46k lines, no build step, ES modules served static,
 | Scoring | `src/core/WinScreen.js` | `const p1 = players[0], p2 = players[1]` — pairwise comparisons throughout (district dominance, tiebreaks). |
 | HUD | `index.html`, `css/styles.css` | Exactly two `.hud-bar`s, pinned top and bottom. Two `.action-row`s. Everything keyed `p1`/`p2`. |
 | Tabletop | `src/ui/DualRead.js`, ~40 CSS rules | Whole subsystem for making one screen readable from two ends: 180° mirrors, flip buttons, `.tabletop-p2-turn` canvas rotation. |
-| Minigames | 22 active in `src/minigames/` | All 1v1. Screen split into `#mg-p1` / `#mg-p2` halves, top one rotated 180°. Per-game locals are `_p1`/`_p2`, `_input1`/`_input2`, `_vel1`/`_vel2`. Bot drives slot 1. |
+| Minigames | 22 active in `src/claw-core/minigames/` | All 1v1. Screen split into `#mg-p1` / `#mg-p2` halves, top one rotated 180°. Per-game locals are `_p1`/`_p2`, `_input1`/`_input2`, `_vel1`/`_vel2`. Bot drives slot 1. |
 | QA | `qa/*.js` | 20 Playwright probes driving the real game in Chromium. Single page, single browser. This is the project's safety net and it currently cannot see a second device. |
 
 **Two things this survey changes about the plan.**
@@ -259,8 +259,8 @@ src/core/Commands.js       every player decision, named. Offline: a direct call.
                            Online: the client's dispatcher forwards it instead.
 src/ui/Scenes.js           every full-screen beat, named and classified
                            SHARED (everybody) or OWNER (one player).
-src/net/NetTransport.js    Trystero behind a five-method interface.
-src/net/LoopbackStrategy.js  a room between tabs of one browser (?net=local).
+src/claw-core/net/NetTransport.js Trystero behind a five-method interface.
+src/claw-core/net/LoopbackStrategy.js a room between tabs of one browser (?net=local).
 src/net/NetProtocol.js     the wire format and the snapshot.
 src/net/NetSession.js      roles, roster, seats, join/leave, authority.
 src/net/NetSync.js         host: poll + push. client: apply. + intent authority.

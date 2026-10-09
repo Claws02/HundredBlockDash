@@ -15,7 +15,7 @@
 // ============================================================
 require('./stageprobe').run('minigolf', async ({ page, ok, launch, state, shot, forceEnd, waitResult, cleanup }) => {
     const G = (fn, ...a) => page.evaluate(([fn, a]) => window.__G[fn](...a), [fn, a]);
-    const force = keys => page.evaluate(async k => { const M = await import('/src/minigames/MiniGolf.js'); M._debugForceHoles(k); }, keys);
+    const force = keys => page.evaluate(async k => { const M = await import('/src/claw-core/minigames/MiniGolf.js'); M._debugForceHoles(k); }, keys);
     const waitFor = async (fn, ms = 40000) => {
         const t0 = Date.now();
         while (Date.now() - t0 < ms) { const s = await state(); if (s && fn(s)) return s; await page.waitForTimeout(60); }
@@ -100,7 +100,7 @@ require('./stageprobe').run('minigolf', async ({ page, ok, launch, state, shot, 
     r = await waitResult(20000);
     ok('fewest strokes wins, whatever the time', !!r && r.winner === 1, r ? `winner ${r.winner}` : 'no result');
 
-    const pool = await page.evaluate(async () => (await import('/src/minigames/MiniGolf.js'))._debugPool());
+    const pool = await page.evaluate(async () => (await import('/src/claw-core/minigames/MiniGolf.js'))._debugPool());
     for (const key of pool) {
         await force([key]);
         await launch();

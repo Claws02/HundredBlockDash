@@ -398,7 +398,7 @@ export function openUseModal() {
     Scenes.emit('useItems', { seat: state.activePlayer });
     const p = state.players[state.activePlayer];
     if (p.inv.length === 0) {
-        import('../ui/UIManager.js').then(({ toast }) => toast('Inventory empty!', '#fff'));
+        import('./UIManager.js').then(({ toast }) => toast('Inventory empty!', '#fff'));
         return;
     }
     document.getElementById('use-player-label').textContent = `${p.name} — choose an item:`;

@@ -52,11 +52,11 @@ window.__QA = (function () {
         S = (await import('/src/core/GameState.js')).state;
         GC = await import('/src/core/GameController.js');
         CFG = await import('/src/config/GameConfig.js');
-        MGM = await import('/src/minigames/MinigameManager.js');
-        REG = await import('/src/config/MinigameRegistry.js');
+        MGM = await import('/src/claw-core/minigames/MinigameManager.js');
+        REG = await import('/src/claw-core/config/MinigameRegistry.js');
         // A relay leg reports a score rather than naming a winner, so the
         // force-resolve has to be able to tell the two apart.
-        SOLO = await import('/src/minigames/SoloArena.js');
+        SOLO = await import('/src/claw-core/minigames/SoloArena.js');
         return REG.MG_TYPES.slice();
     }
     // When false, the agent stops tapping through the *bot's* result cards, so a

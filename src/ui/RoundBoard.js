@@ -27,8 +27,8 @@
 
 import { state } from '../core/GameState.js';
 import { PLAYER_SLOTS } from '../config/GameConfig.js';
-import { MG_INFO, MG_NET_INFO } from '../config/MinigameRegistry.js';
-import { sfx } from '../engine/AudioManager.js';
+import { MG_INFO, MG_NET_INFO } from '../claw-core/config/MinigameRegistry.js';
+import { sfx } from '../claw-core/engine/AudioManager.js';
 
 const _el = id => document.getElementById(id);
 const _esc = s => String(s == null ? '' : s)

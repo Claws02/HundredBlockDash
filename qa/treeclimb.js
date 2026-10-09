@@ -31,7 +31,7 @@ require('./stageprobe').run('treeclimb', async ({ page, ok, launch, state, shot,
     // Launch by hand so the win callback's payouts and standings are kept.
     await page.evaluate(async () => {
         const { state } = await import('/src/core/GameState.js');
-        const MM = await import('/src/minigames/MinigameManager.js');
+        const MM = await import('/src/claw-core/minigames/MinigameManager.js');
         window.__RESULT = undefined;
         state.mgActive = true; state.mgType = 'treeclimb';
         state.players[0].isBot = false; state.players[1].isBot = false;
@@ -92,10 +92,10 @@ require('./stageprobe').run('treeclimb', async ({ page, ok, launch, state, shot,
 
     // Solo, the way a phone plays it in an online round.
     const solo = await page.evaluate(async () => {
-        const Solo = await import('/src/minigames/SoloArena.js');
+        const Solo = await import('/src/claw-core/minigames/SoloArena.js');
         window.__SOLO = undefined;
         Solo.play('treeclimb', 12345, sc => { window.__SOLO = sc; });
-        const MM = await import('/src/minigames/MinigameManager.js');
+        const MM = await import('/src/claw-core/minigames/MinigameManager.js');
         window.__G = await MM.loadMinigame('treeclimb');
         return true;
     });
@@ -117,7 +117,7 @@ require('./stageprobe').run('treeclimb', async ({ page, ok, launch, state, shot,
     while (Date.now() - t0 < 10000) { score = await page.evaluate(() => window.__SOLO); if (score !== undefined) break; await page.waitForTimeout(100); }
     ok('solo reports the banked coins as its score', score === 3, `score ${score}`);
     // The caller (NetMinigame) resets solo mode once the score is in.
-    await page.evaluate(async () => (await import('/src/minigames/SoloArena.js')).reset());
+    await page.evaluate(async () => (await import('/src/claw-core/minigames/SoloArena.js')).reset());
 
     await launch({ bot: true, skill: 0.85 });
     const rb = await waitResult(180000);

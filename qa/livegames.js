@@ -163,7 +163,7 @@ async function playOne(type, seats, shotFor, roomy) {
         // setReady is a module export; expose it so the gate can be pressed
         // slot by slot rather than by hunting the DOM for each button.
         await page.evaluate(async () => {
-            const M = await import('/src/minigames/MinigameManager.js');
+            const M = await import('/src/claw-core/minigames/MinigameManager.js');
             window.__QA_setReady = s => M.setReady(s);
             window.__QA_roster = () => M.roster();
             window.__QA_slots = () => M.slotCount();
@@ -209,7 +209,7 @@ async function playOne(type, seats, shotFor, roomy) {
         // flat 75 s reported the longest of them as "still running", which is a
         // budget manufacturing a failure again.
         const watchdog = await page.evaluate(async t => {
-            const R = await import('/src/config/MinigameRegistry.js');
+            const R = await import('/src/claw-core/config/MinigameRegistry.js');
             return (R.MG_WATCHDOG_MS || {})[t] || 0;
         }, type);
         const deadline = Date.now() + Math.max(105000, watchdog + 20000);
@@ -264,7 +264,7 @@ function withDeadline(p, ms, what) {
     const page0 = await (await lister.newContext()).newPage();
     await page0.goto(BASE, { waitUntil: 'domcontentloaded' });
     const live = await page0.evaluate(async () => {
-        const R = await import('/src/config/MinigameRegistry.js');
+        const R = await import('/src/claw-core/config/MinigameRegistry.js');
         return R.MG_TYPES.filter(t => R.surfacesOf(t).sharedMany)
                 .map(t => ({ type: t, roomy: R.surfacesOf(t).manyDevice === 'tablet' }));
     });

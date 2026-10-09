@@ -96,7 +96,7 @@ const BASE = process.env.QA_BASE || 'http://127.0.0.1:8129/index.html';
 
         // Reset to a clean arcade state for the next game.
         await page.evaluate(async () => {
-            const M = await import('/src/minigames/MinigameManager.js');
+            const M = await import('/src/claw-core/minigames/MinigameManager.js');
             try { M.endMinigame(-1); } catch (e) {}
             document.getElementById('mg-select-overlay').style.display = 'flex';
             document.getElementById('minigame-layer').style.display = 'none';

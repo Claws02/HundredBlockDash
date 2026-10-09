@@ -262,8 +262,8 @@ const tapCard = (page, idx) => page.evaluate(i => {
 
     // ══════════════ 3. MINIGAME ROTATION ══════════════
     const rot = await page.evaluate(async () => {
-        const MGM = await import('/src/minigames/MinigameManager.js');
-        const { MG_TYPES } = await import('/src/config/MinigameRegistry.js');
+        const MGM = await import('/src/claw-core/minigames/MinigameManager.js');
+        const { MG_TYPES } = await import('/src/claw-core/config/MinigameRegistry.js');
         const { state } = await import('/src/core/GameState.js');
         state.mgBag = []; state.mgLastType = '';
         const draws = [];

@@ -58,7 +58,7 @@ lists across twenty-two games would drift by the third new game.
 **Author four properties. Derive three flags.**
 
 ```js
-// src/config/MinigameRegistry.js
+// src/claw-core/config/MinigameRegistry.js
 export const MG_PROFILE = {
     tankclash: {
         genre:   'aim',        // what the player DOES — the visible sub-category

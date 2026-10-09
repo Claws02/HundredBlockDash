@@ -52,7 +52,7 @@ const TIERS = [['easy', 0.25], ['hard', 0.85]];
     // A game with its own watchdog override (turn-based: Mini Golf, Four in a
     // Row…) gets that long, as qa/arcade.js does; a fixed 70 s calls a normal
     // three-hole round a hang.
-    const watchdogs = await page.evaluate(async () => (await import('/src/config/MinigameRegistry.js')).MG_WATCHDOG_MS);
+    const watchdogs = await page.evaluate(async () => (await import('/src/claw-core/config/MinigameRegistry.js')).MG_WATCHDOG_MS);
     const budgetFor = t => Math.max(BUDGET, Math.round((watchdogs[t] || 0) / 1000));
 
     const rows = [];
@@ -61,7 +61,7 @@ const TIERS = [['easy', 0.25], ['hard', 0.85]];
             current = `${type}/${tier}`;
             const started = await page.evaluate(async ({ t, s }) => {
                 const { state } = await import('/src/core/GameState.js');
-                const MGM = await import('/src/minigames/MinigameManager.js');
+                const MGM = await import('/src/claw-core/minigames/MinigameManager.js');
                 // Reset the layer the way the manager would before GO.
                 const layer = document.getElementById('minigame-layer');
                 [...layer.children].filter(el => !el.id).forEach(el => el.remove());
@@ -103,7 +103,7 @@ const TIERS = [['easy', 0.25], ['hard', 0.85]];
             // Tear down before the next run.
             await page.evaluate(async () => {
                 const { state } = await import('/src/core/GameState.js');
-                const MGM = await import('/src/minigames/MinigameManager.js');
+                const MGM = await import('/src/claw-core/minigames/MinigameManager.js');
                 state.mgActive = false;
                 try { MGM.endMinigame(-1); } catch (e) {}
                 const layer = document.getElementById('minigame-layer');

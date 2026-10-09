@@ -104,7 +104,7 @@ const table = page => page.evaluate(async () => {
 // Every pairing the rotation would produce over one full cycle.
 const rotation = (page, rounds) => page.evaluate(async r => {
     const S = (await import('/src/core/GameState.js')).state;
-    const MM = await import('/src/minigames/MinigameManager.js');
+    const MM = await import('/src/claw-core/minigames/MinigameManager.js');
     const was = S.currentRound, out = [];
     for (let i = 0; i < r; i++) { S.currentRound = i; out.push(MM.chooseParticipants()); }
     S.currentRound = was;
@@ -201,7 +201,7 @@ const rotation = (page, rounds) => page.evaluate(async r => {
         // bot landing on it hands the manager [1, 0] — a bot in slot 0, with a
         // single `isBot` flag that can only describe slot 1.
         const r = await page.evaluate(async () => {
-            const MM = await import('/src/minigames/MinigameManager.js');
+            const MM = await import('/src/claw-core/minigames/MinigameManager.js');
             MM.trigger(() => {}, [1, 0]);
             const seats = MM.roster();
             MM.forceEndMinigame();

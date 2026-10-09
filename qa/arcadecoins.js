@@ -73,7 +73,7 @@ const ROUNDS = ['lootcatch', 'snapstrike', 'treeclimb', 'sortrush'];
         // Force the round to a decided result — alternate the winner so the
         // tally has to track both sides.
         await page.evaluate(async (w) => {
-            const MGM = await import('/src/minigames/MinigameManager.js');
+            const MGM = await import('/src/claw-core/minigames/MinigameManager.js');
             MGM.winMinigame(w);
         }, i % 2);
         played++;
@@ -84,7 +84,7 @@ const ROUNDS = ['lootcatch', 'snapstrike', 'treeclimb', 'sortrush'];
 
     const after = await wallet();
     const scores = await page.evaluate(async () => {
-        const MGM = await import('/src/minigames/MinigameManager.js');
+        const MGM = await import('/src/claw-core/minigames/MinigameManager.js');
         return MGM.arcadeScores();
     });
 
@@ -109,7 +109,7 @@ const ROUNDS = ['lootcatch', 'snapstrike', 'treeclimb', 'sortrush'];
     });
     await page.waitForTimeout(300);
     const reset = await page.evaluate(async () =>
-        (await import('/src/minigames/MinigameManager.js')).arcadeScores());
+        (await import('/src/claw-core/minigames/MinigameManager.js')).arcadeScores());
     ok('tally: a fresh visit to the arcade starts a fresh series',
        reset.wins[0] === 0 && reset.wins[1] === 0 && reset.draws === 0, JSON.stringify(reset));
 
@@ -119,7 +119,7 @@ const ROUNDS = ['lootcatch', 'snapstrike', 'treeclimb', 'sortrush'];
     // starts, so a cold call is swallowed and proves nothing.
     const b4 = await page.evaluate(async () => {
         const { state } = await import('/src/core/GameState.js');
-        const MGM = await import('/src/minigames/MinigameManager.js');
+        const MGM = await import('/src/claw-core/minigames/MinigameManager.js');
         state.players[0].coins = 40; state.players[1].coins = 40;
         state.players[1].isBot = true;
         window.__matchDone = false;
@@ -133,7 +133,7 @@ const ROUNDS = ['lootcatch', 'snapstrike', 'treeclimb', 'sortrush'];
         await page.waitForTimeout(220);
     }
     ok('match: a real match minigame reaches GO', matchLive);
-    if (matchLive) await page.evaluate(async () => (await import('/src/minigames/MinigameManager.js')).winMinigame(0));
+    if (matchLive) await page.evaluate(async () => (await import('/src/claw-core/minigames/MinigameManager.js')).winMinigame(0));
     await page.waitForTimeout(9000);
     const match = await page.evaluate(async () => {
         const { state } = await import('/src/core/GameState.js');

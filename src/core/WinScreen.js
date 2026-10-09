@@ -11,7 +11,7 @@ import { DISTRICT_DOMINANCE_BONUS, HQ_META, HBD_FINISH_BONUS, PLAYER_SLOTS } fro
 import { earnCoins } from './Economy.js';
 import * as Stats from './Stats.js';
 import * as ModalManager from '../ui/ModalManager.js';
-import { sfx, setMusicMood } from '../engine/AudioManager.js';
+import { sfx, setMusicMood } from '../claw-core/engine/AudioManager.js';
 import * as ActiveMap from '../config/ActiveMap.js';
 import * as Scenes from '../ui/Scenes.js';
 

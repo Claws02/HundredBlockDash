@@ -35,7 +35,7 @@ AudioContext.prototype.createOscillator = function () { window.__osc++; return _
     await page.waitForFunction(() => !!window.CITY_GRAPH_REF, null, { timeout: 30000 });
     await page.mouse.click(5, 5);                                   // the gesture that unlocks audio
     const oscIn = ms => page.evaluate(ms => new Promise(r => { const a = window.__osc; setTimeout(() => r(window.__osc - a), ms); }), ms);
-    const A = fn => page.evaluate(`import('/src/engine/AudioManager.js').then(A => (${fn})(A))`);
+    const A = fn => page.evaluate(`import('/src/claw-core/engine/AudioManager.js').then(A => (${fn})(A))`);
 
     // ---- VA-01 ----
     const menu = await A(A => A.musicState());
@@ -76,7 +76,7 @@ AudioContext.prototype.createOscillator = function () { window.__osc++; return _
     await page.evaluate(async () => { (await import('/src/core/GameState.js')).state.mgActive = false; (await import('/src/engine/Renderer.js')).setGamePaused(false); (await import('/src/core/Director.js')).resume(); });
     ok('VA-01 silent while a minigame plays', mg === 0, `${mg} notes`);
     const duck = await page.evaluate(async () => {
-        const A = await import('/src/engine/AudioManager.js');
+        const A = await import('/src/claw-core/engine/AudioManager.js');
         A.sfx('coin_gain');
         await new Promise(r => setTimeout(r, 60));
         // The duck gain is private; read it through the context graph by

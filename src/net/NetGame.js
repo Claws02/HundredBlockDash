@@ -32,7 +32,7 @@ import * as NetMinigame from './NetMinigame.js';
 import * as GC from '../core/GameController.js';
 import * as ReadyGate from './ReadyGate.js';
 import { MSG, PROTOCOL_VERSION } from './NetProtocol.js';
-import * as T from './NetTransport.js';
+import * as T from '../claw-core/net/NetTransport.js';
 import { PLAYER_SLOTS } from '../config/GameConfig.js';
 import { SCENE } from '../config/SceneTiming.js';
 

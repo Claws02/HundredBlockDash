@@ -10,7 +10,7 @@ audit of this roster at three and four players.
 ## Post-mortem: the five games that didn't land
 
 Tower Stack, Parry Duel, Circuit Trace, Hot Streak and Keep Up were built, tested
-green, and played badly. They are now in `src/minigames/archived/`. The reason
+green, and played badly. They are now in `src/claw-core/minigames/archived/`. The reason
 matters more than the games do, because it was a **design-process** failure, not
 an execution one.
 

@@ -17,7 +17,7 @@
 // and it is out of scope. What IS handled is a client leaving: their seat is
 // handed to the bot and play carries on.
 
-import * as T from './NetTransport.js';
+import * as T from '../claw-core/net/NetTransport.js';
 import { MSG, PROTOCOL_VERSION, KICK_REASON } from './NetProtocol.js';
 import { MAX_PLAYERS, MIN_PLAYERS, PLAYER_SLOTS } from '../config/GameConfig.js';
 

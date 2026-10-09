@@ -25,7 +25,7 @@ const ok = (n, c, d) => (c ? pass : fail).push(n + (d ? ` — ${d}` : ''));
 async function launch(page, { bot = false, skill = 0.55 } = {}) {
     await page.evaluate(async ({ bot, skill }) => {
         const { state } = await import('/src/core/GameState.js');
-        const MM = await import('/src/minigames/MinigameManager.js');
+        const MM = await import('/src/claw-core/minigames/MinigameManager.js');
         window.__RESULT = undefined;
         state.mgActive = true;
         state.mgType = 'express';
@@ -116,7 +116,7 @@ const shot = (page, name) => page.screenshot({ path: path.join(__dirname, `shot-
     ok('...and passes over the one ducking', s.out[0] === false, JSON.stringify(s.out));
     await page.waitForTimeout(500);
     await shot(page, 'swept');
-    await page.evaluate(async () => { const M = await import('/src/minigames/MinigameManager.js'); M.forceEndMinigame(); });
+    await page.evaluate(async () => { const M = await import('/src/claw-core/minigames/MinigameManager.js'); M.forceEndMinigame(); });
 
     // ══════ 6. A bot against an idle player ══════
     await launch(page, { bot: true, skill: 0.85 });

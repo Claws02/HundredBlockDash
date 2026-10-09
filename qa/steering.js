@@ -46,7 +46,7 @@ const NAME = ['up', 'right', 'down', 'left'];
     async function launch() {
         await page.evaluate(async () => {
             const { state } = await import('/src/core/GameState.js');
-            const MM = await import('/src/minigames/MinigameManager.js');
+            const MM = await import('/src/claw-core/minigames/MinigameManager.js');
             const layer = document.getElementById('minigame-layer');
             [...layer.children].filter(el => !el.id).forEach(el => el.remove());
             layer.style.display = 'flex';

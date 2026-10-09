@@ -4,7 +4,7 @@
 // Every other probe in here drives a browser, because every other claim in this
 // repo is about something that happens at runtime. This one is not: the layout
 // rules in docs/MINIGAME_RULEBOOK.md are a function of a play structure, a
-// number of seats and a viewport, and src/config/MinigameLayout.js is that
+// number of seats and a viewport, and src/claw-core/config/MinigameLayout.js is that
 // function. So this checks it directly — no server, no Chromium, one second.
 //
 // What it is actually defending is the sentence the rulebook is built on:

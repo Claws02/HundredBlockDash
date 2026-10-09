@@ -19,12 +19,12 @@
 //   --dry-run            print what would change, write nothing
 //
 // It writes:
-//   src/minigames/<Name>.js   from src/minigames/_template3d.js (playable as is)
+//   src/claw-core/minigames/<Name>.js   from src/claw-core/minigames/_template3d.js (playable as is)
 //   qa/<key>.js               a probe on qa/stageprobe.js
 // and registers the game in:
-//   src/config/MinigameRegistry.js   MG_TYPES, MG_INFO, MG_NET, MG_SHAPE,
+//   src/claw-core/config/MinigameRegistry.js   MG_TYPES, MG_INFO, MG_NET, MG_SHAPE,
 //                                    MG_ORIENTATION_MAP, MG_PROFILE
-//   src/minigames/MinigameManager.js MG_MODULES (lazy import)
+//   src/claw-core/minigames/MinigameManager.js MG_MODULES (lazy import)
 //   qa/surfaces.js                   its expected surfaces, and the online count
 //
 // Then follow docs/MINIGAME_3D_PLAYBOOK.md from step 3. The game starts as the
@@ -61,12 +61,12 @@ const desc = opt.desc || `Lay the phone flat between you. DRAG on your half to r
 const esc = s => String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 
 const P = {
-    tpl: path.join(ROOT, 'src/minigames/_template3d.js'),
-    game: path.join(ROOT, `src/minigames/${Name}.js`),
+    tpl: path.join(ROOT, 'src/claw-core/minigames/_template3d.js'),
+    game: path.join(ROOT, `src/claw-core/minigames/${Name}.js`),
     probe: path.join(ROOT, `qa/${key}.js`),
-    reg: path.join(ROOT, 'src/config/MinigameRegistry.js'),
-    mgr: path.join(ROOT, 'src/minigames/MinigameManager.js'),
-    sets: path.join(ROOT, 'src/engine/StageSets.js'),
+    reg: path.join(ROOT, 'src/claw-core/config/MinigameRegistry.js'),
+    mgr: path.join(ROOT, 'src/claw-core/minigames/MinigameManager.js'),
+    sets: path.join(ROOT, 'src/claw-core/engine/StageSets.js'),
 };
 
 // ---- Refuse anything that would clobber or collide -------------------------
@@ -124,7 +124,7 @@ const game = fs.readFileSync(P.tpl, 'utf8')
     .replace(/__SET__/g, set)
     .replace(/__PLACE__/g, place)
     .replace(/__KEY__/g, key)
-    .replace('(Built from src/minigames/_template3d.js.)', `(Scaffolded ${new Date().toISOString().slice(0, 10)} from _template3d.js.)`);
+    .replace('(Built from src/claw-core/minigames/_template3d.js.)', `(Scaffolded ${new Date().toISOString().slice(0, 10)} from _template3d.js.)`);
 
 const probe = `// ============================================================
 // ${title.toUpperCase()} — probe (scaffolded; extend it as the rules change).

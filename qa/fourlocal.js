@@ -178,7 +178,7 @@ async function runSeats(browser, seats, budgetSec) {
             && res.s.gameState !== 'MINIGAME_ACK' && !res.s.mgActive) {
             const after = await page.evaluate(async () => {
                 const S = (await import('/src/core/GameState.js')).state;
-                const M = await import('/src/minigames/MinigameManager.js');
+                const M = await import('/src/claw-core/minigames/MinigameManager.js');
                 return { coins: S.players.map(p => p.coins), wins: S.players.map(p => p.mgWins),
                          seats: M.roster(), type: S.mgLastType, ctx: window.__QA_lastCtx || null };
             });
@@ -203,7 +203,7 @@ async function runSeats(browser, seats, budgetSec) {
     // The games the bag is allowed to deal to this table: LIVE, and not
     // `roomy` — this probe runs on a 412 px phone.
     const LIVE = await page.evaluate(async () => {
-        const R = await import('/src/config/MinigameRegistry.js');
+        const R = await import('/src/claw-core/config/MinigameRegistry.js');
         return R.MG_TYPES.filter(t => {
             const s = R.surfacesOf(t);
             return s.sharedMany && s.manyDevice !== 'tablet';

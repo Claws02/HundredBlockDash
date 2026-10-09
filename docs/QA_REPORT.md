@@ -304,7 +304,7 @@ player can see how far they have to go.
 ---
 
 #### QA-016 · Uncaught TypeError when tapping fire in TankClash's first frames
-**Severity:** Medium · **Status:** ✅ Fixed · **File:** `src/minigames/TankClash.js`
+**Severity:** Medium · **Status:** ✅ Fixed · **File:** `src/claw-core/minigames/TankClash.js`
 
 The only genuine uncaught exception found in the whole audit.
 

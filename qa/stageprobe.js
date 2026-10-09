@@ -28,7 +28,7 @@ exports.run = async function run(key, body) {
         page, ok,
         launch: ({ bot = false, p1bot = false, skill = 0.55 } = {}) => page.evaluate(async ({ key, bot, p1bot, skill }) => {
             const { state } = await import('/src/core/GameState.js');
-            const MM = await import('/src/minigames/MinigameManager.js');
+            const MM = await import('/src/claw-core/minigames/MinigameManager.js');
             window.__RESULT = undefined;
             state.mgActive = true; state.mgType = key;
             state.players[0].isBot = p1bot; state.players[1].isBot = bot;
@@ -42,7 +42,7 @@ exports.run = async function run(key, body) {
         result: () => page.evaluate(() => window.__RESULT || null),
         shot: name => page.screenshot({ path: path.join(__dirname, `shot-${key}-${name}.png`) }),
         waitPhase: (phase, ms = 20000) => page.waitForFunction(p => window.__G._debugState().phase === p, phase, { timeout: ms }),
-        forceEnd: () => page.evaluate(async () => { const M = await import('/src/minigames/MinigameManager.js'); M.forceEndMinigame(); }),
+        forceEnd: () => page.evaluate(async () => { const M = await import('/src/claw-core/minigames/MinigameManager.js'); M.forceEndMinigame(); }),
         waitResult: async (ms = 90000, each) => {
             const t0 = Date.now();
             while (Date.now() - t0 < ms) {

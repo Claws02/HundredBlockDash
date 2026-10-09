@@ -26,7 +26,7 @@ import { state } from '../core/GameState.js';
 import * as Session from '../net/NetSession.js';
 import * as Renderer from '../engine/Renderer.js';
 import * as NetGame from '../net/NetGame.js';
-import { normaliseCode, isValidCode, CODE_LENGTH } from '../net/NetTransport.js';
+import { normaliseCode, isValidCode, CODE_LENGTH } from '../claw-core/net/NetTransport.js';
 import { ALL_CHAR_TYPES, CHAR_ICONS, CHAR_NAMES, PLAYER_SLOTS, MIN_PLAYERS, MAX_PLAYERS } from '../config/GameConfig.js';
 
 let _controller = null;

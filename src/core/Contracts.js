@@ -22,7 +22,7 @@ import { CONTRACT_COUNT } from '../config/GameConfig.js';
 import { getShuffledPool, COUNTED_TYPES } from '../config/ContractPool.js';
 import { earnCoins } from './Economy.js';
 import * as UIManager from '../ui/UIManager.js';
-import { sfx } from '../engine/AudioManager.js';
+import { sfx } from '../claw-core/engine/AudioManager.js';
 import * as ActiveMap from '../config/ActiveMap.js';
 
 export function initContracts() {

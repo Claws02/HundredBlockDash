@@ -52,7 +52,7 @@ const PER_GAME = parseInt(process.argv[2] || '90', 10);
     // so the sweep never reports a game as unresolved that the product itself
     // would still have been happily playing.
     const watchdogs = await page.evaluate(async () =>
-        (await import('/src/config/MinigameRegistry.js')).MG_WATCHDOG_MS || {});
+        (await import('/src/claw-core/config/MinigameRegistry.js')).MG_WATCHDOG_MS || {});
     const budgetFor = t => Math.max(PER_GAME, Math.round((watchdogs[t] || 0) / 1000));
 
     const results = [];
@@ -100,7 +100,7 @@ const PER_GAME = parseInt(process.argv[2] || '90', 10);
         // If it never resolved, force back to a clean arcade state so the next game can run.
         if (!resolved) {
             await page.evaluate(async () => {
-                const M = await import('/src/minigames/MinigameManager.js');
+                const M = await import('/src/claw-core/minigames/MinigameManager.js');
                 try { M.endMinigame(-1); } catch (e) {}
                 document.getElementById('mg-select-overlay').style.display = 'flex';
                 document.getElementById('minigame-layer').style.display = 'none';

@@ -1,20 +1,20 @@
 import * as GameController from './core/GameController.js';
 import * as UIManager from './ui/UIManager.js';
 import * as ModalManager from './ui/ModalManager.js';
-import * as MinigameManager from './minigames/MinigameManager.js';
+import * as MinigameManager from './claw-core/minigames/MinigameManager.js';
 import * as Settings from './core/Settings.js';
 import * as Onboarding from './ui/Onboarding.js';
 import * as PauseMenu from './ui/PauseMenu.js';
 import * as MatchSave from './core/MatchSave.js';
 import * as CrashReport from './core/CrashReport.js';
 import * as Storage from './core/Storage.js';
-import * as Audio from './engine/AudioManager.js';
+import * as Audio from './claw-core/engine/AudioManager.js';
 import { state as gameState } from './core/GameState.js';
 import * as Commands from './core/Commands.js';
 import { MG_INFO, MG_TYPES, MG_GENRES, MG_WIRE_ORDER,
-         profileOf, surfacesOf, blockedReason } from './config/MinigameRegistry.js';
+         profileOf, surfacesOf, blockedReason } from './claw-core/config/MinigameRegistry.js';
 import * as Lobby from './ui/Lobby.js';
-import * as MinigameLayout from './config/MinigameLayout.js';
+import * as MinigameLayout from './claw-core/config/MinigameLayout.js';
 import * as NetGame from './net/NetGame.js';
 import * as Session from './net/NetSession.js';
 

@@ -84,14 +84,14 @@ const frame = page => page.evaluate(() => {
         await page.evaluate(() => window.__QA.bind());
 
         const games = await page.evaluate(async () =>
-            (await import('/src/config/MinigameRegistry.js')).MG_PARALLEL);
+            (await import('/src/claw-core/config/MinigameRegistry.js')).MG_PARALLEL);
         ok('the registry names some games that can be played across phones',
             Array.isArray(games) && games.length > 0, JSON.stringify(games));
         notes.push(`parallel games: ${(games || []).join(', ')}`);
 
         for (const g of games || []) {
             await page.evaluate(async game => {
-                const A = await import('/src/minigames/SoloArena.js');
+                const A = await import('/src/claw-core/minigames/SoloArena.js');
                 window.__soloDone = false;
                 A.play(game, 4242, () => { window.__soloDone = true; }, 60000);
             }, g);
@@ -123,7 +123,7 @@ const frame = page => page.evaluate(() => {
             }
             await page.mouse.up().catch(() => {});
             await page.evaluate(async () => {
-                const A = await import('/src/minigames/SoloArena.js');
+                const A = await import('/src/claw-core/minigames/SoloArena.js');
                 A.forceEnd(0);
             });
             await page.waitForTimeout(500);
