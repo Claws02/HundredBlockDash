@@ -9,7 +9,7 @@
 
 import { state } from './GameState.js';
 import * as UIManager from '../ui/UIManager.js';
-import { sfx } from '../engine/AudioManager.js';
+import { sfx } from '../claw-core/engine/AudioManager.js';
 import { expireAlly } from './GameController.js';
 import { checkContract } from './Contracts.js';
 

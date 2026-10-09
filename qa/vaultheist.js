@@ -28,7 +28,7 @@ const ok = (n, c, d) => (c ? pass : fail).push(n + (d ? ` — ${d}` : ''));
 async function launch(page, { p1bot = false, p2bot = false, skill = 0.55 } = {}) {
     await page.evaluate(async ({ p1bot, p2bot, skill }) => {
         const { state } = await import('/src/core/GameState.js');
-        const MM = await import('/src/minigames/MinigameManager.js');
+        const MM = await import('/src/claw-core/minigames/MinigameManager.js');
         window.__RESULT = undefined;
         state.mgActive = true;
         state.mgType = 'vaultheist';
@@ -45,7 +45,7 @@ async function launch(page, { p1bot = false, p2bot = false, skill = 0.55 } = {})
 const dbg = page => page.evaluate(() => window.__VH && window.__VH._debugState());
 const result = page => page.evaluate(() => window.__RESULT || null);
 const shot = (page, name) => page.screenshot({ path: path.join(__dirname, `shot-vaultheist-${name}.png`) });
-const forceEnd = page => page.evaluate(async () => { const M = await import('/src/minigames/MinigameManager.js'); M.forceEndMinigame(); });
+const forceEnd = page => page.evaluate(async () => { const M = await import('/src/claw-core/minigames/MinigameManager.js'); M.forceEndMinigame(); });
 
 (async () => {
     const browser = await chromium.launch({

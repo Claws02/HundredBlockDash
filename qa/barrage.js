@@ -30,7 +30,7 @@ const ok = (n, c, d) => (c ? pass : fail).push(n + (d ? ` — ${d}` : ''));
 async function launch(page, { bot = true, skill = 0.55 } = {}) {
     await page.evaluate(async ({ bot, skill }) => {
         const { state } = await import('/src/core/GameState.js');
-        const MM = await import('/src/minigames/MinigameManager.js');
+        const MM = await import('/src/claw-core/minigames/MinigameManager.js');
         window.__RESULT = undefined;
         state.mgActive = true;
         state.mgType = 'barrage';
@@ -129,7 +129,7 @@ const shot = (page, name) => page.screenshot({ path: path.join(__dirname, `shot-
     });
     await shot(page, 'damage');
     ok('shells that land knock timber out of place', hurt.end <= hurt.start - 0.1, JSON.stringify(hurt));
-    await page.evaluate(async () => { const MM = await import('/src/minigames/MinigameManager.js'); MM.forceEndMinigame(); });
+    await page.evaluate(async () => { const MM = await import('/src/claw-core/minigames/MinigameManager.js'); MM.forceEndMinigame(); });
 
     // ══════ 4b. Sniping the top is not a win ══════
     await launch(page, { bot: false });
@@ -143,7 +143,7 @@ const shot = (page, name) => page.screenshot({ path: path.join(__dirname, `shot-
     });
     await shot(page, 'snipe');
     ok('knocking the top off does not win: the fort is still standing on its pedestal', !snipe.down && snipe.remaining > 0.1 && snipe.phase === 'play', JSON.stringify(snipe));
-    await page.evaluate(async () => { const MM = await import('/src/minigames/MinigameManager.js'); MM.forceEndMinigame(); });
+    await page.evaluate(async () => { const MM = await import('/src/claw-core/minigames/MinigameManager.js'); MM.forceEndMinigame(); });
 
     // ══════ 4c. A shell bursting right on top of a piece still moves it ══════
     await launch(page, { bot: false });
@@ -161,7 +161,7 @@ const shot = (page, name) => page.screenshot({ path: path.join(__dirname, `shot-
     });
     await shot(page, 'ontop');
     ok('a shell that bursts right on top of a piece still shoves it (never just into the pedestal)', onTop.every(o => o.moved > 0.25), JSON.stringify(onTop));
-    await page.evaluate(async () => { const MM = await import('/src/minigames/MinigameManager.js'); MM.forceEndMinigame(); });
+    await page.evaluate(async () => { const MM = await import('/src/claw-core/minigames/MinigameManager.js'); MM.forceEndMinigame(); });
 
     // ══════ 4d. The last few pieces can be finished off ══════
     await launch(page, { bot: false });
@@ -181,7 +181,7 @@ const shot = (page, name) => page.screenshot({ path: path.join(__dirname, `shot-
         return { start, shots, down: st.down ? st.down[1] : null, phase: st.phase, left: st.remaining ? st.remaining[1] : 0 };
     });
     ok('the last few pieces on a pedestal come off in a handful of good shots', (endgame.down || endgame.phase === 'over') && endgame.shots <= 10, JSON.stringify(endgame));
-    await page.evaluate(async () => { const MM = await import('/src/minigames/MinigameManager.js'); MM.forceEndMinigame(); });
+    await page.evaluate(async () => { const MM = await import('/src/claw-core/minigames/MinigameManager.js'); MM.forceEndMinigame(); });
 
     // ══════ 5. The bot takes down an idle fort ══════
     await launch(page, { bot: true, skill: 0.85 });

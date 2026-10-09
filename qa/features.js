@@ -40,7 +40,7 @@ const ok = (n, c, d) => (c ? pass : fail).push(n + (d ? ` — ${d}` : ''));
     // ---------- 2. PRACTICE (from the arcade, before any match exists) ----------
     const practice = await page.evaluate(async () => {
         const { state } = await import('/src/core/GameState.js');
-        const MGM = await import('/src/minigames/MinigameManager.js');
+        const MGM = await import('/src/claw-core/minigames/MinigameManager.js');
         // Give the players some state worth protecting.
         state.players[0].coins = 42; state.players[1].coins = 17;
         state.players[0].pos = 7;    state.players[1].pos = 3;
@@ -103,7 +103,7 @@ const ok = (n, c, d) => (c ? pass : fail).push(n + (d ? ` — ${d}` : ''));
     await page.waitForTimeout(1500);
     const after = await page.evaluate(async () => {
         const { state } = await import('/src/core/GameState.js');
-        const MGM = await import('/src/minigames/MinigameManager.js');
+        const MGM = await import('/src/claw-core/minigames/MinigameManager.js');
         MGM.winMinigame(0);                       // P1 "wins" the practice round
         return new Promise(res => setTimeout(async () => {
             res({

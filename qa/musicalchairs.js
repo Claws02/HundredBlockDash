@@ -15,7 +15,7 @@ require('./stageprobe').run('musicalchairs', async ({ page, ok, launch, state, s
         while (Date.now() - t0 < ms) { const s = await state(); if (s && fn(s)) return s; await page.waitForTimeout(60); }
         return state();
     };
-    const music = () => page.evaluate(async () => (await import('/src/engine/AudioManager.js')).musicState());
+    const music = () => page.evaluate(async () => (await import('/src/claw-core/engine/AudioManager.js')).musicState());
     await launch();
     await page.waitForTimeout(900);
     await shot('intro');

@@ -12,7 +12,7 @@ import { SPACE_META, SPACE_DESCS, ITEMS, ALLIES } from '../config/GameConfig.js'
 import * as Settings from '../core/Settings.js';
 import * as Storage from '../core/Storage.js';
 import * as Stats from '../core/Stats.js';
-import { sfx } from '../engine/AudioManager.js';
+import { sfx } from '../claw-core/engine/AudioManager.js';
 
 // ── How-to-Play slides ─────────────────────────────────────────────────────────
 const SLIDES = [

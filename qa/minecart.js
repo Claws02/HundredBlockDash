@@ -25,7 +25,7 @@ const CORNERS = [0, 2, 12, 14];
 async function launch(page, { bot = false, skill = 0.55 } = {}) {
     await page.evaluate(async ({ bot, skill }) => {
         const { state } = await import('/src/core/GameState.js');
-        const MM = await import('/src/minigames/MinigameManager.js');
+        const MM = await import('/src/claw-core/minigames/MinigameManager.js');
         window.__RESULT = undefined;
         state.mgActive = true;
         state.mgType = 'minecart';
@@ -132,7 +132,7 @@ const shot = (page, name) => page.screenshot({ path: path.join(__dirname, `shot-
         return { bumps, sameEdgeAfter };
     });
     ok('a head-on meeting bumps once and the carts part', bump.bumps === 1 && bump.sameEdgeAfter === false, JSON.stringify(bump));
-    await page.evaluate(async () => { const M = await import('/src/minigames/MinigameManager.js'); M.forceEndMinigame(); });
+    await page.evaluate(async () => { const M = await import('/src/claw-core/minigames/MinigameManager.js'); M.forceEndMinigame(); });
 
     // ══════ 4. A hard bot against an idle player ══════
     await launch(page, { bot: true, skill: 0.85 });

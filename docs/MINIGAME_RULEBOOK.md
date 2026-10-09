@@ -116,7 +116,7 @@ questions, and neither is about the verb:
 Two modifiers cut across the grid rather than adding cells to it: **ASYM** (the
 seats do not have the same job) and **TEAMS** (four seats, two sides).
 
-`src/config/MinigameLayout.js` is this table as arithmetic; `MG_SHAPE` in the
+`src/claw-core/config/MinigameLayout.js` is this table as arithmetic; `MG_SHAPE` in the
 registry classifies every game that has shipped. The spread today:
 
 **arena 12 · split 7 · table 2 · relay 1**
@@ -606,7 +606,7 @@ Then, and only then, run the tests that were already there:
 
 ## 8. Writing one
 
-Start from `src/minigames/_template.js` and the standard's checklist. This
+Start from `src/claw-core/minigames/_template.js` and the standard's checklist. This
 section is only what the structures add.
 
 **Declare the shape.** In `MinigameRegistry.js`:
@@ -728,7 +728,7 @@ What replaces them is not a round format at all. It is a property of the game:
 
 `MG_PROFILE[type].live` is true when the game's own code has been written
 against the number of players rather than against the number 2. Three things
-make a game live, and all three are visible in `src/minigames/QuickDraw.js`,
+make a game live, and all three are visible in `src/claw-core/minigames/QuickDraw.js`,
 which is the reference:
 
 1. **It asks `slotCount()`** instead of assuming two, and every per-player array
@@ -873,7 +873,7 @@ bystander problem (it is the bystander problem, dealt out one at a time).
 
 **Built:**
 
-- `src/config/MinigameLayout.js` — the four structures as geometry: the seat
+- `src/claw-core/config/MinigameLayout.js` — the four structures as geometry: the seat
   ring, the chrome budget, `frameFor()`, `shapesFor()`, `railFor()`, and the
   300×300 law measured against whatever viewport it is handed.
 - `MG_SHAPE` / `MG_MODIFIER` in `MinigameRegistry.js` — every shipped game

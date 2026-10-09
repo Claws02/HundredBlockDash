@@ -6,7 +6,7 @@ import { state } from '../core/GameState.js';
 import { SPACE_META, DISTRICT_BIOMES, getBiomeForDistrict, HBD_BIOMES, getBiomeForSpace, ALLIES, CHAR_ICONS, HBD_DEFAULT_CONFIG } from '../config/GameConfig.js';
 import { SCENE } from '../config/SceneTiming.js';
 import * as Physics from './Physics.js';
-import { sfx } from './AudioManager.js';   // set pieces cue their own sound
+import { sfx } from '../claw-core/engine/AudioManager.js';   // set pieces cue their own sound
 import * as ActiveMap from '../config/ActiveMap.js';
 import * as Stars from '../core/Stars.js';
 import * as Settings from '../core/Settings.js';

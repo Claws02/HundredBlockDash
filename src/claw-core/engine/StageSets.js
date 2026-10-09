@@ -1,0 +1,1718 @@
+// ============================================================
+// STAGE SETS — minigame scenery, built from the board's own pieces
+// ============================================================
+//
+// A minigame set is where the round's story happens, so it has to look like
+// the map the round is being played on. Every set here takes its sky, fog,
+// light and dust from DISTRICT_BIOMES — the table the board's own districts are
+// dressed from — and its buildings from Renderer's PROP_KIT, which are the
+// same builders that stand on the board's plots. Perdition's street in High
+// Noon is Perdition's street.
+//
+// A set builder takes a stage and returns HANDLES: the things in the scenery a
+// game may animate (a bell, a crow, a tumbleweed), plus an `update(dt, t)` for
+// the set's own ambient motion. Everything it builds goes into the stage's
+// scene, so the stage's dispose() releases it.
+//
+// Sets are keyed by district. Only Perdition ('hub') exists yet; the next game
+// that needs a set adds its key here, from the same table.
+// ============================================================
+
+import { DISTRICT_BIOMES, HBD_BIOMES } from '../../AppHost.js';
+import { PROP_KIT } from '../../AppHost.js';
+import { textPlane } from './Stage.js';
+
+const _hex = c => (typeof c === 'string' ? parseInt(c.replace('#', ''), 16) : c);
+const _rand = seed => { const x = Math.sin(seed * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
+const _mat = (color, rough = 0.85, metal = 0, extra = {}) =>
+    new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: metal, ...extra });
+
+/** A sky dome shaded from the horizon colour up to the zenith colour. */
+function _skyDome(top, bottom, radius = 190) {
+    const geo = new THREE.SphereGeometry(radius, 32, 16);
+    const cTop = new THREE.Color(top), cBot = new THREE.Color(bottom), c = new THREE.Color();
+    const pos = geo.attributes.position, cols = [];
+    for (let i = 0; i < pos.count; i++) {
+        const k = Math.max(0, Math.min(1, pos.getY(i) / radius * 1.6 + 0.05));
+        c.copy(cBot).lerp(cTop, Math.pow(k, 0.7));
+        cols.push(c.r, c.g, c.b);
+    }
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
+    return new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+        vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false }));
+}
+
+/** A drifting cloud of dust, lit by nothing, sized in world units. */
+function _motes({ color, count, size, spread, rise }) {
+    const geo = new THREE.BufferGeometry();
+    const p = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) {
+        p[i * 3] = (_rand(i + 1) - 0.5) * spread * 2;
+        p[i * 3 + 1] = _rand(i + 50) * 5;
+        p[i * 3 + 2] = (_rand(i + 99) - 0.5) * spread;
+    }
+    geo.setAttribute('position', new THREE.BufferAttribute(p, 3));
+    const pts = new THREE.Points(geo, new THREE.PointsMaterial({
+        color, size, transparent: true, opacity: 0.55, depthWrite: false }));
+    pts.userData.rise = rise;
+    pts.userData.spread = spread;
+    return pts;
+}
+
+// ---- Perdition: the main street at a quarter to four ---------------------
+//
+// The courthouse clock in the lore is "stuck at ten to four"; the bell tower
+// here carries it. The street runs along X — the duel axis — with the
+// storefronts behind it facing the camera.
+function _clockFace() {
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = 256;
+    const g = cv.getContext('2d');
+    g.fillStyle = '#efe4c8'; g.beginPath(); g.arc(128, 128, 120, 0, Math.PI * 2); g.fill();
+    g.lineWidth = 10; g.strokeStyle = '#3b2716'; g.stroke();
+    g.fillStyle = '#3b2716';
+    for (let i = 0; i < 12; i++) {
+        const a = i / 12 * Math.PI * 2;
+        g.fillRect(128 + Math.sin(a) * 96 - 5, 128 - Math.cos(a) * 96 - 5, 10, 10);
+    }
+    // Ten to four, and it has been for years.
+    const hand = (a, len, w) => {
+        g.save(); g.translate(128, 128); g.rotate(a);
+        g.fillRect(-w / 2, -len, w, len); g.restore();
+    };
+    hand((3 + 50 / 60) / 12 * Math.PI * 2, 58, 12);
+    hand(50 / 60 * Math.PI * 2, 88, 7);
+    g.beginPath(); g.arc(128, 128, 10, 0, Math.PI * 2); g.fill();
+    const tex = new THREE.CanvasTexture(cv);
+    return new THREE.Mesh(new THREE.CircleGeometry(1.05, 32), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.7 }));
+}
+
+function _bellTower() {
+    const g = new THREE.Group();
+    const white = _mat(0xe9dcc0, 0.9);
+    const trim = _mat(0x6b4a2c, 0.9);
+    const base = new THREE.Mesh(new THREE.BoxGeometry(5.2, 7.5, 4.6), white);
+    base.position.y = 3.75; g.add(base);
+    // Clapboard lines, so the white box reads as timber.
+    for (let i = 1; i < 10; i++) {
+        const b = new THREE.Mesh(new THREE.BoxGeometry(5.3, 0.06, 0.06), _mat(0xcbbd9f, 0.9));
+        b.position.set(0, i * 0.75, 2.32); g.add(b);
+    }
+    const door = new THREE.Mesh(new THREE.BoxGeometry(1.6, 2.8, 0.2), trim);
+    door.position.set(0, 1.4, 2.35); g.add(door);
+    const clock = _clockFace();
+    clock.position.set(0, 5.6, 2.33); g.add(clock);
+
+    // The belfry: four posts, open on every side so the bell is visible.
+    const belfryY = 7.5;
+    [[-1.9, -1.6], [1.9, -1.6], [-1.9, 1.6], [1.9, 1.6]].forEach(([x, z]) => {
+        const p = new THREE.Mesh(new THREE.BoxGeometry(0.34, 3.2, 0.34), white);
+        p.position.set(x, belfryY + 1.6, z); g.add(p);
+    });
+    const deck = new THREE.Mesh(new THREE.BoxGeometry(5.0, 0.3, 4.4), trim);
+    deck.position.y = belfryY + 0.15; g.add(deck);
+    const lintel = new THREE.Mesh(new THREE.BoxGeometry(4.6, 0.36, 4.0), trim);
+    lintel.position.y = belfryY + 3.2; g.add(lintel);
+    const roof = new THREE.Mesh(new THREE.ConeGeometry(3.6, 3.0, 4), _mat(0x5a3b24, 0.8));
+    roof.position.y = belfryY + 4.9; roof.rotation.y = Math.PI / 4; g.add(roof);
+    const spire = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.3, 6), _mat(0x333333, 0.5, 0.6));
+    spire.position.y = belfryY + 7.0; g.add(spire);
+
+    // The bell hangs from a pivot at the lintel so it can swing.
+    const pivot = new THREE.Group();
+    pivot.position.y = belfryY + 3.0;
+    const bronze = _mat(0xb8862b, 0.35, 0.75);
+    const prof = [];
+    for (let i = 0; i <= 12; i++) {
+        const t = i / 12;
+        // Waist narrow, lip flared: the silhouette everybody knows as a bell.
+        prof.push(new THREE.Vector2(0.28 + Math.pow(t, 2.2) * 0.95 + (t > 0.9 ? (t - 0.9) * 1.4 : 0), -t * 1.7));
+    }
+    const bell = new THREE.Mesh(new THREE.LatheGeometry(prof, 24), bronze);
+    bell.material.side = THREE.DoubleSide;
+    bell.position.y = -0.15;
+    pivot.add(bell);
+    const crown = new THREE.Mesh(new THREE.SphereGeometry(0.34, 12, 8), bronze);
+    crown.position.y = -0.12; pivot.add(crown);
+    const clapper = new THREE.Mesh(new THREE.SphereGeometry(0.2, 10, 8), _mat(0x3a3a3a, 0.4, 0.8));
+    clapper.position.y = -1.55; pivot.add(clapper);
+    g.add(pivot);
+    return { group: g, pivot };
+}
+
+function _mesa(w, h, d, color) {
+    const g = new THREE.Group();
+    const m = _mat(color, 0.95);
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(w * 0.42, w * 0.55, h, 7), m);
+    body.scale.z = d / w;
+    body.position.y = h / 2; g.add(body);
+    const cap = new THREE.Mesh(new THREE.CylinderGeometry(w * 0.44, w * 0.42, h * 0.08, 7), _mat(color + 0x0a0806, 0.95));
+    cap.scale.z = d / w;
+    cap.position.y = h; g.add(cap);
+    return g;
+}
+
+function _cactus(seed) {
+    const g = new THREE.Group();
+    const m = _mat(0x4d7a3a, 0.8);
+    const h = 2.4 + _rand(seed) * 1.6;
+    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.36, h, 10), m);
+    trunk.position.y = h / 2; g.add(trunk);
+    const top = new THREE.Mesh(new THREE.SphereGeometry(0.32, 10, 8), m);
+    top.position.y = h; g.add(top);
+    [-1, 1].forEach((s, i) => {
+        if (_rand(seed + i * 7) < 0.25) return;
+        const y = h * (0.35 + _rand(seed + i) * 0.25);
+        const out = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.7, 8), m);
+        out.rotation.z = Math.PI / 2; out.position.set(s * 0.6, y, 0); g.add(out);
+        const up = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 1.1, 8), m);
+        up.position.set(s * 0.95, y + 0.5, 0); g.add(up);
+        const cap = new THREE.Mesh(new THREE.SphereGeometry(0.2, 8, 6), m);
+        cap.position.set(s * 0.95, y + 1.05, 0); g.add(cap);
+    });
+    g.traverse(o => { if (o.isMesh) o.castShadow = true; });
+    return g;
+}
+
+function _tumbleweed() {
+    const g = new THREE.Group();
+    const m = new THREE.MeshStandardMaterial({ color: 0x9c7a4a, roughness: 1, wireframe: true });
+    const a = new THREE.Mesh(new THREE.IcosahedronGeometry(0.75, 1), m);
+    const b = new THREE.Mesh(new THREE.IcosahedronGeometry(0.6, 1), m);
+    b.rotation.set(0.6, 0.4, 0.2);
+    g.add(a); g.add(b);
+    g.visible = false;
+    return g;
+}
+
+function _crow() {
+    const g = new THREE.Group();
+    const black = _mat(0x16161a, 0.6);
+    const body = new THREE.Mesh(new THREE.SphereGeometry(0.28, 12, 10), black);
+    body.scale.set(0.8, 0.75, 1.3); g.add(body);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.17, 10, 8), black);
+    head.position.set(0, 0.2, 0.3); g.add(head);
+    const beak = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.2, 6), _mat(0x3a3a3a, 0.4));
+    beak.rotation.x = Math.PI / 2; beak.position.set(0, 0.18, 0.5); g.add(beak);
+    const wings = [-1, 1].map(s => {
+        const pivot = new THREE.Group();
+        pivot.position.set(s * 0.16, 0.08, 0);
+        const w = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.04, 0.34), black);
+        w.position.x = s * 0.27;
+        pivot.add(w);
+        g.add(pivot);
+        return pivot;
+    });
+    g.userData.wings = wings;
+    return g;
+}
+
+const SIGNS = ['SALOON', 'BANK', 'JAIL', 'HOTEL', 'GENERAL STORE', 'ASSAY OFFICE', 'BARBER', 'TELEGRAPH'];
+
+export function buildPerditionStreet(stage) {
+    const B = DISTRICT_BIOMES.hub;
+    const scene = stage.scene;
+    const fog = _hex(B.fog);
+    scene.background = new THREE.Color(_hex(B.bgBot));
+    scene.fog = new THREE.Fog(fog, 34, 150);
+    scene.add(_skyDome(_hex(B.bgTop), _hex(B.bgBot)));
+
+    // Low sun, off to one side, so the street is raked with long light.
+    stage.light({
+        sun: 0xffd9a0, sunI: 1.35, sky: 0xffe2b8, ground: 0x7a4f2a, hemiI: 0.55,
+        rim: 0xffb070, rimI: 0.35, dir: [-14, 13, 12], span: 16,
+    });
+    const sunDisc = new THREE.Mesh(new THREE.CircleGeometry(7, 32),
+        new THREE.MeshBasicMaterial({ color: 0xffe6b0, fog: false }));
+    sunDisc.position.set(-60, 16, -150);
+    sunDisc.lookAt(0, 16, 0);
+    scene.add(sunDisc);
+
+    // Ground: the wide dirt plain, and a darker rutted street on it.
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), _mat(0xb88758, 1));
+    ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true;
+    scene.add(ground);
+    const street = new THREE.Mesh(new THREE.PlaneGeometry(120, 9), _mat(0x9e7147, 1));
+    street.rotation.x = -Math.PI / 2; street.position.set(0, 0.01, -0.5); street.receiveShadow = true;
+    scene.add(street);
+    [-1.3, 1.3].forEach(z => {
+        const rut = new THREE.Mesh(new THREE.PlaneGeometry(120, 0.28), _mat(0x7d5634, 1));
+        rut.rotation.x = -Math.PI / 2; rut.position.set(0, 0.02, z - 0.5); rut.receiveShadow = true;
+        scene.add(rut);
+    });
+
+    // Storefronts behind the street, facing the camera. The tower stands in
+    // the gap in the middle, between where the two duellists stand back to back.
+    const fronts = [];
+    let sign = 0;
+    [-37, -28, -19, -10, 10, 19, 28, 37].forEach((x, i) => {
+        const f = PROP_KIT.falseFront(new THREE.Vector3(x, 0, -14), 700 + i * 3);
+        scene.add(f);
+        const box = new THREE.Box3().setFromObject(f);
+        const s = textPlane(SIGNS[sign++ % SIGNS.length], { w: 4.6, h: 1.0 });
+        s.position.set(x, box.max.y - 1.4, -14 + 3.33);
+        scene.add(s);
+        fronts.push(f);
+    });
+
+    const tower = _bellTower();
+    tower.group.position.set(0, 0, -17);
+    scene.add(tower.group);
+
+    // Lanterns along the boardwalk, and township clutter in front of it.
+    [-23.5, -14.5, 14.5, 23.5].forEach(x => scene.add(PROP_KIT.lanternPost(new THREE.Vector3(x, 0, -8.4))));
+    [[-15, -7.2, 0.1], [13, -7.4, 0.5], [-27, -7.1, 0.3], [30, -7.3, 0.7], [-11.5, 5.5, 0.62], [12, 5.8, 0.1]]
+        .forEach(([x, z, r], i) => {
+            const p = PROP_KIT.township(r, 900 + i);
+            p.position.set(x, 0, z);
+            p.rotation.y = (_rand(i + 3) - 0.5) * 0.6;
+            scene.add(p);
+        });
+
+    // The desert beyond the town.
+    [[-70, -95, 30, 16, 18, 0xb4643a], [-20, -120, 44, 22, 20, 0xa85a34], [45, -100, 34, 13, 16, 0xbb6c40],
+     [95, -130, 50, 25, 22, 0xa4563a], [-120, -140, 60, 20, 22, 0xae5e38]]
+        .forEach(([x, z, w, h, d, c]) => { const m = _mesa(w, h, d, c); m.position.set(x, 0, z); scene.add(m); });
+    [[-22, -4, 1], [24, -3, 2], [-34, 3, 3], [36, 2, 4]].forEach(([x, z, s]) => {
+        const c = _cactus(s * 13); c.position.set(x, 0, z); scene.add(c);
+    });
+
+    const weed = _tumbleweed();
+    scene.add(weed);
+
+    // The crow sits on the saloon's parapet until something startles it.
+    const crow = _crow();
+    const perchFront = fronts[3];
+    const pb = new THREE.Box3().setFromObject(perchFront);
+    const perch = new THREE.Vector3(-8.4, pb.max.y + 0.22, -10.9);
+    crow.position.copy(perch);
+    crow.rotation.y = 0.5;
+    scene.add(crow);
+
+    const dust = B.motes ? _motes(B.motes) : null;
+    if (dust) scene.add(dust);
+
+    // Buildings are big and far from the camera; letting them cast into the
+    // tight shadow frustum only costs fill rate. The figures cast, the ground
+    // and street receive.
+    scene.traverse(o => { if (o.isMesh && o !== ground && o !== street) o.receiveShadow = false; });
+
+    const H = {
+        bellPivot: tower.pivot,
+        crow, crowPerch: perch.clone(),
+        tumbleweed: weed,
+        _bellSwing: 0,
+        _crowT: -1,
+        _weedT: -1, _weedDir: 1,
+        ringBell() { this._bellSwing = 1; },
+        startleCrow() { this._crowT = 0; },
+        rollTumbleweed(dir = 1) { this._weedT = 0; this._weedDir = dir; weed.visible = true; },
+        update(dt, t) {
+            // Bell: a damped swing.
+            if (this._bellSwing > 0.001) {
+                this._bellSwing *= Math.exp(-1.1 * dt);
+                this.bellPivot.rotation.z = Math.sin(t * 9) * 0.55 * this._bellSwing;
+            } else this.bellPivot.rotation.z = 0;
+            // Crow: up, out and away, then back on its perch a few seconds later.
+            const wings = crow.userData.wings;
+            if (this._crowT >= 0) {
+                this._crowT += dt;
+                const k = this._crowT;
+                crow.position.set(this.crowPerch.x + k * 7, this.crowPerch.y + k * 5.5 + Math.sin(k * 6) * 0.2, this.crowPerch.z + k * 2);
+                wings[0].rotation.z = Math.sin(k * 30) * 0.9;
+                wings[1].rotation.z = -Math.sin(k * 30) * 0.9;
+                if (k > 5) { this._crowT = -1; crow.position.copy(this.crowPerch); }
+            } else {
+                wings[0].rotation.z = 0.15; wings[1].rotation.z = -0.15;
+                crow.rotation.y = 0.5 + Math.sin(t * 0.7) * 0.4;
+            }
+            // Tumbleweed: across the foreground, bouncing.
+            if (this._weedT >= 0) {
+                this._weedT += dt;
+                const k = this._weedT, x = -this._weedDir * 16 + this._weedDir * k * 7.5;
+                weed.position.set(x, 0.75 + Math.abs(Math.sin(k * 5)) * 0.6, 3.2);
+                weed.rotation.z -= this._weedDir * dt * 6;
+                if (k > 4.3) { this._weedT = -1; weed.visible = false; }
+            }
+            if (dust) {
+                const p = dust.geometry.attributes.position, a = p.array;
+                for (let i = 0; i < a.length; i += 3) {
+                    a[i] += dt * 0.9;
+                    a[i + 1] += dt * dust.userData.rise * 0.4;
+                    if (a[i] > dust.userData.spread) a[i] -= dust.userData.spread * 2;
+                    if (a[i + 1] > 5) a[i + 1] = 0;
+                }
+                p.needsUpdate = true;
+            }
+        },
+    };
+    return H;
+}
+
+// ---- Boot Hill Badlands: two forts across a dry wash ------------------
+//
+// High noon on the hardpan — "blown out, almost colourless, the harshest
+// light on the board". The graves the district is named for stand on a low
+// hill behind the wash, between the two forts, so every shot in a siege is
+// fired over Boot Hill. The forts themselves are the game's (they are physics
+// bodies); the set is the ground they stand on and everything around it.
+export function buildBootHill(stage) {
+    const B = DISTRICT_BIOMES.bad;
+    const scene = stage.scene;
+    scene.background = new THREE.Color(_hex(B.bgBot));
+    scene.fog = new THREE.Fog(_hex(B.fog), 40, 170);
+    scene.add(_skyDome(_hex(B.bgTop), _hex(B.bgBot)));
+
+    // Noon: the sun nearly overhead, short hard shadows.
+    stage.light({
+        sun: 0xfff6e0, sunI: 1.2, sky: 0xcfe3f5, ground: 0x8a6a42, hemiI: 0.55,
+        rim: 0xffe2b0, rimI: 0.3, dir: [5, 22, 9], span: 17,
+    });
+
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), _mat(0xb59c70, 1));
+    ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true;
+    scene.add(ground);
+    // The wash: a pale, dried streambed running away from the camera between
+    // the forts, with a few cracks across it.
+    const wash = new THREE.Mesh(new THREE.PlaneGeometry(7, 140), _mat(0xcbb78e, 1));
+    wash.rotation.x = -Math.PI / 2; wash.position.set(0, 0.01, -40); wash.receiveShadow = true;
+    scene.add(wash);
+    for (let i = 0; i < 26; i++) {
+        const c = new THREE.Mesh(new THREE.PlaneGeometry(0.06 + _rand(i) * 0.05, 1.2 + _rand(i + 9) * 2.6), _mat(0x9c8660, 1));
+        c.rotation.x = -Math.PI / 2;
+        c.rotation.z = _rand(i + 3) * Math.PI;
+        c.position.set((_rand(i + 5) - 0.5) * 34, 0.02, (_rand(i + 7) - 0.5) * 14 - 2);
+        c.receiveShadow = true;
+        scene.add(c);
+    }
+
+    // Boot Hill: a low mound behind the wash with its leaning markers.
+    const hill = new THREE.Mesh(new THREE.SphereGeometry(14, 24, 12), _mat(0xbfa77c, 1));
+    hill.scale.set(1.3, 0.28, 0.7); hill.position.set(0, -0.6, -24);
+    scene.add(hill);
+    [[-6, -21], [-2.5, -19.8], [1.5, -20.4], [5.5, -21.6], [-9, -23.5], [9.5, -23], [3.5, -24.5], [-4, -24.8]]
+        .forEach(([x, z], i) => {
+            const g = PROP_KIT.badlands(0.9, 40 + i);
+            g.position.set(x, 2.3 - Math.abs(x) * 0.12, z);
+            g.rotation.y = (_rand(i + 21) - 0.5) * 0.8;
+            scene.add(g);
+        });
+
+    // Buttes on the horizon, saguaros and a skull nearer in.
+    [[-58, -80, 1], [-18, -95, 2], [30, -85, 3], [72, -100, 4], [-95, -110, 5]].forEach(([x, z, sd]) => {
+        const r = PROP_KIT.badlandsRock(new THREE.Vector3(x, 0, z), 300 + sd);
+        r.scale.setScalar(1.6);
+        scene.add(r);
+    });
+    [[-21, -6, 0.1], [22, -8, 0.15], [-27, 2, 0.2], [17, -14, 0.05], [-15, -12, 0.12]].forEach(([x, z, r], i) => {
+        const c = PROP_KIT.badlands(r, 60 + i); c.position.set(x, 0, z); scene.add(c);
+    });
+    [[-5.5, 4.5, 0.35], [6.5, -3, 0.5], [-16, 5, 0.55]].forEach(([x, z, r], i) => {
+        const c = PROP_KIT.badlands(r, 80 + i); c.position.set(x, 0, z); scene.add(c);
+    });
+
+    const dust = B.motes ? _motes(B.motes) : null;
+    if (dust) scene.add(dust);
+    scene.traverse(o => { if (o.isMesh && o !== ground && o !== wash) o.receiveShadow = false; });
+
+    return {
+        update(dt) {
+            if (!dust) return;
+            const p = dust.geometry.attributes.position, a = p.array;
+            for (let i = 0; i < a.length; i += 3) {
+                a[i] += dt * 1.6;
+                a[i + 1] += dt * dust.userData.rise * 0.3;
+                if (a[i] > dust.userData.spread) a[i] -= dust.userData.spread * 2;
+                if (a[i + 1] > 5) a[i + 1] = 0;
+            }
+            p.needsUpdate = true;
+        },
+    };
+}
+
+// ---- Financial District: the bank floor at ten past two in the morning ---
+//
+// An interior, seen from above, so the set takes the game's LAYOUT (walls,
+// pillars, counter, vault, loot spots — the same numbers the game collides
+// against) and dresses it: dark marble, white columns with gold capitals, a
+// teller counter with a brass grille, the vault door standing open, and green
+// banker's lamps. Night blue from the tall windows is the only fill; the
+// guard's torch is the only real light, and that belongs to the game.
+export function buildBankFloor(stage, L) {
+    const B = DISTRICT_BIOMES.fin;
+    const scene = stage.scene;
+    scene.background = new THREE.Color(0x05070d);
+    scene.fog = null;
+    // Moonlight through the windows: cool, dim, no shadows. The torch has them.
+    scene.add(new THREE.HemisphereLight(0x5a7ac0, 0x1a2030, 0.95));
+    const moon = new THREE.DirectionalLight(0x9fbcff, 0.6);
+    moon.position.set(8, 20, 4);
+    scene.add(moon);
+
+    const W = L.w / 2, D = L.d / 2;
+    // Marble floor, a checker of two near-blacks with a gold inlay border.
+    const tiles = new THREE.Group();
+    const dark = _mat(0x1c212c, 0.35, 0.1), darker = _mat(0x141821, 0.35, 0.1);
+    const T = 2;
+    for (let x = -W; x < W - 0.01; x += T) for (let z = -D; z < D - 0.01; z += T) {
+        const t = new THREE.Mesh(new THREE.PlaneGeometry(T, T), ((x + z) / T) % 2 === 0 ? dark : darker);
+        t.rotation.x = -Math.PI / 2; t.position.set(x + T / 2, 0, z + T / 2); t.receiveShadow = true;
+        tiles.add(t);
+    }
+    scene.add(tiles);
+    const gold = _mat(0xd4a93a, 0.3, 0.8, { emissive: 0x4a3200, emissiveIntensity: 0.3 });
+    [[0, -D + 0.6, L.w - 1.2, 0.08], [0, D - 0.6, L.w - 1.2, 0.08], [-W + 0.6, 0, 0.08, L.d - 1.2], [W - 0.6, 0, 0.08, L.d - 1.2]]
+        .forEach(([x, z, w, d]) => {
+            const b = new THREE.Mesh(new THREE.PlaneGeometry(w, d), gold);
+            b.rotation.x = -Math.PI / 2; b.position.set(x, 0.01, z); scene.add(b);
+        });
+
+    // Walls: low, so the room reads from above, with window slots glowing blue.
+    const wall = _mat(0x2a3040, 0.7);
+    const glow = new THREE.MeshBasicMaterial({ color: 0x3b5b99 });
+    [[0, -D - 0.3, L.w + 1.2, 0.6], [0, D + 0.3, L.w + 1.2, 0.6], [-W - 0.3, 0, 0.6, L.d], [W + 0.3, 0, 0.6, L.d]]
+        .forEach(([x, z, w, d]) => {
+            const m = new THREE.Mesh(new THREE.BoxGeometry(w, 2.2, d), wall);
+            m.position.set(x, 1.1, z); scene.add(m);
+        });
+    for (let z = -D + 3; z < D - 2; z += 4) [-W - 0.3, W + 0.3].forEach(x => {
+        const win = new THREE.Mesh(new THREE.BoxGeometry(0.64, 0.1, 1.6), glow);
+        win.position.set(x, 2.22, z); scene.add(win);
+        // A pale shaft of window light across the floor.
+        const shaft = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 1.4),
+            new THREE.MeshBasicMaterial({ color: 0x6f8fd6, transparent: true, opacity: 0.08, depthWrite: false }));
+        shaft.rotation.x = -Math.PI / 2; shaft.position.set(x - Math.sign(x) * 1.5, 0.02, z); scene.add(shaft);
+    });
+
+    // Escape zones: the whole strip across each end. A thief banks the moment
+    // they are back in their own. It used to be two corner doors, and the
+    // obvious way home — straight back to the middle of your own end — ran into
+    // the other vault, so a player could carry gold round the room and never
+    // bank it. Each strip is a glowing band with chevrons pointing out and
+    // ESCAPE painted on the floor the right way up for the player at that end.
+    const escapes = {};
+    [-1, 1].forEach(end => {
+        const g = new THREE.Group();
+        const band = new THREE.Mesh(new THREE.PlaneGeometry(L.w - 0.8, L.exit),
+            new THREE.MeshBasicMaterial({ color: 0x22c55e, transparent: true, opacity: 0.3, depthWrite: false }));
+        band.rotation.x = -Math.PI / 2; band.position.y = 0.015; g.add(band);
+        const edge = new THREE.Mesh(new THREE.PlaneGeometry(L.w - 0.8, 0.08),
+            new THREE.MeshBasicMaterial({ color: 0x4ade80, transparent: true, opacity: 0.9 }));
+        edge.rotation.x = -Math.PI / 2; edge.position.set(0, 0.02, -end * L.exit / 2); g.add(edge);
+        const chevrons = [];
+        [-4, -2, 2, 4].forEach(x => {
+            const c = new THREE.Mesh(new THREE.ConeGeometry(0.32, 0.6, 3),
+                new THREE.MeshBasicMaterial({ color: 0x86efac, transparent: true, opacity: 0.85 }));
+            c.rotation.x = end * Math.PI / 2; c.position.set(x, 0.04, 0); g.add(c); chevrons.push(c);
+        });
+        const word = textPlane('ESCAPE', { w: 2.4, h: 0.8, bg: '#14532d', fg: '#bbf7d0', border: '#22c55e' });
+        word.material.transparent = true;
+        word.rotation.x = -Math.PI / 2;
+        if (end < 0) word.rotation.z = Math.PI;      // the far player reads it from their side
+        word.position.y = 0.03; g.add(word);
+        g.position.set(0, 0, end * (D - L.exit / 2));
+        g.userData = { band, chevrons, word, end };
+        scene.add(g);
+        escapes[end] = g;
+    });
+
+    // Columns.
+    const marble = _mat(0xe7e3da, 0.4);
+    L.pillars.forEach(p => {
+        const g = new THREE.Group();
+        const shaft = new THREE.Mesh(new THREE.CylinderGeometry(p.r * 0.85, p.r * 0.9, 3.2, 18), marble);
+        shaft.position.y = 1.6; g.add(shaft);
+        const base = new THREE.Mesh(new THREE.CylinderGeometry(p.r, p.r * 1.05, 0.3, 18), marble);
+        base.position.y = 0.15; g.add(base);
+        const cap = new THREE.Mesh(new THREE.CylinderGeometry(p.r * 1.1, p.r * 0.85, 0.35, 18), gold);
+        cap.position.y = 3.3; g.add(cap);
+        g.position.set(p.x, 0, p.z);
+        g.traverse(o => { if (o.isMesh) o.castShadow = true; });
+        scene.add(g);
+    });
+
+    // The teller counter, with a brass grille and a green lamp at each end.
+    L.boxes.forEach(b => {
+        const g = new THREE.Group();
+        const body = new THREE.Mesh(new THREE.BoxGeometry(b.w, 1.1, b.d), _mat(0x4a2c18, 0.6));
+        body.position.y = 0.55; g.add(body);
+        const top = new THREE.Mesh(new THREE.BoxGeometry(b.w + 0.1, 0.08, b.d + 0.1), _mat(0x1d1a17, 0.3, 0.2));
+        top.position.y = 1.14; g.add(top);
+        const brass = _mat(0xc9a24a, 0.3, 0.85);
+        for (let i = 0; i <= Math.floor(b.w / 0.45); i++) {
+            const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.9, 6), brass);
+            bar.position.set(-b.w / 2 + i * 0.45, 1.6, 0); g.add(bar);
+        }
+        const rail = new THREE.Mesh(new THREE.BoxGeometry(b.w, 0.06, 0.06), brass);
+        rail.position.y = 2.05; g.add(rail);
+        [-1, 1].forEach(s => {
+            const shade = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.28, 0.2, 12, 1, true),
+                new THREE.MeshStandardMaterial({ color: 0x1f7a3a, emissive: 0x1f7a3a, emissiveIntensity: 0.8, side: THREE.DoubleSide }));
+            shade.position.set(s * (b.w / 2 - 0.4), 1.5, 0); g.add(shade);
+            const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 6), new THREE.MeshBasicMaterial({ color: 0xfff2c0 }));
+            bulb.position.set(s * (b.w / 2 - 0.4), 1.42, 0); g.add(bulb);
+            const pool = new THREE.Mesh(new THREE.CircleGeometry(1.3, 20),
+                new THREE.MeshBasicMaterial({ color: 0x4fbf6a, transparent: true, opacity: 0.1, depthWrite: false }));
+            pool.rotation.x = -Math.PI / 2; pool.position.set(s * (b.w / 2 - 0.4), 1.19, 0); g.add(pool);
+        });
+        g.position.set(b.x, 0, b.z);
+        g.traverse(o => { if (o.isMesh && o.geometry.type !== 'CircleGeometry') o.castShadow = true; });
+        scene.add(g);
+    });
+
+    // The vaults, one at each end: a steel frame and a round door swung open.
+    const steel = _mat(0x7c8594, 0.35, 0.85);
+    const vaults = L.vaults.map(v => {
+        const g = new THREE.Group();
+        const back = new THREE.Mesh(new THREE.BoxGeometry(4.4, 2.4, 0.4), _mat(0x3a4150, 0.5, 0.5));
+        back.position.set(0, 1.2, -v.face * 1.4); g.add(back);
+        [-1, 1].forEach(s => {
+            const side = new THREE.Mesh(new THREE.BoxGeometry(0.4, 2.4, 2.8), _mat(0x3a4150, 0.5, 0.5));
+            side.position.set(s * 2.0, 1.2, 0); g.add(side);
+        });
+        const door = new THREE.Mesh(new THREE.CylinderGeometry(1.25, 1.25, 0.35, 28), steel);
+        door.rotation.z = Math.PI / 2;
+        door.rotation.y = 0.9;
+        door.position.set(2.6, 1.3, v.face * 1.5); g.add(door);
+        const wheel = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.06, 8, 16), _mat(0xc9a24a, 0.3, 0.85));
+        wheel.position.set(2.75, 1.3, v.face * 1.5 + 0.25); wheel.rotation.y = 0.9 + Math.PI / 2; g.add(wheel);
+        g.position.set(v.x, 0, v.z);
+        g.traverse(o => { if (o.isMesh) o.castShadow = true; });
+        scene.add(g);
+        return g;
+    });
+
+    // Loot, placed at the game's spots, handed back so the game can hide what
+    // gets taken and restore it between rounds. From straight overhead in a
+    // dark room the first pass was a few gold pixels, so every prize is now
+    // oversized, floats and turns over a bright pulsing ring, and carries its
+    // value painted beside it for the thief to read.
+    const barMat = _mat(0xffd35c, 0.2, 0.85, { emissive: 0xb07a00, emissiveIntensity: 0.9 });
+    const sackMat = _mat(0xa07a45, 0.8, 0, { emissive: 0x3a2a10, emissiveIntensity: 0.5 });
+    const LOOT_SCALE = 1.6;
+    const loot = L.loot.map(l => {
+        const g = new THREE.Group();
+        const float = new THREE.Group();
+        if (l.kind === 'bar') {
+            for (let i = 0; i < 3; i++) {
+                const bar = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.22, 0.3), barMat);
+                bar.position.set((i - 1) * 0.34, 0.11 + (i === 1 ? 0.22 : 0), 0);
+                float.add(bar);
+            }
+        } else if (l.kind === 'box') {
+            // A safe-deposit drawer pulled out, gold showing.
+            const box = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.28, 0.5), _mat(0xb8c2d2, 0.25, 0.9));
+            box.position.y = 0.14; float.add(box);
+            const handle = new THREE.Mesh(new THREE.TorusGeometry(0.08, 0.02, 6, 12, Math.PI), barMat);
+            handle.position.set(0, 0.14, 0.26); float.add(handle);
+            const glint = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.08, 0.34), barMat);
+            glint.position.y = 0.3; float.add(glint);
+        } else {
+            const bag = new THREE.Mesh(new THREE.SphereGeometry(0.34, 12, 10), sackMat);
+            bag.scale.set(1, 1.15, 1); bag.position.y = 0.36; float.add(bag);
+            const tie = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.12, 0.2, 8), sackMat);
+            tie.position.y = 0.78; float.add(tie);
+            const sign = textPlane('$', { w: 0.38, h: 0.38, bg: '#8a6a3e', fg: '#fff3c4', border: '#8a6a3e' });
+            sign.position.set(0, 0.4, 0.33); float.add(sign);
+        }
+        float.scale.setScalar(LOOT_SCALE);
+        float.position.y = 0.35;
+        float.traverse(o => { if (o.isMesh) o.castShadow = true; });
+        g.add(float);
+        const ring = new THREE.Mesh(new THREE.RingGeometry(0.95, 1.25, 28),
+            new THREE.MeshBasicMaterial({ color: 0xffc94d, transparent: true, opacity: 0.5, depthWrite: false, side: THREE.DoubleSide }));
+        ring.rotation.x = -Math.PI / 2; ring.position.y = 0.025; g.add(ring);
+        const pool = new THREE.Mesh(new THREE.CircleGeometry(0.95, 24),
+            new THREE.MeshBasicMaterial({ color: 0xffd35c, transparent: true, opacity: 0.22, depthWrite: false }));
+        pool.rotation.x = -Math.PI / 2; pool.position.y = 0.02; g.add(pool);
+        const tag = textPlane(`+${l.v}`, { w: 1.2, h: 0.8, bg: '#3b2a05', fg: '#ffd35c', border: '#ffd35c' });
+        tag.rotation.x = -Math.PI / 2; tag.position.set(l.x > 0.5 ? -1.55 : 1.55, 0.05, 0); g.add(tag);
+        g.position.set(l.x, 0, l.z);
+        g.userData = { float, ring, pool, tag, phase: Math.random() * 6 };
+        scene.add(g);
+        return g;
+    });
+
+    return {
+        loot, vaults, escapes, place: B.name,
+        /** Turn the value labels to face the thief (`end` = +1 for P1's end, -1 for P2's). */
+        orientFor(end) {
+            loot.forEach(g => {
+                g.userData.tag.rotation.z = end > 0 ? 0 : Math.PI;
+                // Beside the prize on the side facing the middle of the room,
+                // so a prize by a wall never paints its value into the wall.
+                g.userData.tag.position.x = g.position.x > 0.5 ? -1.55 : 1.55;
+            });
+        },
+        /** Light the thief's escape strip: dim on the way in, blazing with loot. */
+        showEscape(end, carrying) {
+            Object.values(escapes).forEach(e => {
+                const mine = e.userData.end === end;
+                e.visible = mine;
+                e.userData.hot = mine && carrying;
+            });
+        },
+        update(dt, t) {
+            loot.forEach(g => {
+                const u = g.userData, k = t * 3 + u.phase;
+                u.float.position.y = 0.35 + Math.sin(k) * 0.12;
+                u.float.rotation.y += dt * 1.2;
+                u.ring.scale.setScalar(1 + Math.sin(k) * 0.12);
+                u.ring.material.opacity = 0.45 + Math.sin(k) * 0.15;
+            });
+            Object.values(escapes).forEach(e => {
+                const u = e.userData, hot = !!u.hot;
+                u.band.material.opacity = hot ? 0.42 + Math.sin(t * 6) * 0.14 : 0.14;
+                u.word.material.opacity = hot ? 1 : 0.45;
+                u.chevrons.forEach((c, i) => {
+                    c.material.opacity = hot ? 0.5 + 0.5 * Math.max(0, Math.sin(t * 7 - i)) : 0.25;
+                });
+            });
+        },
+    };
+}
+
+// ---- Ironwood Railyard: on the roof of the 4:15 -------------------------
+//
+// The train stands still and the Territory goes past it. Everything outside
+// the train is a SCROLLER: it moves +x at its own speed and wraps round, so
+// the near things (sleepers, telegraph poles, the yard's clutter) stream by
+// and the far ones (buttes, the water tower) crawl — parallax is what sells
+// the speed. The train points -x: the locomotive is on the left.
+//
+// A bridge is a low timber trestle across the track, spawned ahead of the
+// train and carried past with the near scenery. The set moves it; the game
+// asks where it is.
+export function buildRailRun(stage, { speed = 16, roofY = 3.4, roofHalf = 5.6 } = {}) {
+    const B = DISTRICT_BIOMES.rail;
+    const scene = stage.scene;
+    scene.background = new THREE.Color(_hex(B.bgBot));
+    scene.fog = new THREE.Fog(_hex(B.fog), 45, 170);
+    scene.add(_skyDome(_hex(B.bgTop), _hex(B.bgBot)));
+    // Dawn: a low sun from ahead of the train.
+    stage.light({ sun: 0xffc98a, sunI: 1.35, sky: 0xbfd0ea, ground: 0x6a4a30, hemiI: 0.6,
+                  rim: 0x9fd0ff, rimI: 0.45, dir: [-18, 10, 10], span: 12 });
+    const sunDisc = new THREE.Mesh(new THREE.CircleGeometry(8, 32), new THREE.MeshBasicMaterial({ color: 0xffd9a0, fog: false }));
+    sunDisc.position.set(-90, 12, -150); sunDisc.lookAt(0, 12, 0); scene.add(sunDisc);
+
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(500, 400), _mat(0x8a6a4c, 1));
+    ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
+    const bed = new THREE.Mesh(new THREE.PlaneGeometry(500, 4.4), _mat(0x6f6358, 1));
+    bed.rotation.x = -Math.PI / 2; bed.position.y = 0.02; bed.receiveShadow = true; scene.add(bed);
+    const steel = _mat(0x9aa0a8, 0.35, 0.85);
+    [-0.75, 0.75].forEach(z => {
+        const r = new THREE.Mesh(new THREE.BoxGeometry(500, 0.12, 0.1), steel);
+        r.position.set(0, 0.22, z); scene.add(r);
+    });
+
+    const scrollers = [];
+    const scroll = (obj, rate, span) => { obj.userData.scroll = { rate, span }; scene.add(obj); scrollers.push(obj); return obj; };
+
+    // Sleepers: the one thing close enough to read the speed off.
+    const sleeperMat = _mat(0x4a3526, 0.95);
+    for (let i = 0; i < 50; i++) {
+        const sl = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.14, 2.6), sleeperMat);
+        sl.position.set(-60 + i * 2.4, 0.1, 0); sl.receiveShadow = true;
+        scroll(sl, 1, 120);
+    }
+    // Telegraph poles along the line, and the yard going by behind them.
+    const wood = _mat(0x5a4230, 0.9);
+    for (let i = 0; i < 8; i++) {
+        const g = new THREE.Group();
+        const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.16, 7, 7), wood);
+        pole.position.y = 3.5; g.add(pole);
+        const arm = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.14, 1.8), wood);
+        arm.position.y = 6.6; g.add(arm);
+        g.position.set(-60 + i * 15, 0, -5.5);
+        scroll(g, 1, 120);
+    }
+    for (let i = 0; i < 9; i++) {
+        const r = [0.1, 0.65, 0.85, 0.2, 0.7, 0.9, 0.15, 0.68, 0.8][i];
+        const p = PROP_KIT.railyard(r, 500 + i);
+        p.position.set(-60 + i * 13.5 + _rand(i) * 4, 0, -9 - _rand(i + 3) * 6);
+        p.rotation.y = _rand(i + 7) * 3;
+        scroll(p, 1, 120);
+    }
+    for (let i = 0; i < 3; i++) {
+        const shed = PROP_KIT.railShed(new THREE.Vector3(0, 0, 0), 600 + i);
+        shed.position.set(-70 + i * 50, 0, -22);
+        scroll(shed, 0.55, 150);
+    }
+    // Far away: buttes and the water tower, barely moving.
+    [[-80, -90, 1], [-20, -110, 2], [40, -95, 3], [100, -120, 4]].forEach(([x, z, sd]) => {
+        const r = PROP_KIT.badlandsRock(new THREE.Vector3(0, 0, 0), 700 + sd);
+        r.position.set(x, 0, z); r.scale.setScalar(1.5);
+        scroll(r, 0.06, 260);
+    });
+    const tower = new THREE.Group();
+    const tank = new THREE.Mesh(new THREE.CylinderGeometry(3, 3, 4, 16), _mat(0x6b4a2c, 0.85));
+    tank.position.y = 10; tower.add(tank);
+    const cap = new THREE.Mesh(new THREE.ConeGeometry(3.3, 1.8, 16), _mat(0x3f2a1a, 0.8));
+    cap.position.y = 12.9; tower.add(cap);
+    [[-2, -2], [2, -2], [-2, 2], [2, 2]].forEach(([x, z]) => {
+        const leg = new THREE.Mesh(new THREE.BoxGeometry(0.4, 8, 0.4), wood);
+        leg.position.set(x, 4, z); tower.add(leg);
+    });
+    tower.position.set(10, 0, -45);
+    scroll(tower, 0.25, 200);
+
+    // ---- The train: a carriage under the players, the locomotive ahead ----
+    const train = new THREE.Group();
+    const red = _mat(0x8a2f22, 0.6), dark = _mat(0x24201c, 0.5, 0.4), brass = _mat(0xc9a24a, 0.3, 0.85);
+    const L = roofHalf * 2;
+    const body = new THREE.Mesh(new THREE.BoxGeometry(L, roofY - 1.1, 2.6), red);
+    body.position.y = 0.95 + (roofY - 1.1) / 2; train.add(body);
+    const roof = new THREE.Mesh(new THREE.BoxGeometry(L + 0.3, 0.2, 2.9), _mat(0x3a2c22, 0.75));
+    roof.position.y = roofY - 0.1; train.add(roof);
+    for (let i = 0; i < 7; i++) {        // windows, warm inside
+        const w = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.8), new THREE.MeshBasicMaterial({ color: 0xffd99a }));
+        w.position.set(-L / 2 + 1 + i * (L - 2) / 6, 2.4, 1.31); train.add(w);
+    }
+    const trim = new THREE.Mesh(new THREE.BoxGeometry(L, 0.12, 2.64), brass);
+    trim.position.y = 1.4; train.add(trim);
+    const wheels = [], spokes = [];
+    [-L / 2 + 1.2, -L / 2 + 2.4, L / 2 - 2.4, L / 2 - 1.2].forEach(x => [-1.1, 1.1].forEach(z => {
+        const wh = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.18, 16), dark);
+        wh.rotation.x = Math.PI / 2; wh.position.set(x, 0.72, z); train.add(wh); wheels.push(wh);
+        const spoke = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.08, 0.2), brass);
+        spoke.position.copy(wh.position); spoke.position.z += Math.sign(z) * 0.1; train.add(spoke); spokes.push(spoke);
+    }));
+    // The locomotive, nose to the left.
+    const loco = new THREE.Group();
+    const boiler = new THREE.Mesh(new THREE.CylinderGeometry(1.15, 1.15, 5.5, 18), _mat(0x1f2328, 0.4, 0.6));
+    boiler.rotation.z = Math.PI / 2; boiler.position.set(-3.2, 2.4, 0); loco.add(boiler);
+    const band = new THREE.Mesh(new THREE.CylinderGeometry(1.18, 1.18, 0.2, 18), brass);
+    band.rotation.z = Math.PI / 2; band.position.set(-2.2, 2.4, 0); loco.add(band);
+    const cab = new THREE.Mesh(new THREE.BoxGeometry(2.4, 3.2, 2.6), _mat(0x2d3a2e, 0.6));
+    cab.position.set(0.6, 2.5, 0); loco.add(cab);
+    const stack = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.3, 1.4, 12), dark);
+    stack.position.set(-5, 4.2, 0); loco.add(stack);
+    const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.3, 10, 8), new THREE.MeshBasicMaterial({ color: 0xfff2c0 }));
+    lamp.position.set(-6, 3.1, 0); loco.add(lamp);
+    const catcher = new THREE.Mesh(new THREE.ConeGeometry(1.2, 1.2, 4), _mat(0x6b2a1e, 0.6));
+    catcher.rotation.z = Math.PI / 2; catcher.position.set(-6.3, 0.9, 0); loco.add(catcher);
+    [-4.6, -3.2, -1.8, 0.2].forEach(x => [-1.1, 1.1].forEach(z => {
+        const wh = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.7, 0.2, 16), dark);
+        wh.rotation.x = Math.PI / 2; wh.position.set(x, 0.9, z); loco.add(wh); wheels.push(wh);
+    }));
+    loco.position.x = -roofHalf - 2.8;
+    train.add(loco);
+    train.traverse(o => { if (o.isMesh) { o.castShadow = true; } });
+    scene.add(train);
+
+    // Smoke off the stack, streaming back over the roof.
+    const smoke = [];
+    const smokeMat = new THREE.MeshStandardMaterial({ color: 0xd8d0c8, transparent: true, opacity: 0.6, roughness: 1 });
+    for (let i = 0; i < 9; i++) {
+        const m = new THREE.Mesh(new THREE.SphereGeometry(0.5, 8, 6), smokeMat.clone());
+        m.userData.t = i / 9 * 2.2;
+        scene.add(m); smoke.push(m);
+    }
+    const stackTop = new THREE.Vector3(-roofHalf - 2.8 - 5, 5, 0);
+
+    // ---- Bridges ----
+    const bridges = [];
+    function makeBridge() {
+        const g = new THREE.Group();
+        const beamY = roofY + 1.05;
+        const beam = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.7, 8), _mat(0x5a4230, 0.9));
+        beam.position.y = beamY + 0.35; g.add(beam);
+        const warn = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.18, 8.02), _mat(0xfacc15, 0.5, 0, { emissive: 0x7a5a00, emissiveIntensity: 0.6 }));
+        warn.position.y = beamY + 0.05; g.add(warn);
+        [-3.8, 3.8].forEach(z => {
+            const post = new THREE.Mesh(new THREE.BoxGeometry(0.7, beamY + 0.7, 0.7), _mat(0x4a3526, 0.9));
+            post.position.set(0, (beamY + 0.7) / 2, z); g.add(post);
+            const brace = new THREE.Mesh(new THREE.BoxGeometry(0.25, 3.5, 0.25), _mat(0x4a3526, 0.9));
+            brace.position.set(0, beamY - 1.2, z * 0.8); brace.rotation.x = z > 0 ? 0.6 : -0.6; g.add(brace);
+        });
+        g.traverse(o => { if (o.isMesh) o.castShadow = true; });
+        g.visible = false;
+        scene.add(g);
+        return g;
+    }
+    for (let i = 0; i < 2; i++) bridges.push(makeBridge());
+
+    let wheelAng = 0;
+    return {
+        speed, roofY, roofHalf, train, bridges,
+        /** Send a bridge from `x` ahead of the train (negative x). */
+        spawnBridge(x) {
+            const b = bridges.find(k => !k.visible) || bridges[0];
+            b.visible = true; b.position.set(x, 0, 0);
+            return b;
+        },
+        update(dt, t) {
+            const d = speed * dt;
+            scrollers.forEach(o => {
+                const s = o.userData.scroll;
+                o.position.x += d * s.rate;
+                if (o.position.x > s.span / 2) o.position.x -= s.span;
+            });
+            bridges.forEach(b => { if (b.visible) { b.position.x += d; if (b.position.x > 40) b.visible = false; } });
+            wheelAng += d / 0.6;
+            wheels.forEach(w => { w.rotation.y = wheelAng; });
+            spokes.forEach(sp => { sp.rotation.z = -wheelAng; });
+            // A gentle rock on the springs.
+            train.position.y = Math.sin(t * 9) * 0.025;
+            train.rotation.z = Math.sin(t * 2.3) * 0.004;
+            smoke.forEach(m => {
+                m.userData.t += dt;
+                if (m.userData.t > 2.2) m.userData.t -= 2.2;
+                const k = m.userData.t;
+                m.position.set(stackTop.x + k * (speed * 0.55), stackTop.y + k * 1.6, Math.sin(k * 3 + m.id) * 0.4);
+                m.scale.setScalar(0.4 + k * 0.55);
+                m.material.opacity = Math.max(0, 0.5 - k * 0.23);
+            });
+        },
+    };
+}
+
+// ---- Cinder Mine: the cart floor ----------------------------------------
+//
+// Underground, "lit by lantern and furnace, not by any sky". The game hands
+// over its track GRAPH (nodes and edges, the numbers the carts ride on) and
+// the set lays rails and sleepers along every edge, a turntable plate and a
+// switch arrow at every junction, and dresses the dark around it: wet rock,
+// ember cracks glowing up through the floor, timber shoring, the ore carts
+// and spoil heaps of the mine's own prop set.
+export function buildMineFloor(stage, G) {
+    const B = DISTRICT_BIOMES.mine;
+    const scene = stage.scene;
+    scene.background = new THREE.Color(0x0c0806);
+    scene.fog = null;
+    scene.add(new THREE.HemisphereLight(0x8a5a3a, 0x120a06, 0.85));
+    const key = new THREE.DirectionalLight(0xffc48a, 0.55);
+    key.position.set(6, 20, 4); scene.add(key);
+    // Two furnace glows, fixed, so the floor is warm at the ends.
+    [[-7, -11], [7, 11]].forEach(([x, z]) => {
+        const l = new THREE.PointLight(0xff7a2a, 1.4, 22, 1.6);
+        l.position.set(x, 3, z); scene.add(l);
+    });
+
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), _mat(0x2a1d16, 0.95));
+    floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor);
+    // Ember cracks: thin glowing lines across the rock, pulsing.
+    const ember = new THREE.MeshBasicMaterial({ color: 0xff6a1a, transparent: true, opacity: 0.55 });
+    const cracks = [];
+    for (let i = 0; i < 22; i++) {
+        const c = new THREE.Mesh(new THREE.PlaneGeometry(0.08 + _rand(i) * 0.08, 1 + _rand(i + 4) * 3), ember.clone());
+        c.rotation.x = -Math.PI / 2; c.rotation.z = _rand(i + 9) * Math.PI;
+        c.position.set((_rand(i + 1) - 0.5) * 14, 0.012, (_rand(i + 2) - 0.5) * 24);
+        scene.add(c); cracks.push(c);
+    }
+    // The rock walls round the floor: boulders and timber shoring.
+    //
+    // NOTHING may reach over the track. The first pass set boulders of up to
+    // 2.4 radius 1.6-3 units outside the rails, so the big ones sat on the
+    // right-hand column itself; and the camera leans in from +x, so anything
+    // tall on that side is projected back across the track as well (a thing
+    // h tall leans ~0.3h toward the middle). So every boulder is placed by its
+    // own radius clear of a margin round the track, and the camera-side ones
+    // are squashed low. Shoring posts stand on the far (-x) side only.
+    const rock = [0x3a2a20, 0x4a3426, 0x2e221a];
+    const clear = G.w / 2 + 1.4;
+    for (let i = 0; i < 26; i++) {
+        const side = i % 2 ? 1 : -1;
+        const r = 0.9 + _rand(i) * 1.2;
+        const b = new THREE.Mesh(new THREE.DodecahedronGeometry(r), _mat(rock[i % 3], 0.95));
+        const along = (i / 26 - 0.5) * 26;
+        const low = side > 0;                          // the camera's side
+        b.scale.set(1, low ? 0.35 : 0.8, 1);
+        b.position.set(side * (clear + r + _rand(i + 3) * 1.2 + (low ? 0.8 : 0)), low ? r * 0.2 : r * 0.35, along);
+        b.rotation.set(0, _rand(i + 1) * 3, 0);
+        scene.add(b);
+    }
+    const timber = _mat(0x5a3d26, 0.9);
+    for (let z = -G.d / 2; z <= G.d / 2 + 0.01; z += G.d / 3) {
+        const post = new THREE.Mesh(new THREE.BoxGeometry(0.4, 3.2, 0.4), timber);
+        post.position.set(-(G.w / 2 + 1.2), 1.6, z); scene.add(post);
+    }
+    // Clutter at the far corners, clear of the rails; low things on the camera side.
+    [[-G.w / 2 - 2.6, -G.d / 2 + 1, 0.1], [G.w / 2 + 3.2, G.d / 2 + 1.5, 0.75], [-G.w / 2 - 2.8, 3, 0.9], [G.w / 2 + 3.4, -G.d / 2 - 1.5, 0.7]]
+        .forEach(([x, z, r], i) => { const p = PROP_KIT.mine(r, 800 + i); p.position.set(x, 0, z); scene.add(p); });
+
+    // Track: rails and sleepers along every edge.
+    const steel = _mat(0x8f949b, 0.35, 0.85), sleeper = _mat(0x4a3322, 0.95);
+    G.edges.forEach(([a, b]) => {
+        const A = G.nodes[a], Bn = G.nodes[b];
+        const dx = Bn.x - A.x, dz = Bn.z - A.z, len = Math.hypot(dx, dz), ang = Math.atan2(dx, dz);
+        const g = new THREE.Group();
+        g.position.set((A.x + Bn.x) / 2, 0, (A.z + Bn.z) / 2);
+        g.rotation.y = ang;
+        for (let t = -len / 2 + 0.35; t < len / 2 - 0.3; t += 0.5) {
+            const sl = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.08, 0.2), sleeper);
+            sl.position.set(0, 0.04, t); sl.receiveShadow = true; g.add(sl);
+        }
+        [-0.28, 0.28].forEach(x => {
+            const r = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.09, len), steel);
+            r.position.set(x, 0.12, 0); g.add(r);
+        });
+        scene.add(g);
+    });
+    // Junctions: a plate and a switch arrow the game turns.
+    const arrows = G.nodes.map(n => {
+        const plate = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.62, 0.08, 20), _mat(0x6b5a48, 0.5, 0.6));
+        plate.position.set(n.x, 0.05, n.z); scene.add(plate);
+        const arrow = new THREE.Group();
+        const shaft = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.06, 0.6), new THREE.MeshBasicMaterial({ color: 0xffe2a8 }));
+        shaft.position.z = 0.05; arrow.add(shaft);
+        const head = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.4, 3), new THREE.MeshBasicMaterial({ color: 0xffe2a8 }));
+        head.rotation.x = Math.PI / 2; head.position.z = 0.5; arrow.add(head);
+        arrow.position.set(n.x, 0.12, n.z);
+        arrow.visible = n.exits > 2;           // a corner has no choice to show
+        scene.add(arrow);
+        return arrow;
+    });
+
+    const dust = B.motes ? _motes({ ...B.motes, spread: 14 }) : null;
+    if (dust) scene.add(dust);
+
+    return {
+        arrows,
+        update(dt, t) {
+            cracks.forEach((c, i) => { c.material.opacity = 0.35 + Math.sin(t * 2 + i) * 0.2; });
+            if (dust) {
+                const p = dust.geometry.attributes.position, a = p.array;
+                for (let i = 0; i < a.length; i += 3) {
+                    a[i + 1] += dt * dust.userData.rise * 0.5;
+                    if (a[i + 1] > 5) a[i + 1] = 0;
+                }
+                p.needsUpdate = true;
+            }
+        },
+    };
+}
+
+// ---- Industrial Zone: the paint works yard ------------------------------
+//
+// "The machines that keep the lights on." A concrete yard under a rust sky,
+// fenced with containers and pipe runs, with drums of paint stacked at the
+// corners. The paintable tiles belong to the game; this is everything round
+// them, kept low and clear of the floor on the camera's (+x) side.
+export function buildWorksYard(stage, { w, d }) {
+    const B = DISTRICT_BIOMES.ind;
+    const scene = stage.scene;
+    scene.background = new THREE.Color(_hex(B.bgBot));
+    scene.fog = null;
+    stage.light({ sun: 0xffd2a0, sunI: 1.25, sky: 0xffc890, ground: 0x4a3a2a, hemiI: 0.75,
+                  rim: 0xffb070, rimI: 0.3, dir: [6, 18, 5], span: 14 });
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(80, 80), _mat(0x6a6259, 0.95));
+    ground.rotation.x = -Math.PI / 2; ground.position.y = -0.02; ground.receiveShadow = true; scene.add(ground);
+    // A hazard-striped kerb round the paint floor.
+    const stripeA = _mat(0xfacc15, 0.6), stripeB = _mat(0x1f1f1f, 0.6);
+    const kerb = (x, z, lw, ld) => {
+        const n = Math.round(Math.max(lw, ld) / 0.6);
+        for (let i = 0; i < n; i++) {
+            const k = new THREE.Mesh(new THREE.BoxGeometry(lw > ld ? lw / n : lw, 0.18, lw > ld ? ld : ld / n), i % 2 ? stripeA : stripeB);
+            if (lw > ld) k.position.set(x - lw / 2 + (i + 0.5) * lw / n, 0.09, z);
+            else k.position.set(x, 0.09, z - ld / 2 + (i + 0.5) * ld / n);
+            k.receiveShadow = true; scene.add(k);
+        }
+    };
+    kerb(0, -d / 2 - 0.25, w + 1, 0.5); kerb(0, d / 2 + 0.25, w + 1, 0.5);
+    kerb(-w / 2 - 0.25, 0, 0.5, d); kerb(w / 2 + 0.25, 0, 0.5, d);
+    // Beyond the kerb: containers and pipes on the far side, cones and paint
+    // drums (low) on the camera's side.
+    [[-w / 2 - 3.2, -6, 0.45], [-w / 2 - 3.2, 3, 0.1], [-w / 2 - 3.4, 9.5, 0.5], [-w / 2 - 3, -11, 0.2]].forEach(([x, z, r], i) => {
+        const p = PROP_KIT.works(r, 1100 + i); p.position.set(x, 0, z); p.rotation.y = Math.PI / 2; scene.add(p);
+    });
+    [[w / 2 + 2.2, -7, 0.7], [w / 2 + 2.4, 6, 0.7]].forEach(([x, z, r], i) => {
+        const p = PROP_KIT.works(r, 1200 + i); p.position.set(x, 0, z); p.rotation.y = Math.PI / 2; scene.add(p);
+    });
+    const drumCols = [0xef4444, 0x3b82f6, 0x22c55e, 0xfacc15];
+    [[w / 2 + 1.6, d / 2 + 1.4], [-w / 2 - 1.6, d / 2 + 1.4], [w / 2 + 1.6, -d / 2 - 1.4], [-w / 2 - 1.6, -d / 2 - 1.4]].forEach(([x, z], i) => {
+        for (let k = 0; k < 3; k++) {
+            const drum = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 1.0, 14), _mat(drumCols[(i + k) % 4], 0.5, 0.3));
+            drum.position.set(x + (k - 1) * 0.9, 0.5, z); drum.castShadow = true; scene.add(drum);
+            const spill = new THREE.Mesh(new THREE.CircleGeometry(0.5 + _rand(i * 3 + k) * 0.5, 16),
+                new THREE.MeshBasicMaterial({ color: drumCols[(i + k) % 4] }));
+            spill.rotation.x = -Math.PI / 2; spill.position.set(x + (k - 1) * 0.9 + 0.4, 0.01, z + 0.5); scene.add(spill);
+        }
+    });
+    return { update() {} };
+}
+
+// ---- Fae Glade: the pond ----------------------------------------------
+//
+// "Glittering and treacherous." Night in the glade: a still, glowing pond,
+// glowing mushrooms and crystal spires round its banks, fireflies. The pads
+// are the game's; the set is the water and everything around it.
+export function buildFaePond(stage, { w, d }) {
+    const B = HBD_BIOMES.find(b => b.key === 'fae');
+    const scene = stage.scene;
+    scene.background = new THREE.Color(_hex(B.bgTop));
+    scene.fog = null;
+    scene.add(new THREE.HemisphereLight(0xc9a2ff, 0x1a0a24, 0.9));
+    const moon = new THREE.DirectionalLight(0xe6d6ff, 0.8);
+    moon.position.set(6, 20, 4); moon.castShadow = true;
+    const sc = moon.shadow.camera; sc.left = -14; sc.right = 14; sc.top = 14; sc.bottom = -14;
+    moon.shadow.mapSize.set(1024, 1024);
+    scene.add(moon);
+    const bank = new THREE.Mesh(new THREE.PlaneGeometry(80, 80), _mat(0x2a1838, 0.95));
+    bank.rotation.x = -Math.PI / 2; bank.position.y = -0.05; scene.add(bank);
+    // The water: a rounded pool of glowing teal, with slow ripples.
+    const water = new THREE.Mesh(new THREE.PlaneGeometry(w + 2, d + 2, 24, 36),
+        new THREE.MeshStandardMaterial({ color: 0x1b6f84, emissive: 0x0d3a52, emissiveIntensity: 0.9, roughness: 0.15, metalness: 0.2 }));
+    water.rotation.x = -Math.PI / 2; water.position.y = -0.02; water.receiveShadow = true;
+    scene.add(water);
+    // Banks: mushrooms and crystals round the pond, clear of it, the camera's
+    // side kept low.
+    for (let i = 0; i < 18; i++) {
+        const side = i % 2 ? 1 : -1;
+        const z = (i / 18 - 0.5) * (d + 4);
+        const g = PROP_KIT.faeDecor(4000 + i * 7);
+        g.position.set(side * (w / 2 + 1.8 + _rand(i) * 1.5), 0, z);
+        if (side > 0) g.scale.set(1, 0.45, 1);
+        scene.add(g);
+    }
+    // Fireflies.
+    const flies = [];
+    for (let i = 0; i < 26; i++) {
+        const f = new THREE.Mesh(new THREE.SphereGeometry(0.06, 6, 4), new THREE.MeshBasicMaterial({ color: 0xfff3a0 }));
+        f.userData = { x: (_rand(i) - 0.5) * (w + 4), z: (_rand(i + 5) - 0.5) * (d + 4), y: 0.6 + _rand(i + 9) * 2, ph: _rand(i + 2) * 6 };
+        scene.add(f); flies.push(f);
+    }
+    const pos = water.geometry.attributes.position;
+    const base = Float32Array.from(pos.array);
+    return {
+        water,
+        update(dt, t) {
+            for (let i = 0; i < pos.count; i++) {
+                const x = base[i * 3], y = base[i * 3 + 1];
+                pos.array[i * 3 + 2] = Math.sin(x * 1.3 + t * 1.4) * 0.03 + Math.cos(y * 1.1 + t) * 0.03;
+            }
+            pos.needsUpdate = true;
+            flies.forEach(f => {
+                const u = f.userData;
+                f.position.set(u.x + Math.sin(t * 0.7 + u.ph) * 0.8, u.y + Math.sin(t * 2 + u.ph) * 0.2, u.z + Math.cos(t * 0.5 + u.ph) * 0.8);
+                f.material.opacity = 0.5 + Math.sin(t * 5 + u.ph) * 0.5;
+            });
+        },
+    };
+}
+
+// ---- City Ring Road: the fountain park ----------------------------------------
+//
+// "Four lanes of ordinary, and that is the point." Midday in the park in the
+// middle of the ring: a round lawn, a paved path round it, the fountain off to
+// one side, trees and benches, and a string of party lanterns on four poles
+// over the lawn. The lanterns are the set's one handle: lights(level) sets
+// their glow from 0 (off) to 1, which is how Musical Chairs shows the music
+// stopping to a player who has the sound off.
+export function buildRingPark(stage, { w = 12, d = 18, lanterns = true } = {}) {
+    const B = DISTRICT_BIOMES.ring;
+    const scene = stage.scene;
+    scene.background = new THREE.Color(_hex(B.bgBot));
+    scene.fog = null;
+    stage.light({ sun: 0xfff3dd, sunI: 1.2, sky: 0xbfe0f5, ground: 0x3f6a38, hemiI: 0.8,
+                  rim: 0xffffff, rimI: 0.2, dir: [5, 18, 6], span: 14 });
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(90, 90), _mat(0x8a929c, 0.95));
+    ground.rotation.x = -Math.PI / 2; ground.position.y = -0.03; ground.receiveShadow = true; scene.add(ground);
+    const R = Math.min(w, d) / 2 + 1.2;
+    const path = new THREE.Mesh(new THREE.CircleGeometry(R + 1.3, 48), _mat(0xd6cbb5, 0.9));
+    path.rotation.x = -Math.PI / 2; path.position.y = -0.02; path.scale.set(1, (d / 2 + 2) / (R + 1.3), 1);
+    path.receiveShadow = true; scene.add(path);
+    const lawn = new THREE.Mesh(new THREE.CircleGeometry(R, 48), _mat(0x5fae4a, 0.95));
+    lawn.rotation.x = -Math.PI / 2; lawn.position.y = -0.01; lawn.scale.set(1, (d / 2 + 0.6) / R, 1);
+    lawn.receiveShadow = true; scene.add(lawn);
+
+    // Trees and benches round the path, clear of the lawn.
+    const trunkM = _mat(0x6b4a2e, 0.9), leafM = _mat(0x3f8f3a, 0.9), leafM2 = _mat(0x57a84a, 0.9);
+    const benchM = _mat(0x8b5a2b, 0.8), metalM = _mat(0x2f3338, 0.5, 0.5);
+    const tree = (x, z, k) => {
+        const g = new THREE.Group();
+        const t = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.28, 2, 6), trunkM); t.position.y = 1; t.castShadow = true; g.add(t);
+        const l = new THREE.Mesh(new THREE.SphereGeometry(1.4 + _rand(k) * 0.4, 9, 8), k % 2 ? leafM : leafM2);
+        l.position.y = 3; l.scale.y = 1.1; l.castShadow = true; g.add(l);
+        g.position.set(x, 0, z); scene.add(g);
+    };
+    const bench = (x, z, rot) => {
+        const g = new THREE.Group();
+        const seat = new THREE.Mesh(new THREE.BoxGeometry(2, 0.12, 0.6), benchM); seat.position.y = 0.62; g.add(seat);
+        const back = new THREE.Mesh(new THREE.BoxGeometry(2, 0.7, 0.1), benchM); back.position.set(0, 1, -0.25); g.add(back);
+        [-0.75, 0.75].forEach(lx => { const leg = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.62, 0.6), metalM); leg.position.set(lx, 0.31, 0); g.add(leg); });
+        g.traverse(o => { if (o.isMesh) o.castShadow = true; });
+        g.position.set(x, 0, z); g.rotation.y = rot; scene.add(g);
+    };
+    const sx = w / 2 + 3.2;
+    [[-sx, -d / 2 + 1], [-sx, 2], [-sx - 1, d / 2 + 1], [sx + 1.5, -d / 2 - 1], [sx + 1, d / 2 + 2]].forEach(([x, z], k) => tree(x, z, k));
+    bench(-sx + 1, -3.5, Math.PI / 2); bench(-sx + 1, 6.5, Math.PI / 2);
+
+    // The fountain, off to the +x side: a basin, a column, spray.
+    const basin = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 2.6, 0.6, 28), _mat(0xcfd6dd, 0.6));
+    basin.position.set(sx + 0.6, 0.3, 1); basin.castShadow = true; scene.add(basin);
+    const water = new THREE.Mesh(new THREE.CircleGeometry(2.15, 28),
+        new THREE.MeshStandardMaterial({ color: 0x5fb7e8, emissive: 0x1b5f86, emissiveIntensity: 0.4, roughness: 0.1 }));
+    water.rotation.x = -Math.PI / 2; water.position.set(sx + 0.6, 0.55, 1); scene.add(water);
+    const col = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.35, 1.6, 12), _mat(0xcfd6dd, 0.6));
+    col.position.set(sx + 0.6, 1.1, 1); scene.add(col);
+    const drops = [];
+    for (let i = 0; i < 16; i++) {
+        const m = new THREE.Mesh(new THREE.SphereGeometry(0.09, 6, 4), new THREE.MeshBasicMaterial({ color: 0xd8f1ff, transparent: true, opacity: 0.85 }));
+        m.userData.ph = i / 16; scene.add(m); drops.push(m);
+    }
+
+    // Party lanterns: four poles at the lawn's corners, strings between them.
+    const poleM = _mat(0x3a3f45, 0.5, 0.4);
+    // A side-on camera stands where the near string would hang: those games
+    // pass lanterns: false.
+    const corners = lanterns ? [[-w / 2 - 0.9, -d / 2 - 0.9], [w / 2 + 0.9, -d / 2 - 0.9], [w / 2 + 0.9, d / 2 + 0.9], [-w / 2 - 0.9, d / 2 + 0.9]] : [];
+    corners.forEach(([x, z]) => {
+        const p = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 4.2, 8), poleM);
+        p.position.set(x, 2.1, z); p.castShadow = true; scene.add(p);
+    });
+    const bulbCols = [0xff5a5a, 0xffd23f, 0x4fd1ff, 0x7cff6b, 0xff7ad9];
+    const bulbs = [];
+    corners.forEach(([x0, z0], i) => {
+        const [x1, z1] = corners[(i + 1) % 4];
+        const n = Math.round(Math.hypot(x1 - x0, z1 - z0) / 1.1);
+        for (let k = 1; k < n; k++) {
+            const u = k / n;
+            const m = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 6),
+                new THREE.MeshStandardMaterial({ color: bulbCols[(i * 7 + k) % 5], emissive: bulbCols[(i * 7 + k) % 5], emissiveIntensity: 1 }));
+            m.position.set(x0 + (x1 - x0) * u, 4 - Math.sin(u * Math.PI) * 0.7, z0 + (z1 - z0) * u);
+            scene.add(m); bulbs.push(m);
+        }
+    });
+    let level = 1;
+    return {
+        lights(v) { level = Math.max(0, Math.min(1, v)); },
+        update(dt, t) {
+            drops.forEach(m => {
+                const u = (t * 0.8 + m.userData.ph) % 1, a = m.userData.ph * Math.PI * 2;
+                m.position.set(sx + 0.6 + Math.cos(a) * u * 1.6, 1.9 + Math.sin(u * Math.PI) * 1.1 - u * 1.2, 1 + Math.sin(a) * u * 1.6);
+            });
+            bulbs.forEach((b, i) => { b.material.emissiveIntensity = level * (0.75 + Math.sin(t * 3 + i) * 0.25); });
+        },
+    };
+}
+
+// ---- Back Alley rooftops: the neon night run --------------------------------
+//
+// "Night. The only district lit by its own signage rather than the sky." The
+// game hands over a COURSE — roofs (x0, x1, y), vents and hanging signs — and
+// the set builds a block of brick under every roof, windows lit at random,
+// the course's obstacles, and a finish banner. Behind it all, two layers of
+// skyline slide past slower than the roofs do, and a moon that hardly moves.
+// The camera travels, so the set is told where it is: update(dt, t, camX)
+// walks the key light and the parallax layers along with it.
+export function buildRooftops(stage) {
+    const B = DISTRICT_BIOMES.ba;
+    const scene = stage.scene;
+    scene.background = new THREE.Color(_hex(B.bgBot));
+    scene.fog = new THREE.Fog(_hex(B.fog), 30, 110);
+    const sky = _skyDome(_hex(B.bgTop), _hex(B.bgBot));
+    scene.add(sky);
+    const L = stage.light({ sun: 0xc9b8ff, sunI: 0.9, sky: 0x8a6ab8, ground: 0x2a1030, hemiI: 0.75,
+                            rim: 0x35e0ff, rimI: 0.9, dir: [-6, 14, 12], span: 16 });
+    if (L) scene.add(L.key.target);
+    // Neon spill: one pink and one cyan fill that ride along with the camera.
+    const pink = new THREE.PointLight(0xff4fa3, 1.1, 26, 1.6);
+    const cyan = new THREE.PointLight(0x35e0ff, 0.9, 26, 1.6);
+    scene.add(pink, cyan);
+    const moon = new THREE.Mesh(new THREE.CircleGeometry(5, 32), new THREE.MeshBasicMaterial({ color: 0xffe9f4, fog: false }));
+    moon.position.set(0, 26, -120); scene.add(moon);
+    const glow = new THREE.Mesh(new THREE.PlaneGeometry(400, 30), new THREE.MeshBasicMaterial({ color: 0xff7a3d, transparent: true, opacity: 0.35, fog: false, depthWrite: false }));
+    glow.position.set(0, -20, -40); scene.add(glow);                 // the street's orange haze, far below
+
+    // Skyline layers: box towers with lit windows, parallaxed.
+    const winGeo = new THREE.PlaneGeometry(0.5, 0.7);
+    const winMat = new THREE.MeshBasicMaterial({ color: 0xffc47a });
+    const layers = [];
+    [[-34, 0.35, 16, 0x241733], [-62, 0.15, 26, 0x1a1026]].forEach(([z, rate, tall, col], li) => {
+        const span = 180, items = [];
+        const mat = _mat(col, 0.95);
+        for (let i = 0; i < 16; i++) {
+            const w = 6 + _rand(i + li * 40) * 8, h = tall * (0.6 + _rand(i * 3 + li) * 0.9);
+            const g = new THREE.Group();
+            const box = new THREE.Mesh(new THREE.BoxGeometry(w, h + 30, 6), mat);
+            box.position.y = h / 2 - 15; g.add(box);
+            const lit = new THREE.InstancedMesh(winGeo, winMat, 40);
+            const m4 = new THREE.Matrix4();
+            let n = 0;
+            for (let k = 0; k < 40; k++) {
+                if (_rand(i * 91 + k + li * 7) > 0.45) continue;
+                m4.makeTranslation((_rand(k * 5 + i) - 0.5) * (w - 1), h - 1.2 - Math.floor(_rand(k * 13 + i) * 12) * 1.3, 3.02);
+                lit.setMatrixAt(n++, m4);
+            }
+            lit.count = n; g.add(lit);
+            if (_rand(i + 17 * li) < 0.3) {                 // a rooftop neon, far off
+                const col2 = [0xff2d78, 0x2ddcff, 0xffd12d, 0x8b5cf6][i % 4];
+                const bar = new THREE.Mesh(new THREE.BoxGeometry(w * 0.6, 0.6, 0.3), new THREE.MeshBasicMaterial({ color: col2 }));
+                bar.position.set(0, h + 0.8, 2.5); g.add(bar);
+            }
+            g.position.z = z;
+            g.userData.bx = i * (span / 16) + _rand(i + 3) * 4;
+            scene.add(g); items.push(g);
+        }
+        layers.push({ items, rate, span });
+    });
+
+    // ---- The course ----
+    let course = null;
+    const neon = [0xff2d78, 0x2ddcff, 0xffd12d, 0x8b5cf6, 0x34f5a0];
+    const WORDS = ['NOODLES', 'KARAOKE', 'PAWN', 'OPEN 24H', 'TATTOO', 'HOTEL', 'ARCADE', 'BAR', 'LUCKY', 'DUMPLINGS'];
+    const brick = _mat(0x3a2230, 0.95), brick2 = _mat(0x2c1c2a, 0.95), tar = _mat(0x2a2530, 0.8);
+    const metal = _mat(0x8a8f99, 0.4, 0.7);
+    function clear() {
+        if (!course) return;
+        scene.remove(course.group);
+        course.group.traverse(o => {
+            o.geometry?.dispose();
+            if (o.material && !o.material.userData?.shared) { o.material.map?.dispose(); o.material.dispose(); }
+        });
+        course = null;
+    }
+    [brick, brick2, tar, metal, winMat].forEach(m => { m.userData.shared = true; });
+
+    function layCourse(C) {
+        clear();
+        const group = new THREE.Group();
+        const steam = [];
+        const winsMax = C.roofs.length * 40;
+        const wins = new THREE.InstancedMesh(winGeo, winMat, winsMax);
+        const m4 = new THREE.Matrix4();
+        let wn = 0;
+        C.roofs.forEach((r, i) => {
+            const w = r.x1 - r.x0;
+            const block = new THREE.Mesh(new THREE.BoxGeometry(w, r.y + 26, 7), i % 2 ? brick : brick2);
+            block.position.set((r.x0 + r.x1) / 2, (r.y - 26) / 2, 0);
+            block.receiveShadow = true; group.add(block);
+            const top = new THREE.Mesh(new THREE.BoxGeometry(w + 0.1, 0.12, 7.1), tar);
+            top.position.set(block.position.x, r.y - 0.05, 0); top.receiveShadow = true; group.add(top);
+            // A lip on the far edge only; the near one would hide feet.
+            const lip = new THREE.Mesh(new THREE.BoxGeometry(w + 0.1, 0.5, 0.3), brick);
+            lip.position.set(block.position.x, r.y + 0.2, -3.4); group.add(lip);
+            // Lit windows on the face the camera sees.
+            for (let k = 0; k < 40 && wn < winsMax; k++) {
+                if (_rand(i * 57 + k) > 0.5) continue;
+                const col = Math.floor(_rand(k * 3 + i) * Math.max(1, Math.floor(w / 1.6)));
+                const row = 1 + Math.floor(_rand(k * 7 + i * 2) * 6);
+                m4.makeTranslation(r.x0 + 0.9 + col * 1.6, r.y - row * 1.6, 3.52);
+                wins.setMatrixAt(wn++, m4);
+            }
+            // Dressing along the back, clear of both lanes: tanks, crates, aerials.
+            const dec = Math.floor(_rand(i * 11) * 3);
+            for (let k = 0; k < dec; k++) {
+                const dx = r.x0 + 1.5 + _rand(i * 7 + k) * Math.max(0.5, w - 3);
+                const kind = _rand(i * 5 + k * 3);
+                let d;
+                if (kind < 0.35) {
+                    d = new THREE.Group();
+                    const tank = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1.8, 14), _mat(0x5a3a2c, 0.85));
+                    tank.position.y = 2.6; d.add(tank);
+                    const cap = new THREE.Mesh(new THREE.ConeGeometry(1.1, 0.7, 14), _mat(0x2c1c1a, 0.8));
+                    cap.position.y = 3.85; d.add(cap);
+                    [[-0.7, -0.7], [0.7, -0.7], [-0.7, 0.7], [0.7, 0.7]].forEach(([a, b]) => {
+                        const leg = new THREE.Mesh(new THREE.BoxGeometry(0.15, 1.7, 0.15), metal);
+                        leg.position.set(a, 0.85, b); d.add(leg);
+                    });
+                } else if (kind < 0.7) {
+                    d = PROP_KIT.alley(0.3 + _rand(i + k) * 0.2, 900 + i * 3 + k);
+                    d.scale.setScalar(0.7);
+                } else {
+                    d = new THREE.Group();
+                    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.07, 3.5, 6), metal);
+                    mast.position.y = 1.75; d.add(mast);
+                    const tip = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 6), new THREE.MeshBasicMaterial({ color: 0xff3355 }));
+                    tip.position.y = 3.55; d.add(tip);
+                }
+                d.position.set(dx, r.y, -2.6);
+                group.add(d);
+            }
+            // A big sign on the building's face, under the roof line.
+            if (i % 2 === 1 && w > 7) {
+                const word = WORDS[i % WORDS.length], col = neon[i % neon.length];
+                const css = '#' + col.toString(16).padStart(6, '0');
+                const sg = textPlane(word, { w: 3.6, h: 1.1, bg: '#140a18', fg: css, border: css });
+                sg.material.emissive = new THREE.Color(0xffffff); sg.material.emissiveMap = sg.material.map; sg.material.emissiveIntensity = 0.9;
+                sg.position.set(r.x0 + w * 0.5, r.y - 2.2, 3.56);
+                group.add(sg);
+            }
+        });
+        wins.count = wn; group.add(wins);
+
+        C.obstacles.forEach((o, i) => {
+            if (o.kind === 'vent') {
+                const g = new THREE.Group();
+                const box = new THREE.Mesh(new THREE.BoxGeometry(o.w, o.h, 3.6), metal);
+                box.position.y = o.h / 2; box.castShadow = true; box.receiveShadow = true; g.add(box);
+                const fan = new THREE.Mesh(new THREE.CylinderGeometry(o.h * 0.32, o.h * 0.32, 0.05, 14), _mat(0x2a2d33, 0.6, 0.5));
+                fan.rotation.x = Math.PI / 2; fan.position.set(0, o.h / 2, 1.82); g.add(fan);
+                const stripe = new THREE.Mesh(new THREE.BoxGeometry(o.w + 0.02, 0.08, 3.62), new THREE.MeshBasicMaterial({ color: 0xfacc15 }));
+                stripe.position.y = o.h - 0.1; g.add(stripe);
+                // What to do about it, on a little board off the far end.
+                const tag = textPlane('▲ JUMP ▲', { w: 1.8, h: 0.58, bg: '#1a1406', fg: '#facc15', border: '#facc15' });
+                tag.material.emissive = new THREE.Color(0xffffff); tag.material.emissiveMap = tag.material.map; tag.material.emissiveIntensity = 1;
+                tag.position.set(0, o.h + 0.65, -2.1); g.add(tag);
+                const stem = new THREE.Mesh(new THREE.BoxGeometry(0.08, o.h + 0.4, 0.08), metal);
+                stem.position.set(0, (o.h + 0.4) / 2, -2.1); g.add(stem);
+                g.position.set(o.x, o.y, 0);
+                group.add(g);
+                steam.push({ at: new THREE.Vector3(o.x, o.y + o.h, 0), ph: _rand(i) * 3 });
+            } else if (o.kind === 'sign') {
+                const col = neon[(i + 2) % neon.length];
+                const css = '#' + col.toString(16).padStart(6, '0');
+                const g = new THREE.Group();
+                // o.bottom / o.top are world heights; the group sits on the roof, so
+                // everything in it is measured from the roof (adding the roof twice
+                // floated the bar on high roofs and sank it into low ones).
+                const bot = o.bottom - o.y, topY = o.top - o.y;
+                const hgt = topY - bot, mid = bot + hgt / 2;
+                // The hazard is the bar across both lanes: a lit slab with a
+                // bright tube along its underside, the edge a runner meets.
+                const slab = new THREE.Mesh(new THREE.BoxGeometry(0.5, hgt, 4.2), _mat(0x1c0f22, 0.6, 0, { emissive: col, emissiveIntensity: 0.25 }));
+                slab.position.y = mid; g.add(slab);
+                const tube = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.12, 4.3), new THREE.MeshBasicMaterial({ color: col }));
+                tube.position.y = bot; g.add(tube);
+                const tube2 = tube.clone(); tube2.position.y = topY; g.add(tube2);
+                // Its name, facing the camera, standing up off the FAR end —
+                // on the near end it hid the near runner going under it.
+                const board = textPlane(WORDS[(i * 3) % WORDS.length], { w: 1.9, h: 0.7, bg: '#140a18', fg: css, border: css });
+                board.material.emissive = new THREE.Color(0xffffff); board.material.emissiveMap = board.material.map; board.material.emissiveIntensity = 1;
+                board.position.set(0, topY + 0.45, -2.1); g.add(board);
+                // What to do about it, hung under the bar's far end.
+                const tag = textPlane('▼ SLIDE ▼', { w: 1.8, h: 0.58, bg: '#061a1a', fg: '#22d3ee', border: '#22d3ee' });
+                tag.material.emissive = new THREE.Color(0xffffff); tag.material.emissiveMap = tag.material.map; tag.material.emissiveIntensity = 1;
+                tag.position.set(0, bot - 0.42, -2.25); g.add(tag);
+                [-2.2, 2.2].forEach(z => {
+                    const post = new THREE.Mesh(new THREE.BoxGeometry(0.14, topY + 0.3, 0.14), metal);
+                    post.position.set(0, (topY + 0.3) / 2, z); g.add(post);
+                });
+                g.position.set(o.x, o.y, 0);
+                group.add(g);
+            }
+        });
+
+        // Finish: a chequered strip and a banner over it.
+        const fin = C.finish, fr = C.roofs[C.roofs.length - 1];
+        const cv = document.createElement('canvas'); cv.width = 64; cv.height = 256;
+        const g2 = cv.getContext('2d');
+        for (let y = 0; y < 16; y++) for (let x = 0; x < 4; x++) { g2.fillStyle = (x + y) % 2 ? '#111' : '#f5f5f5'; g2.fillRect(x * 16, y * 16, 16, 16); }
+        const tex = new THREE.CanvasTexture(cv);
+        const strip = new THREE.Mesh(new THREE.PlaneGeometry(1, 7), new THREE.MeshBasicMaterial({ map: tex }));
+        strip.rotation.x = -Math.PI / 2; strip.position.set(fin, fr.y + 0.02, 0); group.add(strip);
+        const banner = textPlane('FINISH', { w: 4.6, h: 1.1, bg: '#140a18', fg: '#34f5a0', border: '#ff2d78' });
+        banner.material.emissive = new THREE.Color(0xffffff); banner.material.emissiveMap = banner.material.map; banner.material.emissiveIntensity = 1;
+        banner.position.set(fin, fr.y + 4.4, -2.5); group.add(banner);
+        [-3.2, 1.8].forEach(z => {
+            const post = new THREE.Mesh(new THREE.BoxGeometry(0.16, 4.6, 0.16), metal);
+            post.position.set(fin, fr.y + 2.3, z); group.add(post);
+        });
+        const bar = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 5.2), new THREE.MeshBasicMaterial({ color: 0xff2d78 }));
+        bar.position.set(fin, fr.y + 3.7, -0.7); group.add(bar);
+
+        group.traverse(o => { if (o.isMesh && !o.material?.isMeshBasicMaterial) o.castShadow = o.castShadow || false; });
+        scene.add(group);
+        course = { group, steam };
+    }
+
+    const wrap = (v, S) => ((v % S) + S * 1.5) % S - S / 2;
+    return {
+        layCourse,
+        /** Steam vents in reach of the camera; the game puffs them. */
+        get steam() { return course ? course.steam : []; },
+        update(dt, t, camX = 0, camY = 0) {
+            sky.position.x = camX; glow.position.x = camX;
+            moon.position.x = camX * 0.97 + 18;
+            pink.position.set(camX - 4, camY + 4, 5 + Math.sin(t * 1.3) * 0.5);
+            cyan.position.set(camX + 7, camY + 3, 4);
+            if (L) { L.key.position.set(camX - 6, camY + 14, 12); L.key.target.position.set(camX, camY, 0); L.back.position.set(camX + 3, camY + 8, -12); }
+            layers.forEach(l => l.items.forEach(g => { g.position.x = camX + wrap(g.userData.bx - camX * l.rate, l.span); }));
+        },
+        dispose: clear,
+    };
+}
+
+// ---- Shopping Promenade: the block party ---------------------------------
+//
+// "A street festival that never packs up." Golden hour on the promenade: a
+// light-up dance floor in the middle of the street, the DJ's booth behind it
+// between two speaker stacks, bunting and string lights overhead, stalls and
+// shop fronts behind, and a crowd bobbing along. update(dt, t, beat) takes the
+// music's position in beats, so the floor, the speakers and the crowd are all
+// on the same one.
+export function buildBlockParty(stage) {
+    const B = DISTRICT_BIOMES.shop;
+    const scene = stage.scene;
+    scene.background = new THREE.Color(_hex(B.bgBot));
+    scene.fog = new THREE.Fog(_hex(B.fog), 40, 120);
+    scene.add(_skyDome(0x6a3fa0, 0xf5b08a));
+    stage.light({ sun: 0xffc890, sunI: 0.95, sky: 0xc9a8e6, ground: 0x5a3448, hemiI: 0.55,
+                  rim: 0xff9ad0, rimI: 0.55, dir: [-10, 12, 12], span: 14 });
+
+    const street = new THREE.Mesh(new THREE.PlaneGeometry(120, 80), _mat(0x9a7a6a, 0.9));
+    street.rotation.x = -Math.PI / 2; street.receiveShadow = true; scene.add(street);
+    for (let i = -6; i <= 6; i++) {                     // paving joints
+        const j = new THREE.Mesh(new THREE.PlaneGeometry(0.06, 40), _mat(0xa98a70, 1));
+        j.rotation.x = -Math.PI / 2; j.position.set(i * 2.5, 0.005, -5); scene.add(j);
+    }
+
+    // The dance floor: 5 × 3 tiles that light to the beat.
+    const tiles = [];
+    const TW = 1.45, cols = [0xff4fa3, 0x35e0ff, 0xffd12d, 0x8b5cf6, 0x34f5a0];
+    const base = new THREE.Mesh(new THREE.BoxGeometry(5 * TW + 0.3, 0.12, 3 * TW + 0.3), _mat(0x1c1426, 0.5, 0.3));
+    base.position.y = 0.06; base.receiveShadow = true; scene.add(base);
+    for (let r = 0; r < 3; r++) for (let c = 0; c < 5; c++) {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(TW - 0.08, 0.06, TW - 0.08),
+            new THREE.MeshStandardMaterial({ color: 0x2a2036, emissive: cols[(r + c) % 5], emissiveIntensity: 0.2, roughness: 0.35 }));
+        m.position.set((c - 2) * TW, 0.14, (r - 1) * TW + 0.2);
+        m.receiveShadow = true; scene.add(m);
+        tiles.push({ m, r, c, col: cols[(r * 2 + c) % 5] });
+    }
+
+    // The booth and the speakers.
+    const booth = new THREE.Group();
+    const stageBox = new THREE.Mesh(new THREE.BoxGeometry(7, 0.7, 2.6), _mat(0x2a1f38, 0.6));
+    stageBox.position.y = 0.35; booth.add(stageBox);
+    const table = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.7, 0.9), _mat(0x121018, 0.4, 0.4));
+    table.position.set(0, 1.05, 0.6); booth.add(table);
+    const riser = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.3, 1.2), _mat(0x3a2a4a, 0.6));
+    riser.position.set(0, 0.85, -0.45); booth.add(riser);
+    const front = textPlane('BLOCK PARTY', { w: 2.3, h: 0.5, bg: '#140a18', fg: '#ffd12d', border: '#ff4fa3' });
+    front.material.emissive = new THREE.Color(0xffffff); front.material.emissiveMap = front.material.map; front.material.emissiveIntensity = 0.8;
+    front.position.set(0, 1.05, 1.06); booth.add(front);
+    const decks = [];
+    [-0.6, 0.6].forEach(x => {
+        const d = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.32, 0.05, 20), _mat(0x0c0c0c, 0.3));
+        d.position.set(x, 1.43, 0.6); booth.add(d); decks.push(d);
+        const lbl = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.02, 0.06), new THREE.MeshBasicMaterial({ color: 0xff4fa3 }));
+        lbl.position.y = 0.035; d.add(lbl);
+    });
+    const speakers = [];
+    [-2.9, 2.9].forEach(x => {
+        const g = new THREE.Group();
+        const cab = new THREE.Mesh(new THREE.BoxGeometry(1.1, 2.2, 0.9), _mat(0x18141e, 0.6));
+        cab.position.y = 1.1; g.add(cab);
+        [[1.55, 0.36], [0.6, 0.26]].forEach(([y, rad]) => {
+            const cone = new THREE.Mesh(new THREE.CylinderGeometry(rad, rad * 0.6, 0.12, 18), _mat(0x3a3440, 0.5, 0.3));
+            cone.rotation.x = Math.PI / 2; cone.position.set(0, y, 0.48); g.add(cone);
+            speakers.push(cone);
+        });
+        g.position.set(x, 0.7, 0.3); booth.add(g);
+    });
+    booth.position.set(0, 0, -3.9);
+    booth.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+    scene.add(booth);
+
+    // Shop fronts along the back, stalls at the sides.
+    // (PROP_KIT.shopFront dresses itself from the board's city materials, which
+    // do not exist when a game runs without the board; these are the set's own.)
+    const SHOPS = ['RECORDS', 'BAKERY', 'BOUTIQUE', 'TOYS', 'CAFÉ'];
+    const walls = [0xc07ad0, 0xd9a93a, 0x5aa6cf, 0xd97a8a, 0x5fbf86];
+    for (let i = 0; i < 5; i++) {
+        const g = new THREE.Group();
+        const w = 7.4 + _rand(i) * 1.2, h = 6 + _rand(i + 9) * 3;
+        const body = new THREE.Mesh(new THREE.BoxGeometry(w, h, 4), _mat(walls[i], 0.85));
+        body.position.y = h / 2; body.receiveShadow = true; g.add(body);
+        const win = new THREE.Mesh(new THREE.PlaneGeometry(w * 0.66, h * 0.36), _mat(0xfff4d6, 0.3, 0, { emissive: 0xffd9a0, emissiveIntensity: 0.55 }));
+        win.position.set(0, h * 0.26, 2.01); g.add(win);
+        // A striped awning over the window.
+        const cv = document.createElement('canvas'); cv.width = 64; cv.height = 8;
+        const c2 = cv.getContext('2d');
+        for (let k = 0; k < 8; k++) { c2.fillStyle = k % 2 ? '#ffffff' : '#' + cols[i].toString(16).padStart(6, '0'); c2.fillRect(k * 8, 0, 8, 8); }
+        const aw = new THREE.Mesh(new THREE.BoxGeometry(w * 0.8, 0.12, 1.6), new THREE.MeshStandardMaterial({ map: new THREE.CanvasTexture(cv), roughness: 0.7 }));
+        aw.rotation.x = 0.3; aw.position.set(0, h * 0.5, 2.7); aw.castShadow = true; g.add(aw);
+        const sign = textPlane(SHOPS[i], { w: w * 0.55, h: 0.8, bg: '#2a1838', fg: '#fff1b8', border: '#ff4fa3' });
+        sign.position.set(0, h * 0.72, 2.02); g.add(sign);
+        g.position.set((i - 2) * 9, 0, -12);
+        scene.add(g);
+    }
+    [[-7.5, -2.5], [-8, -6], [7.5, -2.5], [8, -6], [-11, -4], [11, -4]].forEach(([x, z], i) => {
+        const st = PROP_KIT.market(i % 2 ? 0.3 : 0.6, 1300 + i);
+        st.position.set(x, 0, z); st.rotation.y = x < 0 ? 0.5 : -0.5;
+        scene.add(st);
+    });
+
+    // Bunting and string lights on poles across the street.
+    const bulbs = [];
+    const poleMat = _mat(0x3a3440, 0.5, 0.5);
+    [-6.5, 6.5].forEach(x => [-1.5, -6].forEach(z => {
+        const p = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 5.4, 8), poleMat);
+        p.position.set(x, 2.7, z); scene.add(p);
+    }));
+    [-1.5, -6].forEach((z, li) => {
+        for (let i = 0; i <= 26; i++) {
+            const u = i / 26, x = -6.5 + u * 13, y = 5.2 - Math.sin(u * Math.PI) * 1.1;
+            if (i % 2 === 0) {
+                const flag = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.42, 3), new THREE.MeshStandardMaterial({ color: cols[(i / 2 + li) % 5], roughness: 0.8 }));
+                flag.rotation.x = Math.PI; flag.position.set(x, y - 0.25, z); scene.add(flag);
+            } else {
+                const b = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 6), new THREE.MeshBasicMaterial({ color: 0xfff1b8 }));
+                b.position.set(x, y - 0.05, z); scene.add(b); bulbs.push(b);
+            }
+        }
+    });
+
+    // The crowd: simple folk round the edges of the floor, bobbing along.
+    const crowd = [];
+    const skin = [0xf2c6a0, 0xc68b5e, 0x8d5a3b, 0xffd9b8];
+    const spots = [[-5.4, 1.2], [-5.8, -0.4], [-5, -1.9], [5.4, 1.2], [5.8, -0.4], [5.1, -1.9], [-4, -2.9], [4, -2.9], [-6.8, 0.6], [6.8, 0.6]];
+    spots.forEach(([x, z], i) => {
+        const g = new THREE.Group();
+        const body = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.34, 1.0, 10), _mat(cols[(i * 3) % 5], 0.8));
+        body.position.y = 0.55; g.add(body);
+        const head = new THREE.Mesh(new THREE.SphereGeometry(0.27, 12, 10), _mat(skin[i % 4], 0.8));
+        head.position.y = 1.3; g.add(head);
+        const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.6, 6), _mat(skin[i % 4], 0.8));
+        arm.position.set(0.3, 1.25, 0); arm.rotation.z = -0.4; g.add(arm);
+        g.position.set(x, 0, z);
+        g.lookAt(0, 0, 0.5);
+        g.traverse(o => { if (o.isMesh) o.castShadow = true; });
+        scene.add(g);
+        crowd.push({ g, arm, ph: _rand(i) * 0.5, jump: _rand(i + 4) > 0.5 });
+    });
+
+    // Two disco spots sweeping the floor.
+    const spots2 = [0xff4fa3, 0x35e0ff].map((c, i) => {
+        const l = new THREE.SpotLight(c, 1.6, 22, 0.35, 0.5, 1.2);
+        l.position.set(i ? 4 : -4, 7, 3);
+        scene.add(l); scene.add(l.target);
+        return l;
+    });
+
+    let lastBeat = -1;
+    return {
+        booth, tiles,
+        update(dt, t, beat = t * 2) {
+            const b = Math.floor(beat), frac = beat - b;
+            const pulse = Math.exp(-frac * 5);
+            if (b !== lastBeat) {
+                lastBeat = b;
+                tiles.forEach(tl => {
+                    const on = ((tl.r + tl.c + b) % 3 === 0) || ((b % 4 === 0) && tl.r === 1);
+                    tl.on = on;
+                    tl.m.material.emissive.setHex(cols[(tl.r + tl.c * 2 + b) % 5]);
+                });
+            }
+            tiles.forEach(tl => { tl.m.material.emissiveIntensity = tl.on ? 0.35 + pulse * 0.9 : 0.12; });
+            speakers.forEach(s => { s.scale.set(1 + pulse * 0.12, 1, 1 + pulse * 0.12); });
+            decks.forEach(d => { d.rotation.y += dt * 3.5; });
+            bulbs.forEach((bl, i) => { bl.material.color.setHex((i + b) % 4 === 0 ? 0xffffff : 0xffe08a); });
+            crowd.forEach(c => {
+                const k = Math.abs(Math.sin((beat + c.ph) * Math.PI));
+                c.g.position.y = (c.jump ? 0.22 : 0.08) * k;
+                c.arm.rotation.z = -0.4 - k * (c.jump ? 1.6 : 0.6);
+            });
+            spots2.forEach((l, i) => {
+                const a = t * 0.9 + i * Math.PI;
+                l.target.position.set(Math.sin(a) * 3, 0, Math.cos(a * 1.3) * 1.5);
+                l.intensity = 0.9 + pulse * 0.7;
+            });
+        },
+    };
+}
+
+// ---- The Void: the rift ----------------------------------------------------
+//
+// "Reality frays at the edge of the Void." A shaft straight down through
+// nothing, its walls cracked with light, and at the bottom the core — the
+// Crown's own glow. Divers start on a glass disc over the mouth of it. The
+// game lays its own rings and shards; the set gives the shaft depth to read:
+// rim lights every twenty units, spires jutting in from the walls, and streaks
+// hanging in the dark that race upward past anyone falling through them.
+export function buildRift(stage, { depth = 420, radius = 7 } = {}) {
+    const B = HBD_BIOMES.find(b => b.key === 'void');
+    const scene = stage.scene;
+    scene.background = new THREE.Color(_hex(B.bgTop));
+    scene.fog = new THREE.Fog(0x120a2a, 14, 75);
+    scene.add(new THREE.HemisphereLight(0x9a8aff, 0x0a0a1a, 0.85));
+    const key = new THREE.DirectionalLight(0xc9d6ff, 0.7);
+    key.position.set(3, 10, 4); scene.add(key);
+
+    // The walls: cracked with light, the texture repeated all the way down.
+    const cv = document.createElement('canvas'); cv.width = 256; cv.height = 256;
+    const g = cv.getContext('2d');
+    g.fillStyle = '#0d0b22'; g.fillRect(0, 0, 256, 256);
+    for (let i = 0; i < 14; i++) {
+        g.strokeStyle = ['#3b82f6', '#a855f7', '#22d3ee', '#60a5fa'][i % 4];
+        g.globalAlpha = 0.25 + _rand(i) * 0.4; g.lineWidth = 1 + _rand(i + 3) * 2;
+        g.beginPath();
+        let x = _rand(i + 7) * 256, y = _rand(i + 11) * 256;
+        g.moveTo(x, y);
+        for (let k = 0; k < 5; k++) { x += (_rand(i * 5 + k) - 0.5) * 70; y += _rand(i * 3 + k) * 50; g.lineTo(x, y); }
+        g.stroke();
+    }
+    g.globalAlpha = 1;
+    const tex = new THREE.CanvasTexture(cv);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(5, Math.round((depth + 60) / 18));
+    const wall = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, depth + 60, 40, 1, true),
+        new THREE.MeshStandardMaterial({ map: tex, emissiveMap: tex, emissive: 0xffffff, emissiveIntensity: 0.55, side: THREE.BackSide, roughness: 0.8 }));
+    wall.position.y = -depth / 2 - 10;
+    scene.add(wall);
+
+    // Rim lights, every twenty units down.
+    const rims = [];
+    for (let y = -10; y > -depth; y -= 20) {
+        const rim = new THREE.Mesh(new THREE.TorusGeometry(radius - 0.05, 0.07, 6, 48),
+            new THREE.MeshBasicMaterial({ color: (y / 20) % 2 ? 0x22d3ee : 0xa855f7 }));
+        rim.rotation.x = Math.PI / 2; rim.position.y = y; scene.add(rim); rims.push(rim);
+    }
+    // Spires jutting in from the walls.
+    const up = new THREE.Vector3(0, 1, 0);
+    for (let i = 0; i < 40; i++) {
+        const a = _rand(i * 3) * Math.PI * 2, y = -8 - _rand(i * 7 + 1) * (depth - 10);
+        const sp = PROP_KIT.voidSpire(5000 + i * 11);
+        sp.scale.setScalar(0.55 + _rand(i + 2) * 0.35);
+        sp.position.set(Math.cos(a) * (radius - 0.1), y, Math.sin(a) * (radius - 0.1));
+        sp.quaternion.setFromUnitVectors(up, new THREE.Vector3(-Math.cos(a), (_rand(i) - 0.5) * 0.6, -Math.sin(a)).normalize());
+        scene.add(sp);
+    }
+    // Streaks: still in the world, so falling past them is the speed.
+    const N = Math.round(depth * 1.2);
+    const streaks = new THREE.InstancedMesh(new THREE.BoxGeometry(0.035, 1.8, 0.035),
+        new THREE.MeshBasicMaterial({ color: 0x9fb8ff, transparent: true, opacity: 0.45, depthWrite: false }), N);
+    const m4 = new THREE.Matrix4();
+    for (let i = 0; i < N; i++) {
+        const a = _rand(i + 0.5) * Math.PI * 2, r = Math.sqrt(_rand(i * 2 + 0.3)) * (radius - 0.6);
+        m4.makeTranslation(Math.cos(a) * r, 4 - _rand(i * 3 + 0.7) * (depth + 8), Math.sin(a) * r);
+        streaks.setMatrixAt(i, m4);
+    }
+    scene.add(streaks);
+
+    // The glass disc they stand on at the top.
+    const disc = new THREE.Mesh(new THREE.CylinderGeometry(3.2, 3.2, 0.15, 36),
+        new THREE.MeshStandardMaterial({ color: 0x9ad8ff, emissive: 0x2a5a9a, emissiveIntensity: 0.6, transparent: true, opacity: 0.55, roughness: 0.1 }));
+    disc.position.y = -0.08; scene.add(disc);
+    const lip = new THREE.Mesh(new THREE.TorusGeometry(3.2, 0.08, 6, 36), new THREE.MeshBasicMaterial({ color: 0x60a5fa }));
+    lip.rotation.x = Math.PI / 2; disc.add(lip);
+
+    // The core at the bottom, and the floor they land on.
+    const coreY = -depth - 2;
+    const floor = new THREE.Mesh(new THREE.CylinderGeometry(radius - 0.1, radius - 0.1, 0.4, 40),
+        new THREE.MeshStandardMaterial({ color: 0x1a1640, emissive: 0x3b2a8a, emissiveIntensity: 0.5, roughness: 0.4 }));
+    floor.position.y = coreY - 0.2; scene.add(floor);
+    const core = new THREE.Mesh(new THREE.CircleGeometry(2.4, 40), new THREE.MeshBasicMaterial({ color: 0xfff0a0 }));
+    core.rotation.x = -Math.PI / 2; core.position.y = coreY + 0.02; scene.add(core);
+    const halo = new THREE.Mesh(new THREE.RingGeometry(2.6, 3.4, 40), new THREE.MeshBasicMaterial({ color: 0xffd12d, transparent: true, opacity: 0.6, side: THREE.DoubleSide }));
+    halo.rotation.x = -Math.PI / 2; halo.position.y = coreY + 0.03; scene.add(halo);
+    const glow = new THREE.PointLight(0xffe08a, 2.2, 40, 1.4);
+    glow.position.set(0, coreY + 3, 0); scene.add(glow);
+
+    return {
+        depth, radius, coreY, disc,
+        update(dt, t) {
+            rims.forEach((r, i) => { r.material.opacity = 1; r.scale.setScalar(1 + Math.sin(t * 3 + i) * 0.004); });
+            halo.rotation.z += dt * 0.6;
+            halo.material.opacity = 0.45 + Math.sin(t * 4) * 0.2;
+            glow.intensity = 2 + Math.sin(t * 3) * 0.4;
+            tex.offset.x = (t * 0.004) % 1;
+        },
+    };
+}
+
+/** Sets by district key. A game asks for the one its story is set in. */
+export const STAGE_SETS = {
+    hub: buildPerditionStreet,
+    bad: buildBootHill,
+    fin: buildBankFloor,
+    rail: buildRailRun,
+    mine: buildMineFloor,
+    ind: buildWorksYard,
+    fae: buildFaePond,
+    ba: buildRooftops,
+    shop: buildBlockParty,
+    void: buildRift,
+    ring: buildRingPark,
+};

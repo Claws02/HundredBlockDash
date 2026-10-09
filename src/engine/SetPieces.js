@@ -27,7 +27,7 @@
 
 import { state } from '../core/GameState.js';
 import { getScene, getCamera, getActiveAnims, getPos, _mkSheriffStar } from './Renderer.js';
-import { sfx } from './AudioManager.js';
+import { sfx } from '../claw-core/engine/AudioManager.js';
 
 // Everything this module adds to the scene, so an interruption can clear it.
 const _props = new Set();

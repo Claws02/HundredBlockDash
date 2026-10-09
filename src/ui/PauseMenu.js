@@ -20,7 +20,7 @@ import { state } from '../core/GameState.js';
 import * as Director from '../core/Director.js';
 import * as Renderer from '../engine/Renderer.js';
 import * as Onboarding from './Onboarding.js';
-import { sfx } from '../engine/AudioManager.js';
+import { sfx } from '../claw-core/engine/AudioManager.js';
 
 let _open = false;
 let _onQuit = null;

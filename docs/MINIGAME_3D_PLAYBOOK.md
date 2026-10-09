@@ -74,7 +74,7 @@ node scripts/new-3d-minigame.js crateclash "Crate Clash" \
     --genre=push --control=thumb --hold=faceoff --desc="Lay the phone flat between you. …"
 ```
 
-This writes `src/minigames/CrateClash.js` (from `_template3d.js`) and
+This writes `src/claw-core/minigames/CrateClash.js` (from `_template3d.js`) and
 `qa/crateclash.js`, and registers the game in all seven places:
 - `MG_TYPES`, `MG_INFO`, `MG_NET`, `MG_SHAPE`, `MG_ORIENTATION_MAP` and `MG_PROFILE` in `MinigameRegistry.js`;
 - `MG_MODULES` in `MinigameManager.js`.
@@ -187,7 +187,7 @@ use the same numbers. The existing keys are listed in `MINIGAME_STANDARD.md` §1
 **Reuse one before building one.**
 
 If the game needs a new place:
-- add a builder to `src/engine/StageSets.js` using `DISTRICT_BIOMES` colours and `PROP_KIT` props;
+- add a builder to `src/claw-core/engine/StageSets.js` using `DISTRICT_BIOMES` colours and `PROP_KIT` props;
 - return `{ update(dt, t), ...handles }`;
 - keep it under about 150 draw calls: instance anything repeated, as Turf War does with its 180 tiles.
 
@@ -236,11 +236,11 @@ node qa/<key>.js
 
 | File | Role |
 |---|---|
-| `src/minigames/_template3d.js` | the skeleton the generator copies |
+| `src/claw-core/minigames/_template3d.js` | the skeleton the generator copies |
 | `scripts/new-3d-minigame.js` | the generator |
-| `src/engine/Stage.js` | renderer, scene, camera, rigs, holds, loop, dispose |
-| `src/engine/StageKit.js` | `seat`, `faceoffHud` / `sideHud`, `touch`, `effects`, `overheadCam` |
-| `src/engine/StageDirector.js` | `open` (cold open) and `close` (verdict) |
-| `src/engine/StageSets.js` | the places |
-| `src/engine/CharacterRig.js` | the figures and their animations |
+| `src/claw-core/engine/Stage.js` | renderer, scene, camera, rigs, holds, loop, dispose |
+| `src/claw-core/engine/StageKit.js` | `seat`, `faceoffHud` / `sideHud`, `touch`, `effects`, `overheadCam` |
+| `src/claw-core/engine/StageDirector.js` | `open` (cold open) and `close` (verdict) |
+| `src/claw-core/engine/StageSets.js` | the places |
+| `src/claw-core/engine/CharacterRig.js` | the figures and their animations |
 | `qa/stageprobe.js` | the probe harness |

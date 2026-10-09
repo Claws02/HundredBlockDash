@@ -14,7 +14,7 @@
 // ============================================================
 require('./stageprobe').run('tag', async ({ page, ok, launch, state, shot, waitPhase, forceEnd, waitResult, cleanup }) => {
     const G = (fn, ...a) => page.evaluate(([fn, a]) => window.__G[fn](...a), [fn, a]);
-    const force = key => page.evaluate(async k => { const M = await import('/src/minigames/TagYoureIt.js'); M._debugForceMap(k); }, key);
+    const force = key => page.evaluate(async k => { const M = await import('/src/claw-core/minigames/TagYoureIt.js'); M._debugForceMap(k); }, key);
     // A real drag on P1's half: stage dx is world x, stage dy is world z.
     const drag = async (wx, wz, ms, watch) => {
         const len = Math.hypot(wx, wz) || 1;

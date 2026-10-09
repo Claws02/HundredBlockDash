@@ -212,7 +212,7 @@ const readCards = page => page.evaluate(() => {
     // ---- SHARED tier: the minigame rules, with dual confirm ----
     await page.waitForTimeout(1200);
     await page.evaluate(async () => {
-        const MM = await import('/src/minigames/MinigameManager.js');
+        const MM = await import('/src/claw-core/minigames/MinigameManager.js');
         MM.trigger(() => {});
     });
     // The game-name slot machine runs on a 100 ms interval that drifts badly

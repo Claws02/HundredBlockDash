@@ -23,8 +23,8 @@ require('./stageprobe').run('kartgp', async ({ page, ok, launch, state, shot, wa
         while (Date.now() - t0 < ms) { const s = await state(); if (s && fn(s)) return s; await page.waitForTimeout(60); }
         return state();
     };
-    const K = fn => page.evaluate(async ([fn]) => (await import('/src/minigames/KartGrandPrix.js'))[fn](...(window.__KA || [])), [fn]);
-    const force = key => page.evaluate(async k => (await import('/src/minigames/KartGrandPrix.js'))._debugForceTrack(k), key);
+    const K = fn => page.evaluate(async ([fn]) => (await import('/src/claw-core/minigames/KartGrandPrix.js'))[fn](...(window.__KA || [])), [fn]);
+    const force = key => page.evaluate(async k => (await import('/src/claw-core/minigames/KartGrandPrix.js'))._debugForceTrack(k), key);
     await force('park');
     await launch();
     await page.waitForTimeout(900);
@@ -123,7 +123,7 @@ require('./stageprobe').run('kartgp', async ({ page, ok, launch, state, shot, wa
     await forceEnd();
 
     // Every circuit: shape, and a bot lap (driven off the clock).
-    const tracks = await page.evaluate(async () => (await import('/src/minigames/KartGrandPrix.js'))._debugTracks());
+    const tracks = await page.evaluate(async () => (await import('/src/claw-core/minigames/KartGrandPrix.js'))._debugTracks());
     ok('five circuits', tracks.length === 5, tracks.join(', '));
     for (const key of tracks) {
         await force(key);

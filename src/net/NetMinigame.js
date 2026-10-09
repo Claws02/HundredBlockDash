@@ -52,10 +52,10 @@ import * as Scenes from '../ui/Scenes.js';
 import * as Session from './NetSession.js';
 import * as ReadyGate from './ReadyGate.js';
 import * as Commands from '../core/Commands.js';
-import * as SoloArena from '../minigames/SoloArena.js';
+import * as SoloArena from '../claw-core/minigames/SoloArena.js';
 import * as SoloRound from '../ui/SoloRound.js';
 import * as RoundBoard from '../ui/RoundBoard.js';
-import { MG_INFO, MG_NET, MG_PARALLEL, MG_PAYOUT } from '../config/MinigameRegistry.js';
+import { MG_INFO, MG_NET, MG_PARALLEL, MG_PAYOUT } from '../claw-core/config/MinigameRegistry.js';
 
 // How long the host will keep waiting after the last expected score fails to
 // arrive. Long enough for a phone that is merely slow, short enough that the

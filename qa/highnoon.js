@@ -30,7 +30,7 @@ const ok = (n, c, d) => (c ? pass : fail).push(n + (d ? ` — ${d}` : ''));
 async function launch(page, skill) {
     await page.evaluate(async skill => {
         const { state } = await import('/src/core/GameState.js');
-        const MM = await import('/src/minigames/MinigameManager.js');
+        const MM = await import('/src/claw-core/minigames/MinigameManager.js');
         window.__RESULT = undefined;
         state.mgActive = true;
         state.mgType = 'highnoon';
@@ -194,7 +194,7 @@ async function waitPhase(page, phase, ms = 15000) {
     await launch(page, 0.55);
     await page.waitForTimeout(1500);
     const forced = await page.evaluate(async () => {
-        const MM = await import('/src/minigames/MinigameManager.js');
+        const MM = await import('/src/claw-core/minigames/MinigameManager.js');
         const R = await import('/src/engine/Renderer.js');
         MM.forceEndMinigame();
         const lay = document.getElementById('minigame-layer');
@@ -233,7 +233,7 @@ async function waitPhase(page, phase, ms = 15000) {
     ok('the manager saw the hold card and the countdown', holdShot && cdShot, `hold=${holdShot} countdown=${cdShot}`);
     ok('the layer is side-on for the countdown, with the edge pills hidden', sideOn === true && pillsHidden === true,
        `side=${sideOn} pillsHidden=${pillsHidden}`);
-    await page.evaluate(async () => { const M = await import('/src/minigames/MinigameManager.js'); M.forceEndMinigame(); });
+    await page.evaluate(async () => { const M = await import('/src/claw-core/minigames/MinigameManager.js'); M.forceEndMinigame(); });
 
     ok('no console/page errors', errors.length === 0, [...new Set(errors)].slice(0, 4).join(' | '));
     console.log('PASS:'); pass.forEach(p => console.log('  ✓', p));

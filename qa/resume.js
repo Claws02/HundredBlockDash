@@ -85,7 +85,7 @@ const boardSig = page => page.evaluate(async () => {
         }
         const j = document.querySelector('#junction-arrows button'); if (j && j.offsetParent) { j.click(); return; }
         const bet = document.querySelector('#duel-bet-options button'); if (bet && bet.offsetParent) { bet.click(); return; }
-        if (s.mgActive) import('/src/minigames/MinigameManager.js').then(M => M.endMinigame(Math.random() < .5 ? 0 : 1));
+        if (s.mgActive) import('/src/claw-core/minigames/MinigameManager.js').then(M => M.endMinigame(Math.random() < .5 ? 0 : 1));
         if (s.gameState === 'PRE_ROLL' && s.activePlayer === 0) { const r = [...document.querySelectorAll('#p1-actions button')].find(x => /roll/i.test(x.innerText)); r && r.click(); }
     }).catch(() => {}), 500);
 
@@ -123,7 +123,7 @@ const boardSig = page => page.evaluate(async () => {
         }
         const j = document.querySelector('#junction-arrows button'); if (j && j.offsetParent) { j.click(); return; }
         const bet = document.querySelector('#duel-bet-options button'); if (bet && bet.offsetParent) { bet.click(); return; }
-        if (s.mgActive) import('/src/minigames/MinigameManager.js').then(M => M.endMinigame(0));
+        if (s.mgActive) import('/src/claw-core/minigames/MinigameManager.js').then(M => M.endMinigame(0));
         if (s.gameState === 'PRE_ROLL' && s.activePlayer === 0) { const r = [...document.querySelectorAll('#p1-actions button')].find(x => /roll/i.test(x.innerText)); r && r.click(); }
     }).catch(() => {}), 500);
     await page.waitForFunction(t => window.__QA.snapshot().totalTurns >= t + 2, t0, { timeout: 600000, polling: 500 }).catch(() => {});
@@ -142,7 +142,7 @@ const boardSig = page => page.evaluate(async () => {
         fire('backButton'); out.backOpens = P.isOpen();
         fire('backButton'); out.backCloses = !P.isOpen();
         fire('appStateChange', { isActive: false }); out.inactivePauses = P.isOpen(); P.close();
-        const A = await import('/src/engine/AudioManager.js');
+        const A = await import('/src/claw-core/engine/AudioManager.js');
         const n0 = window.__cap.impacts.length; A.haptic([80]); A.haptic([10]);
         out.impacts = window.__cap.impacts.slice(n0);
         return out;

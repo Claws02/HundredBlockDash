@@ -331,7 +331,7 @@ const GL = ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=swiftshader',
     // ---------------------------------------------------------------
     const allyCam = await page.evaluate(async () => {
         const { state } = await import('/src/core/GameState.js');
-        const MGM = await import('/src/minigames/MinigameManager.js');
+        const MGM = await import('/src/claw-core/minigames/MinigameManager.js');
         const before = state.cameraState;
         // Drive the real ally-claim path: this is exactly what a landing on an
         // ally node does, minus the encounter modal.
