@@ -147,6 +147,92 @@ const ADAPT = {
             ok(`${tag}: a lane each, at each runner's own end`, new Set(xs.map((x, i) => `${x},${ends[i]}`)).size === SEATS && atOwnEnd, JSON.stringify({ xs, ends }));
         },
     },
+    snowball: {
+        module: 'SnowballFight.js',
+        ready: st => st.phase === 'play',
+        reacted: (a, b, slot) => Math.hypot(b.figs[slot].x - a.figs[slot].x, b.figs[slot].z - a.figs[slot].z) > 0.2,
+        // Everybody in the middle of their own ground before each drag.
+        prep: () => { const G = window.__G; const n = G._debugState().n; (n === 3 ? [[0, 5], [-2.5, -5], [2.5, -5]] : [[-2.5, 5], [2.5, 5], [-2.5, -5], [2.5, -5]]).forEach(([x, z], i) => G._debugPlace(i, x, z)); },
+        // A snowball hits whoever it reaches, not just "the other one": seat 1
+        // lobs one over at the seat across the yard on its own side (seat 3 at
+        // four, seat 2 at three), which lands far enough out to beat a crouch.
+        extra: async (page, tag) => {
+            const r = await page.evaluate(async () => {
+                const G = window.__G, wait = ms => new Promise(f => setTimeout(f, ms));
+                const n = G._debugState().n, target = n === 4 ? 2 : 1;
+                (n === 3 ? [[0, 5], [-2.5, -5], [2.5, -5]] : [[-2.5, 5], [2.5, 5], [-2.5, -5], [2.5, -5]]).forEach(([x, z], i) => G._debugPlace(i, x, z));
+                G._debugPlace(0, -0.8, 2.0, 3); G._debugPlace(target, -0.8, -2.6);
+                const before = G._debugState().figs.map(f => f.hits);
+                G._debugThrow(0, 0, -1, 0);
+                await wait(1200);
+                return { target, before, after: G._debugState().figs.map(f => f.hits) };
+            });
+            const others = r.after.every((h, i) => i === r.target || h === r.before[i]);
+            ok(`${tag}: a snowball hits whoever it reaches, and only them`, r.after[r.target] === r.before[r.target] + 1 && others, JSON.stringify(r));
+        },
+    },
+    shellgame: {
+        module: 'ShellGame.js',
+        // A tap game: each seat presses its own LEFT button rather than dragging.
+        ready: st => st.phase === 'play' && st.sub === 'pick',
+        prep: () => window.__G._debugFreeze(true),
+        act: async (page, slot) => {
+            const at = await page.evaluate(s => window.__G._debugPad(s, 0), slot);
+            await page.mouse.click(at.x, at.y);
+            await page.waitForTimeout(150);
+        },
+        reacted: (a, b, slot) => b.picks[slot] != null,
+        // Every seat pressed the LEFT button as it sees the table: the near
+        // end's left is the table's left, the far end's is the table's right.
+        extra: async (page, tag) => {
+            const r = await page.evaluate(async () => {
+                const K = await import('/src/claw-core/engine/StageKit.js');
+                const st = window.__G._debugState();
+                return { picks: st.picks, edges: st.picks.map((_, i) => K.seatEdge(i)) };
+            });
+            ok(`${tag}: each seat's LEFT is the left as it sees the table`, r.picks.every((p, i) => p === (r.edges[i] === 'bottom' ? 0 : 2)), JSON.stringify(r));
+            await page.evaluate(() => window.__G._debugFreeze(false));
+        },
+    },
+    balloonpump: {
+        module: 'BalloonPump.js',
+        ready: st => st.phase === 'play' && st.sub === 'pump',
+        // Every balloon flat and the limit out of reach, so a hold never pops.
+        prep: () => { const G = window.__G; G._debugLimit(99); for (let i = 0; i < G._debugState().n; i++) G._debugSize(i, 0); },
+        // The side hold: the phone lies sideways and the seats share one long
+        // edge, slot 0 at the bottom of the portrait screen. A hold is a press
+        // in the middle of that seat's strip.
+        act: async (page, slot) => {
+            const n = await page.evaluate(() => window.__G._debugState().n);
+            const y = Math.round(892 * (n - 1 - slot + 0.5) / n);
+            await page.mouse.move(206, y); await page.mouse.down();
+            await page.waitForTimeout(300);
+            page.__held = await page.evaluate(() => window.__G._debugState());
+            await page.mouse.up();
+        },
+        reacted: (a, b, slot) => b.size[slot] > a.size[slot] + 1,
+        // A pop ends the round for everybody, and the popper scores nothing.
+        extra: async (page, tag) => {
+            const r = await page.evaluate(async () => {
+                const G = window.__G, wait = ms => new Promise(f => setTimeout(f, ms));
+                for (let k = 0; k < 100 && G._debugState().sub !== 'pump'; k++) await wait(100);
+                const n = G._debugState().n, before = G._debugState().score.slice();
+                G._debugLimit(40);
+                for (let i = 0; i < n; i++) G._debugSize(i, 20);
+                G._debugSize(n - 1, 39.95);
+                return { n, before };
+            });
+            // Hold the last seat's strip: its balloon goes over the limit.
+            const y = Math.round(892 * 0.5 / r.n);
+            await page.mouse.move(206, y); await page.mouse.down();
+            await page.waitForTimeout(400);
+            await page.mouse.up();
+            const st = await page.evaluate(() => window.__G._debugState());
+            const gained = st.score.map((v, i) => v - r.before[i]);
+            ok(`${tag}: a pop ends the round for everybody, and scores the popper nothing`,
+               st.popped[r.n - 1] && st.sub === 'tally' && gained[r.n - 1] === 0 && gained.slice(0, -1).every(g => g > 0), JSON.stringify({ sub: st.sub, popped: st.popped, gained }));
+        },
+    },
 };
 
 async function run(type) {
@@ -217,16 +303,23 @@ async function run(type) {
             }, null, { timeout: 20000 }).catch(() => {});
             if (A.prep) await page.evaluate(src => eval(src)(), A.prep.toString());
             const before = await page.evaluate(() => window.__G._debugState());
-            const z = zones[slot];
-            await page.mouse.move(z.x, z.y);
-            await page.mouse.down();
-            // Toward the middle of the screen: a direction that means something
-            // from every seat (a corner pad has nothing further out to aim at).
-            const vw = 412, vh = 892, dx = vw / 2 - z.x, dy = vh / 2 - z.y, dl = Math.hypot(dx, dy) || 1;
-            await page.mouse.move(z.x + dx / dl * 60, z.y + dy / dl * 60, { steps: 4 });
-            await page.waitForTimeout(250);
-            const after = await page.evaluate(() => window.__G._debugState());
-            await page.mouse.up();
+            let after;
+            if (A.act) {
+                page.__held = null;
+                await A.act(page, slot);
+                after = page.__held || await page.evaluate(() => window.__G._debugState());
+            } else {
+                const z = zones[slot];
+                await page.mouse.move(z.x, z.y);
+                await page.mouse.down();
+                // Toward the middle of the screen: a direction that means something
+                // from every seat (a corner pad has nothing further out to aim at).
+                const vw = 412, vh = 892, dx = vw / 2 - z.x, dy = vh / 2 - z.y, dl = Math.hypot(dx, dy) || 1;
+                await page.mouse.move(z.x + dx / dl * 60, z.y + dy / dl * 60, { steps: 4 });
+                await page.waitForTimeout(250);
+                after = await page.evaluate(() => window.__G._debugState());
+                await page.mouse.up();
+            }
             const others = [...Array(SEATS).keys()].filter(s => s !== slot && !A.reacted(before, before, s) && A.reacted(before, after, s));
             ok(`${tag}: a drag in seat ${slot + 1}'s zone moves seat ${slot + 1}`, A.reacted(before, after, slot));
             ok(`${tag}: ...and nobody else`, others.length === 0, others.length ? `also seat ${others.map(s => s + 1).join(',')}` : '');
