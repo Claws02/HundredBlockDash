@@ -56,17 +56,17 @@ const EXPECT = {
     vaultheist:  [false, null,     true ],   // one torch, one thief; online needs the host's floor
     express:     [false, null,     true ],   // roof sumo; online needs the host's roof
     minecart:    [false, null,     true ],   // replays from the taps
-    turfwar:     [false, null,     true ],
-    lilypad:     [false, null,     true ],
+    turfwar:     [true,  'any',    true ],   // one shared scene; only the input is per seat
+    lilypad:     [true,  'any',    true ],   // one shared scene; only the input is per seat
     rooftop:     [false, null,     true ],
     blockparty:  [false, null,     true ],
     riftdive:    [false, null,     true ],
     balloonpump: [false, null,     true ],   // 3D stage game
-    musicalchairs: [false, null,     true ],   // 3D stage game
-    bumpercars:  [false, null,     true ],   // 3D stage game
+    musicalchairs: [true,  'any',    true ],   // one shared scene; only the input is per seat
+    bumpercars:  [true,  'any',    true ],   // one shared scene; only the input is per seat
     kartgp:      [false, null,     true ],   // 3D stage game
-    redlight:    [false, null,     true ],   // 3D stage game
-    tag:         [false, null,     true ],   // 3D stage game
+    redlight:    [true,  'any',    true ],   // one shared scene; only the input is per seat
+    tag:         [true,  'any',    true ],   // one shared scene; only the input is per seat
     balloontoss: [false, null,     true ],   // 3D stage game
     minigolf:    [false, null,     true ],   // 3D stage game
     bowling:     [false, null,     true ],   // 3D stage game
@@ -79,14 +79,14 @@ const EXPECT = {
 
 // The headline counts from the plan. If a property changes and one of these
 // moves, the plan is out of date and should be updated deliberately.
-const EXPECT_PHONE_MANY = 5;    // LIVE games — converted to N slots
-const EXPECT_TABLET_MANY = 9;    // ...plus the `roomy` games, which need the extra room
+const EXPECT_PHONE_MANY = 11;   // LIVE games — converted to N slots
+const EXPECT_TABLET_MANY = 15;   // ...plus the `roomy` games, which need the extra room
 const EXPECT_ONLINE = 36;       // possible across devices
 const EXPECT_ONLINE_NOW = 5;    // running across devices today
 
 function asModule(file) {
     const tmp = path.join(os.tmpdir(), `_qa_surf_${Date.now()}.mjs`);
-    fs.writeFileSync(tmp, fs.readFileSync(path.join(__dirname, '..', 'src', 'config', file), 'utf8'));
+    fs.writeFileSync(tmp, fs.readFileSync(path.join(__dirname, '..', 'src', 'claw-core', 'config', file), 'utf8'));
     return tmp;
 }
 
