@@ -250,6 +250,10 @@ const ADAPT = {
         extra: async (page, tag) => {
             const r = await page.evaluate(async () => {
                 const G = window.__G, wait = ms => new Promise(f => setTimeout(f, ms));
+                // Let the pancakes from the seat taps land first, or one still
+                // falling onto the last plate is counted as this drop's.
+                G._debugClock(0);
+                await wait(2000);
                 const n = G._debugState().n, before = G._debugState().players.map(p => p.count);
                 G._debugClock(0);
                 G._debugDropAt(n - 1, 0);
