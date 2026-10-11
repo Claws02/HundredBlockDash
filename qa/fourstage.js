@@ -233,6 +233,177 @@ const ADAPT = {
                st.popped[r.n - 1] && st.sub === 'tally' && gained[r.n - 1] === 0 && gained.slice(0, -1).every(g => g > 0), JSON.stringify({ sub: st.sub, popped: st.popped, gained }));
         },
     },
+    pancakes: {
+        module: 'PancakeStack.js',
+        // A tap game held sideways: a press in a seat's strip drops its pancake.
+        ready: st => st.phase === 'play' && st.players.every(p => p.reload === 0 && p.held),
+        prep: () => window.__G._debugClock(0),
+        act: async (page, slot) => {
+            const n = await page.evaluate(() => window.__G._debugState().n);
+            const y = Math.round(892 * (n - 1 - slot + 0.5) / n);
+            await page.mouse.click(206, y);
+            await page.waitForTimeout(150);
+        },
+        reacted: (a, b, slot) => b.players[slot].drops > a.players[slot].drops,
+        // Each seat stacks on its own plate: a pancake dropped dead over the
+        // last seat's plate lands there and on nobody else's.
+        extra: async (page, tag) => {
+            const r = await page.evaluate(async () => {
+                const G = window.__G, wait = ms => new Promise(f => setTimeout(f, ms));
+                const n = G._debugState().n, before = G._debugState().players.map(p => p.count);
+                G._debugClock(0);
+                G._debugDropAt(n - 1, 0);
+                await wait(2500);
+                const after = G._debugState().players.map(p => p.count);
+                return { n, before, after };
+            });
+            const gained = r.after.map((v, i) => v - r.before[i]);
+            ok(`${tag}: a pancake over the last seat's plate lands on that plate only`,
+               gained[r.n - 1] === 1 && gained.slice(0, -1).every(g => g === 0), JSON.stringify(r));
+        },
+    },
+    sackrace: {
+        module: 'SackRace.js',
+        // A tap game held sideways: a press in a seat's strip hops its racer.
+        ready: st => st.phase === 'race' && st.racers.every(r => !r.hop),
+        act: async (page, slot) => {
+            const n = await page.evaluate(() => window.__G._debugState().n);
+            const y = Math.round(892 * (n - 1 - slot + 0.5) / n);
+            await page.mouse.click(206, y);
+            await page.waitForTimeout(100);
+        },
+        reacted: (a, b, slot) => b.racers[slot].hops > a.racers[slot].hops,
+        // Each lane has its own bales: a chained hop in the last lane clears its
+        // bale, and nobody else moves.
+        extra: async (page, tag) => {
+            const r = await page.evaluate(async () => {
+                const G = window.__G, wait = ms => new Promise(f => setTimeout(f, ms));
+                for (let k = 0; k < 30 && G._debugState().racers.some(x => x.hop); k++) await wait(100);
+                const st = G._debugState(), n = st.n, bx = st.bales[0];
+                const before = st.racers.map(x => x.x);
+                G._debugPlace(n - 1, bx - 1.2, 3);
+                G._debugLaunch(n - 1, true);
+                const hop = G._debugState().racers[n - 1].hop;
+                await wait(800);
+                const after = G._debugState().racers.map(x => x.x);
+                return { n, bx, hop, before, after };
+            });
+            ok(`${tag}: a chained hop in the last lane clears its bale, and only that racer moves`,
+               r.hop && r.hop.blocked == null && r.after[r.n - 1] > r.bx && r.after.slice(0, -1).every((x, i) => x === r.before[i]), JSON.stringify(r));
+        },
+    },
+    blockparty: {
+        module: 'BlockParty.js',
+        // Held sideways, a strip each. The music clock is held on a response
+        // beat so a tap (a clap) lands on it however slow the renderer is.
+        ready: st => st.phase === 'dance' && st.part === 'resp',
+        prep: () => window.__G._debugHold(true),
+        act: async (page, slot) => {
+            const n = await page.evaluate(() => window.__G._debugState().n);
+            const y = Math.round(892 * (n - 1 - slot + 0.5) / n);
+            await page.mouse.click(206, y);
+            await page.waitForTimeout(100);
+        },
+        reacted: (a, b, slot) => b.danced[slot] > a.danced[slot],
+        // A swipe in the last seat's strip is a dance move (not a clap), and
+        // it is that seat's.
+        extra: async (page, tag) => {
+            const pos = await page.evaluate(async () => {
+                const G = window.__G, wait = ms => new Promise(f => setTimeout(f, ms));
+                const s0 = G._debugState(), n = s0.n;
+                G._debugHold(false);
+                for (let k = 0; k < 200; k++) {
+                    const st = G._debugState();
+                    if (st.part === 'resp' && (st.phrase !== s0.phrase || st.idx !== s0.idx) && st.resp[n - 1][st.idx] == null) { G._debugHold(true); return { n, before: st.danced }; }
+                    await wait(25);
+                }
+                return null;
+            });
+            if (!pos) { ok(`${tag}: a swipe in the last seat's strip dances that seat's move`, false, 'never reached a fresh response beat'); return; }
+            const y = Math.round(892 * 0.5 / pos.n);
+            await page.mouse.move(206, y); await page.mouse.down();
+            await page.mouse.move(206 - 70, y, { steps: 4 }); await page.mouse.up();
+            await page.waitForTimeout(150);
+            const st = await page.evaluate(() => window.__G._debugState());
+            const gained = st.danced.map((d, i) => d - pos.before[i]);
+            ok(`${tag}: a swipe in the last seat's strip dances that seat's move`,
+               gained[pos.n - 1] === 1 && gained.slice(0, -1).every(g => g === 0) && st.lastIn && st.lastIn.move !== 'clap', JSON.stringify({ gained, lastIn: st.lastIn }));
+            await page.evaluate(() => window.__G._debugHold(false));
+        },
+    },
+    minigolf: {
+        module: 'MiniGolf.js',
+        // Held sideways, a strip each. Every ball parked on its own spot at the
+        // tee end (clear of every hole's walls) with its shot clock reset, so
+        // the only stroke is the one this drag plays.
+        ready: st => st.phase === 'play' && st.sub === 'play' && st.hole >= 0 && st.balls.every(b => b.state === 'aim'),
+        prep: () => { const G = window.__G; for (let i = 0; i < G._debugState().n; i++) G._debugBall(i, -7, -2.6 + i * 0.6); },
+        act: async (page, slot) => {
+            const n = await page.evaluate(() => window.__G._debugState().n);
+            const y = Math.round(892 * (n - 1 - slot + 0.5) / n);
+            await page.mouse.move(206, y); await page.mouse.down();
+            await page.mouse.move(206 - 80, y, { steps: 5 }); await page.mouse.up();
+            await page.waitForTimeout(150);
+        },
+        reacted: (a, b, slot) => b.strokes[slot][b.hole] > a.strokes[slot][a.hole],
+        // Every ball knocks every other: the last seat's ball putted into P1's
+        // moves it, and P1 is charged no stroke for it.
+        extra: async (page, tag) => {
+            const r = await page.evaluate(async () => {
+                const G = window.__G, wait = ms => new Promise(f => setTimeout(f, ms));
+                for (let k = 0; k < 100 && !G._debugState().balls.every(b => b.state === 'aim'); k++) await wait(100);
+                const st = G._debugState(), n = st.n;
+                for (let i = 1; i < n - 1; i++) G._debugBall(i, -7.8, -0.5 - (i - 1) * 0.6);
+                G._debugBall(0, -5.5, -2.0);
+                G._debugBall(n - 1, -6.5, -2.0);
+                const s0 = G._debugState().strokes[0][st.hole];
+                G._debugShoot(n - 1, 1, 0, 0.4);
+                await wait(1500);
+                const b = G._debugState();
+                return { n, x0: b.balls[0].x, s0, s1: b.strokes[0][st.hole] };
+            });
+            ok(`${tag}: the last seat's ball knocks P1's, and P1 is charged nothing`, r.x0 > -5.2 && r.s1 === r.s0, JSON.stringify(r));
+        },
+    },
+    rooftop: {
+        module: 'RooftopRun.js',
+        // Held sideways, a strip each. Everybody stood back on the first roof
+        // before each swipe, so nobody has run into a gap meanwhile.
+        ready: st => st.phase === 'play',
+        prep: () => { const G = window.__G; for (let i = 0; i < G._debugState().n; i++) G._debugPlace(i, -12); },
+        // Swipe UP (as the sideways phone sees it) in the seat's strip: a jump.
+        act: async (page, slot) => {
+            const n = await page.evaluate(() => window.__G._debugState().n);
+            const y = Math.round(892 * (n - 1 - slot + 0.5) / n);
+            await page.mouse.move(206, y); await page.mouse.down();
+            await page.mouse.move(206 + 70, y, { steps: 4 });
+            await page.waitForTimeout(60);
+            page.__held = await page.evaluate(() => window.__G._debugState());
+            await page.mouse.up();
+        },
+        reacted: (a, b, slot) => !b.ground[slot] && b.y[slot] > a.y[slot],
+        // The slide tackle works across lanes: the last seat slides into P1,
+        // just in front of it in another lane, and only P1 goes down. Sampled
+        // every frame in the page: a stumble is over in under a second.
+        extra: async (page, tag) => {
+            const n = await page.evaluate(() => {
+                const G = window.__G, n = G._debugState().n;
+                for (let i = 1; i < n - 1; i++) G._debugPlace(i, -13);
+                G._debugPlace(0, -9.2); G._debugPlace(n - 1, -10);
+                window.__TRIP = new Array(n).fill(false);
+                window.__TRIPT = setInterval(() => { G._debugState().stumble.forEach((v, i) => { if (v) window.__TRIP[i] = true; }); }, 10);
+                return n;
+            });
+            const y = Math.round(892 * 0.5 / n);
+            await page.mouse.move(206, y); await page.mouse.down();
+            await page.mouse.move(206 - 70, y, { steps: 3 });
+            await page.waitForTimeout(600);
+            await page.mouse.up();
+            const tripped = await page.evaluate(() => { clearInterval(window.__TRIPT); return window.__TRIP; });
+            ok(`${tag}: the last seat's slide trips P1 in another lane, and nobody else`,
+               tripped[0] && tripped.slice(1).every(x => !x), JSON.stringify({ tripped }));
+        },
+    },
 };
 
 async function run(type) {
@@ -275,7 +446,7 @@ async function run(type) {
         await page.waitForTimeout(600);
         await page.evaluate(n => { for (let s = 0; s < n; s++) window.__M.setReady(s); }, SEATS);
         await page.waitForFunction(() => {
-            try { return window.__G._debugState().phase === 'play'; } catch (e) { return false; }
+            try { return ['play', 'race', 'dance'].includes(window.__G._debugState().phase); } catch (e) { return false; }
         }, null, { timeout: 30000 });
 
         const slots = await page.evaluate(() => window.__M.slotCount());
@@ -321,7 +492,7 @@ async function run(type) {
                 await page.mouse.up();
             }
             const others = [...Array(SEATS).keys()].filter(s => s !== slot && !A.reacted(before, before, s) && A.reacted(before, after, s));
-            ok(`${tag}: a drag in seat ${slot + 1}'s zone moves seat ${slot + 1}`, A.reacted(before, after, slot));
+            ok(`${tag}: a drag in seat ${slot + 1}'s zone moves seat ${slot + 1}`, A.reacted(before, after, slot), process.env.QA_DEBUG ? JSON.stringify({ g: after.ground, y: after.y, x: after.x, ph: after.phase }) : "");
             ok(`${tag}: ...and nobody else`, others.length === 0, others.length ? `also seat ${others.map(s => s + 1).join(',')}` : '');
         }
 
