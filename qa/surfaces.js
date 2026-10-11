@@ -58,8 +58,8 @@ const EXPECT = {
     minecart:    [false, null,     true ],   // replays from the taps
     turfwar:     [true,  'any',    true ],   // one shared scene; only the input is per seat
     lilypad:     [true,  'any',    true ],   // one shared scene; only the input is per seat
-    rooftop:     [false, null,     true ],
-    blockparty:  [false, null,     true ],
+    rooftop:     [true,  'any',  true ],
+    blockparty:  [true,  'any',  true ],
     riftdive:    [false, null,     true ],
     balloonpump: [true,  'any',    true ],   // one shared scene; only the input is per seat
     musicalchairs: [true,  'any',    true ],   // one shared scene; only the input is per seat
@@ -68,19 +68,19 @@ const EXPECT = {
     redlight:    [true,  'any',    true ],   // one shared scene; only the input is per seat
     tag:         [true,  'any',    true ],   // one shared scene; only the input is per seat
     balloontoss: [false, null,     true ],   // 3D stage game
-    minigolf:    [false, null,     true ],   // 3D stage game
+    minigolf:    [true,  'any',  true ],   // 3D stage game
     bowling:     [false, null,     true ],   // 3D stage game
-    sackrace:    [false, null,     true ],   // 3D stage game
+    sackrace:    [true,  'any',  true ],   // 3D stage game
     snowball:    [true,  'any',    true ],   // one shared scene; only the input is per seat
-    pancakes:    [false, null,     true ],   // 3D stage game
+    pancakes:    [true,  'any',  true ],   // 3D stage game
     shellgame:   [true,  'any',    true ],   // one shared scene; only the input is per seat
     brainrot:    [true,  'any',    true ],   // one tower in turns: another seat is another name
 };
 
 // The headline counts from the plan. If a property changes and one of these
 // moves, the plan is out of date and should be updated deliberately.
-const EXPECT_PHONE_MANY = 14;   // LIVE games — converted to N slots
-const EXPECT_TABLET_MANY = 18;   // ...plus the `roomy` games, which need the extra room
+const EXPECT_PHONE_MANY = 19;   // LIVE games — converted to N slots
+const EXPECT_TABLET_MANY = 23;   // ...plus the `roomy` games, which need the extra room
 const EXPECT_ONLINE = 36;       // possible across devices
 const EXPECT_ONLINE_NOW = 5;    // running across devices today
 
