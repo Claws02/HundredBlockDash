@@ -10,7 +10,7 @@ import {
     DISTRICT_HQ_FIRST_BONUS, DISTRICT_HQ_REVISIT_BONUS,
     FULL_CIRCUIT_BONUSES,
     ALLIES, BA_DISCOUNT, GRAND_MALL_DISCOUNT,
-    ALL_CHAR_TYPES, HQ_META, CHAR_ICONS, CHAR_NAMES, DISTRICT_BIOMES,
+    ALL_CHAR_TYPES, playableChar, HQ_META, CHAR_ICONS, CHAR_NAMES, DISTRICT_BIOMES,
     CITY_LENGTHS, CITY_DEFAULT_ROUNDS, HBD_LENGTHS,
     PLAYER_SLOTS, MIN_PLAYERS, MAX_PLAYERS, botName,
     buildHbdConfig, setHbdRealmCount, HBD_DEFAULT_CONFIG, HBD_FINISH_BONUS,
@@ -359,7 +359,7 @@ export function quickStart(prefs) {
         ? prefs.bots
         : state.players.map((_, i) => i === 1 && prefs.mode === '1p');
     state.players.forEach((p, i) => {
-        p.charType = savedChars[i] || PLAYER_SLOTS[i].charType;
+        p.charType = playableChar(savedChars[i], PLAYER_SLOTS[i].charType);
         p.isBot    = i > 0 && !!savedBots[i];
         p.name     = p.isBot ? botName(i) : PLAYER_SLOTS[i].name;
         state.charSelections[i] = p.charType;

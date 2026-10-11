@@ -33,7 +33,7 @@ import * as GC from '../core/GameController.js';
 import * as ReadyGate from './ReadyGate.js';
 import { MSG, PROTOCOL_VERSION } from './NetProtocol.js';
 import * as T from '../claw-core/net/NetTransport.js';
-import { PLAYER_SLOTS } from '../config/GameConfig.js';
+import { PLAYER_SLOTS, playableChar } from '../config/GameConfig.js';
 import { SCENE } from '../config/SceneTiming.js';
 
 export { ROLE } from './NetSession.js';
@@ -199,7 +199,8 @@ function _beginMatch({ seats, setup, mySeat }) {
         const p = state.players[i];
         if (!p) return;
         p.name     = row.name || PLAYER_SLOTS[i].name;
-        p.charType = row.char || PLAYER_SLOTS[i].charType;
+        // A peer on an older build can still send a retired character.
+        p.charType = playableChar(row.char, PLAYER_SLOTS[i].charType);
         // A seat whose player has dropped is played by the bot — but only on
         // the host, which is the device that actually runs the bot's turns.
         p.isBot    = !!row.bot && Session.isHost();
