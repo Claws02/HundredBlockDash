@@ -72,7 +72,7 @@ const GL = ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=swiftshader',
         };
     });
     ok('picker: every character card carries a rendered 3D portrait',
-        picker.cards === 9 && picker.withShot === 9, `${picker.withShot}/${picker.cards}`);
+        picker.cards === 12 && picker.withShot === 12, `${picker.withShot}/${picker.cards}`);
     ok('picker: every card is named from CHAR_NAMES',
         JSON.stringify(picker.names) === JSON.stringify(picker.expected), picker.names.join(', '));
 
@@ -101,8 +101,8 @@ const GL = ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=swiftshader',
         return out;
     });
     const types = Object.keys(geo);
-    ok('models: all nine build something',
-        types.length === 9 && types.every(t => geo[t].meshes >= 6),
+    ok('models: all twelve build something',
+        types.length === 12 && types.every(t => geo[t].meshes >= 6),
         types.map(t => `${t}:${geo[t].meshes}`).join(' '));
     // The contact shadow sits at y=0.03, so nothing should dip below zero.
     const sunk = types.filter(t => geo[t].minY < -0.02);

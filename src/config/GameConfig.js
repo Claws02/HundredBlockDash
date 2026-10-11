@@ -243,11 +243,21 @@ export const BUDDY_MAP_ROUNDS         = 3;
 export const BUDDY_NEAR_STEPS         = 20;
 export const BUDDY_MAX_STEPS          = 36;
 
-// All character types (original 4 + 5 ally characters)
-export const ALL_CHAR_TYPES = ['slime', 'ghost', 'boxy', 'bunny', 'cabbie', 'vendor', 'banker', 'bodyguard', 'investor'];
+// Every character a player can pick: the four starters and the eight from
+// claw-core's new cast. The five townsfolk (cabbie, vendor, banker, bodyguard,
+// investor) are board ALLIES now, not player picks; their figures still draw.
+export const ALL_CHAR_TYPES = ['slime', 'ghost', 'boxy', 'bunny', 'frog', 'cat', 'penguin', 'dino', 'octopus', 'donut', 'duck', 'ufo'];
+
+// A saved or networked pick of a retired character moves to its replacement
+// (the same map as claw-core's RETIRED).
+export const RETIRED_CHARS = { cabbie: 'frog', vendor: 'donut', banker: 'cat', bodyguard: 'dino', investor: 'penguin' };
+export const playableChar = (id, fallback = 'slime') =>
+    (ALL_CHAR_TYPES.includes(id) ? id : RETIRED_CHARS[id] || fallback);
 
 export const CHAR_ICONS = {
     slime:     '💧', ghost:     '👻', boxy:      '🧊', bunny:     '🐰',
+    frog:      '🐸', cat:       '🐱', penguin:   '🐧', dino:      '🦖',
+    octopus:   '🐙', donut:     '🍩', duck:      '🦆', ufo:       '🛸',
     cabbie:    '🚕', vendor:    '🌮', banker:    '💼', bodyguard: '🦺', investor:  '📈',
 };
 
@@ -257,7 +267,10 @@ export const CHAR_ICONS = {
 // read as four placeholders and five characters. These are names.
 export const CHAR_NAMES = {
     slime:     'Bloop',   ghost:     'Spook',    boxy:      'Crate',
-    bunny:     'Thumper', cabbie:    'Cabbie',   vendor:    'Vendor',
+    bunny:     'Thumper', frog:      'Hopper',   cat:       'Whiskers',
+    penguin:   'Waddles', dino:      'Chomp',    octopus:   'Inky',
+    donut:     'Sprinkles', duck:    'Quackers', ufo:       'Zorp',
+    cabbie:    'Cabbie',  vendor:    'Vendor',
     banker:    'Banker',  bodyguard: 'Bodyguard', investor: 'Investor',
 };
 
