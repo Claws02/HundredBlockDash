@@ -337,11 +337,13 @@ const ADAPT = {
     },
     minigolf: {
         module: 'MiniGolf.js',
-        // Held sideways, a strip each. Every ball parked on its own spot at the
-        // tee end (clear of every hole's walls) with its shot clock reset, so
-        // the only stroke is the one this drag plays.
+        // Everybody at once is CHAOS mode (turns is one at a time), on the
+        // straight first hole. Held sideways, a strip each. Every ball parked
+        // on its own spot near the tee with its shot clock reset, so the only
+        // stroke is the one this drag plays.
+        setup: () => { window.__G.configure({ mode: 'chaos' }); window.__G._debugForceHoles(['firstswing']); },
         ready: st => st.phase === 'play' && st.sub === 'play' && st.hole >= 0 && st.balls.every(b => b.state === 'aim'),
-        prep: () => { const G = window.__G; for (let i = 0; i < G._debugState().n; i++) G._debugBall(i, -7, -2.6 + i * 0.6); },
+        prep: () => { const G = window.__G; for (let i = 0; i < G._debugState().n; i++) G._debugBall(i, 0.5, -1.1 + i * 0.7); },
         act: async (page, slot) => {
             const n = await page.evaluate(() => window.__G._debugState().n);
             const y = Math.round(892 * (n - 1 - slot + 0.5) / n);
@@ -357,16 +359,17 @@ const ADAPT = {
                 const G = window.__G, wait = ms => new Promise(f => setTimeout(f, ms));
                 for (let k = 0; k < 100 && !G._debugState().balls.every(b => b.state === 'aim'); k++) await wait(100);
                 const st = G._debugState(), n = st.n;
-                for (let i = 1; i < n - 1; i++) G._debugBall(i, -7.8, -0.5 - (i - 1) * 0.6);
-                G._debugBall(0, -5.5, -2.0);
-                G._debugBall(n - 1, -6.5, -2.0);
+                for (let i = 1; i < n - 1; i++) G._debugBall(i, 0.2, 0.6 + (i - 1) * 0.5);
+                G._debugBall(0, 4.0, -0.6);
+                G._debugBall(n - 1, 2.0, -0.6);
                 const s0 = G._debugState().strokes[0][st.hole];
                 G._debugShoot(n - 1, 1, 0, 0.4);
                 await wait(1500);
                 const b = G._debugState();
+                G.configure({ mode: 'turns' }); G._debugForceHoles(null);
                 return { n, x0: b.balls[0].x, s0, s1: b.strokes[0][st.hole] };
             });
-            ok(`${tag}: the last seat's ball knocks P1's, and P1 is charged nothing`, r.x0 > -5.2 && r.s1 === r.s0, JSON.stringify(r));
+            ok(`${tag}: the last seat's ball knocks P1's, and P1 is charged nothing`, r.x0 > 4.2 && r.s1 === r.s0, JSON.stringify(r));
         },
     },
     rooftop: {
@@ -422,19 +425,20 @@ async function run(type) {
         await page.addInitScript(() => { try { localStorage.clear(); localStorage.setItem('hbd_seen_howto', 'true'); } catch (e) {} });
         await page.goto(BASE, { waitUntil: 'domcontentloaded' });
         await page.waitForFunction(() => !!document.getElementById('minigame-layer'), null, { timeout: 20000 });
-        await page.evaluate(async ([type, mod, n, readySrc]) => {
+        await page.evaluate(async ([type, mod, n, readySrc, setupSrc]) => {
             const G = await import('/src/core/GameState.js');
             G.setPlayerCount(n);
             G.state.players.forEach(p => { p.isBot = false; });
             const sp = document.getElementById('splash'); if (sp) sp.style.display = 'none';
             window.__M = await import('/src/claw-core/minigames/MinigameManager.js');
             window.__G = await import('/src/claw-core/minigames/' + mod);
+            if (setupSrc) eval(setupSrc)();
             window.__READY = eval(readySrc);
             window.__RES = 'pending';
             window.__M.triggerStandalone(type, false, n, {
                 bots: new Array(n).fill(false), onComplete: w => { window.__RES = w; },
             });
-        }, [type, A.module, SEATS, A.ready.toString()]);
+        }, [type, A.module, SEATS, A.ready.toString(), A.setup ? A.setup.toString() : null]);
 
         // Rules card → hold card → ready gate, every seat pressed.
         const press = id => page.evaluate(i => {
