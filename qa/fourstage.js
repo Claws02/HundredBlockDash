@@ -338,7 +338,7 @@ const ADAPT = {
     minigolf: {
         module: 'MiniGolf.js',
         // Everybody at once is CHAOS mode (turns is one at a time), on the
-        // straight bunker hole (flat to x 8). Held sideways, a strip each. Every ball parked
+        // straight bunker hole (flat to x 8). Held upright, a band each. Every ball parked
         // on its own spot near the tee with its shot clock reset, so the only
         // stroke is the one this drag plays.
         setup: () => { window.__G.configure({ mode: 'chaos' }); window.__G._debugForceHoles(['bunker']); },
@@ -346,9 +346,9 @@ const ADAPT = {
         prep: () => { const G = window.__G; for (let i = 0; i < G._debugState().n; i++) G._debugBall(i, 0.5, -1.1 + i * 0.7); },
         act: async (page, slot) => {
             const n = await page.evaluate(() => window.__G._debugState().n);
-            const y = Math.round(892 * (n - 1 - slot + 0.5) / n);
+            const y = Math.round(892 * (n - 1 - slot + 0.5) / n) - 30;
             await page.mouse.move(206, y); await page.mouse.down();
-            await page.mouse.move(206 - 80, y, { steps: 5 }); await page.mouse.up();
+            await page.mouse.move(206, y + Math.min(80, 892 / n / 2), { steps: 5 }); await page.mouse.up();
             await page.waitForTimeout(150);
         },
         reacted: (a, b, slot) => b.strokes[slot][b.hole] > a.strokes[slot][a.hole],

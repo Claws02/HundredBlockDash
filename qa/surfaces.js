@@ -82,7 +82,7 @@ const EXPECT = {
 const EXPECT_PHONE_MANY = 19;   // LIVE games — converted to N slots
 const EXPECT_TABLET_MANY = 23;   // ...plus the `roomy` games, which need the extra room
 const EXPECT_ONLINE = 36;       // possible across devices
-const EXPECT_ONLINE_NOW = 5;    // running across devices today
+const EXPECT_ONLINE_NOW = 6;    // running across devices today (Mini Golf joined: each phone plays the same holes)
 
 function asModule(file) {
     const tmp = path.join(os.tmpdir(), `_qa_surf_${Date.now()}.mjs`);

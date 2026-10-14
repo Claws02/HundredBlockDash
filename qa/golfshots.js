@@ -12,7 +12,7 @@ require('./stageprobe').run('minigolf', async ({ page, ok, launch, state }) => {
     for (const c of list.filter(c => WANT === 'all' || c.key === WANT)) {
         for (const [i, key] of c.holes.entries()) {
             total++;
-            await page.evaluate(async k => { const M = await import('/src/claw-core/minigames/MiniGolf.js'); M._debugForceHoles([k]); M.configure({ mode: 'turns' }); }, key);
+            await page.evaluate(async k => { const M = await import('/src/claw-core/minigames/MiniGolf.js'); M._debugForceHoles([k]); M.configure({ mode: 'turns', round: true }); }, key);
             await launch();
             const t0 = Date.now();
             let s;

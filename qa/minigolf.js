@@ -37,7 +37,7 @@ require('./stageprobe').run('minigolf', async ({ page, ok, launch, state, shot, 
     };
 
     await M('_debugForceHoles', ['windmill', 'pool', 'bunker']);
-    await M('configure', { mode: 'turns' });
+    await M('configure', { mode: 'turns', round: true });
     await launch();
     await page.waitForTimeout(900);
     await shot('intro');
@@ -67,6 +67,16 @@ require('./stageprobe').run('minigolf', async ({ page, ok, launch, state, shot, 
     const mid = await state();
     ok('dragging shows the dotted line of the shot', mid.aiming[0] && mid.dots[0] > 4, `dots ${mid.dots[0]}`);
     await shot('aim');
+    // Changed your mind: back to where the drag started, and let go — no shot.
+    await page.mouse.move(206, 522, { steps: 4 });
+    await page.waitForTimeout(150);
+    const ring = await page.evaluate(() => [...document.querySelectorAll('#minigame-layer div')].some(e => e.textContent === '✕NO SHOT' && e.style.opacity === '1'));
+    await shot('cancel');
+    await page.mouse.up();
+    await page.waitForTimeout(400);
+    s = await state();
+    ok('drag back to the start: the ✕ shows, and letting go plays nothing', ring && s.strokes[0][0] === 0 && Math.abs(s.balls[0].x - x0) < 0.01 && s.turn === 'aim', `ring ${ring} strokes ${s.strokes[0][0]} turn ${s.turn}`);
+    await drag(206, 520, 0, 95);
     await page.mouse.up();
     await page.waitForTimeout(250);
     s = await state();
@@ -143,6 +153,7 @@ require('./stageprobe').run('minigolf', async ({ page, ok, launch, state, shot, 
 
     // Countback when level: the better last hole wins.
     await M('_debugForceHoles', ['windmill', 'bunker', 'skate']);
+    await M('configure', { round: true });
     await launch();
     await waitFor(st => st.phase === 'play', 15000);
     await G('_debugScore', [[2, 3, 2], [3, 2, 2]], [[5, 5, 5], [5, 5, 5]]);
@@ -150,30 +161,39 @@ require('./stageprobe').run('minigolf', async ({ page, ok, launch, state, shot, 
     ok('level on strokes: countback from the last hole', r && r.winner === 1, JSON.stringify(r));
     await cleanup();
 
-    // 8. CHAOS: both at once, each on their own strip (P1 the bottom of the glass).
+    // 8. CHAOS: both at once, upright, the screen split across the middle (P1 the bottom half).
     await M('configure', { mode: 'chaos' });
     await M('_debugForceHoles', ['sprinkler']);
     await launch();
     s = await waitFor(st => st.sub === 'fly', 20000);
     await G('_debugSkip');
     s = await waitFor(st => st.sub === 'play', 5000);
-    ok('chaos: sideways, every ball on the tee at once', s.mode === 'chaos' && s.turned && s.balls.every(b => b.on && b.state === 'aim'));
+    ok('chaos: upright, every ball on the tee at once', s.mode === 'chaos' && !s.turned && s.balls.every(b => b.on && b.state === 'aim'));
     await page.waitForTimeout(1500);
     const cx0 = (await state()).balls.map(b => b.x);
-    // Pull back toward the tee end (the glass's top in portrait): the ball goes on down the hole.
-    await page.mouse.move(206, 700); await page.mouse.down(); await page.mouse.move(206, 610, { steps: 5 }); await page.mouse.up();
-    await page.mouse.move(206, 300); await page.mouse.down(); await page.mouse.move(206, 210, { steps: 5 }); await page.mouse.up();
+    // Pull back down the screen (toward the tee) in your own half: the ball goes on up the hole.
+    await page.mouse.move(206, 600); await page.mouse.down(); await page.mouse.move(206, 690, { steps: 5 }); await page.mouse.up();
+    await page.mouse.move(206, 200); await page.mouse.down(); await page.mouse.move(206, 290, { steps: 5 }); await page.mouse.up();
     await page.waitForTimeout(300);
     s = await state();
     await shot('chaos');
-    ok('chaos: both putt at the same time, each on their own strip', s.strokes[0][0] === 1 && s.strokes[1][0] === 1 && s.balls.every((b, i) => b.x > cx0[i] + 0.2),
+    ok('chaos: both putt at the same time, each in their own half', s.strokes[0][0] === 1 && s.strokes[1][0] === 1 && s.balls.every((b, i) => b.x > cx0[i] + 0.2),
        `strokes ${s.strokes.map(x => x[0])} x ${cx0} → ${s.balls.map(b => b.x)}`);
     await M('configure', { mode: 'turns' });
     await page.evaluate(async () => { const MM = await import('/src/claw-core/minigames/MinigameManager.js'); MM.forceEndMinigame(); });
     await page.waitForTimeout(300);
 
+    // A party's golf (no Mini Golf mode round) is always chaos, whatever the saved mode.
+    await M('_debugForceHoles', ['bunker']);
+    await launch();
+    s = await waitFor(st => st.phase === 'play', 20000);
+    ok('a party\'s golf is chaos even with turns saved', s.mode === 'chaos', `${s.mode} turned=${s.turned}`);
+    await page.evaluate(async () => { const MM = await import('/src/claw-core/minigames/MinigameManager.js'); MM.forceEndMinigame(); });
+    await page.waitForTimeout(300);
+
     // A hard bot round against an idle player, one hole: the bot holes out.
     await M('_debugForceHoles', ['bunker']);
+    await M('configure', { round: true });
     await launch({ bot: true, skill: 0.9 });
     s = await waitFor(st => st.balls[1].holed || st.phase === 'over', 180000);
     ok('a bot plays its turns and holes out', s.balls[1].holed, JSON.stringify(s));

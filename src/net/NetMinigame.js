@@ -55,7 +55,7 @@ import * as Commands from '../core/Commands.js';
 import * as SoloArena from '../claw-core/minigames/SoloArena.js';
 import * as SoloRound from '../ui/SoloRound.js';
 import * as RoundBoard from '../ui/RoundBoard.js';
-import { MG_INFO, MG_NET, MG_PARALLEL, MG_PAYOUT } from '../claw-core/config/MinigameRegistry.js';
+import { MG_INFO, MG_NET, MG_PARALLEL, MG_PAYOUT, soloRoundMs, soloGraceMs } from '../claw-core/config/MinigameRegistry.js';
 
 // How long the host will keep waiting after the last expected score fails to
 // arrive. Long enough for a phone that is merely slow, short enough that the
@@ -127,7 +127,7 @@ function _goNow() {
     if (!_round || _round.started) return;
     _round.started = true;
     Scenes.emit('soloGo', { game: _round.type, seed: _round.seed });
-    _armGrace(ROUND_CAP_MS);
+    _armGrace(soloRoundMs(_round.type, ROUND_CAP_MS));
     beginLocally(_round.type, _round.seed);
 }
 
@@ -191,8 +191,8 @@ export function hostScore(seat, score) {
     _round.scores[seat] = Number(score) || 0;
     // Everybody in: no reason to wait out the clock.
     if (_round.seats.every(s => _round.scores[s] !== undefined)) { _settle(); return; }
-    // Somebody is in, so the rest have a bounded time to follow.
-    _armGrace(GRACE_MS);
+    // Somebody is in, so the rest have a bounded time to follow (golf: most of a round).
+    _armGrace(soloGraceMs(_round.type, GRACE_MS));
 }
 
 function _armGrace(ms) {
@@ -326,7 +326,7 @@ export function beginLocally(type, seed) {
         SoloArena.reset();
         RoundBoard.hideRail();
         report(me, score);
-    }, ROUND_CAP_MS);
+    }, soloRoundMs(t, ROUND_CAP_MS));
     // Say where you have got to while you are getting there. This is the only
     // thing the other three phones can see of you, and without it a parallel
     // round is four people playing alone and comparing notes afterwards.
