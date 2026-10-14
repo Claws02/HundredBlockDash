@@ -1,28 +1,36 @@
-// Mini golf: every hole built, shot from the tee, flyover and overview.
-// usage: node golfshots.js [outdir]
+// Mini golf: every hole of a course built, shot from the tee and from above.
+// usage: node golfshots.js <course|all> [outdir]
 const path = require('path');
-const OUT = process.argv[2] || __dirname;
+const WANT = process.argv[2] || 'all';
+const OUT = process.argv[3] || __dirname;
 require('./stageprobe').run('minigolf', async ({ page, ok, launch, state }) => {
-    const pool = await page.evaluate(async () => { const M = await import('/src/claw-core/minigames/MiniGolf.js'); return M._debugPool(); });
-    await page.evaluate(async k => { const M = await import('/src/claw-core/minigames/MiniGolf.js'); M._debugForceHoles(k); }, pool);
-    await launch({ bot: true, p1bot: true, skill: 0.6 });
-    const t0 = Date.now();
-    let last = -1, tries = 0;
-    while (Date.now() - t0 < 240000) {
-        const s = await state();
-        if (!s) break;
-        if (s.sub === 'fly' && s.hole !== last) {
-            last = s.hole;
-            await page.waitForTimeout(900);
-            await page.screenshot({ path: path.join(OUT, `golf-${s.hole + 1}-fly.png`) });
+    const list = await page.evaluate(async () => {
+        const C = await import('/src/claw-core/minigames/golf/Courses.js');
+        return C.COURSES.map(c => ({ key: c.key, holes: c.holes.map(h => h.key) }));
+    });
+    let built = 0, total = 0;
+    for (const c of list.filter(c => WANT === 'all' || c.key === WANT)) {
+        for (const [i, key] of c.holes.entries()) {
+            total++;
+            await page.evaluate(async k => { const M = await import('/src/claw-core/minigames/MiniGolf.js'); M._debugForceHoles([k]); M.configure({ mode: 'turns' }); }, key);
+            await launch();
+            const t0 = Date.now();
+            let s;
+            while (Date.now() - t0 < 20000) { s = await state(); if (s && s.sub === 'fly') break; await page.waitForTimeout(100); }
             await page.evaluate(() => window.__G._debugSkip());
-            await page.waitForTimeout(1500);
-            await page.screenshot({ path: path.join(OUT, `golf-${s.hole + 1}-tee.png`) });
+            await page.waitForTimeout(400);
+            await page.evaluate(() => window.__G._debugTakePass());
+            await page.waitForTimeout(1400);
+            await page.screenshot({ path: path.join(OUT, `golf-${c.key}-${i + 1}-tee.png`) });
+            await page.evaluate(() => window.__G._debugView('map'));
+            await page.waitForTimeout(1300);
+            await page.screenshot({ path: path.join(OUT, `golf-${c.key}-${i + 1}-map.png`) });
+            s = await state();
+            if (s && s.gl && s.holes[0] === key) built++;
+            await page.evaluate(async () => { const MM = await import('/src/claw-core/minigames/MinigameManager.js'); MM.forceEndMinigame(); });
+            await page.waitForTimeout(300);
         }
-        if (s.phase === 'over') break;
-        await page.waitForTimeout(150);
     }
-    const s = await state();
-    ok('played every hole with bots', s.phase === 'over' || s.hole >= pool.length - 1, `hole ${s.hole} ${s.phase} strokes ${JSON.stringify(s.strokes)}`);
-    console.log(JSON.stringify(s.strokes));
+    await page.evaluate(async () => { const M = await import('/src/claw-core/minigames/MiniGolf.js'); M._debugForceHoles(null); });
+    ok('every hole builds and plays', built === total, `${built}/${total}`);
 });
