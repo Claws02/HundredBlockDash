@@ -30,7 +30,35 @@ const ok = (n, c, d) => (c ? pass : fail).push(`${n}${d ? ` — ${d}` : ''}`);
 
 // How much of each band of the canvas has been drawn on, and a cheap signature
 // of the whole frame so two samples can be compared for movement.
-const frame = page => page.evaluate(() => {
+const frame = async page => (await frame2d(page)) || frameGL(page);
+// A WebGL game's canvas can't be read back (no preserved drawing buffer, and
+// getContext('2d') on it is null), so it used to read as "no canvas" — Tree
+// Climb and Mini Golf failed here while drawing perfectly well. For those, the
+// same two numbers from a real screenshot: how varied each half is (a blank
+// half is one flat colour) and a signature to tell two samples apart.
+const { execFileSync } = require('child_process');
+let _shotN = 0;
+async function frameGL(page) {
+    const gl = await page.evaluate(() => {
+        const c = document.querySelector('#minigame-layer canvas');
+        return !!c && c.width > 0 && c.height > 0 && !c.getContext('2d');
+    });
+    if (!gl) return null;
+    const f = path.join(require('os').tmpdir(), `soloframe-${process.pid}-${_shotN++}.png`);
+    // The probe never left the title screen, which sits over the game layer;
+    // a real round has it put away. Lift the game over it for the picture.
+    await page.evaluate(() => { document.getElementById('minigame-layer').style.zIndex = '99999'; });
+    await page.screenshot({ path: f });
+    const stat = crop => {
+        const out = execFileSync('convert', [f, '-crop', crop, '+repage', '-colorspace', 'gray', '-format', '%[fx:standard_deviation] %[fx:mean]', 'info:']).toString().trim().split(' ');
+        const sd = +out[0], mean = +out[1];
+        return { frac: sd > 0.02 ? sd : 0, sum: Math.round(mean * 1e6) };
+    };
+    const r = { top: stat('412x446+0+0'), bottom: stat('412x446+0+446') };
+    fs.unlinkSync(f);
+    return r;
+}
+const frame2d = page => page.evaluate(() => {
     const c = document.querySelector('#minigame-layer canvas');
     if (!c) return null;
     const g = c.getContext('2d');
