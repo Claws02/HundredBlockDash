@@ -37,7 +37,7 @@ require('./stageprobe').run('minigolf', async ({ page, ok, launch, state, shot, 
     };
 
     await M('_debugForceHoles', ['windmill', 'pool', 'bunker']);
-    await M('configure', { mode: 'turns' });
+    await M('configure', { mode: 'turns', round: true });
     await launch();
     await page.waitForTimeout(900);
     await shot('intro');
@@ -143,6 +143,7 @@ require('./stageprobe').run('minigolf', async ({ page, ok, launch, state, shot, 
 
     // Countback when level: the better last hole wins.
     await M('_debugForceHoles', ['windmill', 'bunker', 'skate']);
+    await M('configure', { round: true });
     await launch();
     await waitFor(st => st.phase === 'play', 15000);
     await G('_debugScore', [[2, 3, 2], [3, 2, 2]], [[5, 5, 5], [5, 5, 5]]);
@@ -172,8 +173,17 @@ require('./stageprobe').run('minigolf', async ({ page, ok, launch, state, shot, 
     await page.evaluate(async () => { const MM = await import('/src/claw-core/minigames/MinigameManager.js'); MM.forceEndMinigame(); });
     await page.waitForTimeout(300);
 
+    // A party's golf (no Mini Golf mode round) is always chaos, whatever the saved mode.
+    await M('_debugForceHoles', ['bunker']);
+    await launch();
+    s = await waitFor(st => st.phase === 'play', 20000);
+    ok('a party\'s golf is chaos even with turns saved', s.mode === 'chaos' && s.turned, `${s.mode} turned=${s.turned}`);
+    await page.evaluate(async () => { const MM = await import('/src/claw-core/minigames/MinigameManager.js'); MM.forceEndMinigame(); });
+    await page.waitForTimeout(300);
+
     // A hard bot round against an idle player, one hole: the bot holes out.
     await M('_debugForceHoles', ['bunker']);
+    await M('configure', { round: true });
     await launch({ bot: true, skill: 0.9 });
     s = await waitFor(st => st.balls[1].holed || st.phase === 'over', 180000);
     ok('a bot plays its turns and holes out', s.balls[1].holed, JSON.stringify(s));

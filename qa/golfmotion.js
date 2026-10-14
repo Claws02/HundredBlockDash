@@ -11,7 +11,7 @@ const SHOTS = [
 ];
 require('./stageprobe').run('minigolf', async ({ page, ok, launch, state }) => {
     for (const sh of SHOTS) {
-        await page.evaluate(async k => { const M = await import('/src/claw-core/minigames/MiniGolf.js'); M._debugForceHoles([k]); M.configure({ mode: 'turns' }); }, sh.key);
+        await page.evaluate(async k => { const M = await import('/src/claw-core/minigames/MiniGolf.js'); M._debugForceHoles([k]); M.configure({ mode: 'turns', round: true }); }, sh.key);
         await launch();
         const t0 = Date.now();
         let s;
