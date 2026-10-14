@@ -338,10 +338,10 @@ const ADAPT = {
     minigolf: {
         module: 'MiniGolf.js',
         // Everybody at once is CHAOS mode (turns is one at a time), on the
-        // straight first hole. Held sideways, a strip each. Every ball parked
+        // straight bunker hole (flat to x 8). Held sideways, a strip each. Every ball parked
         // on its own spot near the tee with its shot clock reset, so the only
         // stroke is the one this drag plays.
-        setup: () => { window.__G.configure({ mode: 'chaos' }); window.__G._debugForceHoles(['firstswing']); },
+        setup: () => { window.__G.configure({ mode: 'chaos' }); window.__G._debugForceHoles(['bunker']); },
         ready: st => st.phase === 'play' && st.sub === 'play' && st.hole >= 0 && st.balls.every(b => b.state === 'aim'),
         prep: () => { const G = window.__G; for (let i = 0; i < G._debugState().n; i++) G._debugBall(i, 0.5, -1.1 + i * 0.7); },
         act: async (page, slot) => {

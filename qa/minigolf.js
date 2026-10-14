@@ -36,7 +36,7 @@ require('./stageprobe').run('minigolf', async ({ page, ok, launch, state, shot, 
         await page.waitForTimeout(hold);
     };
 
-    await M('_debugForceHoles', ['firstswing', 'pool', 'windmill']);
+    await M('_debugForceHoles', ['windmill', 'pool', 'bunker']);
     await M('configure', { mode: 'turns' });
     await launch();
     await page.waitForTimeout(900);
@@ -109,19 +109,19 @@ require('./stageprobe').run('minigolf', async ({ page, ok, launch, state, shot, 
     await shot('card');
     await G('_debugSkip');
 
-    // 5. Water: hole 2 is the paddling pool. Off the side of the bridge.
+    // 5. Water: hole 2 is the paddling pool. Off the side of the first bridge.
     s = await waitFor(st => st.hole === 1 && st.sub === 'fly', 10000);
     await G('_debugSkip');
     s = await waitFor(st => st.sub === 'play' && (st.turn === 'aim' || st.turn === 'pass'), 6000);
     s = await take();
     const pw = s.active;
-    await G('_debugBall', pw, 7.0, 0);
+    await G('_debugBall', pw, 10.0, 0);
     const before = (await state()).strokes[pw][1];
     await G('_debugShoot', pw, 0.3, 1, 0.55);
     s = await waitFor(st => st.strokes[pw][1] >= before + 2, 6000);
     await page.waitForTimeout(200);
     s = await state();
-    ok('water costs a stroke, and the ball comes back', s.strokes[pw][1] === before + 2 && Math.abs(s.balls[pw].x - 7.0) < 0.05 && Math.abs(s.balls[pw].z) < 0.05,
+    ok('water costs a stroke, and the ball comes back', s.strokes[pw][1] === before + 2 && Math.abs(s.balls[pw].x - 10.0) < 0.05 && Math.abs(s.balls[pw].z) < 0.05,
        `strokes ${before} → ${s.strokes[pw][1]}, ball ${s.balls[pw].x},${s.balls[pw].z}`);
 
     // 6. Knock: the other ball sits in the way.
@@ -142,7 +142,7 @@ require('./stageprobe').run('minigolf', async ({ page, ok, launch, state, shot, 
     await cleanup();
 
     // Countback when level: the better last hole wins.
-    await M('_debugForceHoles', ['firstswing', 'sandpit', 'skate']);
+    await M('_debugForceHoles', ['windmill', 'bunker', 'skate']);
     await launch();
     await waitFor(st => st.phase === 'play', 15000);
     await G('_debugScore', [[2, 3, 2], [3, 2, 2]], [[5, 5, 5], [5, 5, 5]]);
@@ -173,9 +173,9 @@ require('./stageprobe').run('minigolf', async ({ page, ok, launch, state, shot, 
     await page.waitForTimeout(300);
 
     // A hard bot round against an idle player, one hole: the bot holes out.
-    await M('_debugForceHoles', ['firstswing']);
+    await M('_debugForceHoles', ['bunker']);
     await launch({ bot: true, skill: 0.9 });
-    s = await waitFor(st => st.balls[1].holed || st.phase === 'over', 90000);
+    s = await waitFor(st => st.balls[1].holed || st.phase === 'over', 180000);
     ok('a bot plays its turns and holes out', s.balls[1].holed, JSON.stringify(s));
     await page.evaluate(async () => { const MM = await import('/src/claw-core/minigames/MinigameManager.js'); MM.forceEndMinigame(); });
     await page.waitForTimeout(300);
