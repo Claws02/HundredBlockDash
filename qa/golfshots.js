@@ -1,5 +1,5 @@
 // Mini golf: every hole of a course built, shot from the tee and from above.
-// usage: node golfshots.js <course|all> [outdir]
+// usage: [KEYS=hole,hole] node golfshots.js <course|all> [outdir]
 const path = require('path');
 const WANT = process.argv[2] || 'all';
 const OUT = process.argv[3] || __dirname;
@@ -11,6 +11,7 @@ require('./stageprobe').run('minigolf', async ({ page, ok, launch, state }) => {
     let built = 0, total = 0;
     for (const c of list.filter(c => WANT === 'all' || c.key === WANT)) {
         for (const [i, key] of c.holes.entries()) {
+            if (process.env.KEYS && !process.env.KEYS.split(',').includes(key)) continue;   // KEYS=a,b: just those holes
             total++;
             await page.evaluate(async k => { const M = await import('/src/claw-core/minigames/MiniGolf.js'); M._debugForceHoles([k]); M.configure({ mode: 'turns', round: true }); }, key);
             await launch();
