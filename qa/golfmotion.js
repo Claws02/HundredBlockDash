@@ -40,4 +40,45 @@ require('./stageprobe').run('minigolf', async ({ page, ok, launch, state }) => {
         await page.waitForTimeout(300);
     }
     await page.evaluate(async () => { const M = await import('/src/claw-core/minigames/MiniGolf.js'); M._debugForceHoles(null); });
+    // The physics, played out: a ball stopped on the raft rides it; the cannon's lands going its way.
+    const phys = await page.evaluate(async () => {
+        const P = await import('/src/claw-core/minigames/golf/Physics.js');
+        const { COURSES } = await import('/src/claw-core/minigames/golf/Courses.js');
+        const hole = k => COURSES.flatMap(c => c.holes).find(h => h.key === k);
+        const raft = P.compile(hole('raft')), rt = raft.tiles.find(t => t.move);
+        const T = 2 * Math.PI / rt.move.speed;
+        const b = P.newBall(6, 0); let t = T - 0.6; P.strike(b, 1, 0, 0.3);
+        let rest = null, moved = 0, drift = 0;
+        for (let i = 0; i < 600; i++) {
+            P.step(raft, b, 1 / 60, t); t += 1 / 60;
+            if (b.rest && !rest) rest = { x: b.x, off: b.x - P.tileOffset(rt, t).dx };
+            if (rest) { moved = Math.max(moved, Math.abs(b.x - rest.x)); drift = Math.max(drift, Math.abs((b.x - P.tileOffset(rt, t).dx) - rest.off)); }
+        }
+        const ride = { kind: b.kind, moved, drift: rest ? drift : 99 };
+        const can = P.compile(hole('cannon')), cb = P.newBall(7, 0); let ct = 0; P.strike(cb, 1, 0, 0.35);
+        let out = null;
+        for (let i = 0; i < 600 && !out; i++) { const ev = P.step(can, cb, 1 / 60, ct); ct += 1 / 60; if (ev.some(e => e.type === 'pipeout')) out = { vx: cb.vx, vz: cb.vz }; }
+        const p = can.pipes[0], fx = p.b[0] - p.a[0], fz = p.b[1] - p.a[1];
+        const along = out ? (out.vx * fx + out.vz * fz) / Math.hypot(fx, fz) / Math.hypot(out.vx, out.vz) : 0;
+        return { ride, along };
+    });
+    ok('raft: a ball stopped on the deck rides it and stays put on it', phys.ride.kind === 'raft' && phys.ride.moved > 2 && phys.ride.drift < 0.05, JSON.stringify(phys.ride));
+    ok('cannon: the ball lands still going the way it was fired', phys.along > 0.99, phys.along.toFixed(3));
+    const barrel = await page.evaluate(async () => {
+        const T = await import('/src/claw-core/minigames/golf/Toys.js');
+        const g = T.cannon(); return Number.isFinite(g.userData.recoil);
+    });
+    ok('cannon: the barrel is drawn before its first shot (no NaN recoil)', barrel);
+    // See-through: a ball deep in the skull cave fades the rock that hides it.
+    await page.evaluate(async () => { const M = await import('/src/claw-core/minigames/MiniGolf.js'); M._debugForceHoles(['skull']); M.configure({ mode: 'turns', round: true }); });
+    await launch();
+    const t1 = Date.now();
+    while (Date.now() - t1 < 20000) { const s = await state(); if (s && s.sub === 'fly') break; await page.waitForTimeout(100); }
+    await page.evaluate(() => window.__G._debugSkip()); await page.waitForTimeout(400);
+    await page.evaluate(() => window.__G._debugTakePass()); await page.waitForTimeout(500);
+    await page.evaluate(() => window.__G._debugBall(0, 15, 0)); await page.waitForTimeout(1600);
+    const see = await page.evaluate(() => window.__G._debugScene());
+    ok('see-through: what hides the ball fades', see && see.faded > 0 && !see.bad.length, JSON.stringify(see));
+    await page.screenshot({ path: path.join(OUT, 'golfmotion-see.png') });
+    await page.evaluate(async () => { const MM = await import('/src/claw-core/minigames/MinigameManager.js'); MM.forceEndMinigame(); const M = await import('/src/claw-core/minigames/MiniGolf.js'); M._debugForceHoles(null); });
 });
