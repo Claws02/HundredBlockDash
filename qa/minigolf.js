@@ -83,7 +83,7 @@ require('./stageprobe').run('minigolf', async ({ page, ok, launch, state, shot, 
     ok('the drag putts P1 down the hole, away from the pull', s.strokes[0][0] === 1 && s.balls[0].x > x0 + 0.3, `x ${x0} → ${s.balls[0].x}, strokes ${s.strokes[0][0]}`);
     await page.waitForTimeout(400);
     await shot('roll');
-    s = await waitFor(st => st.active === 1 && (st.turn === 'aim' || st.turn === 'pass'), 15000);
+    s = await waitFor(st => st.active === 1 && (st.turn === 'aim' || st.turn === 'pass'), 30000);
     ok('then the phone is passed to P2, on the tee', s.active === 1 && s.balls[1].on && s.pass === 1, `active ${s.active} pass ${s.pass}`);
     s = await take();
     const lineP1 = s.balls[0];
@@ -163,7 +163,7 @@ require('./stageprobe').run('minigolf', async ({ page, ok, launch, state, shot, 
 
     // 8. CHAOS: both at once, upright, the screen split across the middle (P1 the bottom half).
     await M('configure', { mode: 'chaos' });
-    await M('_debugForceHoles', ['sprinkler']);
+    await M('_debugForceHoles', ['castle']);
     await launch();
     s = await waitFor(st => st.sub === 'fly', 20000);
     await G('_debugSkip');

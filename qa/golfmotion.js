@@ -1,11 +1,14 @@
-// Mini golf: the travel animations — a ball fired into the cannon, the hose,
-// the loop and a teleporter — filmed a frame every 0.3 s.
+// Mini golf: the travel animations — a ball fired into the cannon, down the
+// rabbit hole, the loop, the candy-cane slide, a powder keg, a teleporter —
+// filmed a frame every 0.3 s.
 // usage: node golfmotion.js [outdir]
 const path = require('path');
 const OUT = process.argv[2] || __dirname;
 const SHOTS = [
     { key: 'cannon', at: [7, 0], p: 0.35 },
-    { key: 'hose', at: [9.4, -0.6], p: 0.35 },
+    { key: 'maze', at: [-0.6, -5.2], p: 0.22 },
+    { key: 'slide', at: [3.4, 0], p: 0.3 },
+    { key: 'powder', at: [4.2, -1.2], p: 0.3, blast: true },
     { key: 'donut', at: [6.5, 0], p: 0.75 },
     { key: 'hub', at: [4.3, -1.8], p: 0.35 },
 ];
@@ -30,7 +33,9 @@ require('./stageprobe').run('minigolf', async ({ page, ok, launch, state }) => {
             track.push(`${b.x},${b.z},${b.y}${b.air ? '^' : ''}`);
         }
         const end = (await state()).balls[0];
-        ok(`${sh.key}: the ball came out the far end`, Math.hypot(end.x - sh.at[0], end.z - sh.at[1]) > 6 || end.holed, track.join(' '));
+        // A keg blows the ball back up the deck: it flew, that's the test.
+        if (sh.blast) ok(`${sh.key}: the keg went off and the ball flew`, track.some(t => t.endsWith('^')), track.join(' '));
+        else ok(`${sh.key}: the ball came out the far end`, Math.hypot(end.x - sh.at[0], end.z - sh.at[1]) > 6 || end.holed, track.join(' '));
         await page.evaluate(async () => { const MM = await import('/src/claw-core/minigames/MinigameManager.js'); MM.forceEndMinigame(); });
         await page.waitForTimeout(300);
     }
