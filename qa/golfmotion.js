@@ -69,6 +69,18 @@ require('./stageprobe').run('minigolf', async ({ page, ok, launch, state }) => {
         const g = T.cannon(); return Number.isFinite(g.userData.recoil);
     });
     ok('cannon: the barrel is drawn before its first shot (no NaN recoil)', barrel);
+    // No-stop zones and plinko's teleporters, in the physics.
+    const rules = await page.evaluate(async () => {
+        const P = await import('/src/claw-core/minigames/golf/Physics.js');
+        const { COURSES } = await import('/src/claw-core/minigames/golf/Courses.js');
+        const C = k => P.compile(COURSES.flatMap(c => c.holes).find(h => h.key === k));
+        const river = C('river'), plinko = C('plinko');
+        let shelf = 0;
+        for (let i = 0; i < 30 && !shelf; i++) { const r = P.simulate(plinko, { x: 0, y: plinko.tee.y, z: 0 }, 1, (i - 15) * 0.003, 0.3 + (i % 5) * 0.02, 0, { maxT: 30 }); if (r.result === 'rest' && r.y > 12) shelf++; }
+        return { creek: P.noRest(river, 10.5, 0, -0.05), green: P.noRest(river, 18, 0, 0), shelf };
+    });
+    ok('chocolate river: the current is somewhere you can\'t stop (back to your last shot)', rules.creek && !rules.green, JSON.stringify(rules));
+    ok('plinko: a teleporter sets you down on the top shelf, at rest, to shoot again', rules.shelf > 0, JSON.stringify(rules));
     // See-through: a ball deep in the skull cave fades the rock that hides it.
     await page.evaluate(async () => { const M = await import('/src/claw-core/minigames/MiniGolf.js'); M._debugForceHoles(['skull']); M.configure({ mode: 'turns', round: true }); });
     await launch();
