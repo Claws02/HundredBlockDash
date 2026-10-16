@@ -1,12 +1,12 @@
 // Mini golf: the travel animations — a ball fired into the cannon, down the
-// rabbit hole, the loop, the candy-cane slide, a powder keg, a teleporter —
+// hedge-maze hose, the loop, the candy-cane slide, a powder keg, a teleporter —
 // filmed a frame every 0.3 s.
 // usage: node golfmotion.js [outdir]
 const path = require('path');
 const OUT = process.argv[2] || __dirname;
 const SHOTS = [
     { key: 'cannon', at: [7, 0], p: 0.35 },
-    { key: 'maze', at: [-0.6, -5.2], p: 0.22 },
+    { key: 'maze', at: [3.6, 1.2], p: 0.2 },      // into the yellow hose
     { key: 'slide', at: [3.4, 0], p: 0.3 },
     { key: 'powder', at: [4.2, -1.2], p: 0.3, blast: true },
     { key: 'donut', at: [6.5, 0], p: 0.75 },
