@@ -5,9 +5,9 @@
 const path = require('path');
 const OUT = process.argv[2] || __dirname;
 const SHOTS = [
-    { key: 'cannon', at: [7, 0], p: 0.35 },
-    { key: 'maze', at: [3.6, 1.2], p: 0.2 },      // into the yellow hose
-    { key: 'slide', at: [3.4, 0], p: 0.3 },
+    { key: 'cannon', at: [8.2, 0], p: 0.25 },     // into the red cannon (it lands you 6+ away, wherever)
+    { key: 'maze', at: [2.8, -5.8], p: 0.18 },    // into the yellow hose (every exit's 6+ away)
+    { key: 'slide', at: [7.5, -1], p: 0.3 },
     { key: 'powder', at: [4.2, -1.2], p: 0.3, blast: true },
     { key: 'donut', at: [6.5, 0], p: 0.75 },
     { key: 'hub', at: [4.3, -1.8], p: 0.35 },
@@ -56,9 +56,10 @@ require('./stageprobe').run('minigolf', async ({ page, ok, launch, state }) => {
         }
         const ride = { kind: b.kind, moved, drift: rest ? drift : 99 };
         const can = P.compile(hole('cannon')), cb = P.newBall(7, 0); let ct = 0; P.strike(cb, 1, 0, 0.35);
-        let out = null;
-        for (let i = 0; i < 600 && !out; i++) { const ev = P.step(can, cb, 1 / 60, ct); ct += 1 / 60; if (ev.some(e => e.type === 'pipeout')) out = { vx: cb.vx, vz: cb.vz }; }
-        const p = can.pipes[0], fx = p.b[0] - p.a[0], fz = p.b[1] - p.a[1];
+        let out = null, dest = null;
+        for (let i = 0; i < 600 && !out; i++) { const ev = P.step(can, cb, 1 / 60, ct); ct += 1 / 60; const pe = ev.find(e => e.type === 'pipe'); if (pe) dest = pe.dest; if (ev.some(e => e.type === 'pipeout')) out = { vx: cb.vx, vz: cb.vz }; }
+        // A loose cannon fires wherever it ends up pointing: measure against where it fired you.
+        const p = can.pipes[0], to = dest || p.b, fx = to[0] - p.a[0], fz = to[1] - p.a[1];
         const along = out ? (out.vx * fx + out.vz * fz) / Math.hypot(fx, fz) / Math.hypot(out.vx, out.vz) : 0;
         return { ride, along };
     });
@@ -77,9 +78,9 @@ require('./stageprobe').run('minigolf', async ({ page, ok, launch, state }) => {
         const river = C('river'), plinko = C('plinko');
         let shelf = 0;
         for (let i = 0; i < 30 && !shelf; i++) { const r = P.simulate(plinko, { x: 0, y: plinko.tee.y, z: 0 }, 1, (i - 15) * 0.003, 0.3 + (i % 5) * 0.02, 0, { maxT: 30 }); if (r.result === 'rest' && r.y > 12) shelf++; }
-        return { creek: P.noRest(river, 10.5, 0, -0.05), green: P.noRest(river, 18, 0, 0), shelf };
+        return { creek: P.noRest(river, 10.5, 0, 1.45), green: P.noRest(river, 25, 4, 1.5), shelf };
     });
-    ok('chocolate river: the current is somewhere you can\'t stop (back to your last shot)', rules.creek && !rules.green, JSON.stringify(rules));
+    ok('chocolate river: the current is somewhere you can\'t stop (it carries you on)', rules.creek && !rules.green, JSON.stringify(rules));
     ok('plinko: a teleporter sets you down on the top shelf, at rest, to shoot again', rules.shelf > 0, JSON.stringify(rules));
     // See-through: a ball deep in the skull cave fades the rock that hides it.
     await page.evaluate(async () => { const M = await import('/src/claw-core/minigames/MiniGolf.js'); M._debugForceHoles(['skull']); M.configure({ mode: 'turns', round: true }); });
