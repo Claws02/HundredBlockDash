@@ -61,14 +61,24 @@ require('./stageprobe').run('minigolf', async ({ page, ok, launch, state, shot, 
     await page.waitForTimeout(1300);
     await shot('tee');
 
-    // 2. A real drag: pull back down the screen, let go.
-    const x0 = s.balls[0].x;
-    await drag(206, 520, 0, 95);
+    // 2. Swipe away from the ball: the camera looks round, nothing is played.
+    const x0 = s.balls[0].x, yaw0 = s.yaw, tilt0 = s.tilt;
+    await page.mouse.move(80, 300); await page.mouse.down(); await page.mouse.move(180, 260, { steps: 6 }); await page.mouse.up();
+    await page.waitForTimeout(500);
+    s = await state();
+    ok('a swipe off the ball looks round (orbit + tilt), no shot', Math.abs(s.yaw - yaw0) > 0.3 && s.tilt !== tilt0 && s.strokes[0][0] === 0 && s.turn === 'aim', `yaw ${yaw0.toFixed(2)}→${s.yaw.toFixed(2)} tilt ${s.tilt.toFixed(2)}`);
+    await shot('look');
+    // Swing back round behind the ball for the putt.
+    await page.mouse.move(180, 260); await page.mouse.down(); await page.mouse.move(80, 300, { steps: 6 }); await page.mouse.up();
+    await page.waitForTimeout(900);
+    // 3. A real drag: press on the ball, pull back down the screen, let go.
+    let at = (await state()).onScreen[0];
+    await drag(at[0], at[1], 0, 95);
     const mid = await state();
-    ok('dragging shows the dotted line of the shot', mid.aiming[0] && mid.dots[0] > 4, `dots ${mid.dots[0]}`);
+    ok('pressing the ball and pulling shows the power ring and arrow', mid.aiming[0] && mid.ring[0], `ring ${mid.ring[0]}`);
     await shot('aim');
     // Changed your mind: back to where the drag started, and let go — no shot.
-    await page.mouse.move(206, 522, { steps: 4 });
+    await page.mouse.move(at[0], at[1] + 2, { steps: 4 });
     await page.waitForTimeout(150);
     const ring = await page.evaluate(() => [...document.querySelectorAll('#minigame-layer div')].some(e => e.textContent === '✕NO SHOT' && e.style.opacity === '1'));
     await shot('cancel');
@@ -76,7 +86,8 @@ require('./stageprobe').run('minigolf', async ({ page, ok, launch, state, shot, 
     await page.waitForTimeout(400);
     s = await state();
     ok('drag back to the start: the ✕ shows, and letting go plays nothing', ring && s.strokes[0][0] === 0 && Math.abs(s.balls[0].x - x0) < 0.01 && s.turn === 'aim', `ring ${ring} strokes ${s.strokes[0][0]} turn ${s.turn}`);
-    await drag(206, 520, 0, 95);
+    at = (await state()).onScreen[0];
+    await drag(at[0], at[1], 0, 95);
     await page.mouse.up();
     await page.waitForTimeout(250);
     s = await state();

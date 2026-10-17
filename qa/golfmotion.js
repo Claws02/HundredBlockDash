@@ -6,7 +6,7 @@ const path = require('path');
 const OUT = process.argv[2] || __dirname;
 const SHOTS = [
     { key: 'cannon', at: [8.2, 0], p: 0.25 },     // into the red cannon (it lands you 6+ away, wherever)
-    { key: 'maze', at: [2.8, -5.8], p: 0.18 },    // into the yellow hose (every exit's 6+ away)
+    { key: 'maze', at: [4.2, -8.7], p: 0.2 },     // into the yellow hose (every exit's 6+ away; Backyard is built 1.5×)
     { key: 'slide', at: [7.5, -1], p: 0.3 },
     { key: 'powder', at: [4.2, -1.2], p: 0.3, blast: true },
     { key: 'donut', at: [6.5, 0], p: 0.75 },
