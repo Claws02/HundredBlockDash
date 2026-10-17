@@ -202,10 +202,11 @@ require('./stageprobe').run('minigolf', async ({ page, ok, launch, state, shot, 
     await page.evaluate(async () => { const MM = await import('/src/claw-core/minigames/MinigameManager.js'); MM.forceEndMinigame(); });
     await page.waitForTimeout(300);
 
-    // A hard bot round against an idle player, one hole: the bot holes out.
+    // A hard bot round, one hole: the bot holes out. Both seats are bots: a
+    // person has no shot clock, so an idle player would hold the hole forever.
     await M('_debugForceHoles', ['bunker']);
     await M('configure', { round: true });
-    await launch({ bot: true, skill: 0.9 });
+    await launch({ bot: true, p1bot: true, skill: 0.9 });
     s = await waitFor(st => st.balls[1].holed || st.phase === 'over', 180000);
     ok('a bot plays its turns and holes out', s.balls[1].holed, JSON.stringify(s));
     await page.evaluate(async () => { const MM = await import('/src/claw-core/minigames/MinigameManager.js'); MM.forceEndMinigame(); });
