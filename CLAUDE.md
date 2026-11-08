@@ -58,7 +58,7 @@ Dated audits (`*_AUDIT_*`, `QA_REPORT`, `RELEASE_AUDIT_2026-09`, `BOARD_SMOOTHNE
 ## Token rules
 
 - Don't read `vendor/`, `www/`, `resources/`, `qa/shot-*.png`, or `src/minigames/archived/`.
-- Grep for the symbol, then open the range. Renderer/GameController in full is ~40k tokens.
+- Grep for the symbol, then open the range. Renderer.js alone is ~67k tokens, GameController ~38k.
 - New code goes in a new module, not into the 3k–5k line files.
 
 ## Shared kit
