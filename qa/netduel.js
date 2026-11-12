@@ -68,17 +68,20 @@ const snap = page => page.evaluate(async () => {
         const pages = [host, client];
 
         await host.click('#btn-online');
-        await host.fill('#lobby-name', 'Host');
         await host.click('#btn-lobby-host');
         await host.waitForFunction(() => document.getElementById('lobby').dataset.phase === 'room', null, { timeout: 15000 });
+        await host.fill('#lobby-name', 'Host');
+        await host.dispatchEvent('#lobby-name', 'input');
         const code = (await host.textContent('#lobby-code')).trim();
 
         await client.click('#btn-online');
-        await client.fill('#lobby-name', 'Client');
         await client.fill('#lobby-code-input', code);
         await client.dispatchEvent('#lobby-code-input', 'input');
         await client.click('#btn-lobby-join');
         await client.waitForFunction(() => document.getElementById('lobby').dataset.phase === 'room', null, { timeout: 15000 });
+        await client.fill('#lobby-name', 'Client');
+        await client.dispatchEvent('#lobby-name', 'input');
+        await client.waitForTimeout(400);
 
         await host.click('[data-lobby-char="slime"]');   await host.waitForTimeout(150);
         await host.click('#btn-lobby-ready');            await host.waitForTimeout(150);
@@ -131,10 +134,14 @@ const snap = page => page.evaluate(async () => {
         notes.push(`the duel was landed by seat ${LANDER}`);
 
         // Watch the whole beat and drive whatever it puts up.
+        // The wager is followed by a duel minigame and its result card. Nobody
+        // plays it here, so let the agent resolve it and tap through the result;
+        // otherwise the beat can never return to PRE_ROLL.
+        await host.evaluate(() => window.__QA.setMinigameFastResolve(2500));
         const seen = new Set();
         const sawWager = new Set();
         const t0 = Date.now();
-        while (Date.now() - t0 < 40000) {
+        while (Date.now() - t0 < Number(process.env.QA_DUEL_MS ?? 150000)) {
             for (let i = 0; i < pages.length; i++) {
                 const s = await snap(pages[i]);
                 s.modal.forEach(m => seen.add(m));
@@ -151,6 +158,7 @@ const snap = page => page.evaluate(async () => {
                 const msg = document.getElementById('msg-modal');
                 if (cont && msg && getComputedStyle(msg).display !== 'none') cont.click();
             }).catch(() => {})));
+            if (seen.has('duel-modal')) await host.evaluate(() => window.__QA.step()).catch(() => {});
             const gs = await host.evaluate(async () =>
                 (await import('/src/core/GameState.js')).state.gameState);
             if (gs === 'PRE_ROLL' && Date.now() - t0 > 6000) break;
@@ -159,6 +167,12 @@ const snap = page => page.evaluate(async () => {
 
         const after = await snap(host);
         const afterClient = await snap(client);
+        notes.push('diag host: ' + JSON.stringify(await host.evaluate(async () => {
+            const S = (await import('/src/core/GameState.js')).state;
+            const vis = e => e && getComputedStyle(e).display !== 'none' && e.getBoundingClientRect().width > 0;
+            return { gs: S.gameState, mg: S.mgActive, ctx: S.mgContext, step: window.__QA.step(),
+                btns: [...document.querySelectorAll('button')].filter(vis).map(b => b.id || b.className).slice(0, 12) };
+        })));
         notes.push(`modals seen during the duel: ${[...seen].join(', ') || 'none'}`);
         notes.push(`host  ${before.gs} -> ${after.gs}, coins ${JSON.stringify(before.coins)} -> ${JSON.stringify(after.coins)}`);
         notes.push(`client ${afterClient.gs}, modals ${JSON.stringify(afterClient.modal)}`);

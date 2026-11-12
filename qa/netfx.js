@@ -120,17 +120,20 @@ function peak(samples, key) {
         const client = await newPage(ctx, 'client', errors);
 
         await host.click('#btn-online');
-        await host.fill('#lobby-name', 'Host');
         await host.click('#btn-lobby-host');
         await host.waitForFunction(() => document.getElementById('lobby').dataset.phase === 'room', null, { timeout: 15000 });
+        await host.fill('#lobby-name', 'Host');
+        await host.dispatchEvent('#lobby-name', 'input');
         const code = (await host.textContent('#lobby-code')).trim();
 
         await client.click('#btn-online');
-        await client.fill('#lobby-name', 'Client');
         await client.fill('#lobby-code-input', code);
         await client.dispatchEvent('#lobby-code-input', 'input');
         await client.click('#btn-lobby-join');
         await client.waitForFunction(() => document.getElementById('lobby').dataset.phase === 'room', null, { timeout: 15000 });
+        await client.fill('#lobby-name', 'Client');
+        await client.dispatchEvent('#lobby-name', 'input');
+        await client.waitForTimeout(400);
 
         await host.click('[data-lobby-char="slime"]');   await host.waitForTimeout(150);
         await host.click('#btn-lobby-ready');            await host.waitForTimeout(150);
