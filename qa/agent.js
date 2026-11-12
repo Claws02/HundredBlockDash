@@ -252,6 +252,15 @@ window.__QA = (function () {
             if (btns.length && Math.random() < 0.8) return tap(btns[0], 'ally steal') && 'ALLY_STEAL';
             return tap(byId('btn-ally-steal-cancel'), 'ally steal cancel') && 'ALLY_STEAL_CANCEL';
         }
+        if (visId('duel-pick-modal')) {
+            // The challenger chooses a rival before any bet is offered. Without
+            // this the match parks here for ever whenever a duel space is hit.
+            const picks = [...byId('duel-pick-list').querySelectorAll('.duel-pick')]
+                .filter(b => !b.disabled && vis(b));
+            if (picks.length) return tap(picks[Math.floor(Math.random() * picks.length)], 'duel pick') && 'DUEL_PICK';
+            note('STUCK', 'duel-pick modal open with no rival button');
+            return 'DUEL_PICK_NONE';
+        }
         if (visId('duel-modal')) {
             const bets = [...byId('duel-bet-options').querySelectorAll('[data-bet]:not([disabled])')];
             if (bets.length) return tap(bets[Math.floor(Math.random() * bets.length)], 'duel bet') && 'DUEL_BET';
