@@ -44,7 +44,7 @@ const vis = `((id) => {
     const errors = [];
 
     for (let b = 0; b < BOOTS; b++) {
-        const ctx = await browser.newContext({ viewport: { width: 412, height: 892 }, hasTouch: true });
+        const ctx = await browser.newContext({ bypassCSP: true, viewport: { width: 412, height: 892 }, hasTouch: true });
         const page = await ctx.newPage();
         page.on('pageerror', e => errors.push(`boot${b}: ${e.message}`));
         await page.addInitScript(() => { try { localStorage.clear(); localStorage.setItem('hbd_seen_howto', 'true'); } catch (e) {} });

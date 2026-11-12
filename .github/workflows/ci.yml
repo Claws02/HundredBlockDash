@@ -17,7 +17,9 @@ jobs:
           node-version: 22
       - name: Static sweep (module parse, dead refs, command bus, scene routing)
         run: bash qa/parsecheck.sh src
-      - name: Web build for Capacitor
+      - name: Install build tools (esbuild, Capacitor)
+        run: npm ci
+      - name: Web build for Capacitor (minified into www/)
         run: node scripts/build-web.js
       - name: Install Playwright Chromium
         run: npm install --no-save playwright@1.56 && npx playwright install --with-deps chromium
@@ -26,3 +28,8 @@ jobs:
           npx --yes http-server -p 8129 -s -c-1 . &
           npx --yes wait-on -t 30000 http://127.0.0.1:8129/index.html
           node qa/ci-smoke.js
+      - name: Smoke the minified build (what the stores get)
+        run: |
+          npx --yes http-server -p 8131 -s -c-1 www &
+          npx --yes wait-on -t 30000 http://127.0.0.1:8131/index.html
+          QA_BASE=http://127.0.0.1:8131/index.html node qa/ci-smoke.js

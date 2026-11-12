@@ -39,7 +39,7 @@ async function boot(browser, seats, roomy) {
     // screen it has to be tested on. Testing it on a phone would be testing a
     // arrangement the bag never produces.
     const viewport = roomy ? { width: 820, height: 1180 } : { width: 412, height: 892 };
-    const ctx = await browser.newContext({ viewport, hasTouch: true });
+    const ctx = await browser.newContext({ bypassCSP: true, viewport, hasTouch: true });
     const page = await ctx.newPage();
     const errors = [];
     page.on('pageerror', e => errors.push('PAGEERROR: ' + e.message));
@@ -261,7 +261,7 @@ function withDeadline(p, ms, what) {
     const counts = want.length ? want : [3, 4];
     const lister = await chromium.launch({ args: GL });
     // Which games claim they can do this.
-    const page0 = await (await lister.newContext()).newPage();
+    const page0 = await (await lister.newContext({ bypassCSP: true })).newPage();
     await page0.goto(BASE, { waitUntil: 'domcontentloaded' });
     const live = await page0.evaluate(async () => {
         const R = await import('/src/claw-core/config/MinigameRegistry.js');

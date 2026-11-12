@@ -27,7 +27,7 @@ const SIZES = (process.argv[2] || '375x667,360x780,430x932,768x1024,1024x1366,84
     const all = {};
     for (const size of SIZES) {
         const [W, H] = size.split('x').map(Number);
-        const ctx = await browser.newContext({ viewport: { width: W, height: H }, deviceScaleFactor: 1, hasTouch: true, isMobile: W < 700 || H < 500 });
+        const ctx = await browser.newContext({ bypassCSP: true, viewport: { width: W, height: H }, deviceScaleFactor: 1, hasTouch: true, isMobile: W < 700 || H < 500 });
         const page = await ctx.newPage();
         const errors = [];
         page.on('pageerror', e => errors.push(e.message));

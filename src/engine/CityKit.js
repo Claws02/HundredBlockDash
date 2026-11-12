@@ -54,6 +54,9 @@ export function kitMaterials() {
         sheen: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.22, metalness: 0.25 }),
         glow:  new THREE.MeshBasicMaterial({ vertexColors: true }),
     };
+    // Shared by every kit model on the board: whoever tears a model down
+    // must leave these alone (Renderer._disposeTree checks the flag).
+    Object.values(_mats).forEach(m => { m.userData.shared = true; });
     return _mats;
 }
 
@@ -700,6 +703,119 @@ export function landmark(key, opts = {}) {
     g.traverse(o => { if (o.isMesh) o.castShadow = true; });
     g.userData.kit = { model: 'lm-' + key, seed: 0, hq: false };
     return g;
+}
+
+// ------------------------------------------------------------
+// BOARD STRUCTURES — the Gate, the shop stall and the HQ pavilion
+// ------------------------------------------------------------
+// The three things on the board a player actually walks up to. They were the
+// last box-and-cylinder models on it: a gate of square posts, a table with a
+// flat lid, four sticks under a dome. Same footprints as before (tokens stand
+// under the pavilion and walk through the gate), built on the kit's layers so
+// each is two or three draw calls. Whatever bobs or spins (the gate's gems,
+// the stall's coin, the pavilion's star) stays a small mesh of the caller's.
+
+const STONE = 0xe9dfc8, STONE_DARK = 0xb9ac90, WOOD = 0x8a5a2b, WOOD_DARK = 0x5f3b1a;
+
+/**
+ * The Gate, facing +Z (the direction of travel), piers at x = ±2.2.
+ * Closed: a gold portcullis down across the road and amber lamps.
+ * Open: the portcullis drawn up into the arch and the lamps green.
+ */
+export function gate(open) {
+    const k = new Kit();
+    const accent = open ? 0x34d399 : 0xf5b301;
+    const lamp   = open ? 0x86efac : 0xffd166;
+    for (const sx of [-1, 1]) {
+        const x = sx * 2.2;
+        k.box('body', 1.5, 0.5, 1.5, T([x, 0.25, 0]), STONE_DARK, { ch: 0.12 });            // plinth
+        k.box('body', 1.05, 5.6, 1.05, T([x, 3.3, 0]), STONE, { ch: 0.14 });                // pier
+        k.box('body', 1.2, 0.22, 1.2, T([x, 2.2, 0]), STONE_DARK, { ch: 0.06 });            // band
+        k.box('body', 1.4, 0.4, 1.4, T([x, 6.3, 0]), STONE_DARK, { ch: 0.1 });              // capital
+        k.box('sheen', 0.5, 0.5, 0.5, T([x, 6.75, 0]), accent, { ch: 0.1 });                // gem socket
+        // A lantern on the face of each pier, both sides of the gate.
+        for (const sz of [-1, 1]) {
+            k.box('body', 0.42, 0.14, 0.2, T([x, 4.62, sz * 0.6]), 0x2b2f3a, { ch: 0.03 });
+            k.box('glow', 0.32, 0.55, 0.16, T([x, 4.25, sz * 0.6]), lamp);
+            k.box('body', 0.42, 0.12, 0.2, T([x, 3.9, sz * 0.6]), 0x2b2f3a, { ch: 0.03 });
+        }
+    }
+    // The lintel, with a stepped head and a coloured name band on both faces.
+    k.box('body', 6.0, 0.9, 1.15, T([0, 6.95, 0]), STONE, { ch: 0.16 });
+    k.box('body', 3.4, 0.55, 0.95, T([0, 7.65, 0]), STONE_DARK, { ch: 0.14 });
+    k.box('sheen', 1.3, 0.5, 0.75, T([0, 8.15, 0]), accent, { ch: 0.12 });
+    for (const sz of [-1, 1]) k.box('glow', 3.0, 0.34, 0.06, T([0, 6.95, sz * 0.6]), lamp);
+    // The portcullis: uprights and two rails. Open, only its feet show.
+    const top = 6.5, bottom = open ? 5.5 : 0.75, h = top - bottom;
+    for (let b = -2; b <= 2; b++) {
+        k.box('sheen', 0.2, h, 0.2, T([b * 0.62, bottom + h / 2, 0]), accent, { ch: 0.05 });
+        if (!open) k.geo('sheen', new THREE.ConeGeometry(0.16, 0.4, 6), at(b * 0.62, bottom - 0.2, 0, Math.PI), accent);
+    }
+    if (!open) for (const y of [2.1, 4.3]) k.box('sheen', 3.0, 0.2, 0.26, T([0, y, 0]), accent, { ch: 0.05 });
+    return k.build();
+}
+
+/**
+ * A market stall, counter along X. The awning is in the district's colour,
+ * striped with white and pitched down toward +Z, which is how a shop is told
+ * from the road at board distance.
+ */
+export function stall(colour = 0xa855f7) {
+    const k = new Kit();
+    const WHITE = 0xfff7ea;
+    k.box('body', 3.2, 1.15, 1.5, T([0, 0.6, 0]), WOOD, { ch: 0.1 });                       // crate front
+    for (const x of [-1.05, 0, 1.05]) k.box('body', 0.12, 0.95, 1.56, T([x, 0.6, 0]), WOOD_DARK);   // slats
+    k.box('body', 3.5, 0.2, 1.8, T([0, 1.3, 0]), 0xc98f4e, { ch: 0.07 });                   // counter top
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+        k.box('body', 0.18, 2.5, 0.18, T([sx * 1.6, 1.25 + 1.3, sz * 0.75]), WOOD_DARK, { ch: 0.04 });
+    }
+    // Pitched awning: seven slats, alternating, with a scalloped front edge.
+    const N = 7, w = 3.9 / N;
+    for (let i = 0; i < N; i++) {
+        const x = -1.95 + (i + 0.5) * w, c = i % 2 ? WHITE : colour;
+        k.box('body', w, 0.14, 2.3, at(x, 3.02, 0, 0.2), c, { ch: 0.03 });
+        k.box('body', w * 0.9, 0.3, 0.12, at(x, 2.68, 1.12, 0), c, { ch: 0.05 });
+    }
+    // Goods on the counter: a crate of fruit, a jar, a stack of boxes.
+    k.box('body', 0.8, 0.32, 0.7, T([-1.05, 1.56, 0.1]), WOOD_DARK, { ch: 0.04 });
+    [[-1.25, 0xef4444], [-1.02, 0xf59e0b], [-0.82, 0x84cc16]].forEach(([x, c], i) =>
+        k.geo('sheen', new THREE.SphereGeometry(0.17, 8, 6), T([x, 1.8, 0.1 + (i % 2 ? 0.14 : -0.1)]), c));
+    k.cyl('sheen', 0.22, 0.22, 0.55, 10, T([0.05, 1.68, 0.15]), 0x7dd3fc);
+    k.cyl('body', 0.24, 0.24, 0.08, 10, T([0.05, 1.99, 0.15]), WOOD_DARK);
+    k.box('sheen', 0.6, 0.3, 0.5, T([1.05, 1.55, 0.05]), colour, { ch: 0.05 });
+    k.box('sheen', 0.44, 0.26, 0.4, at(1.05, 1.83, 0.05, 0, 0.3), WHITE, { ch: 0.05 });
+    // A lit price board under the awning, readable from either side.
+    k.box('body', 1.7, 0.6, 0.12, T([0, 2.5, -0.85]), WOOD_DARK, { ch: 0.05 });
+    for (const sz of [-1, 1]) k.box('glow', 1.45, 0.38, 0.03, T([0, 2.5, -0.85 + sz * 0.075]), 0xffd166);
+    return k.build();
+}
+
+/**
+ * A district HQ: an open pavilion a token stands under. Four columns on a low
+ * ring, a ring beam, and a dome in the district's colour with a gold finial.
+ */
+export function pavilion(colour = 0xfbbf24) {
+    const k = new Kit();
+    const GOLD = 0xf5c542;
+    for (const [x, z] of [[-1.5, 0], [1.5, 0], [0, -1.5], [0, 1.5]]) {
+        k.cyl('body', 0.42, 0.5, 0.3, 10, T([x, 0.15, z]), STONE_DARK);
+        k.cyl('body', 0.24, 0.3, 3.4, 10, T([x, 2.0, z]), STONE);
+        k.cyl('body', 0.44, 0.26, 0.3, 10, T([x, 3.85, z]), STONE_DARK);
+    }
+    k.geo('body', new THREE.TorusGeometry(1.5, 0.3, 8, 20), at(0, 4.2, 0, Math.PI / 2), STONE);
+    k.geo('sheen', new THREE.TorusGeometry(1.52, 0.12, 6, 20), at(0, 4.52, 0, Math.PI / 2), GOLD);
+    k.geo('sheen', new THREE.SphereGeometry(1.75, 18, 9, 0, Math.PI * 2, 0, Math.PI / 2), T([0, 4.45, 0]), colour);
+    // Gold ribs over the dome, and the finial the star hovers above.
+    for (let i = 0; i < 4; i++) {
+        k.geo('sheen', new THREE.TorusGeometry(1.77, 0.06, 5, 12, Math.PI), at(0, 4.45, 0, 0, i * Math.PI / 4), GOLD);
+    }
+    k.cyl('sheen', 0.1, 0.26, 0.5, 8, T([0, 6.4, 0]), GOLD);
+    // District-coloured pennants hanging inside the ring beam.
+    for (let i = 0; i < 8; i++) {
+        const a = i * Math.PI / 4 + Math.PI / 8;
+        k.geo('glow', new THREE.ConeGeometry(0.2, 0.5, 3), at(Math.cos(a) * 1.5, 3.72, Math.sin(a) * 1.5, Math.PI, -a), i % 2 ? GOLD : colour);
+    }
+    return k.build();
 }
 
 // ------------------------------------------------------------

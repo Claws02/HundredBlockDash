@@ -25,7 +25,7 @@ const pass = [], fail = [];
 const ok = (n, c, d) => (c ? pass : fail).push(n + (d ? ` — ${d}` : ''));
 
 async function boot(browser, { w = 390, h = 844, reduce = false, seen = false, dpr = 1 } = {}) {
-    const ctx = await browser.newContext({ viewport: { width: w, height: h }, deviceScaleFactor: dpr, hasTouch: true, reducedMotion: reduce ? 'reduce' : 'no-preference' });
+    const ctx = await browser.newContext({ bypassCSP: true, viewport: { width: w, height: h }, deviceScaleFactor: dpr, hasTouch: true, reducedMotion: reduce ? 'reduce' : 'no-preference' });
     const page = await ctx.newPage();
     const errors = [];
     page.on('pageerror', e => errors.push(e.message));

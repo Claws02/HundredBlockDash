@@ -9,7 +9,7 @@ accounts, devices or decisions that live outside the repo.
 ```bash
 git submodule update --init     # the minigames: src/claw-core is github.com/Claws02/claw-core
 npm install                     # Capacitor 8 + App, Haptics, SplashScreen, StatusBar
-npm run build:web               # copies the game into www/ (Capacitor's webDir)
+npm run build:web               # copies the game into www/ (Capacitor's webDir) and minifies it
 npx cap add android             # creates android/ — commit it
 npx cap add ios                 # creates ios/ — commit it (needs a Mac with Xcode)
 npm run cap:assets              # cuts every icon and splash size from resources/
@@ -35,6 +35,14 @@ Then, before every build: `npm run cap:sync`, and open the native project with
 |---|---|---|
 | Crash reporting | `src/config/Release.js` → `sentryDsn` | Off while empty. If you set it, update the "Crash reports" section of `privacy.html` and the data-safety answers below (crash logs, diagnostics, not linked to identity) |
 | TURN relay for online play | `src/config/Release.js` → `turnServers` | Without it, about one network in ten cannot connect phone-to-phone; the lobby now says so after 15 s. Use short-lived credentials if you run your own (coturn), or a hosted TURN service |
+
+## 2a. Security of the shipped app
+
+- **Content-Security-Policy** (`index.html`): scripts run only from the app's own files. No inline script, no inline event handlers, no `eval`, nothing from another origin. `connect-src` allows `wss:` for the online matchmaking relays. `qa/ci-smoke.js` runs with the policy live and fails if an inline script is allowed to run.
+- **Turning on crash reporting needs a policy change.** If `sentryDsn` is set, add the Sentry script host to `script-src` and its ingest host to `connect-src`, or the reporter will be blocked.
+- **Online play trusts nobody** (`src/net/NetGuard.js`). A guest pins the host from the first roster and ignores every other peer. Names, rosters, snapshots and mirrored scenes are checked for shape and stripped of markup before they reach the game or the page. Names are also escaped where they are printed.
+- **Not covered:** a room code is four characters, so a stranger can still join a room by guessing it and then play as a guest. They cannot run code or act for another seat. A longer code or a host "lock room" button would close that.
+- **Build tooling:** `npm audit --omit=dev` is clean. The remaining advisories are inside `@capacitor/assets` (`sharp`, `tar`), which only runs on the developer's machine to cut icons.
 
 ## 3. Store privacy answers (as the code stands, no Sentry DSN)
 

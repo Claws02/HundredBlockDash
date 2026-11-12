@@ -37,7 +37,7 @@ const MAX = +maxSecS, FRESH = freshS === '1';
         args: ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=swiftshader', '--enable-unsafe-swiftshader',
                '--mute-audio', '--autoplay-policy=no-user-gesture-required'],
     });
-    const ctx = await browser.newContext({ viewport: { width: W, height: H }, deviceScaleFactor: +(process.env.DPR || 1), hasTouch: true, isMobile: true });
+    const ctx = await browser.newContext({ bypassCSP: true, viewport: { width: W, height: H }, deviceScaleFactor: +(process.env.DPR || 1), hasTouch: true, isMobile: true });
     const page = await ctx.newPage();
     const errors = [];
     page.on('pageerror', e => errors.push('PAGEERROR: ' + e.message + ' ' + (e.stack || '').split('\n')[1]));

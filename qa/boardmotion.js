@@ -26,7 +26,7 @@ const AGENT = fs.readFileSync(path.join(__dirname, 'agent.js'), 'utf8');
 const BASE = process.env.QA_BASE || 'http://127.0.0.1:8129/index.html';
 
 async function run(browser, map, seconds) {
-    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true });
+    const ctx = await browser.newContext({ bypassCSP: true, viewport: { width: 390, height: 844 }, hasTouch: true });
     const page = await ctx.newPage();
     const errors = [];
     page.on('pageerror', e => errors.push(e.message));

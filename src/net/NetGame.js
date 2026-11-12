@@ -32,6 +32,7 @@ import * as NetMinigame from './NetMinigame.js';
 import * as GC from '../core/GameController.js';
 import * as ReadyGate from './ReadyGate.js';
 import { MSG, PROTOCOL_VERSION } from './NetProtocol.js';
+import { scrub } from './NetGuard.js';
 import * as T from '../claw-core/net/NetTransport.js';
 import { PLAYER_SLOTS, playableChar } from '../config/GameConfig.js';
 import { SCENE } from '../config/SceneTiming.js';
@@ -154,10 +155,15 @@ export function init(controller) {
     // `Scenes.replaying()` restores its flag synchronously — an awaited replay
     // would call the UI *after* the guard had already been lifted, so the
     // re-announcement it exists to suppress would fire anyway.
-    T.onMessage(msg => {
+    T.onMessage((msg, peerId) => {
         if (!msg || msg.t !== MSG.SCENE || !Session.isClient()) return;
-        if (!_ui) { _uiReady.then(() => _replayNow(msg.k, msg.p || {})); return; }
-        _replayNow(msg.k, msg.p || {});
+        // Only the host directs the table, and only beats this build knows.
+        // The payload is scrubbed like every other thing off the wire.
+        if (!Session.isFromHost(peerId)) return;
+        if (typeof msg.k !== 'string' || !Scenes.SCENE_TIER[msg.k]) return;
+        const payload = scrub(msg.p) || {};
+        if (!_ui) { _uiReady.then(() => _replayNow(msg.k, payload)); return; }
+        _replayNow(msg.k, payload);
     });
 }
 
@@ -292,7 +298,8 @@ function _replayScene(kind, p, Modal, UI) {
         case 'modal':
             // Reproduced from its id alone. Everything with content a snapshot
             // cannot carry has its own case below.
-            Modal.showModal(p.id);
+            // An id off the wire may only ever name one of the game's own cards.
+            if (typeof p.id === 'string' && /^[a-z0-9-]+-modal$/.test(p.id)) Modal.showModal(p.id);
             return;
         case 'useItems':
             Modal.openUseModal();

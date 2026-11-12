@@ -418,7 +418,7 @@ async function run(type) {
     const tag = `${type}@${SEATS}P`;
     const browser = await chromium.launch({ args: GL });
     try {
-        const ctx = await browser.newContext({ viewport: { width: 412, height: 892 }, hasTouch: true });
+        const ctx = await browser.newContext({ bypassCSP: true, viewport: { width: 412, height: 892 }, hasTouch: true });
         const page = await ctx.newPage();
         const errors = [];
         page.on('pageerror', e => errors.push('PAGEERROR: ' + e.message));

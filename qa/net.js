@@ -100,7 +100,7 @@ async function snap(page) {
         executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome', args: GL });
     // ONE context: BroadcastChannel is scoped to an origin within a browsing
     // context group, so the pages have to share one.
-    const ctx = await browser.newContext({ viewport: { width: 412, height: 892 }, hasTouch: true });
+    const ctx = await browser.newContext({ bypassCSP: true, viewport: { width: 412, height: 892 }, hasTouch: true });
     const pages = [];
 
     try {

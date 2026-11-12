@@ -24,7 +24,7 @@ const SAMPLES = parseInt(process.argv[2] || '200', 10);
         args: ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=swiftshader',
                '--enable-unsafe-swiftshader', '--mute-audio'],
     });
-    const ctx = await browser.newContext({ viewport: { width: 412, height: 892 } });
+    const ctx = await browser.newContext({ bypassCSP: true, viewport: { width: 412, height: 892 } });
     const page = await ctx.newPage();
     const errors = [];
     page.on('pageerror', e => errors.push('PAGEERROR: ' + e.message));

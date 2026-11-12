@@ -3,6 +3,7 @@
 // Reads GameState; never contains game rules.
 // ============================================================
 
+import { esc } from '../core/Html.js';
 import { state } from '../core/GameState.js';
 import * as Commands from '../core/Commands.js';
 import * as Scenes from './Scenes.js';
@@ -135,7 +136,7 @@ function _paintBar(dom, seat) {
     const isActive = seat === state.activePlayer;
 
     document.getElementById(`p${dom}-inv`).innerHTML = p.inv
-        .map(it => `<div class="inv-slot" title="${ITEMS[it]?.name || it}">${ITEMS[it]?.icon || '?'}</div>`)
+        .map(it => `<div class="inv-slot" title="${esc(ITEMS[it]?.name || it)}">${ITEMS[it]?.icon || '?'}</div>`)
         .join('');
     const bar = document.getElementById(`hud-p${dom}`);
     bar.classList.toggle('active-turn', isActive);
@@ -333,7 +334,7 @@ function _paintRivalStrip(focus) {
         // today; the guard is here so it cannot start lying if it ever does).
         const me = isMySeat(p.id) ? '<span class="you-badge">YOU</span>' : '';
         return `<div class="rival-chip${up}" style="--rc:${slot.hex}">` +
-               `<span class="rc-name">${slot.icon} ${p.name}${me}${bot}</span>` +
+               `<span class="rc-name">${slot.icon} ${esc(p.name)}${me}${bot}</span>` +
                `<span class="rc-coins">💰<span id="rival-coins-${p.id}">${p.coins}</span></span>` +
                `${bag}${bud}<span class="rc-pos">${_posLabel(p)}</span></div>`;
     }).join('');
@@ -459,7 +460,7 @@ function _updateAllySlots(playerIdx, p) {
         const a = p.allies[i];
         if (a) {
             const info = ALLIES[a.type] || {};
-            html += `<div class="ally-slot-badge" title="${info.name || a.type}">${info.icon || '?'}<span class="ally-turns">${a.turnsRemaining}</span></div>`;
+            html += `<div class="ally-slot-badge" title="${esc(info.name || a.type)}">${info.icon || '?'}<span class="ally-turns">${a.turnsRemaining}</span></div>`;
         } else {
             html += `<div class="ally-slot-empty"></div>`;
         }
@@ -476,7 +477,7 @@ export function setPlayerNames() {
     const label = seat => {
         const p = state.players[seat];
         if (!p) return '';
-        return `${PLAYER_SLOTS[seat].icon} ${p.name.toUpperCase()}` +
+        return `${PLAYER_SLOTS[seat].icon} ${esc(p.name.toUpperCase())}` +
                (isMySeat(seat) ? '<span class="you-badge">YOU</span>' : '') +
                (p.isBot ? ' <span class="bot-badge">BOT</span>' : '');
     };
@@ -903,10 +904,10 @@ export function showBuddyReport(rep, isNew, onDone) {
             const chips = h.buddies.map(x => {
                 const d = ALLIES[x.type] || {};
                 const charge = x.charges !== null && x.charges !== undefined ? ` · ${x.charges} blocks` : '';
-                return `<span class="aa-chip">${d.icon || '?'} ${d.name || x.type}`
+                return `<span class="aa-chip">${d.icon || '?'} ${esc(d.name || x.type)}`
                      + `<b>${x.turnsLeft} turn${x.turnsLeft === 1 ? '' : 's'}${charge}</b></span>`;
             }).join('');
-            return `<div class="aa-held-row"><span class="aa-held-who">${h.name}</span>${chips}</div>`;
+            return `<div class="aa-held-row"><span class="aa-held-who">${esc(h.name)}</span>${chips}</div>`;
         }).join('');
         heldEl.innerHTML = rows;
         heldEl.style.display = rows ? '' : 'none';
@@ -984,7 +985,7 @@ function _renderBountyList() {
         const bars = counted ? state.players.map((p, i) => {
             const got = Math.min((c._prog && c._prog[i]) || 0, need);
             return `<div class="bq-track">
-                <span class="bq-who" style="color:${i === 0 ? '#ff6b6b' : '#6ba7ff'}">${p.name}</span>
+                <span class="bq-who" style="color:${i === 0 ? '#ff6b6b' : '#6ba7ff'}">${esc(p.name)}</span>
                 <span class="bq-bar"><span class="bq-fill" style="width:${(got / need) * 100}%;background:${i === 0 ? '#ff6b6b' : '#6ba7ff'}"></span></span>
                 <span class="bq-num">${got}/${need}</span>
             </div>`;
@@ -1212,7 +1213,7 @@ export function showAllyStealModal(target, callback) {
             return `<button class="ally-steal-btn" data-ally-idx="${idx}">
                 <span class="ally-steal-icon">${info.icon || '?'}</span>
                 <div class="ally-steal-info">
-                    <b>${info.name || a.type}</b>
+                    <b>${esc(info.name || a.type)}</b>
                     <small>${info.desc || ''} &middot; ${a.turnsRemaining} turn${a.turnsRemaining !== 1 ? 's' : ''} left</small>
                 </div>
             </button>`;
@@ -1394,7 +1395,7 @@ export function showTurnBanner(playerIdx, opts = {}) {
         const mine = hudMode() === 'duo' ? edge === playerIdx : edge === 0;
         card.innerHTML =
             `<span class="tb-ic">${icon}</span>` +
-            `<span class="tb-txt"><span class="tb-name bfont">${p.name.toUpperCase()}` +
+            `<span class="tb-txt"><span class="tb-name bfont">${esc(p.name.toUpperCase())}` +
             `${isMe ? '<span class="tb-you">YOU</span>' : ''}</span>` +
             `<span class="tb-sub">${mine ? sub : 'their turn'}</span></span>`;
         card.style.setProperty('--tb-col', col);

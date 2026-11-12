@@ -45,7 +45,7 @@ const boardSig = page => page.evaluate(async () => {
         executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
         args: ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--mute-audio'],
     });
-    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true });
+    const ctx = await browser.newContext({ bypassCSP: true, viewport: { width: 390, height: 844 }, hasTouch: true });
     const page = await ctx.newPage();
     // On a stall, say where: partial results, the game state and what is on screen.
     process.on('unhandledRejection', async (e) => {

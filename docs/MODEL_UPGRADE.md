@@ -48,6 +48,21 @@ Five builders replaced. The old `_mkSkyscraper`, `_mkBrickBuilding`, `_mkShopBui
 
 **Test changed:** `qa/optimise.js` required the merge to cut overview calls by a third compared with no merge. The kit buildings arrive pre-merged, so the unmerged baseline itself fell from 2,213 to 1,581 calls and the merge has less left to do (it now cuts 29%). The check is restated as "the merge still cuts a quarter" plus "the shipped overview stays under the pre-kit 1,262 calls".
 
+## Batch: board-space structures and tokens (done)
+
+The Gate, the shop stall and the HQ pavilion were the last box-and-cylinder models on the board. They are now kit models (`CityKit.gate`, `CityKit.stall`, `CityKit.pavilion`) with the same footprints, used on both City Circuit and Hundred Block Dash.
+
+| Model | What it has now |
+|---|---|
+| Gate | Bevelled stone piers on plinths with bands and capitals; a stepped lintel with a lit name band; lanterns on both faces. Closed: a gold portcullis with spiked feet. Open: the portcullis drawn up and the lamps green. |
+| Shop stall | Slatted crate front and counter; four posts; a pitched awning striped in the district colour with a scalloped edge; goods on the counter; a lit price board. |
+| HQ pavilion | Four columns with bases and capitals on the same open footprint; a stone ring beam; a ribbed dome in the district colour; gold finial; pennants. |
+| Player tokens | A pawn base in the seat colour under every token, and a breathing ring round the one whose turn it is. Both are unlit, so they read in dark districts. |
+
+The moving parts (gate gems, the stall's coin, the pavilion's star) are still separate small meshes. Kit materials are shared by the whole city, so `Renderer._disposeTree` now skips any material flagged `userData.shared`; before this a tile redraw would have thrown the city's three shaders away.
+
+The earlier "next batches" list below is partly out of date: the City landmarks, street props and the Hundred Block Dash realm scenery have since moved to the kit (`CityKit.landmark`, `prop`, `span`, `realmLandmark`, `realmDecor`). Still old-style: the Star Territory buildings (`_mkFalseFront`, `_mkRailShed`, `_mkMineWorks`, `_mkRanchBuilding`), the Territory plinth, and the City background skyline.
+
 ## Next batches (suggested order)
 
 1. **City landmarks:** the Exchange, the neon arch, the glass arcade and the cooling towers. One per district, and the most visible single models.

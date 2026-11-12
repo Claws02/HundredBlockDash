@@ -26,7 +26,7 @@ AudioContext.prototype.createOscillator = function () { window.__osc++; return _
         executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
         args: ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--mute-audio', '--autoplay-policy=no-user-gesture-required'],
     });
-    const page = await browser.newPage({ viewport: { width: 390, height: 844 }, hasTouch: true });
+    const page = await browser.newPage({ bypassCSP: true, viewport: { width: 390, height: 844 }, hasTouch: true });
     const errors = [];
     page.on('pageerror', e => errors.push(e.message));
     await page.addInitScript(() => { try { localStorage.clear(); localStorage.setItem('hbd_seen_howto', 'true'); localStorage.setItem('hbd_seen_city_briefing', 'true'); } catch (e) {} });

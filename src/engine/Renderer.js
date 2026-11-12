@@ -107,7 +107,7 @@ function _disposeTree(root) {
             try { n.geometry.dispose(); } catch (e) {}
         }
         const mats = Array.isArray(n.material) ? n.material : (n.material ? [n.material] : []);
-        mats.forEach(m => { try { m.dispose(); } catch (e) {} });   // .map is cached; left alone
+        mats.forEach(m => { if (m.userData && m.userData.shared) return; try { m.dispose(); } catch (e) {} });   // .map is cached; left alone
     });
 }
 
@@ -891,24 +891,9 @@ export function getTileMeshes()    { return tileMeshes; }
 
 // ---- HBD-specific tile decorations ----
 
-function _buildHBDGateMesh(idx, pos) {
-    const gateOpen  = state.gateOpen;
-    const gateColor = gateOpen ? 0x4ade80 : 0xfbbf24;
-    const gateEmit  = gateOpen ? 0x22c55e : 0xb45309;
-    const gateMat   = new THREE.MeshPhysicalMaterial({ color: gateColor, emissive: gateEmit, emissiveIntensity: 1.2, metalness: 0.95, roughness: 0.05 });
-    const gateGrp   = new THREE.Group();
-    gateGrp.position.copy(pos);
-    const t = Math.max(0.001, Math.min(idx / _hbdMax, 0.999));
-    const tangent = boardCurve.getTangent(t).normalize();
-    gateGrp.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), tangent);
-    const pillarGeo = new THREE.BoxGeometry(0.55, 7, 0.55);
-    [-2.2, 2.2].forEach(x => {
-        const p = new THREE.Mesh(pillarGeo, gateMat); p.position.set(x, 3.5, 0); p.castShadow = true; gateGrp.add(p);
-    });
-    const cross = new THREE.Mesh(new THREE.BoxGeometry(5.5, 0.6, 0.55), gateMat); cross.position.set(0, 7.2, 0); cross.castShadow = true; gateGrp.add(cross);
-    const barMat = new THREE.MeshPhysicalMaterial({ color: gateOpen ? 0x86efac : 0xfcd34d, emissive: gateEmit, emissiveIntensity: 0.6, metalness: 0.8, roughness: 0.15, transparent: gateOpen, opacity: gateOpen ? 0.35 : 1.0 });
-    const barGeo = new THREE.BoxGeometry(0.22, 4.2, 0.22);
-    for (let b = -2; b <= 2; b++) { const bar = new THREE.Mesh(barGeo, barMat); bar.position.set(b * 0.88, 3.1, 0); gateGrp.add(bar); }
+// The gate's two gems: the only parts of it that move, so the only parts that
+// are meshes of their own. Everything else is the kit model.
+function _gateGems(gateGrp, gateOpen) {
     const gemMat = new THREE.MeshPhysicalMaterial({ color: gateOpen ? 0xffffff : 0xfef08a, emissive: gateOpen ? 0x4ade80 : 0xfbbf24, emissiveIntensity: 2.0, transparent: true, opacity: 0.9 });
     [-2.2, 2.2].forEach(x => {
         const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.45), gemMat);
@@ -916,32 +901,39 @@ function _buildHBDGateMesh(idx, pos) {
         gateGrp.add(gem);
         _pushTileIcon({ mesh: gem, baseY: 7.6, speed: 1.1, phase: x > 0 ? Math.PI : 0, group: gateGrp });
     });
+}
+
+function _buildHBDGateMesh(idx, pos) {
+    const gateGrp = CityKit.gate(state.gateOpen);
+    gateGrp.position.copy(pos);
+    const t = Math.max(0.001, Math.min(idx / _hbdMax, 0.999));
+    const tangent = boardCurve.getTangent(t).normalize();
+    gateGrp.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), tangent);
+    _gateGems(gateGrp, state.gateOpen);
     boardGrp.add(gateGrp); tileMeshes.push(gateGrp);
 }
 
+// The stall's coin sign spins above the awning, so it is its own mesh.
+function _stallCoin(shopGrp) {
+    const signMat = new THREE.MeshPhysicalMaterial({ color: 0xfbbf24, emissive: 0xf59e0b, emissiveIntensity: 1.8, metalness: 0.9, roughness: 0.05 });
+    const sign = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.1, 12), signMat); sign.position.set(0, 4.0, 0); sign.rotation.x = Math.PI / 2; shopGrp.add(sign);
+    _pushTileIcon({ mesh: sign, baseY: 4.0, speed: 1.6, phase: Math.random() * Math.PI * 2, group: shopGrp });
+}
+
 function _buildHBDShopMesh(idx, pos) {
-    const shopGrp = new THREE.Group();
+    const shopGrp = CityKit.stall(0xa855f7);
     const t = Math.max(0.001, Math.min(idx / _hbdMax, 0.999));
     const tangent = boardCurve.getTangent(t).normalize();
     const right   = new THREE.Vector3(0, 1, 0).cross(tangent).normalize();
     shopGrp.position.copy(pos).addScaledVector(right, 3.2); shopGrp.position.y = 0;
     shopGrp.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), tangent);
-    const counterMat = new THREE.MeshPhysicalMaterial({ color: 0x78350f, emissive: 0x3b1a06, emissiveIntensity: 0.3, roughness: 0.7 });
-    const counter = new THREE.Mesh(new THREE.BoxGeometry(3, 1.2, 1.5), counterMat); counter.position.set(0, 0.6, 0); counter.castShadow = true; shopGrp.add(counter);
-    const awningMat = new THREE.MeshPhysicalMaterial({ color: 0xa855f7, emissive: 0x7c3aed, emissiveIntensity: 0.6 });
-    const awning = new THREE.Mesh(new THREE.BoxGeometry(3.5, 0.2, 2), awningMat); awning.position.set(0, 2.2, 0); shopGrp.add(awning);
-    const signMat = new THREE.MeshPhysicalMaterial({ color: 0xfbbf24, emissive: 0xf59e0b, emissiveIntensity: 1.5 });
-    const sign = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.6, 0.1), signMat); sign.position.set(0, 2.8, -0.9); shopGrp.add(sign);
-    shopGrp.userData = { idx, type: '_shop' };
+    _stallCoin(shopGrp);
+    shopGrp.userData = { ...shopGrp.userData, idx, type: '_shop' };
     boardGrp.add(shopGrp); tileMeshes.push(shopGrp);
 }
 
 function _buildGateMesh(nodeId, pos) {
-    const gateOpen = state.gateOpen;
-    const gateColor = gateOpen ? 0x4ade80 : 0xfbbf24;
-    const gateEmit  = gateOpen ? 0x22c55e : 0xb45309;
-    const gateMat   = new THREE.MeshPhysicalMaterial({ color: gateColor, emissive: gateEmit, emissiveIntensity: 1.2, metalness: 0.95, roughness: 0.05 });
-    const gateGrp   = new THREE.Group();
+    const gateGrp = CityKit.gate(state.gateOpen);
     gateGrp.position.copy(pos);
 
     const nextId  = ActiveMap.graph()[nodeId]?.next?.[0];
@@ -949,25 +941,8 @@ function _buildGateMesh(nodeId, pos) {
     const tangent = new THREE.Vector3().subVectors(nextPos, pos).normalize();
     gateGrp.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), tangent);
 
-    const pillarGeo = new THREE.BoxGeometry(0.55, 7, 0.55);
-    [-2.2, 2.2].forEach(x => {
-        const p = new THREE.Mesh(pillarGeo, gateMat); p.position.set(x, 3.5, 0); p.castShadow = true; gateGrp.add(p);
-    });
-    const cross = new THREE.Mesh(new THREE.BoxGeometry(5.5, 0.6, 0.55), gateMat); cross.position.set(0, 7.2, 0); cross.castShadow = true; gateGrp.add(cross);
-    const arch  = new THREE.Mesh(new THREE.TorusGeometry(2.2, 0.28, 8, 20, Math.PI), gateMat); arch.position.set(0, 7.2, 0); arch.rotation.z = Math.PI; arch.castShadow = true; gateGrp.add(arch);
-
-    const barMat = new THREE.MeshPhysicalMaterial({ color: gateOpen ? 0x86efac : 0xfcd34d, emissive: gateEmit, emissiveIntensity: 0.6, metalness: 0.8, roughness: 0.15, transparent: gateOpen, opacity: gateOpen ? 0.35 : 1.0 });
-    const barGeo = new THREE.BoxGeometry(0.22, 4.2, 0.22);
-    for (let b = -2; b <= 2; b++) { const bar = new THREE.Mesh(barGeo, barMat); bar.position.set(b * 0.88, 3.1, 0); gateGrp.add(bar); }
-
-    const gemMat = new THREE.MeshPhysicalMaterial({ color: gateOpen ? 0xffffff : 0xfef08a, emissive: gateOpen ? 0x4ade80 : 0xfbbf24, emissiveIntensity: 2.0, transparent: true, opacity: 0.9 });
-    [-2.2, 2.2].forEach(x => {
-        const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.45), gemMat);
-        gem.position.set(x, 7.6, 0);
-        gateGrp.add(gem);
-        _pushTileIcon({ mesh: gem, baseY: 7.6, speed: 1.1, phase: x > 0 ? Math.PI : 0, group: gateGrp });
-    });
-    gateGrp.userData = { nodeId, type: '_gate' };
+    _gateGems(gateGrp, state.gateOpen);
+    gateGrp.userData = { ...gateGrp.userData, nodeId, type: '_gate' };
     boardGrp.add(gateGrp); tileMeshes.push(gateGrp);
 }
 
@@ -1064,49 +1039,29 @@ export function _mkSheriffStar(scale = 1) {
 }
 
 function _buildShopMesh(nodeId, pos, district) {
-    const shopGrp = new THREE.Group();
+    const colors = { fin: 0x3b82f6, ba: 0xef4444, shop: 0xec4899, ind: 0xeab308, ring: 0xa855f7,
+                     hub: 0xb45309, rail: 0x60a5fa, mine: 0xf97316, ranch: 0x84cc16, bad: 0xfbbf24 };
+    const shopGrp = CityKit.stall(colors[district] || 0xa855f7);
     const nextId  = ActiveMap.graph()[nodeId]?.next?.[0];
     const nextPos = nextId ? getPos(nextId) : pos.clone().add(new THREE.Vector3(1, 0, 0));
     const tangent = new THREE.Vector3().subVectors(nextPos, pos).normalize();
     const right   = new THREE.Vector3(0, 1, 0).cross(tangent).normalize();
     shopGrp.position.copy(pos).addScaledVector(right, 3.2); shopGrp.position.y = 0;
     shopGrp.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), tangent);
-
-    const colors = { fin: 0x3b82f6, ba: 0xef4444, shop: 0xec4899, ind: 0xeab308, ring: 0xa855f7,
-                     hub: 0xb45309, rail: 0x60a5fa, mine: 0xf97316, ranch: 0x84cc16, bad: 0xfbbf24 };
-    const awningColor = colors[district] || 0xa855f7;
-
-    const counterMat = new THREE.MeshPhysicalMaterial({ color: 0x78350f, emissive: 0x3b1a06, emissiveIntensity: 0.3, roughness: 0.7 });
-    const counter = new THREE.Mesh(new THREE.BoxGeometry(3.0, 0.35, 1.4), counterMat); counter.position.set(0, 1.5, 0); counter.castShadow = true; shopGrp.add(counter);
-    const legGeo  = new THREE.BoxGeometry(0.18, 1.5, 0.18);
-    [[-1.3, 0.75, -0.55],[1.3, 0.75, -0.55],[-1.3, 0.75, 0.55],[1.3, 0.75, 0.55]].forEach(([x,y,z]) => {
-        const leg = new THREE.Mesh(legGeo, counterMat); leg.position.set(x,y,z); shopGrp.add(leg);
-    });
-    const awningMat = new THREE.MeshPhysicalMaterial({ color: awningColor, emissive: awningColor, emissiveIntensity: 0.4, roughness: 0.6 });
-    const awning = new THREE.Mesh(new THREE.BoxGeometry(3.6, 0.12, 1.8), awningMat); awning.position.set(0, 2.55, -0.2); awning.rotation.x = -0.18; shopGrp.add(awning);
-    const signMat = new THREE.MeshPhysicalMaterial({ color: 0xfbbf24, emissive: 0xf59e0b, emissiveIntensity: 1.8, metalness: 0.9, roughness: 0.05 });
-    const sign = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.1, 12), signMat); sign.position.set(0, 3.6, 0); sign.rotation.x = Math.PI / 2; shopGrp.add(sign);
-    _pushTileIcon({ mesh: sign, baseY: 3.6, speed: 1.6, phase: Math.random() * Math.PI * 2, group: shopGrp });
-    shopGrp.userData = { nodeId, type: '_shop' };
+    _stallCoin(shopGrp);
+    shopGrp.userData = { ...shopGrp.userData, nodeId, type: '_shop' };
     boardGrp.add(shopGrp); tileMeshes.push(shopGrp);
 }
 
 function _buildHQMesh(nodeId, pos, district) {
-    const hqGrp = new THREE.Group();
-    hqGrp.position.copy(pos); hqGrp.position.y = 0;
     const colors = { fin: 0x3b82f6, ba: 0xef4444, shop: 0xec4899, ind: 0xeab308 };
-    const col    = colors[district] || 0xfbbf24;
-    const mat    = new THREE.MeshPhysicalMaterial({ color: col, emissive: col, emissiveIntensity: 1.0, metalness: 0.8, roughness: 0.1 });
-    // Crown pillars
-    [[-1.5,0,0],[1.5,0,0],[0,0,-1.5],[0,0,1.5]].forEach(([x,,z]) => {
-        const p = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.25, 4, 8), mat); p.position.set(x, 2, z); hqGrp.add(p);
-    });
-    const dome = new THREE.Mesh(new THREE.SphereGeometry(1.8, 12, 8, 0, Math.PI*2, 0, Math.PI/2), mat); dome.position.set(0, 4, 0); hqGrp.add(dome);
+    const hqGrp = CityKit.pavilion(colors[district] || 0xfbbf24);
+    hqGrp.position.copy(pos); hqGrp.position.y = 0;
     const star = new THREE.Mesh(new THREE.OctahedronGeometry(0.6), new THREE.MeshPhysicalMaterial({ color: 0xfbbf24, emissive: 0xfbbf24, emissiveIntensity: 3.0 }));
-    star.position.set(0, 5.8, 0);
+    star.position.set(0, 7.4, 0);
     hqGrp.add(star);
-    _pushTileIcon({ mesh: star, baseY: 5.8, speed: 1.2, phase: Math.random() * Math.PI * 2, group: hqGrp });
-    hqGrp.userData = { nodeId, type: '_hq' };
+    _pushTileIcon({ mesh: star, baseY: 7.4, speed: 1.2, phase: Math.random() * Math.PI * 2, group: hqGrp });
+    hqGrp.userData = { ...hqGrp.userData, nodeId, type: '_hq' };
     boardGrp.add(hqGrp); tileMeshes.push(hqGrp);
 }
 
@@ -1141,10 +1096,38 @@ export function seatOffset(seatId, unit) {
     return { lat: Math.cos(a) * r, fwd: Math.sin(a) * r };
 }
 
+// A PAWN BASE under every token, in its seat's colour, and a ring round the
+// one whose turn it is.
+//
+// At board distance on a phone a token is about forty pixels tall, and two
+// players who picked look-alike characters were told apart only by a tint.
+// The base is the board-game answer: a flat disc of solid seat colour that
+// reads from straight above, where the follow camera sits. Both are unlit
+// (MeshBasicMaterial), so they keep their colour in a dark district and the
+// active-player glow, which touches lit materials only, leaves them alone.
+function _addTokenBase(p) {
+    const col = new THREE.Color(p.color);
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.68, 0.1, 20),
+        new THREE.MeshBasicMaterial({ color: col.clone().multiplyScalar(0.82) }));
+    base.position.y = 0.05;
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.05, 6, 20),
+        new THREE.MeshBasicMaterial({ color: col.clone().lerp(new THREE.Color(0xffffff), 0.55) }));
+    rim.rotation.x = Math.PI / 2; rim.position.y = 0.1;
+    const turn = new THREE.Mesh(new THREE.RingGeometry(0.82, 1.0, 28),
+        new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false }));
+    turn.rotation.x = -Math.PI / 2; turn.position.y = 0.07; turn.visible = false;
+    p.mesh.add(base, rim, turn);
+    p.mesh.userData.turnRing = turn;
+}
+
 function buildPlayerMeshes() {
+    // New meshes have neither the glow nor the turn ring yet: make the next
+    // frame apply them even if the same seat is still up.
+    _prevActivePlayer = -1;
     const isHBD = ActiveMap.isLinear();
     state.players.forEach(p => {
         p.mesh = createCharacterMesh(p.charType, p.color);
+        _addTokenBase(p);
         if (isHBD) {
             const idx = typeof p.pos === 'number' ? p.pos : 0;
             const pos = getPos(idx).clone();
@@ -2372,6 +2355,7 @@ function _loop(ts) {
         state.players.forEach((p, i) => {
             if (!p.mesh) return;
             const isActive = i === state.activePlayer;
+            if (p.mesh.userData.turnRing) p.mesh.userData.turnRing.visible = isActive;
             p.mesh.traverse(o => {
                 if (o.isMesh && o.material && !o.material.isMeshBasicMaterial) {
                     o.material.emissive = new THREE.Color(isActive ? p.color : 0x000000);
@@ -2379,6 +2363,15 @@ function _loop(ts) {
                 }
             });
         });
+    }
+
+    // The turn ring breathes, so the eye finds whose go it is without reading.
+    {
+        const ring = state.players[state.activePlayer]?.mesh?.userData.turnRing;
+        if (ring && ring.visible) {
+            const k = _reduceMotion() ? 1 : 1 + 0.09 * Math.sin(time * 0.005);
+            ring.scale.set(k, k, 1);
+        }
     }
 
     _tickReactions(dt, time);

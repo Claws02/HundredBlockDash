@@ -20,7 +20,7 @@ const pass = [], fail = [];
 const ok = (n, c, d) => (c ? pass : fail).push(`${n}${d ? ` — ${d}` : ''}`);
 
 async function boot(browser) {
-    const ctx = await browser.newContext({ viewport: { width: 412, height: 892 }, hasTouch: true });
+    const ctx = await browser.newContext({ bypassCSP: true, viewport: { width: 412, height: 892 }, hasTouch: true });
     const page = await ctx.newPage();
     const errors = [];
     page.on('pageerror', e => errors.push('PAGEERROR: ' + e.message));

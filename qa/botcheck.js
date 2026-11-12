@@ -26,7 +26,7 @@ const TIERS = [['easy', 0.25], ['hard', 0.85]];
         args: ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=swiftshader',
                '--enable-unsafe-swiftshader', '--mute-audio', '--autoplay-policy=no-user-gesture-required'],
     });
-    const ctx = await browser.newContext({ viewport: { width: 412, height: 892 }, deviceScaleFactor: 2, hasTouch: true });
+    const ctx = await browser.newContext({ bypassCSP: true, viewport: { width: 412, height: 892 }, deviceScaleFactor: 2, hasTouch: true });
     const page = await ctx.newPage();
 
     let current = 'boot';

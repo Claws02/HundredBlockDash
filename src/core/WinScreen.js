@@ -5,6 +5,7 @@
 // Imports earnCoins from Economy to apply City Circuit dominance bonuses.
 // ============================================================
 
+import { esc } from './Html.js';
 import { state } from './GameState.js';
 import * as MatchSave from './MatchSave.js';
 import { DISTRICT_DOMINANCE_BONUS, HQ_META, HBD_FINISH_BONUS, PLAYER_SLOTS } from '../config/GameConfig.js';
@@ -164,7 +165,7 @@ export function calculateWinner(applyBonuses = true) {
                 stat('⚔️', 'duels', p.duelsWon)}</div>${districtStrip(p)}`;
         }
         return `<div class="win-card${isW ? ' winner-card' : ''}">` +
-               `<div class="win-card-head"><div class="win-card-name">${isW ? '👑 ' : ''}${p.name}</div>` +
+               `<div class="win-card-head"><div class="win-card-name">${isW ? '👑 ' : ''}${esc(p.name)}</div>` +
                `<div class="win-card-score">${s}</div></div>` +
                `<div class="win-card-stats">${details}</div></div>`;
     }
@@ -342,7 +343,7 @@ function _renderRaceChart() {
             : '<span>lead never changed</span>';
         legend.innerHTML =
             state.players.map(pl =>
-                `<span><span class="wc-swatch" style="background:${colors[pl.id]}"></span><b>${pl.name}</b></span>`).join('') +
+                `<span><span class="wc-swatch" style="background:${colors[pl.id]}"></span><b>${esc(pl.name)}</b></span>`).join('') +
             `<span>${unit.toLowerCase()}s: <b>${maxX}</b></span>` + flipTxt;
     }
 }

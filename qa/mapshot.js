@@ -28,7 +28,7 @@ const VIEWS = [
     const mapId = process.argv[2] || 'city_circuit';
     const browser = await chromium.launch({
         executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome', args: GL });
-    const ctx = await browser.newContext({ viewport: { width: 1200, height: 900 } });
+    const ctx = await browser.newContext({ bypassCSP: true, viewport: { width: 1200, height: 900 } });
     const page = await ctx.newPage();
     const errors = [];
     page.on('pageerror', e => errors.push(e.message));

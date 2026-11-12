@@ -48,7 +48,7 @@ const toPreRoll = async (page, budget = 400) => {
     const browser = await chromium.launch({
         executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome', args: GL,
     });
-    const ctx = await browser.newContext({ viewport: { width: 412, height: 892 }, hasTouch: true });
+    const ctx = await browser.newContext({ bypassCSP: true, viewport: { width: 412, height: 892 }, hasTouch: true });
     const page = await ctx.newPage();
     const errors = [];
     page.on('pageerror', e => errors.push('PAGEERROR: ' + e.message));

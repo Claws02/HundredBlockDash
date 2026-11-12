@@ -49,7 +49,7 @@ const EXPECTED_POOLS = { ring: 17, fin: 8, ba: 10, shop: 8, ind: 5 };
         args: ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=swiftshader',
                '--enable-unsafe-swiftshader', '--mute-audio'],
     });
-    const ctx  = await browser.newContext({ viewport: { width: 412, height: 892 } });
+    const ctx  = await browser.newContext({ bypassCSP: true, viewport: { width: 412, height: 892 } });
     const page = await ctx.newPage();
     const errors = [];
     page.on('pageerror', e => errors.push('PAGEERROR: ' + e.message));

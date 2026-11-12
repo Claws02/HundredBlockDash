@@ -22,7 +22,7 @@ const BASE = process.env.QA_BASE || 'http://127.0.0.1:8129/index.html';
         args: ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=swiftshader',
                '--enable-unsafe-swiftshader', '--mute-audio', '--autoplay-policy=no-user-gesture-required'],
     });
-    const ctx = await browser.newContext({ viewport: { width: 412, height: 892 }, deviceScaleFactor: 2, hasTouch: true });
+    const ctx = await browser.newContext({ bypassCSP: true, viewport: { width: 412, height: 892 }, deviceScaleFactor: 2, hasTouch: true });
     const page = await ctx.newPage();
 
     let current = 'boot';

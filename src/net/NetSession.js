@@ -20,6 +20,7 @@
 import * as T from '../claw-core/net/NetTransport.js';
 import { MSG, PROTOCOL_VERSION, KICK_REASON } from './NetProtocol.js';
 import { MAX_PLAYERS, MIN_PLAYERS, PLAYER_SLOTS } from '../config/GameConfig.js';
+import { cleanName, cleanRoster, cleanSnapshot, scrub, isId } from './NetGuard.js';
 
 export const ROLE = { OFFLINE: 'offline', HOST: 'host', CLIENT: 'client' };
 
@@ -27,6 +28,12 @@ let _role = ROLE.OFFLINE;
 let _seat = null;         // my seat index, once seats are dealt
 let _name = 'Player';
 let _started = false;
+// Client only: the one peer whose word is taken as the host's. Everybody in a
+// room can send to everybody, so without this any guest could broadcast a
+// roster, a snapshot or a kick and every other phone would obey it. It is
+// pinned from the first roster whose seat 0 is the peer that sent it, and from
+// then on nobody else is listened to.
+let _hostId = null;
 
 // Lobby roster. Host holds the authoritative copy; clients hold whatever the
 // last LOBBY message said. Ordered — index IS the seat number.
@@ -59,7 +66,7 @@ export function started()   { return _started; }
 // ── Opening a room ──────────────────────────────────────────────────────────
 
 export async function host(displayName) {
-    _name = displayName || 'Player 1';
+    _name = cleanName(displayName, 'Player 1');
     const code = T.makeRoomCode();
     _wire();
     const info = await T.connect(code);
@@ -80,10 +87,11 @@ export async function join(code, displayName) {
     // usually empty — and empty is the useful thing to send, because only the
     // host knows which seat this peer is about to land in and can therefore
     // name it something that is not the same as everybody else's default.
-    _name = String(displayName || '').slice(0, 14);
+    _name = cleanName(displayName);
     _wire();
     const info = await T.connect(code);
     _role = ROLE.CLIENT;
+    _hostId = null;
     _seat = null;
     _started = false;
     _roster = [];
@@ -98,7 +106,7 @@ export async function join(code, displayName) {
 export async function leave() {
     if (_role !== ROLE.OFFLINE) T.send({ t: MSG.BYE });
     await T.disconnect();
-    _role = ROLE.OFFLINE; _seat = null; _roster = []; _started = false;
+    _role = ROLE.OFFLINE; _seat = null; _roster = []; _started = false; _hostId = null;
     _emit('status', { kind: 'left' });
 }
 
@@ -175,7 +183,7 @@ function _hostRecv(msg, peerId) {
             // this moment, and it is the host that has it — so it names them.
             _roster.push({
                 peerId,
-                name: String(msg.name || '').trim().slice(0, 14)
+                name: cleanName(msg.name)
                       || (PLAYER_SLOTS[_roster.length] || {}).name || 'Player',
                 char: null, ready: false, connected: true, bot: false,
             });
@@ -190,7 +198,7 @@ function _hostRecv(msg, peerId) {
             // screen that had not told them who else was here.
             const slot = _roster.find(r => r.peerId === peerId);
             if (!slot || _started) return;
-            slot.name = String(msg.name || 'Player').slice(0, 14);
+            slot.name = cleanName(msg.name, 'Player');
             _broadcastLobby();
             _emit('roster', roster());
             return;
@@ -199,6 +207,7 @@ function _hostRecv(msg, peerId) {
             const slot = _roster.find(r => r.peerId === peerId);
             if (!slot || _started) return;
             // Two people cannot take the same character; last one to ask loses.
+            if (!isId(msg.char)) return;
             if (_roster.some(r => r !== slot && r.char === msg.char)) return;
             slot.char = msg.char;
             _broadcastLobby();
@@ -216,7 +225,8 @@ function _hostRecv(msg, peerId) {
         case MSG.INTENT: {
             const seat = _roster.findIndex(r => r.peerId === peerId);
             if (seat < 0) return;
-            _emit('intent', { seat, name: msg.n, args: Array.isArray(msg.a) ? msg.a : [] });
+            if (!isId(msg.n)) return;
+            _emit('intent', { seat, name: msg.n, args: Array.isArray(msg.a) ? scrub(msg.a.slice(0, 8)) : [] });
             return;
         }
         case MSG.BYE: {
@@ -253,7 +263,7 @@ export function hostUpdateSeat(seat, patch) {
         row.char = patch.char;
     }
     if (patch.ready !== undefined) row.ready = !!patch.ready;
-    if (patch.name !== undefined)  row.name = String(patch.name).slice(0, 14);
+    if (patch.name !== undefined)  row.name = cleanName(patch.name, row.name || 'Player');
     _broadcastLobby();
     _emit('roster', roster());
     return true;
@@ -288,25 +298,48 @@ export function pushSnapshot(snap) {
 
 // ── Client side ─────────────────────────────────────────────────────────────
 
-function _clientRecv(msg) {
+/** Client only: did this message come from the peer we take to be the host? */
+export function isFromHost(peerId) { return !!_hostId && peerId === _hostId; }
+
+function _clientRecv(msg, peerId) {
+    // Until a host is pinned, the only thing listened to is a roster that the
+    // sender itself heads: seat 0 is always the host's own.
+    if (!_hostId) {
+        if (msg.t !== MSG.LOBBY && msg.t !== MSG.START && msg.t !== MSG.KICK) return;
+        if (msg.t !== MSG.KICK) {
+            const seats = cleanRoster(msg.seats);
+            if (!seats || seats[0].peerId !== peerId) return;
+            _hostId = peerId;
+        }
+    } else if (peerId !== _hostId) {
+        return;
+    }
     switch (msg.t) {
-        case MSG.LOBBY:
-            _roster = msg.seats || [];
+        case MSG.LOBBY: {
+            const seats = cleanRoster(msg.seats);
+            if (!seats) return;
+            _roster = seats;
             _seat = _roster.findIndex(r => r.peerId === T.selfId());
             if (_seat < 0) _seat = null;
             _emit('roster', roster());
             return;
-        case MSG.START:
+        }
+        case MSG.START: {
+            const seats = cleanRoster(msg.seats);
+            if (!seats) return;
             _started = true;
-            _roster = msg.seats || [];
+            _roster = seats;
             _seat = _roster.findIndex(r => r.peerId === T.selfId());
-            _emit('start', { seats: msg.seats, setup: msg.setup, mySeat: _seat });
+            _emit('start', { seats, setup: scrub(msg.setup) || {}, mySeat: _seat });
             return;
-        case MSG.SNAP:
-            _emit('snap', msg.s);
+        }
+        case MSG.SNAP: {
+            const snap = cleanSnapshot(msg.s);
+            if (snap) _emit('snap', snap);
             return;
+        }
         case MSG.KICK:
-            _emit('status', { kind: 'kicked', reason: msg.reason });
+            _emit('status', { kind: 'kicked', reason: isId(msg.reason) ? msg.reason : '' });
             leave();
             return;
         case MSG.BYE:

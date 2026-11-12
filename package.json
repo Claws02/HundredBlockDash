@@ -2,7 +2,7 @@
   "name": "hundred-block-dash",
   "version": "1.0.0",
   "private": true,
-  "description": "Hundred Block Dash \u2014 a party board game for 1\u20134 players.",
+  "description": "Hundred Block Dash — a party board game for 1–4 players.",
   "scripts": {
     "build:web": "node scripts/build-web.js",
     "check": "bash qa/parsecheck.sh src",
@@ -26,6 +26,7 @@
   },
   "devDependencies": {
     "@capacitor/assets": "^3.0.5",
-    "@capacitor/cli": "^8.5.2"
+    "@capacitor/cli": "^8.5.2",
+    "esbuild": "^0.25.12"
   }
 }

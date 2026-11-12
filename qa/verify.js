@@ -30,7 +30,7 @@ const ok = (n, cond, detail) => (cond ? out.pass : out.fail).push(n + (detail ? 
     // Nothing measured here is a function of backing-store resolution, so the
     // default drops to 1 and QA_DSF=2 gets the crisper screenshots back.
     const DSF = Number(process.env.QA_DSF || 1);
-    const ctx = await browser.newContext({ viewport: { width: 412, height: 892 }, deviceScaleFactor: DSF, hasTouch: true });
+    const ctx = await browser.newContext({ bypassCSP: true, viewport: { width: 412, height: 892 }, deviceScaleFactor: DSF, hasTouch: true });
     const page = await ctx.newPage();
     const errors = [];
     page.on('pageerror', e => errors.push('PAGEERROR: ' + e.message));

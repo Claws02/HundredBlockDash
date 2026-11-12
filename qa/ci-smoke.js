@@ -35,7 +35,17 @@ const BASE = process.env.QA_BASE || 'http://127.0.0.1:8129/index.html';
     if (!fonts.every(Boolean)) fail.push('bundled fonts did not load: ' + fonts);
     if (fontReqs.length) fail.push('game still calls Google Fonts: ' + fontReqs[0]);
 
-    await page.addScriptTag({ content: AGENT });
+    // The page's Content-Security-Policy is live in this run (the other probes
+    // bypass it to inject their harness). An inline script must be refused.
+    const cspHolds = await page.evaluate(() => new Promise(res => {
+        document.addEventListener('securitypolicyviolation', () => res(true), { once: true });
+        const s = document.createElement('script'); s.textContent = 'window.__cspLeak = 1'; document.head.appendChild(s);
+        setTimeout(() => res(!window.__cspLeak && false), 500);
+    }));
+    if (!cspHolds) fail.push('Content-Security-Policy did not block an inline script');
+    // That probe logs exactly one violation; any other one is the game's own and fails the run.
+    { const i = errors.findIndex(e => /Content Security Policy/.test(e)); if (i >= 0) errors.splice(i, 1); }
+    await page.evaluate(AGENT);
     await page.evaluate(() => window.__QA.bind());
     await page.evaluate(() => window.__QA.startRun({ mode: '1p', difficulty: 'medium', map: 'city_circuit', rounds: 6 }));
     const t0 = Date.now();

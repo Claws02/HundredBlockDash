@@ -26,3 +26,10 @@ npx esbuild entry-torrent.mjs --bundle --format=esm --minify --outfile=vendor/tr
 
 Both export `joinRoom(config, roomId, callbacks?) -> Room` and `selfId`.
 Trystero is MIT licensed; see `TRYSTERO-LICENSE`.
+
+## Version held at 0.25
+
+The current release (0.27) changed the module's exports: `selfId` is no longer
+exported, so `src/claw-core/net/NetTransport.js` would need porting. Real
+phone-to-phone connections cannot be tested in CI (the probes use the loopback
+transport), so the move should be made with two devices to hand.

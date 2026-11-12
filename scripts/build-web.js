@@ -50,4 +50,40 @@ if (bad.length) {
     console.error('Imports that point outside the build:\n  ' + bad.join('\n  '));
     process.exit(1);
 }
-console.log(`www/: ${files} files, ${(bytes / 1048576).toFixed(1)} MB`);
+// MINIFY. Each file is minified in place and stays its own module: same paths,
+// same imports, same exports, so the build is the dev tree made smaller and
+// every QA probe can be pointed at www/ unchanged. (A single bundle would be
+// smaller still, but the probes import modules by path.) `--no-minify` keeps
+// the copy readable for debugging a device build.
+const MINIFY = !process.argv.includes('--no-minify');
+let after = bytes;
+if (MINIFY) {
+    let esbuild;
+    try { esbuild = require('esbuild'); }
+    catch (e) { console.error('esbuild is not installed: run `npm install` (or build with --no-minify).'); process.exit(1); }
+    after = 0;
+    (function walk(dir) {
+        for (const f of fs.readdirSync(dir)) {
+            const p = path.join(dir, f);
+            const st = fs.statSync(p);
+            if (st.isDirectory()) { walk(p); continue; }
+            const ext = path.extname(p);
+            const vendored = /\.min\.js$/.test(p);
+            if ((ext === '.js' && !vendored) || ext === '.css') {
+                const src = fs.readFileSync(p, 'utf8');
+                const out = esbuild.transformSync(src, {
+                    loader: ext === '.css' ? 'css' : 'js',
+                    minify: true, legalComments: 'none', target: ['safari15', 'chrome100'],
+                    // Stay in UTF-8: the game's text is full of emoji, and
+                    // escaping each one would grow the files instead.
+                    charset: 'utf8',
+                }).code;
+                fs.writeFileSync(p, out);
+                after += Buffer.byteLength(out);
+            } else {
+                after += st.size;
+            }
+        }
+    })(OUT);
+}
+console.log(`www/: ${files} files, ${(bytes / 1048576).toFixed(1)} MB` + (MINIFY ? ` → ${(after / 1048576).toFixed(1)} MB minified` : ''));
